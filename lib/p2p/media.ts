@@ -16,9 +16,15 @@ export interface MediaHandlers {
   localStream?: MediaStream | null;
   onRemoteStream?: (stream: MediaStream) => void;
   onState?: (s: MediaState) => void;
+  /** Text/emoji received over the side data channel (in-call chat). */
+  onMessage?: (text: string) => void;
 }
 
-export interface MediaPeer { close: () => void }
+export interface MediaPeer {
+  close: () => void;
+  /** Send a short text/emoji to the peer over the data channel. */
+  send: (text: string) => void;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -29,7 +35,14 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
   let stopped = false;
   let haveRemote = false;
   let connected = false;
+  let chan: RTCDataChannel | null = null;
   const iceQueue: RTCIceCandidateInit[] = [];
+
+  // Side channel for in-call text/emoji. Offerer creates it; answerer receives it.
+  const wireChannel = (dc: RTCDataChannel) => {
+    chan = dc;
+    dc.onmessage = (e) => { if (typeof e.data === 'string') h.onMessage?.(e.data); };
+  };
 
   const markConnected = () => { connected = true; clearTimeout(watchdog); h.onState?.('connected'); };
   const watchdog = setTimeout(() => { if (!connected && !stopped) h.onState?.('failed'); }, 20_000);
@@ -65,6 +78,10 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
     if (h.localStream) for (const t of h.localStream.getTracks()) pc.addTrack(t, h.localStream);
     else { try { pc.addTransceiver('video', { direction: 'recvonly' }); pc.addTransceiver('audio', { direction: 'recvonly' }); } catch { /* */ } }
 
+    // In-call chat data channel: the offerer opens it, the answerer listens.
+    if (role === 's') { try { wireChannel(pc.createDataChannel('chat')); } catch { /* */ } }
+    else pc.ondatachannel = (e) => wireChannel(e.channel);
+
     pc.ontrack = (e) => { remote.addTrack(e.track); h.onRemoteStream?.(remote); };
     pc.onicecandidate = (e) => { if (e.candidate) void post({ kind: 'ice', cand: e.candidate.toJSON() }); };
     pc.onconnectionstatechange = () => {
@@ -94,5 +111,8 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
   })();
 
   h.onState?.('connecting');
-  return { close: () => { stopped = true; clearTimeout(watchdog); try { pc?.close(); } catch { /* */ } } };
+  return {
+    close: () => { stopped = true; clearTimeout(watchdog); try { chan?.close(); } catch { /* */ } try { pc?.close(); } catch { /* */ } },
+    send: (text: string) => { try { if (chan && chan.readyState === 'open') chan.send(text); } catch { /* */ } },
+  };
 }

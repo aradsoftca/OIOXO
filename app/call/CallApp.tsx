@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone, Send, MessageSquare } from 'lucide-react';
 import { connectMedia, type MediaPeer, type MediaState } from '@/lib/p2p/media';
 
 export default function CallApp() {
@@ -21,8 +21,11 @@ export default function CallApp() {
   const [micOn, setMicOn] = React.useState(true);
   const [qr, setQr] = React.useState('');
   const [copied, setCopied] = React.useState(false);
+  const [chat, setChat] = React.useState<{ mine: boolean; text: string }[]>([]);
+  const [msg, setMsg] = React.useState('');
 
   const localRef = React.useRef<HTMLVideoElement>(null);
+  const chatEndRef = React.useRef<HTMLDivElement>(null);
   const remoteRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const peerRef = React.useRef<MediaPeer | null>(null);
@@ -48,9 +51,19 @@ export default function CallApp() {
         localStream: stream,
         onState: setState,
         onRemoteStream: (rs) => { if (remoteRef.current) { remoteRef.current.srcObject = rs; void remoteRef.current.play().catch(() => {}); } },
+        onMessage: (t) => setChat((c) => [...c, { mine: false, text: t }]),
       });
     } catch { /* permission denied */ }
   };
+
+  const sendMsg = (text: string) => {
+    const v = text.trim();
+    if (!v || state !== 'connected') return;
+    peerRef.current?.send(v);
+    setChat((c) => [...c, { mine: true, text: v }]);
+    setMsg('');
+  };
+  React.useEffect(() => { chatEndRef.current?.scrollIntoView({ block: 'end' }); }, [chat]);
 
   const toggleCam = () => { const t = streamRef.current?.getVideoTracks()[0]; if (t) { t.enabled = !t.enabled; setCamOn(t.enabled); } };
   const toggleMic = () => { const t = streamRef.current?.getAudioTracks()[0]; if (t) { t.enabled = !t.enabled; setMicOn(t.enabled); } };
@@ -121,6 +134,33 @@ export default function CallApp() {
                 <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
               </div>
             )}
+            {/* In-call chat — text + emoji over the encrypted data channel */}
+            <div className="flex flex-col border border-black/[0.08] bg-[var(--color-surface-1)]">
+              <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+                <MessageSquare className="h-3.5 w-3.5" /> Chat
+              </div>
+              <div className="max-h-72 min-h-[120px] flex-1 space-y-1.5 overflow-y-auto p-3">
+                {chat.length === 0 && (
+                  <p className="text-[12px] text-[var(--color-fg-subtle)]">{state === 'connected' ? 'Say hi — send a message or emoji.' : 'Chat opens once you’re connected.'}</p>
+                )}
+                {chat.map((m, i) => (
+                  <div key={i} className={`flex ${m.mine ? 'justify-end' : ''}`}>
+                    <span className={`max-w-[85%] break-words px-2.5 py-1.5 text-[13px] leading-snug ${m.mine ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.05] text-[var(--color-fg)]'}`}>{m.text}</span>
+                  </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
+              <div className="flex flex-wrap gap-0.5 border-t border-black/[0.06] px-2 py-1.5">
+                {['👍', '❤️', '😂', '🎉', '👏', '🔥', '🙌', '😮'].map((e) => (
+                  <button key={e} type="button" onClick={() => sendMsg(e)} disabled={state !== 'connected'} className="px-1 text-[18px] transition hover:scale-125 disabled:opacity-40">{e}</button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 border-t border-black/[0.06] p-2">
+                <input value={msg} onChange={(e) => setMsg(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendMsg(msg); } }} disabled={state !== 'connected'} placeholder={state === 'connected' ? 'Message…' : 'Connecting…'} className="min-w-0 flex-1 bg-transparent px-2 py-1.5 text-[13px] text-[var(--color-fg)] focus:outline-none disabled:opacity-50" />
+                <button type="button" onClick={() => sendMsg(msg)} disabled={!msg.trim() || state !== 'connected'} className="grid h-8 w-8 shrink-0 place-items-center bg-[var(--color-cat-video)] text-white transition hover:brightness-110 disabled:opacity-40"><Send className="h-4 w-4" /></button>
+              </div>
+            </div>
+
             <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-3 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
               <span>Audio and video stream directly between both devices over an encrypted connection — never through our servers.</span>

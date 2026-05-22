@@ -2,8 +2,17 @@
 
 import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone, Send, MessageSquare } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone, Send, MessageSquare, Square } from 'lucide-react';
 import { connectMedia, type MediaPeer, type MediaState } from '@/lib/p2p/media';
+
+/** Draw a video frame into a box, preserving aspect ratio (letterboxed). */
+function drawContain(ctx: CanvasRenderingContext2D, v: HTMLVideoElement, x: number, y: number, w: number, h: number) {
+  if (!v.videoWidth) return;
+  const vr = v.videoWidth / v.videoHeight;
+  let dw = w, dh = h;
+  if (vr > w / h) dh = w / vr; else dw = h * vr;
+  ctx.drawImage(v, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
 
 export default function CallApp() {
   const params = useSearchParams();
@@ -23,9 +32,13 @@ export default function CallApp() {
   const [copied, setCopied] = React.useState(false);
   const [chat, setChat] = React.useState<{ mine: boolean; text: string }[]>([]);
   const [msg, setMsg] = React.useState('');
+  const [recording, setRecording] = React.useState(false);
 
   const localRef = React.useRef<HTMLVideoElement>(null);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
+  const recorderRef = React.useRef<MediaRecorder | null>(null);
+  const recRafRef = React.useRef(0);
+  const recCtxRef = React.useRef<AudioContext | null>(null);
   const remoteRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const peerRef = React.useRef<MediaPeer | null>(null);
@@ -39,7 +52,13 @@ export default function CallApp() {
     return () => { alive = false; };
   }, [role, link]);
 
-  React.useEffect(() => () => { peerRef.current?.close(); streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
+  React.useEffect(() => () => {
+    peerRef.current?.close();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    try { recorderRef.current?.stop(); } catch { /* */ }
+    cancelAnimationFrame(recRafRef.current);
+    try { recCtxRef.current?.close(); } catch { /* */ }
+  }, []);
 
   const start = async () => {
     try {
@@ -64,6 +83,58 @@ export default function CallApp() {
     setMsg('');
   };
   React.useEffect(() => { chatEndRef.current?.scrollIntoView({ block: 'end' }); }, [chat]);
+
+  // --- Record the call: mix both audio tracks + composite both videos to a
+  //     canvas, then MediaRecorder → downloadable .webm. Audio-only records audio.
+  const startRec = () => {
+    try {
+      const ctx = new AudioContext(); recCtxRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+      const addAudio = (s: MediaStream | null) => {
+        const at = s?.getAudioTracks() ?? [];
+        if (at.length) { try { ctx.createMediaStreamSource(new MediaStream(at)).connect(dest); } catch { /* */ } }
+      };
+      addAudio(streamRef.current);
+      addAudio((remoteRef.current?.srcObject as MediaStream) ?? null);
+
+      let tracks: MediaStreamTrack[] = [...dest.stream.getAudioTracks()];
+      if (!audioOnly) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1280; canvas.height = 720;
+        const cctx = canvas.getContext('2d')!;
+        const draw = () => {
+          cctx.fillStyle = '#000'; cctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (remoteRef.current) drawContain(cctx, remoteRef.current, 0, 0, canvas.width, canvas.height);
+          if (localRef.current?.videoWidth) {
+            const w = canvas.width * 0.24, h = w * (localRef.current.videoHeight / localRef.current.videoWidth);
+            cctx.drawImage(localRef.current, canvas.width - w - 24, canvas.height - h - 24, w, h);
+          }
+          recRafRef.current = requestAnimationFrame(draw);
+        };
+        draw();
+        tracks = [...canvas.captureStream(30).getVideoTracks(), ...tracks];
+      }
+
+      const mime = !audioOnly && MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus') ? 'video/webm;codecs=vp9,opus'
+        : !audioOnly && MediaRecorder.isTypeSupported('video/webm') ? 'video/webm'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '';
+      const rec = new MediaRecorder(new MediaStream(tracks), mime ? { mimeType: mime } : undefined);
+      const chunks: Blob[] = [];
+      rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      rec.onstop = () => {
+        cancelAnimationFrame(recRafRef.current);
+        try { recCtxRef.current?.close(); } catch { /* */ } recCtxRef.current = null;
+        const blob = new Blob(chunks, { type: audioOnly ? 'audio/webm' : 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `xonvert-${audioOnly ? 'voice' : 'call'}-${Date.now()}.webm`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 5000);
+      };
+      recorderRef.current = rec; rec.start(); setRecording(true);
+    } catch { /* recording unsupported */ }
+  };
+  const stopRec = () => { try { recorderRef.current?.stop(); } catch { /* */ } setRecording(false); };
+  const toggleRec = () => (recording ? stopRec() : startRec());
 
   const toggleCam = () => { const t = streamRef.current?.getVideoTracks()[0]; if (t) { t.enabled = !t.enabled; setCamOn(t.enabled); } };
   const toggleMic = () => { const t = streamRef.current?.getAudioTracks()[0]; if (t) { t.enabled = !t.enabled; setMicOn(t.enabled); } };
@@ -112,10 +183,17 @@ export default function CallApp() {
             )}
             {/* local PiP — camera only */}
             {!audioOnly && <video ref={localRef} className="absolute bottom-3 right-3 h-28 w-44 border border-white/20 object-cover" playsInline muted />}
+            {/* recording badge */}
+            {recording && (
+              <div className="absolute left-3 top-3 flex items-center gap-1.5 bg-black/55 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" /> Rec
+              </div>
+            )}
             {/* controls */}
             <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
               <button type="button" onClick={toggleMic} className={`grid h-11 w-11 place-items-center text-white ${micOn ? 'bg-black/55' : 'bg-red-600'}`}>{micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
               {!audioOnly && <button type="button" onClick={toggleCam} className={`grid h-11 w-11 place-items-center text-white ${camOn ? 'bg-black/55' : 'bg-red-600'}`}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>}
+              <button type="button" onClick={toggleRec} title={recording ? 'Stop recording' : 'Record call'} className={`grid h-11 w-11 place-items-center text-white ${recording ? 'bg-red-600' : 'bg-black/55'}`}>{recording ? <Square className="h-4 w-4" /> : <span className="h-3.5 w-3.5 rounded-full bg-red-500" />}</button>
               <button type="button" onClick={hangup} className="grid h-11 w-11 place-items-center bg-red-600 text-white"><Phone className="h-5 w-5 rotate-[135deg]" /></button>
             </div>
           </div>

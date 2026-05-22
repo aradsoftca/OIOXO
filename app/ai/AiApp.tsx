@@ -109,10 +109,10 @@ function isGeneralQuestion(text: string): boolean {
   return QUESTION_RE.test(text) && !ACTION_RE.test(text);
 }
 
-// "send/share this to my friend" — a request to reach a person, which the AI can
-// assist with (Send a file, QR a link, start a call/chat) rather than treat as a
-// file conversion.
-const SHARE_INTENT = /\b(send|share|give|pass|show)\b[\s\S]{0,40}\b(friend|buddy|mate|someone|somebody|colleague|coworker|team|family|mom|dad|partner|him|her|them|people)\b/i;
+// "send/call/chat … to my friend" — a request to REACH a person, which the AI
+// assists with (Send a file, QR a link, start a video/voice call or chat) rather
+// than treating as a file conversion or a document to read.
+const CONTACT_INTENT = /\b(send|share|give|pass|show|call|video[- ]?call|voice[- ]?call|chat|message|msg|text|talk|meet)\b[\s\S]{0,40}\b(friend|buddy|mate|someone|somebody|colleague|coworker|team|family|mom|dad|partner|him|her|them|people)\b/i;
 function findUrl(text: string): string | null {
   const m = text.match(/https?:\/\/[^\s]+|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|dev|ai|me|xyz|info|link)(?:\/[^\s]*)?/i);
   if (!m) return null;
@@ -557,6 +557,42 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       return true;
     }
 
+    // 3.35) Reaching a friend (send a file, QR a link, start a call/chat). Runs
+    //        BEFORE doc-Q&A and tool routing so "send this file to my friend" or
+    //        "can I video-call my friend?" aren't read as a document or matched
+    //        to video-editing tools.
+    if (CONTACT_INTENT.test(text)) {
+      const lc = text.toLowerCase();
+      const effFile = file ?? lastFileRef.current;
+      // A file in play → open Send with it staged (private link, auto-transfer).
+      if (effFile && /\b(send|share|give|pass|file|photo|picture|image|document|pdf|video|audio|it|this)\b/i.test(lc)) {
+        lastFileRef.current = effFile;
+        push({ role: 'assistant', content: 'I’ll open Send with your file — share the private link with your friend and the transfer starts automatically.', kind: 'tool', toolName: 'Send', toolHref: '/send', stageFile: effFile });
+        return true;
+      }
+      // A link mentioned → make a scannable QR.
+      const url = findUrl(text);
+      if (url && /\b(send|share|qr|link|address|url|site)\b/i.test(lc)) {
+        try { const QR = (await import('qrcode')).default; const dataUrl = await QR.toDataURL(url, { width: 320, margin: 1 }); push({ role: 'assistant', content: `Here’s a QR code for ${url} — your friend can scan it, or download and send it.`, kind: 'qr', url: dataUrl, filename: 'xonvert-qr.png' }); }
+        catch { push({ role: 'assistant', content: `I can share ${url} — open Send to pass it along.`, kind: 'tool', toolName: 'Send', toolHref: '/send' }); }
+        return true;
+      }
+      // Live connection → pick the best way and open it.
+      if (/\b(call|video|voice|audio|chat|message|msg|text|talk|meet)\b/.test(lc)) {
+        const wantsVoice = /\b(voice|audio)\b/.test(lc);
+        const wantsChat = /\b(chat|message|msg|text|talk)\b/.test(lc) && !/\b(video|voice|call)\b/.test(lc);
+        const primary = wantsVoice ? { name: 'Voice Call', href: '/call?audio=1' }
+          : wantsChat ? { name: 'Group Chat', href: '/chat' }
+          : { name: 'Video Call', href: '/call' };
+        const allOpts = [{ label: 'Video Call', href: '/call' }, { label: 'Voice Call', href: '/call?audio=1' }, { label: 'Group Chat', href: '/chat' }, { label: 'Send a file', href: '/send' }];
+        push({ role: 'assistant', content: `Sure — I’ll open ${primary.name}. Start it, then share the private link with your friend.`, kind: 'tool', toolName: primary.name, toolHref: primary.href, alts: allOpts.filter((o) => o.href !== primary.href).slice(0, 3) });
+        return true;
+      }
+      // Generic "send to a friend" with nothing specific yet.
+      push({ role: 'assistant', content: 'Sure — attach a file and I’ll set up a private Send link, paste a link and I’ll make a QR, or pick one:', kind: 'tool', toolName: 'Send', toolHref: '/send', alts: [{ label: 'Video Call', href: '/call' }, { label: 'Voice Call', href: '/call?audio=1' }, { label: 'Group Chat', href: '/chat' }] });
+      return true;
+    }
+
     // 3.4) Document understanding — questions / summary / OCR on a PDF or image.
     if (await tryDocQA(text, file)) return true;
 
@@ -564,36 +600,6 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //       no file and no action word are NOT a job — don't force them through
     //       app/tool routing (which mis-fired). Fall through to the chat model.
     if (!file && !lastFileRef.current && isGeneralQuestion(text)) return false;
-
-    // 3.48) "Send/share this to a friend" — assist directly: stage a file for
-    //        Send, turn a mentioned link into a scannable QR, or offer the ways
-    //        to reach someone (Send / Video / Voice / Chat).
-    if (SHARE_INTENT.test(text)) {
-      const effFile = file ?? lastFileRef.current;
-      if (effFile) {
-        lastFileRef.current = effFile;
-        push({ role: 'assistant', content: 'I’ll open Send with your file — share the private link with your friend and the transfer starts automatically.', kind: 'tool', toolName: 'Send', toolHref: '/send', stageFile: effFile });
-        return true;
-      }
-      const url = findUrl(text);
-      if (url) {
-        try {
-          const QR = (await import('qrcode')).default;
-          const dataUrl = await QR.toDataURL(url, { width: 320, margin: 1 });
-          push({ role: 'assistant', content: `Here’s a QR code for ${url} — your friend can scan it to open the link, or you can download and send it.`, kind: 'qr', url: dataUrl, filename: 'xonvert-qr.png' });
-        } catch {
-          push({ role: 'assistant', content: `I can share ${url} — open Send to pass it along.`, kind: 'tool', toolName: 'Send', toolHref: '/send' });
-        }
-        return true;
-      }
-      push({
-        role: 'assistant',
-        content: 'Sure — how would you like to reach your friend? Attach a file and I’ll set up a private Send link, paste a link and I’ll make a QR, or pick one:',
-        kind: 'tool', toolName: 'Send', toolHref: '/send',
-        alts: [{ label: 'Video Call', href: '/call' }, { label: 'Voice Call', href: '/call?audio=1' }, { label: 'Group Chat', href: '/chat' }],
-      });
-      return true;
-    }
 
     // 3.5) Multi-step recipes (compound jobs) — deterministic ordered chains.
     //      High-precision triggers, so they never steal a single-tool request.

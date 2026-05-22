@@ -64,19 +64,19 @@ export function ToolFrame({ tool, children }: ToolFrameProps) {
           viewTransitionName: `tile-${tool.id}`,
         }}
       >
-        <div className="tile-content !flex-row items-center !justify-between gap-4 py-5">
-          <div className="flex items-center gap-4">
+        <div className="tile-content !flex-row items-center !justify-between gap-2 py-4 sm:gap-4 sm:py-5">
+          <div className="flex min-w-0 items-center gap-2.5 sm:gap-4">
             <Link
               href="/"
-              className="flex h-9 w-9 items-center justify-center bg-white/15 text-white transition hover:bg-white/25"
+              className="flex h-9 w-9 shrink-0 items-center justify-center bg-white/15 text-white transition hover:bg-white/25"
               aria-label="Back"
             >
               <ArrowLeft className="h-4 w-4" />
             </Link>
-            <div className="grid h-12 w-12 place-items-center bg-white/15 text-white">
+            <div className="hidden h-12 w-12 shrink-0 place-items-center bg-white/15 text-white sm:grid">
               <TileIcon name={tool.icon} size={24} strokeWidth={1.75} />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.22em] text-white/80">
                 <span className="section-dot" style={{ ['--dot-color' as string]: 'rgba(255,255,255,0.85)' }} />
                 {cat.name}
@@ -84,26 +84,27 @@ export function ToolFrame({ tool, children }: ToolFrameProps) {
                   <span className="bg-white/20 px-1.5 py-0.5 text-[9px]">Pro option</span>
                 )}
               </div>
-              <h1 className="mt-0.5 text-[26px] font-semibold tracking-tight text-white">
+              <h1 className="mt-0.5 truncate text-[19px] font-semibold tracking-tight text-white sm:text-[26px]">
                 {tool.name}
               </h1>
-              <div className="mt-0.5 text-[12px] font-medium text-white/80">{tool.blurb}</div>
+              <div className="mt-0.5 line-clamp-2 text-[12px] font-medium text-white/80 sm:line-clamp-1">{tool.blurb}</div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => togglePin(tool.id)}
+              aria-label={pinned ? 'Pinned' : 'Pin'}
               className={cn(
-                'flex h-9 items-center gap-1.5 px-3 text-[12px] font-semibold transition',
+                'flex h-9 items-center gap-1.5 px-2.5 text-[12px] font-semibold transition sm:px-3',
                 pinned
                   ? 'bg-white text-black hover:bg-white/90'
                   : 'bg-white/15 text-white hover:bg-white/25',
               )}
             >
               <Pin className={cn('h-3.5 w-3.5', pinned && 'fill-current')} />
-              {pinned ? 'Pinned' : 'Pin'}
+              <span className="hidden sm:inline">{pinned ? 'Pinned' : 'Pin'}</span>
             </button>
             <button
               type="button"

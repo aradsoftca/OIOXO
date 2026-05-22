@@ -653,7 +653,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           {loadState === 'loading' && (
             <div className="h-1 w-full overflow-hidden bg-black/[0.06]"><div className="h-full bg-[var(--color-cat-dev)] transition-[width]" style={{ width: `${Math.max(6, Math.round(loadPct * 100))}%` }} /></div>
           )}
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
+          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
             {messages.length === 0 && (
               <div className="grid h-full place-items-center px-4 text-center text-[13px] text-[var(--color-fg-subtle)]">
                 <div>
@@ -667,7 +667,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
                 <div className={`grid h-8 w-8 shrink-0 place-items-center ${m.role === 'user' ? 'bg-[var(--color-fg)] text-[var(--color-canvas)]' : 'bg-[var(--color-cat-dev)] text-white'}`}>{m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}</div>
-                <div className="max-w-[82%] space-y-2">
+                <div className="max-w-[88%] space-y-2 sm:max-w-[82%]">
                   {(!m.kind || m.kind === 'text' || m.kind === 'calc' || m.kind === 'attach' || m.kind === 'tool') && m.content && (
                     <div className={`whitespace-pre-wrap px-3 py-2 text-[14px] leading-relaxed ${m.role === 'user' ? 'bg-[var(--color-fg)] text-[var(--color-canvas)]' : 'bg-[var(--color-surface-2)] text-[var(--color-fg)]'} ${m.kind === 'calc' ? 'font-mono text-[15px]' : ''}`}>{m.content}</div>
                   )}

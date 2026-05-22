@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Menu, X } from 'lucide-react';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { CommandPalette } from './CommandPalette';
 import { DragMagicProvider } from './DragMagicProvider';
@@ -9,13 +11,25 @@ import { ToolsBar } from './ToolsBar';
 import { HeaderAccount } from './HeaderAccount';
 import { GlobalProgress } from './GlobalProgress';
 import { NavProgress } from './NavProgress';
+import { CATALOG } from '@/lib/catalog';
+import { CATEGORIES } from '@/lib/registry/types';
 
 interface AppShellProps {
   children: React.ReactNode;
 }
 
+const NAV_LINKS = [
+  { href: '/', label: 'Home' },
+  { href: '/convert', label: 'Convert' },
+  { href: '/apps', label: 'Apps' },
+  { href: '/tools', label: 'All tools' },
+  { href: '/pricing', label: 'Pricing' },
+];
+
 export function AppShell({ children }: AppShellProps) {
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const pathname = usePathname();
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -23,10 +37,22 @@ export function AppShell({ children }: AppShellProps) {
         e.preventDefault();
         setPaletteOpen((s) => !s);
       }
+      if (e.key === 'Escape') setMenuOpen(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Close the mobile drawer whenever the route changes.
+  React.useEffect(() => { setMenuOpen(false); }, [pathname]);
+
+  // Lock body scroll while the drawer is open.
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [menuOpen]);
 
   return (
     <DragMagicProvider>
@@ -34,25 +60,24 @@ export function AppShell({ children }: AppShellProps) {
       <GlobalProgress />
       <div className="app-stack min-h-screen">
         <header className="sticky top-0 z-40 border-b border-black/[0.04] bg-[oklch(97.5%_0.012_80/0.78)] backdrop-blur-xl">
-          <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-6">
+          <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-6">
             <Link href="/" className="flex items-center transition hover:opacity-80">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/logo.png" alt="Xonvert" className="h-7 w-auto" />
             </Link>
 
             <nav className="hidden items-center gap-6 text-[13px] font-medium text-[var(--color-fg-muted)] md:flex">
-              <Link href="/" className="transition hover:text-[var(--color-fg)]">Home</Link>
-              <Link href="/convert" className="transition hover:text-[var(--color-fg)]">Convert</Link>
-              <Link href="/apps" className="transition hover:text-[var(--color-fg)]">Apps</Link>
-              <Link href="/tools" className="transition hover:text-[var(--color-fg)]">All tools</Link>
-              <Link href="/pricing" className="transition hover:text-[var(--color-fg)]">Pricing</Link>
+              {NAV_LINKS.map((l) => (
+                <Link key={l.href} href={l.href} className="transition hover:text-[var(--color-fg)]">{l.label}</Link>
+              ))}
             </nav>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setPaletteOpen(true)}
-                className="flex items-center gap-2 rounded-lg border border-black/[0.08] bg-white/60 px-3 py-1.5 text-[12px] text-[var(--color-fg-muted)] transition hover:bg-white hover:text-[var(--color-fg)]"
+                aria-label="Search"
+                className="flex items-center gap-2 rounded-lg border border-black/[0.08] bg-white/60 px-2.5 py-1.5 text-[12px] text-[var(--color-fg-muted)] transition hover:bg-white hover:text-[var(--color-fg)] sm:px-3"
               >
                 <TileIcon name="search" size={14} />
                 <span className="hidden lg:inline">Search</span>
@@ -61,16 +86,26 @@ export function AppShell({ children }: AppShellProps) {
                 </kbd>
               </button>
               <HeaderAccount />
+              {/* Mobile menu trigger — replaces the desktop nav + ToolsBar on phones */}
+              <button
+                type="button"
+                onClick={() => setMenuOpen(true)}
+                aria-label="Open menu"
+                aria-expanded={menuOpen}
+                className="grid h-9 w-9 place-items-center rounded-lg border border-black/[0.08] bg-white/60 text-[var(--color-fg-muted)] transition hover:bg-white hover:text-[var(--color-fg)] md:hidden"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
             </div>
           </div>
         </header>
 
         <ToolsBar />
 
-        <main className="mx-auto max-w-[1440px] px-6 py-10">{children}</main>
+        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-10">{children}</main>
 
         <footer className="border-t border-black/[0.04] py-8">
-          <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-3 px-6 text-[12px] text-[var(--color-fg-subtle)] md:flex-row">
+          <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-3 px-4 text-[12px] text-[var(--color-fg-subtle)] sm:px-6 md:flex-row">
             <div>Xonvert 2026 — every file. every tool.</div>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
               <Link href="/blog" className="transition hover:text-[var(--color-fg)]">Blog</Link>
@@ -89,7 +124,86 @@ export function AppShell({ children }: AppShellProps) {
         </footer>
 
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
       </div>
     </DragMagicProvider>
+  );
+}
+
+/** Slide-in mobile navigation drawer: primary links + every tool category. */
+function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
+  return (
+    <div
+      className={`fixed inset-0 z-50 md:hidden ${open ? '' : 'pointer-events-none'}`}
+      aria-hidden={!open}
+    >
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        className={`absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-200 ${open ? 'opacity-100' : 'opacity-0'}`}
+      />
+      {/* Panel */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        className={`absolute right-0 top-0 flex h-full w-[84%] max-w-sm flex-col bg-[var(--color-canvas)] shadow-2xl transition-transform duration-250 ease-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+      >
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-black/[0.06] px-4">
+          <span className="text-[13px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Menu</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="grid h-9 w-9 place-items-center rounded-lg text-[var(--color-fg-muted)] transition hover:bg-black/[0.05] hover:text-[var(--color-fg)]"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+          <nav className="flex flex-col">
+            {NAV_LINKS.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                onClick={onClose}
+                className="rounded-lg px-3 py-2.5 text-[15px] font-semibold text-[var(--color-fg)] transition hover:bg-black/[0.05]"
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+
+          <div className="mt-4 mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-subtle)]">
+            Categories
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {CATALOG.map((cat) => {
+              const meta = CATEGORIES[cat.id];
+              return (
+                <Link
+                  key={cat.id}
+                  href={`/tools?cat=${cat.id}`}
+                  onClick={onClose}
+                  className="flex items-center gap-2.5 rounded-lg border border-black/[0.06] bg-white/60 px-2.5 py-2 transition hover:bg-white"
+                >
+                  <span
+                    className="grid h-7 w-7 shrink-0 place-items-center text-white"
+                    style={{ background: `var(${meta.colorVar})` }}
+                  >
+                    <TileIcon name={cat.icon} size={14} strokeWidth={2} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[12.5px] font-medium text-[var(--color-fg)]">{cat.label}</span>
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--color-fg-subtle)]">{cat.tools.length}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

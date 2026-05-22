@@ -116,6 +116,60 @@ function TypeOut({ text, active }: { text: string; active: boolean }) {
   return (<>{text.slice(0, shown)}{active && <span className="terminal-caret" aria-hidden />}</>);
 }
 
+// Rotating example prompts — a wide, professional spread of what the assistant
+// actually does: convert/compress/edit any file, create graphics & art, read &
+// summarise documents, find the right tool, run things by voice. Shown one at a
+// time with an old-PC typewriter effect (type → hold → erase → next, at random).
+const HINT_PROMPTS = [
+  'convert this PDF to an editable Word doc',
+  'compress these photos for the web',
+  'remove the background from this product shot',
+  'turn my video into an MP3',
+  'summarise this 40-page PDF into five points',
+  'design a YouTube thumbnail for my podcast',
+  'generate a QR code for our landing page',
+  'extract the text from this scanned receipt',
+  'build a colour palette from this photo',
+  'resize every image in this folder to 1080p',
+  'convert MP4 to a looping GIF',
+  'make a launch poster for our startup',
+  'transcribe this voice memo to text',
+  'which tool merges several PDFs into one?',
+  'upscale this logo without losing quality',
+  'convert HEIC photos to JPG',
+  'draw a minimalist fox logo in SVG',
+  'create a calm “ocean at dusk” wallpaper',
+  'batch-rename these files by date',
+  'translate this note and read it back to me',
+];
+
+/**
+ * Old-PC rotating hint: types a phrase out, holds, erases, then types the next
+ * (random) one — with a blinking caret. Decorative; pure CSS caret blink.
+ */
+function RotatingHint({ phrases }: { phrases: string[] }) {
+  const [idx, setIdx] = React.useState(() => Math.floor(Math.random() * phrases.length));
+  const [shown, setShown] = React.useState('');
+  const [phase, setPhase] = React.useState<'typing' | 'holding' | 'deleting'>('typing');
+  React.useEffect(() => {
+    const full = phrases[idx] ?? '';
+    let timer: ReturnType<typeof setTimeout>;
+    if (phase === 'typing') {
+      if (shown.length < full.length) timer = setTimeout(() => setShown(full.slice(0, shown.length + 1)), 34 + Math.random() * 46);
+      else timer = setTimeout(() => setPhase('holding'), 1700);
+    } else if (phase === 'holding') {
+      timer = setTimeout(() => setPhase('deleting'), 900);
+    } else {
+      if (shown.length > 0) timer = setTimeout(() => setShown(full.slice(0, shown.length - 1)), 16);
+      else timer = setTimeout(() => { setIdx((i) => { let n = Math.floor(Math.random() * phrases.length); if (n === i) n = (n + 1) % phrases.length; return n; }); setPhase('typing'); }, 260);
+    }
+    return () => clearTimeout(timer);
+  }, [shown, phase, idx, phrases]);
+  return (
+    <span className="text-[var(--term-fg)] terminal-glow">“{shown}”<span className="terminal-caret" aria-hidden /></span>
+  );
+}
+
 export default function AiApp({ embedded = false }: { embedded?: boolean } = {}) {
   const [supported, setSupported] = React.useState<boolean | null>(null);
   const [backend, setBackend] = React.useState<'gpu' | 'wasm' | null>(sharedBackend);
@@ -130,8 +184,12 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
   const [recording, setRecording] = React.useState(false);
   const [transcribing, setTranscribing] = React.useState(false);
+  // Mobile "focus mode": the panel expands to fullscreen while in use so the
+  // chat scroll isn't fighting the page scroll. Desktop is always inline.
+  const [expanded, setExpanded] = React.useState(false);
 
   const engineRef = React.useRef<any>(null);
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
   const voiceActiveRef = React.useRef(false);
@@ -190,6 +248,38 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const ensureLoaded = React.useCallback(() => {
     if (supported && !startedRef.current) void loadModel();
   }, [supported, loadModel]);
+
+  // On phones, expand the panel to fullscreen the moment it's engaged.
+  const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
+  const maybeExpand = React.useCallback(() => { if (isMobile()) setExpanded(true); }, []);
+
+  // Tapping anywhere in the panel (other than a real control) focuses the input.
+  const focusInput = React.useCallback((e?: React.MouseEvent) => {
+    if (e) {
+      const t = e.target as HTMLElement;
+      if (t.closest('button, a, input, textarea, [role="button"]')) return;
+    }
+    ensureLoaded();
+    // Focus synchronously inside the gesture so mobile keyboards open (iOS).
+    textareaRef.current?.focus();
+  }, [ensureLoaded]);
+
+  // While expanded (mobile fullscreen), lock the page behind so only the chat
+  // scrolls — the whole point is to stop the nested-scroll fight.
+  React.useEffect(() => {
+    if (!expanded) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [expanded]);
+
+  // If the viewport grows past mobile (rotation/resize), drop fullscreen mode.
+  React.useEffect(() => {
+    if (!expanded) return;
+    const onResize = () => { if (!isMobile()) setExpanded(false); };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [expanded]);
 
   React.useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [messages, generating]);
 
@@ -708,7 +798,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">Xonvert AI needs a modern browser. Please update your browser, or try a recent <strong>Chrome</strong>, <strong>Edge</strong>, <strong>Safari</strong> or <strong>Firefox</strong>.</p>
         </div>
       ) : (
-        <div className={`terminal terminal-scan relative flex overflow-hidden ${embedded ? 'h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] sm:h-[calc(100dvh-280px)]' : 'h-[calc(100dvh-200px)] min-h-[420px] max-h-[820px] sm:h-[calc(100dvh-230px)]'} flex-col border border-[#1c2b22] shadow-[0_18px_60px_-20px_rgba(0,0,0,0.5)]`}
+        <div className={`terminal terminal-scan relative flex overflow-hidden flex-col border border-[#1c2b22] shadow-[0_18px_60px_-20px_rgba(0,0,0,0.5)] ${expanded ? 'fixed inset-0 z-[60] h-[100dvh] min-h-0 max-h-none border-0' : embedded ? 'h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] sm:h-[calc(100dvh-280px)]' : 'h-[calc(100dvh-200px)] min-h-[420px] max-h-[820px] sm:h-[calc(100dvh-230px)]'}`}
+          onClick={focusInput}
           onDragOver={(e) => { e.preventDefault(); }}
           onDrop={(e) => { e.preventDefault(); ensureLoaded(); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length > 1) setPendingFiles(fs); else if (fs[0]) receiveFile(fs[0]); }}>
           {/* Terminal title bar */}
@@ -716,8 +807,13 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-            <span className="ml-2 text-[11px] tracking-tight text-[var(--term-dim)]">xonvert@ai: ~/assistant</span>
+            <span className="ml-2 truncate text-[11px] tracking-tight text-[var(--term-dim)]">xonvert@ai: ~/assistant</span>
             <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-[var(--term-dim)]">{loadState === 'ready' ? (backend === 'wasm' ? 'compat' : 'online') : loadState === 'loading' ? 'booting' : 'idle'}</span>
+            {expanded && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); setExpanded(false); textareaRef.current?.blur(); }} aria-label="Close" className="ml-2 grid h-7 w-7 shrink-0 place-items-center rounded text-[var(--term-dim)] transition hover:bg-white/5 hover:text-[var(--term-fg)]">
+                <X className="h-4 w-4" />
+              </button>
+            )}
           </div>
           {loadState === 'loading' && (
             <div className="relative z-10 h-1 w-full overflow-hidden bg-[#0e1813]"><div className="h-full bg-[var(--term-fg)] transition-[width]" style={{ width: `${Math.max(6, Math.round(loadPct * 100))}%` }} /></div>
@@ -731,7 +827,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                   {backend === 'wasm' && loadState === 'ready' && (
                     <p className="mt-1 text-[11px] text-[var(--term-dim)]">compatibility mode on this device — replies may be a little slower.</p>
                   )}
-                  <p className="mt-3 text-[12px] text-[var(--term-dim)]">try: <em>“youtube thumbnail about egyptian pyramids”</em> · <em>“draw a fox logo”</em> · <em>“abstract sunset wallpaper”</em> · <em>“qr for my-link.com”</em></p>
+                  <p className="mt-3 min-h-[1.4em] text-[12px] text-[var(--term-dim)]">try: <RotatingHint phrases={HINT_PROMPTS} /></p>
                   <p className="mt-1 text-[12px] text-[var(--term-dim)]">or attach a file (📎) and say <em>“convert to wav”</em> or <em>“make this a png”</em> — I’ll run the right tool.</p>
                 </div>
               </div>
@@ -845,13 +941,13 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                 className={`order-3 grid h-10 w-10 shrink-0 place-items-center transition sm:order-2 ${recording ? 'animate-pulse bg-red-600 text-white' : 'text-[var(--term-dim)] hover:text-[var(--term-fg)]'} disabled:opacity-40`}>
                 {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               </button>
-              <div className="order-1 flex w-full items-end gap-2 sm:order-3 sm:w-auto sm:flex-1">
-                <span className="select-none self-stretch pt-2.5 text-[15px] leading-none text-[var(--term-fg)] terminal-glow sm:text-[14px]" aria-hidden>&gt;</span>
-                <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={1} onFocus={ensureLoaded}
-                  placeholder={recording ? 'listening… tap ◼ to send' : loadState === 'ready' ? 'type a command — ask, draw, convert, attach…' : loadState === 'loading' ? 'booting…' : 'ask anything…'}
+              <div className="order-1 flex w-full items-start gap-2 sm:order-3 sm:w-auto sm:flex-1">
+                <span className="select-none pt-2 text-[15px] leading-none text-[var(--term-fg)] terminal-glow sm:text-[14px]" aria-hidden>&gt;</span>
+                <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} rows={3} onFocus={() => { ensureLoaded(); maybeExpand(); }}
+                  placeholder={recording ? 'listening… tap ◼ to send' : loadState === 'loading' ? 'booting…' : 'type a command…'}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   onPaste={(e) => { const it = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/')); const f = it?.getAsFile(); if (f) { e.preventDefault(); receiveFile(new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png')}`, { type: f.type })); } }}
-                  className="max-h-32 flex-1 resize-none bg-transparent py-2 text-[15px] text-[var(--term-fg)] caret-[var(--term-fg)] placeholder:text-[var(--term-dim)] focus:outline-none sm:text-[14px]" />
+                  className="max-h-44 min-h-[4.5rem] flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed text-[var(--term-fg)] caret-[var(--term-fg)] placeholder:text-[var(--term-dim)] focus:outline-none sm:min-h-[3.75rem] sm:text-[14px]" />
               </div>
               {/* Spacer pushes Send to the right on the mobile button row only. */}
               <div className="order-4 flex-1 sm:hidden" />

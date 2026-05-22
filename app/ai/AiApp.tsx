@@ -109,6 +109,16 @@ function isGeneralQuestion(text: string): boolean {
   return QUESTION_RE.test(text) && !ACTION_RE.test(text);
 }
 
+// "send/share this to my friend" — a request to reach a person, which the AI can
+// assist with (Send a file, QR a link, start a call/chat) rather than treat as a
+// file conversion.
+const SHARE_INTENT = /\b(send|share|give|pass|show)\b[\s\S]{0,40}\b(friend|buddy|mate|someone|somebody|colleague|coworker|team|family|mom|dad|partner|him|her|them|people)\b/i;
+function findUrl(text: string): string | null {
+  const m = text.match(/https?:\/\/[^\s]+|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|dev|ai|me|xyz|info|link)(?:\/[^\s]*)?/i);
+  if (!m) return null;
+  return /^https?:\/\//i.test(m[0]) ? m[0] : `https://${m[0]}`;
+}
+
 /**
  * Terminal typewriter: reveals `text` character-by-character with a blinking
  * block caret. When `active` is false (older messages) it shows everything at
@@ -554,6 +564,36 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //       no file and no action word are NOT a job — don't force them through
     //       app/tool routing (which mis-fired). Fall through to the chat model.
     if (!file && !lastFileRef.current && isGeneralQuestion(text)) return false;
+
+    // 3.48) "Send/share this to a friend" — assist directly: stage a file for
+    //        Send, turn a mentioned link into a scannable QR, or offer the ways
+    //        to reach someone (Send / Video / Voice / Chat).
+    if (SHARE_INTENT.test(text)) {
+      const effFile = file ?? lastFileRef.current;
+      if (effFile) {
+        lastFileRef.current = effFile;
+        push({ role: 'assistant', content: 'I’ll open Send with your file — share the private link with your friend and the transfer starts automatically.', kind: 'tool', toolName: 'Send', toolHref: '/send', stageFile: effFile });
+        return true;
+      }
+      const url = findUrl(text);
+      if (url) {
+        try {
+          const QR = (await import('qrcode')).default;
+          const dataUrl = await QR.toDataURL(url, { width: 320, margin: 1 });
+          push({ role: 'assistant', content: `Here’s a QR code for ${url} — your friend can scan it to open the link, or you can download and send it.`, kind: 'qr', url: dataUrl, filename: 'xonvert-qr.png' });
+        } catch {
+          push({ role: 'assistant', content: `I can share ${url} — open Send to pass it along.`, kind: 'tool', toolName: 'Send', toolHref: '/send' });
+        }
+        return true;
+      }
+      push({
+        role: 'assistant',
+        content: 'Sure — how would you like to reach your friend? Attach a file and I’ll set up a private Send link, paste a link and I’ll make a QR, or pick one:',
+        kind: 'tool', toolName: 'Send', toolHref: '/send',
+        alts: [{ label: 'Video Call', href: '/call' }, { label: 'Voice Call', href: '/call?audio=1' }, { label: 'Group Chat', href: '/chat' }],
+      });
+      return true;
+    }
 
     // 3.5) Multi-step recipes (compound jobs) — deterministic ordered chains.
     //      High-precision triggers, so they never steal a single-tool request.

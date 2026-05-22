@@ -11,15 +11,15 @@ import dynamic from 'next/dynamic';
 const AiApp = dynamic(() => import('@/app/ai/AiApp'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] flex-col justify-end border border-black/[0.08] bg-[var(--color-surface-1)] sm:h-[calc(100dvh-280px)]">
-      <div className="grid flex-1 place-items-center text-[13px] text-[var(--color-fg-subtle)]">
-        <span className="opacity-70">Loading your assistant…</span>
+    <div className="terminal flex h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] flex-col justify-end border border-[#1c2b22] sm:h-[calc(100dvh-280px)]">
+      <div className="grid flex-1 place-items-center text-[13px] text-[var(--term-dim)]">
+        <span className="terminal-glow text-[var(--term-fg)]">&gt; loading assistant…<span className="terminal-caret" /></span>
       </div>
-      <div className="border-t border-black/[0.06] p-3">
+      <div className="border-t border-[#16241c] p-3">
         <div className="flex items-center gap-2">
-          <div className="h-10 w-10 shrink-0 bg-black/[0.04]" />
-          <div className="h-10 flex-1 bg-black/[0.04]" />
-          <div className="h-10 w-10 shrink-0 bg-[var(--color-cat-dev)]/30" />
+          <div className="h-10 w-10 shrink-0 bg-white/[0.04]" />
+          <div className="h-10 flex-1 bg-white/[0.04]" />
+          <div className="h-10 w-10 shrink-0 bg-[var(--term-fg)]/30" />
         </div>
       </div>
     </div>

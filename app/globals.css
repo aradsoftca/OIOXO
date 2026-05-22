@@ -9,8 +9,8 @@
 @theme {
   /* Typography — fonts are loaded & self-hosted via next/font (see layout.tsx) */
   --font-display: var(--font-geist), "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-title: var(--font-grotesk), var(--font-geist), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+  --font-title: var(--font-mono-tech), ui-monospace, "SF Mono", monospace;
+  --font-mono: var(--font-mono-tech), ui-monospace, "SF Mono", monospace;
 
   /* Canvas — warm cream, NOT pure white. Feels like nice paper. */
   --color-canvas: oklch(97.5% 0.012 80);
@@ -80,9 +80,48 @@ html, body {
   text-rendering: geometricPrecision;
 }
 
-/* Display headings use the Space Grotesk title font for a modern, distinctive
-   look; body/UI stays on Geist. */
-h1, h2 { font-family: var(--font-title); }
+/* Display headings use the tech-mono title font (JetBrains Mono) for the
+   "computer world" look; body/UI stays on Geist. */
+h1, h2 { font-family: var(--font-title); letter-spacing: -0.01em; }
+
+/* ==========================================================================
+   AI terminal chat — dark phosphor CRT styling for the assistant panel
+   ========================================================================== */
+.terminal {
+  --term-bg: #090d0b;
+  --term-fg: #9af6bd;    /* phosphor green */
+  --term-dim: #5f9d77;
+  --term-user: #8fd6ff;  /* cyan for the human */
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(64, 220, 140, 0.06), transparent 60%),
+    var(--term-bg);
+  color: var(--term-fg);
+  font-family: var(--font-mono);
+}
+/* Faint CRT scanlines overlay (very subtle so text stays crisp). */
+.terminal-scan::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, 0.16) 2px 3px);
+  opacity: 0.45;
+}
+.terminal-glow { text-shadow: 0 0 7px rgba(122, 242, 160, 0.22); }
+/* Blinking block caret. */
+.terminal-caret {
+  display: inline-block;
+  width: 0.58ch;
+  height: 1.02em;
+  margin-left: 1px;
+  vertical-align: -0.16em;
+  background: var(--term-fg, currentColor);
+  box-shadow: 0 0 6px var(--term-fg, currentColor);
+  animation: term-blink 1.05s steps(1) infinite;
+}
+@keyframes term-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .terminal-caret { animation: none; } }
 
 * { border-color: var(--color-stroke); }
 

@@ -87,6 +87,35 @@ function prettyBytes(n: number): string {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
+/**
+ * Terminal typewriter: reveals `text` character-by-character with a blinking
+ * block caret. When `active` is false (older messages) it shows everything at
+ * once. Reads the latest text via a ref so a single rAF loop keeps "typing"
+ * tokens as they stream in, without restarting on every update.
+ */
+function TypeOut({ text, active }: { text: string; active: boolean }) {
+  const [n, setN] = React.useState(active ? 0 : text.length);
+  const textRef = React.useRef(text);
+  textRef.current = text;
+  React.useEffect(() => {
+    if (!active) { setN(text.length); return; }
+    let raf = 0, last = 0, acc = 0;
+    const CPS = 140; // chars/sec — fast enough to keep up with streaming
+    const step = (t: number) => {
+      if (last) acc += ((t - last) * CPS) / 1000;
+      last = t;
+      const whole = Math.floor(acc);
+      if (whole > 0) { acc -= whole; setN((c) => Math.min(textRef.current.length, c + whole)); }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+  const shown = active ? Math.min(n, text.length) : text.length;
+  return (<>{text.slice(0, shown)}{active && <span className="terminal-caret" aria-hidden />}</>);
+}
+
 export default function AiApp({ embedded = false }: { embedded?: boolean } = {}) {
   const [supported, setSupported] = React.useState<boolean | null>(null);
   const [backend, setBackend] = React.useState<'gpu' | 'wasm' | null>(sharedBackend);
@@ -679,34 +708,46 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">Xonvert AI needs a modern browser. Please update your browser, or try a recent <strong>Chrome</strong>, <strong>Edge</strong>, <strong>Safari</strong> or <strong>Firefox</strong>.</p>
         </div>
       ) : (
-        <div className={`flex ${embedded ? 'h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] sm:h-[calc(100dvh-280px)]' : 'h-[calc(100dvh-200px)] min-h-[420px] max-h-[820px] sm:h-[calc(100dvh-230px)]'} flex-col border border-black/[0.08] bg-[var(--color-surface-1)]`}
+        <div className={`terminal terminal-scan relative flex overflow-hidden ${embedded ? 'h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] sm:h-[calc(100dvh-280px)]' : 'h-[calc(100dvh-200px)] min-h-[420px] max-h-[820px] sm:h-[calc(100dvh-230px)]'} flex-col border border-[#1c2b22] shadow-[0_18px_60px_-20px_rgba(0,0,0,0.5)]`}
           onDragOver={(e) => { e.preventDefault(); }}
           onDrop={(e) => { e.preventDefault(); ensureLoaded(); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length > 1) setPendingFiles(fs); else if (fs[0]) receiveFile(fs[0]); }}>
+          {/* Terminal title bar */}
+          <div className="relative z-10 flex shrink-0 items-center gap-1.5 border-b border-[#16241c] px-3 py-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
+            <span className="ml-2 text-[11px] tracking-tight text-[var(--term-dim)]">xonvert@ai: ~/assistant</span>
+            <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-[var(--term-dim)]">{loadState === 'ready' ? (backend === 'wasm' ? 'compat' : 'online') : loadState === 'loading' ? 'booting' : 'idle'}</span>
+          </div>
           {loadState === 'loading' && (
-            <div className="h-1 w-full overflow-hidden bg-black/[0.06]"><div className="h-full bg-[var(--color-cat-dev)] transition-[width]" style={{ width: `${Math.max(6, Math.round(loadPct * 100))}%` }} /></div>
+            <div className="relative z-10 h-1 w-full overflow-hidden bg-[#0e1813]"><div className="h-full bg-[var(--term-fg)] transition-[width]" style={{ width: `${Math.max(6, Math.round(loadPct * 100))}%` }} /></div>
           )}
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
+          <div ref={scrollRef} className="relative z-[1] flex-1 space-y-4 overflow-y-auto p-3 text-[var(--term-fg)] sm:p-4">
             {messages.length === 0 && (
-              <div className="grid h-full place-items-center px-4 text-center text-[13px] text-[var(--color-fg-subtle)]">
-                <div>
-                  <Bot className="mx-auto h-8 w-8 text-[var(--color-cat-dev)]" />
-                  <p className="mt-2">{loadState === 'loading' ? (backend === 'wasm' ? 'Setting up compatibility mode — first load takes a moment…' : 'Getting things ready — just a moment…') : loadState === 'ready' ? 'Xonvert AI is ready — private and secure.' : 'Ask me anything — I’ll get ready the moment you start.'}</p>
+              <div className="grid h-full place-items-center px-4 text-center text-[13px] text-[var(--term-dim)]">
+                <div className="max-w-md">
+                  <Bot className="mx-auto h-8 w-8 text-[var(--term-fg)] terminal-glow" />
+                  <p className="mt-3 text-[var(--term-fg)] terminal-glow">{loadState === 'loading' ? (backend === 'wasm' ? '> setting up compatibility mode — first boot takes a moment' : '> booting assistant…') : loadState === 'ready' ? '> xonvert ai ready — private & secure' : '> ask me anything — I’ll boot the moment you start'}<span className="terminal-caret" aria-hidden /></p>
                   {backend === 'wasm' && loadState === 'ready' && (
-                    <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">Running in compatibility mode on this device — replies may be a little slower.</p>
+                    <p className="mt-1 text-[11px] text-[var(--term-dim)]">compatibility mode on this device — replies may be a little slower.</p>
                   )}
-                  <p className="mt-3 text-[12px]">Try: <em>“YouTube thumbnail about Egyptian pyramids”</em> · <em>“draw a fox logo”</em> · <em>“abstract sunset wallpaper”</em> · <em>“QR for my-link.com”</em></p>
-                  <p className="mt-1 text-[12px]">Or attach a file (📎) and say <em>“convert to wav”</em> or <em>“make this a png”</em> — and I’ll run the right tool.</p>
+                  <p className="mt-3 text-[12px] text-[var(--term-dim)]">try: <em>“youtube thumbnail about egyptian pyramids”</em> · <em>“draw a fox logo”</em> · <em>“abstract sunset wallpaper”</em> · <em>“qr for my-link.com”</em></p>
+                  <p className="mt-1 text-[12px] text-[var(--term-dim)]">or attach a file (📎) and say <em>“convert to wav”</em> or <em>“make this a png”</em> — I’ll run the right tool.</p>
                 </div>
               </div>
             )}
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`grid h-8 w-8 shrink-0 place-items-center ${m.role === 'user' ? 'bg-[var(--color-fg)] text-[var(--color-canvas)]' : 'bg-[var(--color-cat-dev)] text-white'}`}>{m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}</div>
+                <div className={`grid h-8 w-8 shrink-0 place-items-center border ${m.role === 'user' ? 'border-[var(--term-user)]/30 bg-[var(--term-user)]/10 text-[var(--term-user)]' : 'border-[var(--term-fg)]/30 bg-[var(--term-fg)]/10 text-[var(--term-fg)]'}`}>{m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}</div>
                 <div className="max-w-[88%] space-y-2 sm:max-w-[82%]">
                   {(!m.kind || m.kind === 'text' || m.kind === 'calc' || m.kind === 'attach' || m.kind === 'tool') && m.content && (
-                    <div className={`whitespace-pre-wrap px-3 py-2 text-[14px] leading-relaxed ${m.role === 'user' ? 'bg-[var(--color-fg)] text-[var(--color-canvas)]' : 'bg-[var(--color-surface-2)] text-[var(--color-fg)]'} ${m.kind === 'calc' ? 'font-mono text-[15px]' : ''}`}>{m.content}</div>
+                    <div className={`whitespace-pre-wrap px-3 py-2 text-[14px] leading-relaxed ${m.role === 'user' ? 'border border-[var(--term-user)]/20 bg-[var(--term-user)]/10 text-[#cdeeff]' : 'text-[var(--term-fg)] terminal-glow'} ${m.kind === 'calc' ? 'text-[15px]' : ''}`}>
+                      {m.role === 'assistant'
+                        ? <TypeOut text={m.content} active={i === messages.length - 1} />
+                        : m.content}
+                    </div>
                   )}
-                  {!m.content && !m.kind && generating && i === messages.length - 1 && <div className="bg-[var(--color-surface-2)] px-3 py-2"><Loader2 className="h-4 w-4 animate-spin" /></div>}
+                  {!m.content && !m.kind && generating && i === messages.length - 1 && <div className="px-3 py-2 text-[var(--term-fg)] terminal-glow"><span className="terminal-caret" aria-hidden /></div>}
                   {(m.kind === 'art' || m.kind === 'qr') && m.url && (
                     <div className="space-y-1.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -769,28 +810,28 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             {suggest.length > 0 && !generating && (
               <div className="flex flex-wrap gap-2 pl-11">
                 {suggest.map((s) => (
-                  <Link key={s.href} href={s.href} className="inline-flex items-center gap-1.5 border border-[var(--color-cat-dev)]/40 bg-[var(--color-cat-dev)]/[0.06] px-3 py-1.5 text-[12px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-cat-dev)]/[0.12]">{s.label} <ArrowRight className="h-3 w-3 text-[var(--color-cat-dev)]" /></Link>
+                  <Link key={s.href} href={s.href} className="inline-flex items-center gap-1.5 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-3 py-1.5 text-[12px] font-medium text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.16]">{s.label} <ArrowRight className="h-3 w-3" /></Link>
                 ))}
               </div>
             )}
           </div>
-          <div className="border-t border-black/[0.06] p-3">
+          <div className="relative z-10 border-t border-[#16241c] p-3">
             {pendingFile && (
               <div className="mb-2 flex items-center gap-2">
-                <span className="inline-flex max-w-full items-center gap-1.5 border border-[var(--color-cat-dev)]/40 bg-[var(--color-cat-dev)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--color-fg)]">
-                  <Paperclip className="h-3 w-3 text-[var(--color-cat-dev)]" />
+                <span className="inline-flex max-w-full items-center gap-1.5 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-2.5 py-1 text-[12px] text-[var(--term-fg)]">
+                  <Paperclip className="h-3 w-3" />
                   <span className="truncate">{pendingFile.name}</span>
-                  <span className="shrink-0 text-[var(--color-fg-subtle)]">{prettyBytes(pendingFile.size)}</span>
-                  <button type="button" onClick={() => setPendingFile(null)} className="shrink-0 hover:text-red-600"><X className="h-3 w-3" /></button>
+                  <span className="shrink-0 text-[var(--term-dim)]">{prettyBytes(pendingFile.size)}</span>
+                  <button type="button" onClick={() => setPendingFile(null)} className="shrink-0 hover:text-red-400"><X className="h-3 w-3" /></button>
                 </span>
               </div>
             )}
             {pendingFiles.length > 1 && (
               <div className="mb-2 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 border border-[var(--color-cat-dev)]/40 bg-[var(--color-cat-dev)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--color-fg)]">
-                  <Paperclip className="h-3 w-3 text-[var(--color-cat-dev)]" />
+                <span className="inline-flex items-center gap-1.5 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-2.5 py-1 text-[12px] text-[var(--term-fg)]">
+                  <Paperclip className="h-3 w-3" />
                   <span>{pendingFiles.length} files — say what to do (e.g. “convert all to webp”)</span>
-                  <button type="button" onClick={() => setPendingFiles([])} className="shrink-0 hover:text-red-600"><X className="h-3 w-3" /></button>
+                  <button type="button" onClick={() => setPendingFiles([])} className="shrink-0 hover:text-red-400"><X className="h-3 w-3" /></button>
                 </span>
               </div>
             )}
@@ -799,22 +840,25 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                 stays inline as before: [attach][mic][textarea][send]. */}
             <div className="flex flex-wrap items-end gap-2">
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length > 1) setPendingFiles(fs); else if (fs[0]) receiveFile(fs[0]); e.target.value = ''; }} />
-              <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach a file" className="order-2 grid h-10 w-10 shrink-0 place-items-center text-[var(--color-fg-muted)] transition hover:text-[var(--color-cat-dev)] sm:order-1"><Paperclip className="h-4 w-4" /></button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach a file" className="order-2 grid h-10 w-10 shrink-0 place-items-center text-[var(--term-dim)] transition hover:text-[var(--term-fg)] sm:order-1"><Paperclip className="h-4 w-4" /></button>
               <button type="button" onClick={toggleVoice} title={recording ? 'Stop & send' : 'Speak (any language)'} disabled={transcribing}
-                className={`order-3 grid h-10 w-10 shrink-0 place-items-center transition sm:order-2 ${recording ? 'animate-pulse bg-red-600 text-white' : 'text-[var(--color-fg-muted)] hover:text-[var(--color-cat-dev)]'} disabled:opacity-40`}>
+                className={`order-3 grid h-10 w-10 shrink-0 place-items-center transition sm:order-2 ${recording ? 'animate-pulse bg-red-600 text-white' : 'text-[var(--term-dim)] hover:text-[var(--term-fg)]'} disabled:opacity-40`}>
                 {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               </button>
-              <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={1} onFocus={ensureLoaded}
-                placeholder={recording ? 'Listening… tap ◼ to send' : loadState === 'ready' ? 'Ask, speak 🎙️, draw, paste or attach a file…' : loadState === 'loading' ? 'Getting ready…' : 'Ask anything…'}
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                onPaste={(e) => { const it = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/')); const f = it?.getAsFile(); if (f) { e.preventDefault(); receiveFile(new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png')}`, { type: f.type })); } }}
-                className="order-1 max-h-32 w-full resize-none rounded-xl border border-black/[0.12] bg-white px-3 py-2.5 text-[15px] text-[var(--color-fg)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-cat-dev)]/30 sm:order-3 sm:w-auto sm:flex-1 sm:text-[14px]" />
+              <div className="order-1 flex w-full items-end gap-2 sm:order-3 sm:w-auto sm:flex-1">
+                <span className="select-none self-stretch pt-2.5 text-[15px] leading-none text-[var(--term-fg)] terminal-glow sm:text-[14px]" aria-hidden>&gt;</span>
+                <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={1} onFocus={ensureLoaded}
+                  placeholder={recording ? 'listening… tap ◼ to send' : loadState === 'ready' ? 'type a command — ask, draw, convert, attach…' : loadState === 'loading' ? 'booting…' : 'ask anything…'}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                  onPaste={(e) => { const it = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/')); const f = it?.getAsFile(); if (f) { e.preventDefault(); receiveFile(new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png')}`, { type: f.type })); } }}
+                  className="max-h-32 flex-1 resize-none bg-transparent py-2 text-[15px] text-[var(--term-fg)] caret-[var(--term-fg)] placeholder:text-[var(--term-dim)] focus:outline-none sm:text-[14px]" />
+              </div>
               {/* Spacer pushes Send to the right on the mobile button row only. */}
               <div className="order-4 flex-1 sm:hidden" />
               {generating ? (
                 <button type="button" onClick={() => { stopRef.current = true; }} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-red-600 text-white sm:order-4"><Square className="h-4 w-4" /></button>
               ) : (
-                <button type="button" onClick={send} disabled={loadState !== 'ready' || (!input.trim() && !pendingFile && pendingFiles.length < 2)} title={loadState !== 'ready' ? 'Getting ready…' : 'Send'} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-[var(--color-cat-dev)] text-white transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] sm:order-4"><Send className="h-4 w-4" /></button>
+                <button type="button" onClick={send} disabled={loadState !== 'ready' || (!input.trim() && !pendingFile && pendingFiles.length < 2)} title={loadState !== 'ready' ? 'Booting…' : 'Send'} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-[var(--term-fg)] text-[#06140d] transition hover:brightness-110 disabled:bg-[#14201a] disabled:text-[var(--term-dim)] sm:order-4"><Send className="h-4 w-4" /></button>
               )}
             </div>
           </div>

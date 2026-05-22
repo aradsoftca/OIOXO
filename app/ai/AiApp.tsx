@@ -119,6 +119,19 @@ function findUrl(text: string): string | null {
   return /^https?:\/\//i.test(m[0]) ? m[0] : `https://${m[0]}`;
 }
 
+// "what can you do / help / what tools" — answer with an organized overview of
+// what Xonvert actually offers, instead of letting the small model improvise.
+const HELP_INTENT = /\b(what can (you|xonvert|this|it) do|what (do|can) you (do|help)|what can i do here|how can you help|what (tools|features|apps) (do you (have|offer)|are (there|available))|what are you( for)?|what is this( site| app)?|capabilities)\b/i;
+const HELP_OVERVIEW =
+  'I can do three things — run a job, find the right tool, or answer a question. Right here I can:\n' +
+  '• Convert almost any file — PDF↔Word, MP4→MP3, HEIC→JPG, images, audio, video, ebooks, archives\n' +
+  '• Edit — remove background, upscale, compress, crop, OCR, scan a document\n' +
+  '• PDF — merge, split, compress, protect, sign\n' +
+  '• Read — summarise a PDF or answer questions about it\n' +
+  '• Make — QR codes, colour palettes, quick maths\n' +
+  '• Connect — Send a file, Video/Voice Call, Group Chat, Watch Party, Whiteboard, Clipboard\n' +
+  'For anything across the 300+ tools, just tell me what you’re trying to do.';
+
 /**
  * Terminal typewriter: reveals `text` character-by-character with a blinking
  * block caret. When `active` is false (older messages) it shows everything at
@@ -514,6 +527,14 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       try { applyResult(await skill.run(text)); }
       catch { setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: '⚠ That lookup failed.' }; return c; }); }
       finally { setGenerating(false); }
+      return true;
+    }
+
+    // 2.5) "What can you do / help" — an organized overview, not the small
+    //       model improvising. Only when it's not about a specific file.
+    if (!file && HELP_INTENT.test(text)) {
+      push({ role: 'assistant', content: HELP_OVERVIEW });
+      push({ role: 'assistant', content: 'Browse everything:', kind: 'tool', toolName: 'All tools', toolHref: '/tools', alts: [{ label: 'Apps', href: '/apps' }] });
       return true;
     }
 

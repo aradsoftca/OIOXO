@@ -33,6 +33,7 @@ export default function CallApp() {
   const [chat, setChat] = React.useState<{ mine: boolean; text: string }[]>([]);
   const [msg, setMsg] = React.useState('');
   const [recording, setRecording] = React.useState(false);
+  const [remoteRecording, setRemoteRecording] = React.useState(false);
   const [bg, setBg] = React.useState<'off' | 'blur' | 'image'>('off');
   const [bgBusy, setBgBusy] = React.useState(false);
 
@@ -77,7 +78,11 @@ export default function CallApp() {
         localStream: stream,
         onState: setState,
         onRemoteStream: (rs) => { if (remoteRef.current) { remoteRef.current.srcObject = rs; void remoteRef.current.play().catch(() => {}); } },
-        onMessage: (t) => setChat((c) => [...c, { mine: false, text: t }]),
+        onMessage: (t) => {
+          // Control messages (recording status) aren't chat — surface a badge.
+          if (t === 'rec:1' || t === 'rec:0') { setRemoteRecording(t === 'rec:1'); return; }
+          setChat((c) => [...c, { mine: false, text: t }]);
+        },
       });
     } catch { /* permission denied */ }
   };
@@ -138,9 +143,10 @@ export default function CallApp() {
         setTimeout(() => URL.revokeObjectURL(url), 5000);
       };
       recorderRef.current = rec; rec.start(); setRecording(true);
+      peerRef.current?.send('rec:1'); // let the other person know
     } catch { /* recording unsupported */ }
   };
-  const stopRec = () => { try { recorderRef.current?.stop(); } catch { /* */ } setRecording(false); };
+  const stopRec = () => { try { recorderRef.current?.stop(); } catch { /* */ } setRecording(false); peerRef.current?.send('rec:0'); };
   const toggleRec = () => (recording ? stopRec() : startRec());
 
   // --- Virtual background: swap the published video track for a processed canvas.
@@ -232,10 +238,10 @@ export default function CallApp() {
             {!audioOnly && <video ref={localRef} className="absolute bottom-3 right-3 h-28 w-44 border border-white/20 object-cover" playsInline muted />}
             {/* hidden raw-camera source for virtual-background segmentation */}
             {!audioOnly && <video ref={rawVideoRef} className="pointer-events-none absolute h-px w-px opacity-0" playsInline muted />}
-            {/* recording badge */}
-            {recording && (
+            {/* recording badges — yours and the other person's */}
+            {(recording || remoteRecording) && (
               <div className="absolute left-3 top-3 flex items-center gap-1.5 bg-black/55 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
-                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" /> Rec
+                <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" /> {recording && remoteRecording ? 'Both recording' : recording ? 'Rec' : 'They’re recording'}
               </div>
             )}
             {/* controls */}

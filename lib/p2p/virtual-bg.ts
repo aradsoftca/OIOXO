@@ -50,13 +50,19 @@ export async function createVirtualBackground(source: HTMLVideoElement, initial:
   const maskC = document.createElement('canvas'); const mctx = maskC.getContext('2d')!;
   const bgC = document.createElement('canvas'); bgC.width = W; bgC.height = H; const bctx = bgC.getContext('2d')!;
 
+  // Feathered mask at output size, updated by segmentation; reused every frame.
+  const maskScaled = document.createElement('canvas'); maskScaled.width = W; maskScaled.height = H;
+  const msctx = maskScaled.getContext('2d')!;
+  let haveMask = false;
+
   let mode: BgMode = initial;
   let image: HTMLImageElement | null = null;
   let running = true;
-  let last = 0;
-  const MIN_DT = 1000 / 20; // cap processing ~20fps
+  let lastSeg = 0;
+  const MIN_DT = 1000 / 20; // re-segment at most ~20fps; drawing stays smooth
 
-  const composite = (res: any) => {
+  // Turn a segmentation result into a soft-edged alpha mask at output size.
+  const onSeg = (res: any) => {
     const m = res?.confidenceMasks?.[0];
     if (!m) return;
     const mw = m.width, mh = m.height;
@@ -64,41 +70,57 @@ export async function createVirtualBackground(source: HTMLVideoElement, initial:
     maskC.width = mw; maskC.height = mh;
     const id = mctx.createImageData(mw, mh);
     for (let i = 0; i < arr.length; i++) {
-      const a = arr[i] >= 0.6 ? 255 : arr[i] <= 0.35 ? 0 : Math.round(arr[i] * 255);
+      // Smootherstep around the decision band for cleaner edges.
+      const v = arr[i];
+      const a = v <= 0.3 ? 0 : v >= 0.7 ? 255 : Math.round(((v - 0.3) / 0.4) ** 2 * (3 - 2 * ((v - 0.3) / 0.4)) * 255);
       id.data[i * 4] = 255; id.data[i * 4 + 1] = 255; id.data[i * 4 + 2] = 255; id.data[i * 4 + 3] = a;
     }
     mctx.putImageData(id, 0, 0);
     try { m.close?.(); } catch { /* */ }
+    // Scale up with a feather so the person/background seam is soft, not jagged.
+    msctx.clearRect(0, 0, W, H);
+    msctx.filter = 'blur(3px)';
+    msctx.imageSmoothingEnabled = true;
+    msctx.drawImage(maskC, 0, 0, W, H);
+    msctx.filter = 'none';
+    haveMask = true;
+  };
 
-    // Background layer.
+  const render = (now: number) => {
+    if (!running) return;
+    requestAnimationFrame(render);
+    if (!source.videoWidth) return;
+
+    // Re-segment at a capped rate (cheap-ish), but composite EVERY frame so the
+    // self-view and outgoing track are smooth even between mask updates.
+    if (now - lastSeg >= MIN_DT) { lastSeg = now; try { segmenter.segmentForVideo(source, now, onSeg); } catch { /* skip */ } }
+    if (!haveMask) { // until the first mask, just pass the camera through
+      octx.globalCompositeOperation = 'source-over';
+      octx.clearRect(0, 0, W, H);
+      drawCover(octx, source, source.videoWidth, source.videoHeight, W, H);
+      return;
+    }
+
+    // Background layer (blurred camera or chosen image).
     bctx.clearRect(0, 0, W, H);
     if (mode === 'image' && image && image.naturalWidth) {
       drawCover(bctx, image, image.naturalWidth, image.naturalHeight, W, H);
     } else {
-      bctx.filter = 'blur(12px)';
+      bctx.filter = 'blur(16px)';
       drawCover(bctx, source, source.videoWidth, source.videoHeight, W, H);
       bctx.filter = 'none';
     }
 
-    // Person = camera ∩ mask, over the background.
+    // Person = camera ∩ feathered mask, composited over the background.
     octx.globalCompositeOperation = 'source-over';
     octx.clearRect(0, 0, W, H);
     drawCover(octx, source, source.videoWidth, source.videoHeight, W, H);
     octx.globalCompositeOperation = 'destination-in';
     octx.imageSmoothingEnabled = true;
-    octx.drawImage(maskC, 0, 0, W, H);
+    octx.drawImage(maskScaled, 0, 0, W, H);
     octx.globalCompositeOperation = 'destination-over';
     octx.drawImage(bgC, 0, 0);
     octx.globalCompositeOperation = 'source-over';
-  };
-
-  const render = (now: number) => {
-    if (!running) return;
-    if (source.videoWidth && now - last >= MIN_DT) {
-      last = now;
-      try { segmenter.segmentForVideo(source, now, composite); } catch { /* skip frame */ }
-    }
-    requestAnimationFrame(render);
   };
   requestAnimationFrame(render);
 

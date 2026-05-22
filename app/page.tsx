@@ -10,21 +10,25 @@ import { TOOLS } from '@/lib/registry';
 export default function HomePage() {
   return (
     <div className="space-y-12">
-      {/* Hero — Xonvert AI as the centrepiece. Title sits above the chat panel
-          on every screen size. */}
+      {/* Hero — Xonvert AI as the centrepiece. Clean centered wordmark, no icon. */}
       <section className="flex flex-col gap-4">
-        <div className="flex items-center gap-3">
-          <div className="grid h-11 w-11 shrink-0 place-items-center bg-[var(--color-cat-dev)] text-white">
-            <TileIcon name="sparkles" size={22} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-[24px] font-extrabold leading-tight tracking-tight text-[var(--color-fg)] sm:text-[28px]">
-              Xonvert AI — your private all-in-one toolbox
-            </h1>
-            <p className="text-[13px] text-[var(--color-fg-muted)]">
-              Ask anything — convert, edit, create, make thumbnails &amp; art, or find the right tool.
-            </p>
-          </div>
+        <div className="text-center">
+          <h1 className="text-[32px] font-extrabold leading-[1.05] tracking-tight text-[var(--color-fg)] sm:text-[44px]">
+            Xonvert{' '}
+            <span
+              style={{
+                background: 'var(--brand-gradient)',
+                WebkitBackgroundClip: 'text',
+                backgroundClip: 'text',
+                color: 'transparent',
+              }}
+            >
+              AI
+            </span>
+          </h1>
+          <p className="mx-auto mt-2 max-w-xl text-[14px] font-medium text-[var(--color-fg-muted)] sm:text-[16px]">
+            Your online AI handyman — convert, edit, create &amp; find the right tool for any file.
+          </p>
         </div>
         <HomeAiHero />
       </section>

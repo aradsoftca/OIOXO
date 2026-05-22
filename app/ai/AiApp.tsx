@@ -87,6 +87,28 @@ function prettyBytes(n: number): string {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
+// True only if the text contains letters from a non-Latin script (CJK, Arabic,
+// Cyrillic, etc.). Used to decide whether the translate-to-English retry is
+// worth it — for Latin text (English and most European languages) we never
+// "translate", which previously let the tiny model hallucinate a phrase that
+// matched the wrong tool/app.
+function looksNonLatin(s: string): boolean {
+  for (const ch of s) {
+    if (/\p{L}/u.test(ch) && !/[A-Za-zÀ-ɏḀ-ỿ]/.test(ch)) return true;
+  }
+  return false;
+}
+
+// A general/conversational question (define, explain, "what is X", "why…") as
+// opposed to a request to DO something. If it carries no action/format/tool
+// word, we answer it with the chat model instead of forcing it through tool or
+// app routing — the line between asking a question and asking for a job.
+const QUESTION_RE = /^\s*(what(’|')?s|whats|what|why|how|who|whom|whose|when|where|which|explain|define|describe|tell me|meaning of|difference between|is|are|does|do|can you (explain|tell))\b/i;
+const ACTION_RE = /\b(convert|compress|resize|crop|rotate|flip|merge|split|trim|extract|remove|delete|watermark|download|upload|qr|palette|colou?rs?|draw|paint|generate|create|make|build|design|scan|ocr|transcribe|summari[sz]e|translate|send|share|transfer|record|upscale|denoise|sharpen|blur|edit|format|minify|encode|decode|hash|sign|protect|unlock|tool|calculator|calculate|generator|pdf|mp3|mp4|wav|png|jpe?g|webp|gif|svg|heic|epub|zip|docx?|xlsx?|csv)\b/i;
+function isGeneralQuestion(text: string): boolean {
+  return QUESTION_RE.test(text) && !ACTION_RE.test(text);
+}
+
 /**
  * Terminal typewriter: reveals `text` character-by-character with a blinking
  * block caret. When `active` is false (older messages) it shows everything at
@@ -528,6 +550,11 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // 3.4) Document understanding — questions / summary / OCR on a PDF or image.
     if (await tryDocQA(text, file)) return true;
 
+    // 3.45) Plain conversational questions ("what is ipv4", "explain DNS") with
+    //       no file and no action word are NOT a job — don't force them through
+    //       app/tool routing (which mis-fired). Fall through to the chat model.
+    if (!file && !lastFileRef.current && isGeneralQuestion(text)) return false;
+
     // 3.5) Multi-step recipes (compound jobs) — deterministic ordered chains.
     //      High-precision triggers, so they never steal a single-tool request.
     const knownCat = file ? fileCategory(file) : (lastFileRef.current ? fileCategory(lastFileRef.current) : null);
@@ -671,8 +698,10 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // First pass in the original language (English requests resolve here for free).
     if (await routeAndAct(text, file)) return;
 
-    // Nothing matched — the request may be non-English. Translate once and retry.
-    const en = await translateToEnglish(text);
+    // Nothing matched. ONLY if the text is non-Latin (e.g. CJK/Arabic/Cyrillic)
+    // do we translate to English and retry — translating English text just lets
+    // the tiny model paraphrase it into the wrong tool (it once "matched" Send).
+    const en = looksNonLatin(text) ? await translateToEnglish(text) : null;
     if (en && en.toLowerCase() !== text.toLowerCase()) {
       if (await routeAndAct(en, file)) return;
     }

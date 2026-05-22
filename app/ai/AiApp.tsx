@@ -405,20 +405,41 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const setLast = (content: string) => setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content }; return c; });
 
   /**
+   * Stop generation. Sets the flag the streaming loops watch AND asks the
+   * engine to actually interrupt (web-llm) so the GPU stops working — not just
+   * a UI break. Also unsticks the UI in case a loop's `finally` can't run.
+   */
+  const handleStop = () => {
+    stopRef.current = true;
+    try { engineRef.current?.interruptGenerate?.(); } catch { /* not all engines support it */ }
+    setGenerating(false);
+  };
+
+  /**
    * Document understanding: extract text / summarise / answer questions about a
    * dropped PDF or image (OCR), on-device. Returns true if handled.
    */
   const tryDocQA = async (text: string, file: File | null): Promise<boolean> => {
+    const fresh = !!file && isDocument(file);   // a document provided THIS turn
     const f = file ?? lastFileRef.current;
     if (!f || !isDocument(f)) return false;
     const intent = docIntent(text);
     if (!intent) return false;
+    // Don't hijack a general-knowledge question (e.g. "what is ipv4") into reading
+    // a document that just happens to still be in context. A bare question only
+    // counts as doc-Q&A if the file was provided this turn, or the message
+    // explicitly refers to the document. Explicit "extract"/"summarise" intents
+    // are operations on the file, so they're allowed through.
+    const refersToDoc = /\b(document|doc|pdf|file|page|pages|scan|attachment|invoice|receipt|contract|this|that|it|above|here)\b/i.test(text);
+    if (intent === 'question' && !fresh && !refersToDoc) return false;
     lastFileRef.current = f;
+    stopRef.current = false;
     setGenerating(true);
     push({ role: 'assistant', content: 'Reading the document…' });
     let docText = '';
     try { docText = await extractDocText(f); }
     catch { setLast('⚠ Could not read that document.'); setGenerating(false); return true; }
+    if (stopRef.current) { setLast('Stopped.'); setGenerating(false); return true; }
     if (!docText) { setLast('I couldn’t find any text in that document.'); setGenerating(false); return true; }
 
     if (intent === 'extract') {
@@ -977,7 +998,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               {/* Spacer pushes Send to the right on the mobile button row only. */}
               <div className="order-4 flex-1 sm:hidden" />
               {generating ? (
-                <button type="button" onClick={() => { stopRef.current = true; }} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-red-600 text-white sm:order-4"><Square className="h-4 w-4" /></button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); handleStop(); }} title="Stop" className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-red-600 text-white sm:order-4"><Square className="h-4 w-4" /></button>
               ) : (
                 <button type="button" onClick={send} disabled={loadState !== 'ready' || (!input.trim() && !pendingFile && pendingFiles.length < 2)} title={loadState !== 'ready' ? 'Booting…' : 'Send'} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-[var(--term-fg)] text-[#06140d] transition hover:brightness-110 disabled:bg-[#14201a] disabled:text-[var(--term-dim)] sm:order-4"><Send className="h-4 w-4" /></button>
               )}

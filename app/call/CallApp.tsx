@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone, Send, MessageSquare, Square } from 'lucide-react';
+import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone, Send, MessageSquare, Square, Sparkles } from 'lucide-react';
 import { connectMedia, type MediaPeer, type MediaState } from '@/lib/p2p/media';
 
 /** Draw a video frame into a box, preserving aspect ratio (letterboxed). */
@@ -33,12 +33,18 @@ export default function CallApp() {
   const [chat, setChat] = React.useState<{ mine: boolean; text: string }[]>([]);
   const [msg, setMsg] = React.useState('');
   const [recording, setRecording] = React.useState(false);
+  const [bg, setBg] = React.useState<'off' | 'blur' | 'image'>('off');
+  const [bgBusy, setBgBusy] = React.useState(false);
 
   const localRef = React.useRef<HTMLVideoElement>(null);
+  const rawVideoRef = React.useRef<HTMLVideoElement>(null);
   const chatEndRef = React.useRef<HTMLDivElement>(null);
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const recRafRef = React.useRef(0);
   const recCtxRef = React.useRef<AudioContext | null>(null);
+  const vbgRef = React.useRef<import('@/lib/p2p/virtual-bg').VirtualBg | null>(null);
+  const bgImgRef = React.useRef<HTMLImageElement | null>(null);
+  const bgFileRef = React.useRef<HTMLInputElement>(null);
   const remoteRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const peerRef = React.useRef<MediaPeer | null>(null);
@@ -58,6 +64,7 @@ export default function CallApp() {
     try { recorderRef.current?.stop(); } catch { /* */ }
     cancelAnimationFrame(recRafRef.current);
     try { recCtxRef.current?.close(); } catch { /* */ }
+    try { vbgRef.current?.stop(); } catch { /* */ }
   }, []);
 
   const start = async () => {
@@ -136,6 +143,46 @@ export default function CallApp() {
   const stopRec = () => { try { recorderRef.current?.stop(); } catch { /* */ } setRecording(false); };
   const toggleRec = () => (recording ? stopRec() : startRec());
 
+  // --- Virtual background: swap the published video track for a processed canvas.
+  const applyBg = async (next: 'off' | 'blur' | 'image') => {
+    if (audioOnly || !streamRef.current) return;
+    const rawTrack = streamRef.current.getVideoTracks()[0] ?? null;
+    if (next === 'off') {
+      setBg('off');
+      vbgRef.current?.stop(); vbgRef.current = null;
+      peerRef.current?.replaceVideoTrack(rawTrack);
+      if (localRef.current) { localRef.current.srcObject = streamRef.current; void localRef.current.play().catch(() => {}); }
+      return;
+    }
+    setBgBusy(true);
+    try {
+      // Feed the raw camera into a hidden <video> the segmenter reads from.
+      if (rawVideoRef.current && rawVideoRef.current.srcObject !== streamRef.current) {
+        rawVideoRef.current.srcObject = streamRef.current;
+        await rawVideoRef.current.play().catch(() => {});
+      }
+      if (!vbgRef.current) {
+        const { createVirtualBackground } = await import('@/lib/p2p/virtual-bg');
+        vbgRef.current = await createVirtualBackground(rawVideoRef.current!, next === 'image' ? 'image' : 'blur');
+        if (bgImgRef.current) vbgRef.current.setImage(bgImgRef.current);
+        const vt = vbgRef.current.stream.getVideoTracks()[0] ?? null;
+        peerRef.current?.replaceVideoTrack(vt);
+        if (localRef.current) { localRef.current.srcObject = vbgRef.current.stream; void localRef.current.play().catch(() => {}); }
+      } else {
+        vbgRef.current.setMode(next === 'image' ? 'image' : 'blur');
+      }
+      setBg(next);
+    } catch { setBg('off'); }
+    finally { setBgBusy(false); }
+  };
+
+  const pickBgImage = (file: File) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { bgImgRef.current = img; vbgRef.current?.setImage(img); void applyBg('image'); };
+    img.src = url;
+  };
+
   const toggleCam = () => { const t = streamRef.current?.getVideoTracks()[0]; if (t) { t.enabled = !t.enabled; setCamOn(t.enabled); } };
   const toggleMic = () => { const t = streamRef.current?.getAudioTracks()[0]; if (t) { t.enabled = !t.enabled; setMicOn(t.enabled); } };
   const hangup = () => { peerRef.current?.close(); streamRef.current?.getTracks().forEach((t) => t.stop()); window.location.href = '/call'; };
@@ -183,6 +230,8 @@ export default function CallApp() {
             )}
             {/* local PiP — camera only */}
             {!audioOnly && <video ref={localRef} className="absolute bottom-3 right-3 h-28 w-44 border border-white/20 object-cover" playsInline muted />}
+            {/* hidden raw-camera source for virtual-background segmentation */}
+            {!audioOnly && <video ref={rawVideoRef} className="pointer-events-none absolute h-px w-px opacity-0" playsInline muted />}
             {/* recording badge */}
             {recording && (
               <div className="absolute left-3 top-3 flex items-center gap-1.5 bg-black/55 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
@@ -212,6 +261,28 @@ export default function CallApp() {
                 <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
               </div>
             )}
+            {/* Virtual background — on-device, replaces the outgoing camera feed */}
+            {!audioOnly && (
+              <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+                  <Sparkles className="h-3.5 w-3.5" /> Background {bgBusy && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-1.5">
+                  {([['off', 'None'], ['blur', 'Blur'], ['image', 'Image']] as const).map(([k, lbl]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => (k === 'image' ? bgFileRef.current?.click() : applyBg(k))}
+                      className={`py-1.5 text-[12px] font-semibold transition ${bg === k ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.04] text-[var(--color-fg)] hover:bg-black/[0.08]'}`}
+                    >
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+                <input ref={bgFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) pickBgImage(f); e.target.value = ''; }} />
+              </div>
+            )}
+
             {/* In-call chat — text + emoji over the encrypted data channel */}
             <div className="flex flex-col border border-black/[0.08] bg-[var(--color-surface-1)]">
               <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">

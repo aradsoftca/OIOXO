@@ -24,6 +24,8 @@ export interface MediaPeer {
   close: () => void;
   /** Send a short text/emoji to the peer over the data channel. */
   send: (text: string) => void;
+  /** Swap the outgoing video track (e.g. raw camera ⇄ virtual-background canvas). */
+  replaceVideoTrack: (track: MediaStreamTrack | null) => void;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -114,5 +116,11 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
   return {
     close: () => { stopped = true; clearTimeout(watchdog); try { chan?.close(); } catch { /* */ } try { pc?.close(); } catch { /* */ } },
     send: (text: string) => { try { if (chan && chan.readyState === 'open') chan.send(text); } catch { /* */ } },
+    replaceVideoTrack: (track) => {
+      try {
+        const sender = pc?.getSenders().find((s) => s.track?.kind === 'video') ?? pc?.getSenders().find((s) => !s.track);
+        void sender?.replaceTrack(track);
+      } catch { /* */ }
+    },
   };
 }

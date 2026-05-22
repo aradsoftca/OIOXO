@@ -201,7 +201,9 @@ const myIp: QuickSkill = {
 
 const dnsLookup: QuickSkill = {
   id: 'dns',
-  match: (lc) => /\bdns\b/.test(lc) || /\b(mx|txt|cname|caa|srv|aaaa|ns)\s+record/.test(lc) || /\bname ?servers?\b/.test(lc) || (/\bresolve\b/.test(lc) && /\.[a-z]{2,}/.test(lc)),
+  // Needs an actual domain to look up — so "what is dns" (a definition question)
+  // falls through to a real answer instead of a "which domain?" dead-end.
+  match: (lc) => /\.[a-z]{2,}/.test(lc) && (/\bdns\b/.test(lc) || /\b(mx|txt|cname|caa|srv|aaaa|ns)\s+record/.test(lc) || /\bname ?servers?\b/.test(lc) || /\bresolve\b/.test(lc)),
   run: async (text) => {
     const host = extractHost(text);
     if (!host) return { kind: 'text', text: 'Which domain? e.g. “DNS records for example.com”.' };

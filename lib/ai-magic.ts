@@ -47,8 +47,13 @@ export function detectIntent(text: string): Intent {
   const isQuestion = /\?\s*$/.test(t) || /^(can|could|would|will|do|does|did|are|is|am|how|what|why|when|where|which|should|may|might)\b/.test(lc);
   if (isQuestion) return { kind: 'chat' };
 
-  // Abstract art — only on an unmistakable art noun (and not a question).
-  if (/\b(abstract|wallpaper|background|gradient|texture|pattern|aurora|aesthetic|nebula|galaxy|sunset|ocean|landscape|scenery)\b/.test(lc)) return { kind: 'art', prompt: t };
+  // Editing a file (remove/crop/blur/upscale/…) is a tool job, not generation —
+  // don't let a stray art noun like "sunset" or "background" hijack it. Falls
+  // through to chat so routing can pick the real tool.
+  if (/\b(remove|erase|delete|cut ?out|crop|trim|resize|rotate|flip|blur|sharpen|denoise|upscale|enlarge|compress|convert|watermark|brighten|darken|grayscale|greyscale|saturate|desaturate|replace|extract|mirror|invert)\b/.test(lc)) return { kind: 'chat' };
+
+  // Abstract art — only on an unmistakable art noun (and not a question/edit).
+  if (/\b(abstract|wallpaper|gradient|texture|pattern|aurora|aesthetic|nebula|galaxy|sunset|ocean|landscape|scenery)\b/.test(lc)) return { kind: 'art', prompt: t };
 
   // SVG/vector — needs BOTH a creation verb and a drawable noun, so a passing
   // mention of "image"/"picture"/"design" in a sentence can't hijack the chat.

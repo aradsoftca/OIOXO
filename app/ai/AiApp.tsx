@@ -16,6 +16,7 @@ import { fileMatchesCategory } from '@/lib/ai/retrieval';
 import { stageHandoff } from '@/lib/ai/handoff';
 import { isDocument, extractDocText, selectContext, docIntent } from '@/lib/ai/docqa';
 import { matchApp } from '@/lib/ai/apps';
+import { looksNonLatin, isGeneralQuestion, CONTACT_INTENT, classifyContact, HELP_INTENT, HELP_OVERVIEW, DOC_REFERS_RE, CONVERT_PHRASE } from '@/lib/ai/route-intents';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
 
 type Kind = 'text' | 'art' | 'svg' | 'qr' | 'palette' | 'calc' | 'file' | 'attach' | 'tool';
@@ -86,51 +87,6 @@ function prettyBytes(n: number): string {
   while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
 }
-
-// True only if the text contains letters from a non-Latin script (CJK, Arabic,
-// Cyrillic, etc.). Used to decide whether the translate-to-English retry is
-// worth it — for Latin text (English and most European languages) we never
-// "translate", which previously let the tiny model hallucinate a phrase that
-// matched the wrong tool/app.
-function looksNonLatin(s: string): boolean {
-  for (const ch of s) {
-    if (/\p{L}/u.test(ch) && !/[A-Za-zÀ-ɏḀ-ỿ]/.test(ch)) return true;
-  }
-  return false;
-}
-
-// A general/conversational question (define, explain, "what is X", "why…") as
-// opposed to a request to DO something. If it carries no action/format/tool
-// word, we answer it with the chat model instead of forcing it through tool or
-// app routing — the line between asking a question and asking for a job.
-const QUESTION_RE = /^\s*(what(’|')?s|whats|what|why|how|who|whom|whose|when|where|which|explain|define|describe|tell me|meaning of|difference between|is|are|does|do|can you (explain|tell))\b/i;
-const ACTION_RE = /\b(convert|compress|resize|crop|rotate|flip|merge|split|trim|extract|remove|delete|watermark|download|upload|qr|palette|colou?rs?|draw|paint|generate|create|make|build|design|scan|ocr|transcribe|summari[sz]e|translate|send|share|transfer|record|upscale|denoise|sharpen|blur|edit|format|minify|encode|decode|hash|sign|protect|unlock|tool|calculator|calculate|generator|pdf|mp3|mp4|wav|png|jpe?g|webp|gif|svg|heic|epub|zip|docx?|xlsx?|csv)\b/i;
-function isGeneralQuestion(text: string): boolean {
-  return QUESTION_RE.test(text) && !ACTION_RE.test(text);
-}
-
-// "send/call/chat … to my friend" — a request to REACH a person, which the AI
-// assists with (Send a file, QR a link, start a video/voice call or chat) rather
-// than treating as a file conversion or a document to read.
-const CONTACT_INTENT = /\b(send|share|give|pass|show|call|video[- ]?call|voice[- ]?call|chat|message|msg|text|talk|meet)\b[\s\S]{0,40}\b(friend|buddy|mate|someone|somebody|colleague|coworker|team|family|mom|dad|partner|him|her|them|people)\b/i;
-function findUrl(text: string): string | null {
-  const m = text.match(/https?:\/\/[^\s]+|\b[a-z0-9-]+\.(?:com|net|org|io|co|app|dev|ai|me|xyz|info|link)(?:\/[^\s]*)?/i);
-  if (!m) return null;
-  return /^https?:\/\//i.test(m[0]) ? m[0] : `https://${m[0]}`;
-}
-
-// "what can you do / help / what tools" — answer with an organized overview of
-// what Xonvert actually offers, instead of letting the small model improvise.
-const HELP_INTENT = /\b(what can (you|xonvert|this|it) do|what (do|can) you (do|help)|what can i do here|how can you help|what (tools|features|apps) (do you (have|offer)|are (there|available))|what are you( for)?|what is this( site| app)?|capabilities)\b/i;
-const HELP_OVERVIEW =
-  'I can do three things — run a job, find the right tool, or answer a question. Right here I can:\n' +
-  '• Convert almost any file — PDF↔Word, MP4→MP3, HEIC→JPG, images, audio, video, ebooks, archives\n' +
-  '• Edit — remove background, upscale, compress, crop, OCR, scan a document\n' +
-  '• PDF — merge, split, compress, protect, sign\n' +
-  '• Read — summarise a PDF or answer questions about it\n' +
-  '• Make — QR codes, colour palettes, quick maths\n' +
-  '• Connect — Send a file, Video/Voice Call, Group Chat, Watch Party, Whiteboard, Clipboard\n' +
-  'For anything across the 300+ tools, just tell me what you’re trying to do.';
 
 /**
  * Terminal typewriter: reveals `text` character-by-character with a blinking
@@ -475,7 +431,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // counts as doc-Q&A if the file was provided this turn, or the message
     // explicitly refers to the document. Explicit "extract"/"summarise" intents
     // are operations on the file, so they're allowed through.
-    const refersToDoc = /\b(document|doc|pdf|file|page|pages|scan|attachment|invoice|receipt|contract|this|that|it|above|here)\b/i.test(text);
+    const refersToDoc = DOC_REFERS_RE.test(text);
     if (intent === 'question' && !fresh && !refersToDoc) return false;
     lastFileRef.current = f;
     stopRef.current = false;
@@ -518,6 +474,15 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const routeAndAct = async (text: string, file: File | null): Promise<boolean> => {
     // 1) Conversions — deterministic planner (validates target + file category).
     if (await handleConvert(text, file)) return true;
+
+    // 1.5) A format conversion the inline planner didn't run (e.g. PDF→Word):
+    //      open the converter, so a stray verb like "turn"/"change" can't match
+    //      an editing tool (rotate) instead.
+    if (CONVERT_PHRASE.test(text)) {
+      const eff = file ?? lastFileRef.current;
+      push({ role: 'assistant', content: 'Here’s the converter — drop your file and pick the exact format you want.', kind: 'tool', toolName: 'Convert', toolHref: '/convert', stageFile: eff ?? undefined });
+      return true;
+    }
 
     // 2) Quick skills answered from our own server (e.g. "what is my IP").
     const skill = resolveQuickSkill(text);
@@ -583,30 +548,21 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //        "can I video-call my friend?" aren't read as a document or matched
     //        to video-editing tools.
     if (CONTACT_INTENT.test(text)) {
-      const lc = text.toLowerCase();
       const effFile = file ?? lastFileRef.current;
-      // A file in play → open Send with it staged (private link, auto-transfer).
-      if (effFile && /\b(send|share|give|pass|file|photo|picture|image|document|pdf|video|audio|it|this)\b/i.test(lc)) {
+      const plan = classifyContact(text, !!effFile);
+      if (plan.kind === 'send-file' && effFile) {
         lastFileRef.current = effFile;
         push({ role: 'assistant', content: 'I’ll open Send with your file — share the private link with your friend and the transfer starts automatically.', kind: 'tool', toolName: 'Send', toolHref: '/send', stageFile: effFile });
         return true;
       }
-      // A link mentioned → make a scannable QR.
-      const url = findUrl(text);
-      if (url && /\b(send|share|qr|link|address|url|site)\b/i.test(lc)) {
-        try { const QR = (await import('qrcode')).default; const dataUrl = await QR.toDataURL(url, { width: 320, margin: 1 }); push({ role: 'assistant', content: `Here’s a QR code for ${url} — your friend can scan it, or download and send it.`, kind: 'qr', url: dataUrl, filename: 'xonvert-qr.png' }); }
-        catch { push({ role: 'assistant', content: `I can share ${url} — open Send to pass it along.`, kind: 'tool', toolName: 'Send', toolHref: '/send' }); }
+      if (plan.kind === 'qr') {
+        try { const QR = (await import('qrcode')).default; const dataUrl = await QR.toDataURL(plan.url, { width: 320, margin: 1 }); push({ role: 'assistant', content: `Here’s a QR code for ${plan.url} — your friend can scan it, or download and send it.`, kind: 'qr', url: dataUrl, filename: 'xonvert-qr.png' }); }
+        catch { push({ role: 'assistant', content: `I can share ${plan.url} — open Send to pass it along.`, kind: 'tool', toolName: 'Send', toolHref: '/send' }); }
         return true;
       }
-      // Live connection → pick the best way and open it.
-      if (/\b(call|video|voice|audio|chat|message|msg|text|talk|meet)\b/.test(lc)) {
-        const wantsVoice = /\b(voice|audio)\b/.test(lc);
-        const wantsChat = /\b(chat|message|msg|text|talk)\b/.test(lc) && !/\b(video|voice|call)\b/.test(lc);
-        const primary = wantsVoice ? { name: 'Voice Call', href: '/call?audio=1' }
-          : wantsChat ? { name: 'Group Chat', href: '/chat' }
-          : { name: 'Video Call', href: '/call' };
+      if (plan.kind === 'app') {
         const allOpts = [{ label: 'Video Call', href: '/call' }, { label: 'Voice Call', href: '/call?audio=1' }, { label: 'Group Chat', href: '/chat' }, { label: 'Send a file', href: '/send' }];
-        push({ role: 'assistant', content: `Sure — I’ll open ${primary.name}. Start it, then share the private link with your friend.`, kind: 'tool', toolName: primary.name, toolHref: primary.href, alts: allOpts.filter((o) => o.href !== primary.href).slice(0, 3) });
+        push({ role: 'assistant', content: `Sure — I’ll open ${plan.name}. Start it, then share the private link with your friend.`, kind: 'tool', toolName: plan.name, toolHref: plan.href, alts: allOpts.filter((o) => o.href !== plan.href).slice(0, 3) });
         return true;
       }
       // Generic "send to a friend" with nothing specific yet.

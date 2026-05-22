@@ -33,6 +33,8 @@ const MODEL_ID = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
 // web-llm; this caches the live engine too, removing the repeat "Loading…".)
 let sharedEngine: any = null;
 let sharedEnginePromise: Promise<any> | null = null;
+// Which backend the shared engine is — so a revisit restores the right label.
+let sharedBackend: 'gpu' | 'wasm' | null = null;
 
 const XONVERT_PERSONA =
   "You are Xonvert AI, a friendly, concise assistant made by Xonvert. It is private and secure, and the user stays in control of their files. " +
@@ -87,6 +89,7 @@ function prettyBytes(n: number): string {
 
 export default function AiApp({ embedded = false }: { embedded?: boolean } = {}) {
   const [supported, setSupported] = React.useState<boolean | null>(null);
+  const [backend, setBackend] = React.useState<'gpu' | 'wasm' | null>(sharedBackend);
   const [loadState, setLoadState] = React.useState<'idle' | 'loading' | 'ready'>(sharedEngine ? 'ready' : 'idle');
   const [loadPct, setLoadPct] = React.useState(0);
   const [messages, setMessages] = React.useState<Msg[]>([]);
@@ -114,14 +117,27 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
 
   const loadModel = React.useCallback(async () => {
     // Already loaded earlier this session (e.g. revisiting /ai) — reuse it.
-    if (sharedEngine) { engineRef.current = sharedEngine; setLoadState('ready'); void warmEmbeddings(); return; }
+    if (sharedEngine) { engineRef.current = sharedEngine; setBackend(sharedBackend); setLoadState('ready'); void warmEmbeddings(); return; }
     if (startedRef.current) return; startedRef.current = true;
+    const hasGPU = typeof navigator !== 'undefined' && 'gpu' in navigator;
+    setBackend(hasGPU ? 'gpu' : 'wasm'); // label early so loading copy is correct
     setLoadState('loading'); setLoadPct(0);
     try {
-      const webllm = await import('@mlc-ai/web-llm');
-      // Reuse an in-flight load if the user navigated away and back mid-download.
-      sharedEnginePromise ??= webllm.CreateMLCEngine(MODEL_ID, { initProgressCallback: (r: any) => { if (typeof r.progress === 'number') setLoadPct(r.progress); } });
-      engineRef.current = sharedEngine = await sharedEnginePromise;
+      if (hasGPU) {
+        // Fast path: on-device GPU via web-llm. Reuse an in-flight load if the
+        // user navigated away and back mid-download.
+        const webllm = await import('@mlc-ai/web-llm');
+        sharedEnginePromise ??= webllm.CreateMLCEngine(MODEL_ID, { initProgressCallback: (r: any) => { if (typeof r.progress === 'number') setLoadPct(r.progress); } });
+        engineRef.current = sharedEngine = await sharedEnginePromise;
+        sharedBackend = 'gpu';
+      } else {
+        // Compatibility path: CPU/WASM via transformers.js, so chat works on
+        // devices without WebGPU (some phones, older browsers).
+        const { loadWasmEngine } = await import('@/lib/ai/wasm-llm');
+        engineRef.current = sharedEngine = await loadWasmEngine((p) => setLoadPct(p));
+        sharedBackend = 'wasm';
+      }
+      setBackend(sharedBackend);
       setLoadState('ready');
       // Warm the semantic tool index in the background — lexical routing works
       // until it's ready, then ranking gets sharper. Cached after first load.
@@ -130,7 +146,10 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   }, []);
 
   React.useEffect(() => {
-    const ok = typeof navigator !== 'undefined' && 'gpu' in navigator;
+    // The panel works on any browser with WebAssembly: WebGPU gives the fast
+    // path, otherwise we fall back to a CPU/WASM model. Only truly ancient
+    // browsers without WASM are unsupported.
+    const ok = typeof WebAssembly !== 'undefined';
     setSupported(ok);
     // On the dedicated page, load right away. When embedded (e.g. the homepage
     // hero) defer until the user actually engages, so casual visitors and SEO
@@ -657,7 +676,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       {supported === false ? (
         <div className="border border-amber-500/30 bg-amber-50/40 p-6">
           <div className="flex items-center gap-2 text-[14px] font-bold"><AlertTriangle className="h-4 w-4 text-amber-600" /> Browser not supported</div>
-          <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">Xonvert AI needs a recent <strong>Chrome</strong> or <strong>Edge</strong> on desktop (or Chrome on Android). Please switch browsers to use it.</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">Xonvert AI needs a modern browser. Please update your browser, or try a recent <strong>Chrome</strong>, <strong>Edge</strong>, <strong>Safari</strong> or <strong>Firefox</strong>.</p>
         </div>
       ) : (
         <div className={`flex ${embedded ? 'h-[72vh] min-h-[460px] sm:h-[56vh] sm:min-h-[420px]' : 'h-[78vh] min-h-[480px] sm:h-[62vh]'} flex-col border border-black/[0.08] bg-[var(--color-surface-1)]`}
@@ -671,7 +690,10 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               <div className="grid h-full place-items-center px-4 text-center text-[13px] text-[var(--color-fg-subtle)]">
                 <div>
                   <Bot className="mx-auto h-8 w-8 text-[var(--color-cat-dev)]" />
-                  <p className="mt-2">{loadState === 'loading' ? 'Getting things ready — just a moment…' : loadState === 'ready' ? 'Xonvert AI is ready — private and secure.' : 'Ask me anything — I’ll get ready the moment you start.'}</p>
+                  <p className="mt-2">{loadState === 'loading' ? (backend === 'wasm' ? 'Setting up compatibility mode — first load takes a moment…' : 'Getting things ready — just a moment…') : loadState === 'ready' ? 'Xonvert AI is ready — private and secure.' : 'Ask me anything — I’ll get ready the moment you start.'}</p>
+                  {backend === 'wasm' && loadState === 'ready' && (
+                    <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">Running in compatibility mode on this device — replies may be a little slower.</p>
+                  )}
                   <p className="mt-3 text-[12px]">Try: <em>“YouTube thumbnail about Egyptian pyramids”</em> · <em>“draw a fox logo”</em> · <em>“abstract sunset wallpaper”</em> · <em>“QR for my-link.com”</em></p>
                   <p className="mt-1 text-[12px]">Or attach a file (📎) and say <em>“convert to wav”</em> or <em>“make this a png”</em> — and I’ll run the right tool.</p>
                 </div>

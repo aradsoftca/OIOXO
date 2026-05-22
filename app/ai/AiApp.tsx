@@ -773,7 +773,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                 placeholder={recording ? 'Listening… tap ◼ to send' : loadState === 'ready' ? 'Ask, speak 🎙️, draw, paste or attach a file…' : loadState === 'loading' ? 'Getting ready…' : 'Ask anything…'}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => { const it = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/')); const f = it?.getAsFile(); if (f) { e.preventDefault(); receiveFile(new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png')}`, { type: f.type })); } }}
-                className="order-1 max-h-32 w-full resize-none rounded-xl border border-black/[0.12] bg-white px-3 py-2.5 text-[15px] text-[var(--color-fg)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-cat-dev)]/30 sm:order-3 sm:w-auto sm:flex-1 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-2 sm:py-2 sm:text-[14px] sm:shadow-none sm:focus:ring-0" />
+                className="order-1 max-h-32 w-full resize-none rounded-xl border border-black/[0.12] bg-white px-3 py-2.5 text-[15px] text-[var(--color-fg)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-cat-dev)]/30 sm:order-3 sm:w-auto sm:flex-1 sm:text-[14px]" />
               {/* Spacer pushes Send to the right on the mobile button row only. */}
               <div className="order-4 flex-1 sm:hidden" />
               {generating ? (

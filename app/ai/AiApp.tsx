@@ -605,13 +605,24 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     if (!text || /^\W*$/.test(text)) { setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'user', content: '🎙️ (couldn’t catch that)' }; return c; }); return; }
     setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'user', content: `🎙️ ${text}` }; return c; });
     const file = pendingFile; setPendingFile(null); if (file) lastFileRef.current = file;
+    // The spoken request may need the assistant model (e.g. chat, translation).
+    // On the homepage the model loads lazily, so make sure it's ready first.
+    if (!engineRef.current) await loadModel();
     voiceActiveRef.current = true;
     try { await process(text, file); } finally { voiceActiveRef.current = false; }
   };
 
   const toggleVoice = async () => {
     if (recording) { recorderRef.current?.stop(); return; }
-    if (loadState !== 'ready' || generating || transcribing) return;
+    if (generating || transcribing) return;
+    // Kick model loading now (no-op if already loading/ready) so the spoken
+    // request can be handled as soon as transcription finishes. Recording itself
+    // doesn't need the model, so we no longer block on loadState here.
+    ensureLoaded();
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      push({ role: 'assistant', content: '⚠ Voice input isn’t available in this browser.' });
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const rec = new MediaRecorder(stream);
@@ -625,7 +636,9 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       recorderRef.current = rec;
       rec.start();
       setRecording(true);
-    } catch { /* mic denied / unavailable */ }
+    } catch {
+      push({ role: 'assistant', content: '⚠ I couldn’t access the microphone. Please allow mic permission in your browser and try again.' });
+    }
   };
 
   const regenArt = (i: number) => setMessages((m) => m.map((msg, j) => {

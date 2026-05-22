@@ -116,31 +116,56 @@ function TypeOut({ text, active }: { text: string; active: boolean }) {
   return (<>{text.slice(0, shown)}{active && <span className="terminal-caret" aria-hidden />}</>);
 }
 
-// Rotating example prompts — a wide, professional spread of what the assistant
-// actually does: convert/compress/edit any file, create graphics & art, read &
-// summarise documents, find the right tool, run things by voice. Shown one at a
-// time with an old-PC typewriter effect (type → hold → erase → next, at random).
+// Rotating example prompts — a wide, honest spread of what Xonvert actually
+// does well: 300+ tools, thousands of file conversions, real document & media
+// editing, on-device understanding, and live peer-to-peer apps (no uploads).
+// Deliberately light on "generate art" — that's not our strength. Shown one at
+// a time with an old-PC typewriter effect (type → hold → erase → next, random).
 const HINT_PROMPTS = [
-  'convert this PDF to an editable Word doc',
-  'compress these photos for the web',
-  'remove the background from this product shot',
-  'turn my video into an MP3',
-  'summarise this 40-page PDF into five points',
-  'design a YouTube thumbnail for my podcast',
-  'generate a QR code for our landing page',
-  'extract the text from this scanned receipt',
-  'build a colour palette from this photo',
-  'resize every image in this folder to 1080p',
-  'convert MP4 to a looping GIF',
-  'make a launch poster for our startup',
-  'transcribe this voice memo to text',
-  'which tool merges several PDFs into one?',
-  'upscale this logo without losing quality',
+  // Conversions — the core
+  'convert almost any file — just drop it in',
+  'turn a PDF into an editable Word doc',
+  'convert a Word doc to a clean PDF',
+  'convert MP4 to MP3',
   'convert HEIC photos to JPG',
-  'draw a minimalist fox logo in SVG',
-  'create a calm “ocean at dusk” wallpaper',
-  'batch-rename these files by date',
-  'translate this note and read it back to me',
+  'convert a spreadsheet to Excel or CSV',
+  'turn an EPUB ebook into a PDF',
+  'extract a ZIP or RAR archive',
+  // PDF toolkit
+  'merge several PDFs into one',
+  'compress a PDF so it fits in an email',
+  'split, reorder or delete PDF pages',
+  'password-protect or unlock a PDF',
+  // Real image work (no AI art needed)
+  'remove the background from a photo',
+  'upscale a low-resolution image',
+  'compress photos for the web without losing quality',
+  'scan a document with your camera',
+  'strip location & EXIF data from a photo',
+  'pull the text out of a screenshot',
+  'resize a whole batch of images at once',
+  // Audio / video
+  'record your screen, right in the browser',
+  'trim and compress a long video',
+  'turn a video into a looping GIF',
+  'reframe a wide video vertical for Reels & Shorts',
+  'clean background noise out of a recording',
+  'transcribe an audio file to text',
+  // Understand documents
+  'summarise a long PDF in seconds',
+  'ask questions about a document',
+  // Dev / network / utility
+  'format or validate messy JSON',
+  'check a website’s SSL and speed',
+  'generate a QR code for any link',
+  // Live peer-to-peer apps — nothing uploaded to a server
+  'send a large file with a private link — no upload',
+  'start a private, encrypted video call',
+  'open an end-to-end encrypted group chat',
+  'watch a video together, perfectly in sync',
+  'sync your clipboard across your devices',
+  'sketch together on a shared whiteboard',
+  'or just ask — 300+ tools, all in one place',
 ];
 
 /**

@@ -30,6 +30,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   themeColor: '#f6f1e7',
   colorScheme: 'light',
+  // When the on-screen keyboard opens, resize the layout (not just overlay) so
+  // the fullscreen AI chat's input + Send button stay visible above it.
+  interactiveWidget: 'resizes-content',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

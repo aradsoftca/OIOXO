@@ -21,8 +21,10 @@ export interface AppEntry {
 export const APPS: AppEntry[] = [
   { id: 'send', name: 'Send', href: '/send', takesFile: true, blurb: 'peer-to-peer file transfer with a private link.',
     match: (lc) => /\b(send|share|transfer|beam)\b/.test(lc) && /\b(file|this|it|document|photo|picture|image|video|audio|pdf|to)\b/.test(lc) },
+  { id: 'voicecall', name: 'Voice Call', href: '/call?audio=1', blurb: 'private peer-to-peer voice call.',
+    match: (lc) => /\b(voice ?call|audio ?call|phone call|call (someone )?(without|no) video)\b/.test(lc) },
   { id: 'call', name: 'Video Call', href: '/call', blurb: 'private peer-to-peer video & voice call.',
-    match: (lc) => /\b(video ?call|voice ?call|start a call|call someone|video meeting|hop on a call)\b/.test(lc) },
+    match: (lc) => /\b(video ?call|start a call|call someone|video meeting|hop on a call)\b/.test(lc) },
   { id: 'chat', name: 'Group Chat', href: '/chat', blurb: 'encrypted peer-to-peer group chat.',
     match: (lc) => /\b(group chat|chat room|start a chat|open chat|chat with)\b/.test(lc) },
   { id: 'board', name: 'Whiteboard', href: '/board', blurb: 'shared real-time whiteboard.',

@@ -893,7 +893,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           {loadState === 'loading' && (
             <div className="relative z-10 h-1 w-full overflow-hidden bg-[#0e1813]"><div className="h-full bg-[var(--term-fg)] transition-[width]" style={{ width: `${Math.max(6, Math.round(loadPct * 100))}%` }} /></div>
           )}
-          <div ref={scrollRef} className="relative z-[1] flex-1 space-y-4 overflow-y-auto p-3 text-[var(--term-fg)] sm:p-4">
+          <div ref={scrollRef} className="relative z-[1] flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-3 text-[var(--term-fg)] sm:p-4">
             {messages.length === 0 && (
               <div className="grid h-full place-items-center px-4 text-center text-[13px] text-[var(--term-dim)]">
                 <div className="max-w-md">
@@ -910,9 +910,9 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
                 <div className={`grid h-8 w-8 shrink-0 place-items-center border ${m.role === 'user' ? 'border-[var(--term-user)]/30 bg-[var(--term-user)]/10 text-[var(--term-user)]' : 'border-[var(--term-fg)]/30 bg-[var(--term-fg)]/10 text-[var(--term-fg)]'}`}>{m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}</div>
-                <div className="max-w-[88%] space-y-2 sm:max-w-[82%]">
+                <div className="min-w-0 max-w-[calc(100%-2.75rem)] space-y-2 sm:max-w-[82%]">
                   {(!m.kind || m.kind === 'text' || m.kind === 'calc' || m.kind === 'attach' || m.kind === 'tool') && m.content && (
-                    <div className={`whitespace-pre-wrap px-3 py-2 text-[14px] leading-relaxed ${m.role === 'user' ? 'border border-[var(--term-user)]/20 bg-[var(--term-user)]/10 text-[#cdeeff]' : 'text-[var(--term-fg)] terminal-glow'} ${m.kind === 'calc' ? 'text-[15px]' : ''}`}>
+                    <div className={`whitespace-pre-wrap break-words px-3 py-2 text-[14px] leading-relaxed ${m.role === 'user' ? 'border border-[var(--term-user)]/20 bg-[var(--term-user)]/10 text-[#cdeeff]' : 'text-[var(--term-fg)] terminal-glow'} ${m.kind === 'calc' ? 'text-[15px]' : ''}`}>
                       {m.role === 'assistant'
                         ? <TypeOut text={m.content} active={i === messages.length - 1} />
                         : m.content}
@@ -986,7 +986,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               </div>
             )}
           </div>
-          <div className="relative z-10 border-t border-[#16241c] p-3">
+          <div className="relative z-10 shrink-0 border-t border-[#16241c] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {pendingFile && (
               <div className="mb-2 flex items-center gap-2">
                 <span className="inline-flex max-w-full items-center gap-1.5 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-2.5 py-1 text-[12px] text-[var(--term-fg)]">

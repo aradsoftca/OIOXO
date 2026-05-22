@@ -10,10 +10,14 @@ export default function CallApp() {
   const joinCode = params.get('r');
   const role: 's' | 'r' = joinCode ? 'r' : 's';
   const [room] = React.useState(() => joinCode || Math.random().toString(36).slice(2, 10));
+  // Voice-only call (no camera) when launched as /call?audio=1. A joiner inherits
+  // the mode from the invite link, which also carries &audio=1.
+  const audioOnly = params.get('audio') === '1';
+  const label = audioOnly ? 'Voice Call' : 'Video Call';
 
   const [state, setState] = React.useState<MediaState>('connecting');
   const [started, setStarted] = React.useState(false);
-  const [camOn, setCamOn] = React.useState(true);
+  const [camOn, setCamOn] = React.useState(!audioOnly);
   const [micOn, setMicOn] = React.useState(true);
   const [qr, setQr] = React.useState('');
   const [copied, setCopied] = React.useState(false);
@@ -23,7 +27,7 @@ export default function CallApp() {
   const streamRef = React.useRef<MediaStream | null>(null);
   const peerRef = React.useRef<MediaPeer | null>(null);
 
-  const link = typeof window !== 'undefined' ? `${window.location.origin}/call?r=${room}` : '';
+  const link = typeof window !== 'undefined' ? `${window.location.origin}/call?r=${room}${audioOnly ? '&audio=1' : ''}` : '';
 
   React.useEffect(() => {
     if (role !== 's' || !link) return;
@@ -36,7 +40,7 @@ export default function CallApp() {
 
   const start = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: !audioOnly, audio: true });
       streamRef.current = stream;
       if (localRef.current) { localRef.current.srcObject = stream; localRef.current.muted = true; void localRef.current.play().catch(() => {}); }
       setStarted(true);
@@ -56,39 +60,49 @@ export default function CallApp() {
   return (
     <div className="mx-auto max-w-4xl space-y-5">
       <header className="flex items-center gap-3">
-        <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-video)] text-white"><Video className="h-5 w-5" /></div>
+        <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-video)] text-white">{audioOnly ? <Phone className="h-5 w-5" /> : <Video className="h-5 w-5" />}</div>
         <div>
-          <h1 className="text-[24px] font-extrabold tracking-tight">Video Call</h1>
+          <h1 className="text-[24px] font-extrabold tracking-tight">{label}</h1>
           <p className="text-[13px] text-[var(--color-fg-muted)]">One link, no sign-up. Encrypted peer-to-peer — nothing through a server.</p>
         </div>
       </header>
 
       {!started ? (
         <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-8 text-center">
-          <Video className="mx-auto h-10 w-10 text-[var(--color-cat-video)]" />
+          {audioOnly ? <Phone className="mx-auto h-10 w-10 text-[var(--color-cat-video)]" /> : <Video className="mx-auto h-10 w-10 text-[var(--color-cat-video)]" />}
           <p className="mx-auto mt-3 max-w-md text-[14px] text-[var(--color-fg-muted)]">
             {role === 's' ? 'Start a call, then share the link that appears with the person you want to talk to.' : 'You were invited to a call. Join to connect.'}
           </p>
           <button type="button" onClick={start} className="mx-auto mt-5 flex items-center gap-2 bg-[var(--color-cat-video)] px-6 py-3 text-[14px] font-semibold text-white transition hover:brightness-110">
-            <Video className="h-4 w-4" /> {role === 's' ? 'Start call' : 'Join call'}
+            {audioOnly ? <Phone className="h-4 w-4" /> : <Video className="h-4 w-4" />} {role === 's' ? `Start ${audioOnly ? 'voice ' : ''}call` : 'Join call'}
           </button>
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
-          <div className="relative aspect-video overflow-hidden border border-black/[0.08] bg-black">
-            <video ref={remoteRef} className="absolute inset-0 h-full w-full object-contain" playsInline />
+          <div className={`relative overflow-hidden border border-black/[0.08] ${audioOnly ? 'aspect-video bg-gradient-to-b from-[#1a1f2e] to-black' : 'aspect-video bg-black'}`}>
+            {/* Remote video (hidden in voice-only; audio still plays via this element) */}
+            <video ref={remoteRef} className={`absolute inset-0 h-full w-full object-contain ${audioOnly ? 'invisible' : ''}`} playsInline />
+            {audioOnly && state === 'connected' && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-white/90">
+                <div className="relative grid h-24 w-24 place-items-center rounded-full bg-[var(--color-cat-video)]/30">
+                  <span className="absolute inset-0 animate-ping rounded-full bg-[var(--color-cat-video)]/20" />
+                  <Phone className="h-9 w-9" />
+                </div>
+                <div className="text-[14px] font-medium">Connected — voice call</div>
+              </div>
+            )}
             {state !== 'connected' && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center text-white/70">
                 <Loader2 className="h-8 w-8 animate-spin" />
                 <div className="max-w-sm text-[14px]">{state === 'failed' ? 'Couldn’t connect. A VPN or privacy/ad-block extension may be blocking WebRTC — try Incognito, another browser, or the same Wi-Fi.' : role === 's' ? 'Waiting for the other person…' : 'Connecting…'}</div>
               </div>
             )}
-            {/* local PiP */}
-            <video ref={localRef} className="absolute bottom-3 right-3 h-28 w-44 border border-white/20 object-cover" playsInline muted />
+            {/* local PiP — camera only */}
+            {!audioOnly && <video ref={localRef} className="absolute bottom-3 right-3 h-28 w-44 border border-white/20 object-cover" playsInline muted />}
             {/* controls */}
             <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-2">
               <button type="button" onClick={toggleMic} className={`grid h-11 w-11 place-items-center text-white ${micOn ? 'bg-black/55' : 'bg-red-600'}`}>{micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}</button>
-              <button type="button" onClick={toggleCam} className={`grid h-11 w-11 place-items-center text-white ${camOn ? 'bg-black/55' : 'bg-red-600'}`}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>
+              {!audioOnly && <button type="button" onClick={toggleCam} className={`grid h-11 w-11 place-items-center text-white ${camOn ? 'bg-black/55' : 'bg-red-600'}`}>{camOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}</button>}
               <button type="button" onClick={hangup} className="grid h-11 w-11 place-items-center bg-red-600 text-white"><Phone className="h-5 w-5 rotate-[135deg]" /></button>
             </div>
           </div>

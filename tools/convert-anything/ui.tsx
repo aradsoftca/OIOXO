@@ -1,0 +1,162 @@
+'use client';
+
+import * as React from 'react';
+import { Upload, Loader2, Download, Check, ArrowRight, FileText } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { detectFormat, targetsFor, convertFile, type Target, type ConvCategory } from '@/lib/convert/matrix';
+import { useUsageGate } from '@/components/usage/use-usage-gate';
+
+const CAT_LABEL: Record<ConvCategory, string> = {
+  image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation',
+};
+
+export default function ConvertAnythingTool() {
+  const [file, setFile] = React.useState<File | null>(null);
+  const [info, setInfo] = React.useState<{ ext: string; category: ConvCategory | null } | null>(null);
+  const [targets, setTargets] = React.useState<Target[]>([]);
+  const [active, setActive] = React.useState<Target | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [progress, setProgress] = React.useState(0);
+  const [error, setError] = React.useState('');
+  const [result, setResult] = React.useState<{ url?: string; text?: string; filename: string } | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const { guard, gate } = useUsageGate('convert');
+
+  React.useEffect(() => () => { if (result?.url) URL.revokeObjectURL(result.url); }, [result]);
+
+  const load = (f: File) => {
+    setError(''); setResult(null); setActive(null);
+    const det = detectFormat(f);
+    const ts = targetsFor(det.ext);
+    setFile(f); setInfo(det); setTargets(ts);
+    if (!ts.length) setError(det.category ? `No in-browser conversions for .${det.ext} yet.` : `Unsupported file type: .${det.ext || '?'}`);
+  };
+
+  const run = async (target: Target) => {
+    if (!file) return;
+    if (!(await guard())) return;
+    setActive(target); setBusy(true); setError(''); setProgress(0);
+    if (result?.url) URL.revokeObjectURL(result.url);
+    setResult(null);
+    try {
+      const out = await convertFile(file, target, { onProgress: (r) => setProgress(Math.round(r * 100)) });
+      if (out.text != null) {
+        setResult({ text: out.text, filename: out.filename });
+      } else if (out.files) {
+        const { default: JSZip } = await import('jszip');
+        const zip = new JSZip();
+        for (const f of out.files) zip.file(f.name, await f.blob.arrayBuffer());
+        const blob = await zip.generateAsync({ type: 'blob' });
+        setResult({ url: URL.createObjectURL(blob), filename: out.filename });
+      } else if (out.blob) {
+        setResult({ url: URL.createObjectURL(out.blob), filename: out.filename });
+      }
+    } catch (e) {
+      setError((e as Error).message || 'Conversion failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const download = () => {
+    if (!result) return;
+    let url = result.url;
+    if (!url && result.text != null) url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain' }));
+    if (!url) return;
+    const a = document.createElement('a');
+    a.href = url; a.download = result.filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
+  return (
+    <div className="space-y-5">
+      {gate}
+      {!file && (
+        <div
+          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) load(f); }}
+          onDragOver={(e) => e.preventDefault()}
+          className="flex flex-col items-center justify-center gap-4 border-2 border-dashed border-black/[0.14] bg-[var(--color-surface-1)] px-6 py-16 text-center"
+        >
+          <div className="flex h-14 w-14 items-center justify-center bg-[var(--color-cat-convert)]/10">
+            <Upload className="h-6 w-6 text-[var(--color-cat-convert)]" />
+          </div>
+          <div>
+            <button type="button" onClick={() => inputRef.current?.click()} className="text-[18px] font-semibold tracking-tight text-[var(--color-fg)] hover:underline underline-offset-4">
+              Drop any file to convert it
+            </button>
+            <p className="mt-1 text-[13px] text-[var(--color-fg-muted)]">Images, audio, video, PDFs — we&apos;ll show every format you can convert to. Files never leave your device.</p>
+          </div>
+          <input ref={inputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
+        </div>
+      )}
+
+      {file && (
+        <>
+          <div className="flex flex-wrap items-center gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
+            <span className="text-[12px] font-semibold">{file.name}</span>
+            {info?.category && <span className="bg-black/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">{CAT_LABEL[info.category]}</span>}
+            <span className="font-mono text-[10px] text-[var(--color-fg-muted)]">{(file.size / 1024).toFixed(0)} KB</span>
+            <button type="button" onClick={() => { setFile(null); setResult(null); setActive(null); }}
+              className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change file</button>
+          </div>
+
+          {targets.length > 0 && (
+            <div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Convert to</div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {targets.map((t) => {
+                  const isActive = active?.to === t.to && active?.handler === t.handler;
+                  return (
+                    <button key={`${t.to}-${t.handler}`} type="button" onClick={() => run(t)} disabled={busy}
+                      className={cn(
+                        'flex items-center gap-2 border px-3 py-3 text-left transition disabled:opacity-50',
+                        isActive ? 'border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)]/5' : 'border-black/[0.08] hover:border-[var(--color-cat-convert)] hover:bg-[var(--color-surface-2)]',
+                      )}>
+                      <div className="flex items-center gap-1.5 font-mono text-[13px] font-bold tracking-tight">
+                        <span className="text-[var(--color-fg-muted)]">{info?.ext.toUpperCase()}</span>
+                        <ArrowRight className="h-3 w-3 text-[var(--color-fg-subtle)]" />
+                        <span className="text-[var(--color-fg)]">{t.to.toUpperCase()}</span>
+                      </div>
+                      {busy && isActive && <Loader2 className="ml-auto h-3.5 w-3.5 animate-spin text-[var(--color-cat-convert)]" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {active?.note && <p className="mt-2 text-[11px] text-[var(--color-fg-subtle)]">{active.note}.</p>}
+            </div>
+          )}
+
+          {busy && (
+            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
+              <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg)]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting to {active?.to.toUpperCase()}… {progress > 0 && `${progress}%`}
+              </div>
+              {progress > 0 && (
+                <div className="mt-2 h-1 w-full overflow-hidden bg-black/[0.06]">
+                  <div className="h-full bg-[var(--color-cat-convert)] transition-[width]" style={{ width: `${progress}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && <div className="text-[12px] text-red-600">{error}</div>}
+
+          {result && (
+            <div className="border border-[var(--color-cat-convert)]/40 bg-[var(--color-cat-convert)]/5 p-4">
+              <div className="flex items-center gap-2 text-[13px] font-semibold text-[var(--color-fg)]">
+                <Check className="h-4 w-4 text-green-600" /> Ready: {result.filename}
+              </div>
+              {result.text != null && (
+                <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap bg-[var(--color-surface-1)] p-3 font-mono text-[12px] text-[var(--color-fg)]">{result.text.slice(0, 4000) || '(no text found)'}</pre>
+              )}
+              <button type="button" onClick={download}
+                className="mt-3 flex items-center gap-2 bg-[var(--color-cat-convert)] px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110">
+                {result.text != null ? <FileText className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />} Download
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}

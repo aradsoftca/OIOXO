@@ -1,0 +1,322 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   XonTiles v3 — Cream Metro
+   Warm off-white canvas, saturated tiles, no glow, real shadows.
+   Inspired by Linear, Arc, Stripe — Metro DNA, 2026 execution.
+   ========================================================================== */
+
+@theme {
+  /* Typography */
+  --font-display: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+
+  /* Canvas — warm cream, NOT pure white. Feels like nice paper. */
+  --color-canvas: oklch(97.5% 0.012 80);
+  --color-surface-1: oklch(95.5% 0.012 80);
+  --color-surface-2: oklch(93% 0.012 80);
+  --color-surface-3: oklch(89% 0.012 80);
+
+  /* Foreground — near black with a hint of warm */
+  --color-fg: oklch(18% 0.008 80);
+  --color-fg-muted: oklch(44% 0.008 80);
+  --color-fg-subtle: oklch(62% 0.008 80);
+
+  /* Stroke */
+  --color-stroke: oklch(89% 0.012 80);
+  --color-stroke-strong: oklch(80% 0.012 80);
+
+  /* Category — calibrated for white-text contrast on cream bg.
+     All sit at L 54-62 so contrast against cream is strong and
+     white text stays readable on every tile. */
+  --color-cat-image:     oklch(58% 0.22 295);  /* violet */
+  --color-cat-audio:     oklch(62% 0.18 65);   /* amber */
+  --color-cat-video:     oklch(58% 0.22 22);   /* rose */
+  --color-cat-pdf:       oklch(54% 0.22 12);   /* crimson */
+  --color-cat-text:      oklch(58% 0.16 180);  /* teal */
+  --color-cat-dev:       oklch(58% 0.22 130);  /* deep lime */
+  --color-cat-calc:      oklch(56% 0.20 245);  /* cobalt */
+  --color-cat-convert:   oklch(58% 0.22 320);  /* magenta */
+  --color-cat-generator: oklch(58% 0.16 155);  /* emerald */
+  --color-cat-time:      oklch(54% 0.18 270);  /* indigo */
+  --color-cat-finance:   oklch(58% 0.18 145);  /* green */
+  --color-cat-seo:       oklch(62% 0.18 50);   /* orange */
+  --color-cat-game:      oklch(60% 0.22 350);  /* hot pink */
+  --color-cat-gis:       oklch(60% 0.14 210);  /* cyan */
+  --color-cat-ip:        oklch(54% 0.14 230);  /* slate-blue */
+  --color-cat-social:    oklch(60% 0.20 355);  /* pink */
+  --color-cat-font:      oklch(58% 0.18 280);  /* purple */
+  --color-cat-subtitle:  oklch(60% 0.16 100);  /* mustard */
+
+  /* Brand — the logo's indigo→purple X. Primary accent for CTAs / account. */
+  --brand-1: #4f46e5;
+  --brand-2: #7c3aed;
+  --brand-gradient: linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 100%);
+
+  /* Tile geometry — TRUE Metro, zero radius */
+  --tile-radius: 0px;
+  --tile-gap: 6px;
+  --tile-unit: 144px;
+
+  /* Motion — soft spring with hair of overshoot */
+  --ease-spring: linear(
+    0, 0.5 8%, 0.83 16%, 1.02 24%, 1.05 32%, 1.03 40%, 1 52%, 1
+  );
+  --ease-snap: cubic-bezier(0.2, 0.95, 0.3, 1);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+
+html, body {
+  background: var(--color-canvas);
+  color: var(--color-fg);
+  font-family: var(--font-display);
+  font-feature-settings: "ss01", "cv11", "calt";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: geometricPrecision;
+}
+
+* { border-color: var(--color-stroke); }
+
+::selection {
+  background: oklch(58% 0.22 295 / 0.25);
+  color: var(--color-fg);
+}
+
+/* Scrollbar — discrete */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--color-stroke-strong);
+  border: 2px solid var(--color-canvas);
+}
+::-webkit-scrollbar-thumb:hover { background: oklch(65% 0.012 80); }
+
+/* App content stack (no orbs in v3 — light theme doesn't need cinematic depth) */
+.app-stack { position: relative; }
+
+/* ==========================================================================
+   Tile surface — sharp 4px corners, flat color, real subtle shadow
+   No glow. No category-tinted hover halo. Clean modern light.
+   ========================================================================== */
+
+.tile-surface {
+  position: relative;
+  isolation: isolate;
+  border-radius: var(--tile-radius);
+  overflow: hidden;
+  background: var(--tile-color, var(--color-surface-1));
+  /* Real but discrete shadows — sit flat on the cream like a Linear card */
+  box-shadow:
+    0 0 0 1px oklch(0% 0 0 / 0.04),
+    0 1px 2px 0 oklch(0% 0 0 / 0.06),
+    0 4px 12px -6px oklch(0% 0 0 / 0.12);
+  transition:
+    transform 240ms var(--ease-spring),
+    box-shadow 220ms var(--ease-snap),
+    filter 220ms var(--ease-snap);
+  transform-style: preserve-3d;
+  transform: perspective(900px);
+  will-change: transform;
+}
+
+.tile-surface:hover {
+  transform: perspective(900px) translateY(-3px) scale(1.012);
+  box-shadow:
+    0 0 0 1px oklch(0% 0 0 / 0.05),
+    0 2px 4px 0 oklch(0% 0 0 / 0.08),
+    0 12px 28px -8px oklch(0% 0 0 / 0.18);
+}
+
+/* 3D Metro press-tilt — driven by CSS vars from Tile.tsx */
+.tile-surface:active {
+  transition-duration: 90ms;
+  transform:
+    perspective(700px)
+    rotateX(var(--tilt-x, 0deg))
+    rotateY(var(--tilt-y, 0deg))
+    scale(0.96);
+}
+
+/* Tile body — content layer. Color tiles use white text, neutral use dark. */
+.tile-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px;
+  color: var(--tile-fg, oklch(99% 0 0));
+}
+
+/* Responsive bento columns — 2-up on phones, full count from sm up.
+   --tile-cols is set by TileGrid.tsx. This keeps the desktop bento intact
+   while letting narrow screens breathe instead of cramming 4 slivers across. */
+.tile-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 640px) {
+  .tile-grid {
+    grid-template-columns: repeat(var(--tile-cols, 4), minmax(0, 1fr));
+  }
+}
+
+/* Neutral surface tile — used for promise/hero non-colored tiles.
+   Sets dark text and a subtle warm tint. */
+.tile-surface[data-neutral="true"] {
+  --tile-fg: var(--color-fg);
+  background: var(--color-surface-1);
+}
+
+.tile-surface[data-neutral="true"]:hover {
+  background: var(--color-surface-2);
+}
+
+/* ==========================================================================
+   Corner ribbons — Pro / New / Pinned
+   ========================================================================== */
+
+.tile-ribbon {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 56px;
+  height: 56px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.tile-ribbon::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--ribbon-color, oklch(62% 0.18 60));
+  clip-path: polygon(100% 0, 100% 100%, 0 0);
+}
+
+.tile-ribbon-text {
+  position: absolute;
+  top: 8px;
+  right: 4px;
+  width: 56px;
+  transform: rotate(45deg);
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: oklch(100% 0 0);
+}
+
+/* ==========================================================================
+   Drop-magic — eligible-tile shimmer when dragging files over the app
+   ========================================================================== */
+
+body[data-dragging="true"] .tile-surface:not([data-accepts-drop="true"]) {
+  filter: saturate(0.3) opacity(0.4);
+  transform: perspective(900px) scale(0.97);
+}
+
+body[data-dragging="true"] .tile-surface[data-accepts-drop="true"] {
+  filter: brightness(1.08);
+  transform: perspective(900px) translateY(-4px) scale(1.03);
+  box-shadow:
+    0 0 0 2px var(--tile-color, var(--color-cat-image)),
+    0 20px 40px -8px oklch(0% 0 0 / 0.25);
+}
+
+/* ==========================================================================
+   Stagger fade-in for tile grids
+   ========================================================================== */
+
+.tile-stagger > * {
+  animation: tile-pop 420ms var(--ease-spring) both;
+  animation-delay: calc(var(--stagger-i, 0) * 30ms);
+}
+
+@keyframes tile-pop {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-stagger > * { animation: none; }
+  .tile-surface { transition: none; }
+}
+
+/* ==========================================================================
+   Live tile flip
+   ========================================================================== */
+
+@keyframes tile-flip-soft {
+  0%, 94%   { transform: rotateY(0deg); }
+  97%       { transform: rotateY(180deg); }
+  100%      { transform: rotateY(360deg); }
+}
+
+.tile-flip-host { perspective: 1200px; }
+.tile-flip-inner {
+  transform-style: preserve-3d;
+  animation: tile-flip-soft 18s ease-in-out infinite;
+  animation-delay: var(--flip-delay, 0s);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tile-flip-inner { animation: none; }
+}
+
+/* ==========================================================================
+   View Transitions
+   ========================================================================== */
+
+::view-transition-old(tile),
+::view-transition-new(tile) {
+  animation-duration: 380ms;
+  animation-timing-function: var(--ease-snap);
+}
+
+/* ==========================================================================
+   Focus ring
+   ========================================================================== */
+
+:focus-visible {
+  outline: 2px solid oklch(58% 0.22 295);
+  outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }
+
+/* Light glass — for floating panels (palette, dialogs) */
+.glass {
+  background: oklch(97.5% 0.012 80 / 0.85);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid oklch(0% 0 0 / 0.06);
+  box-shadow: 0 24px 60px -12px oklch(0% 0 0 / 0.22);
+}
+
+/* Section-header dot accent */
+.section-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--dot-color, oklch(58% 0.22 295));
+  margin-right: 10px;
+  vertical-align: middle;
+}

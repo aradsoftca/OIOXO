@@ -1,0 +1,515 @@
+// newxonvert schema — browser-first tools + ported product layer.
+// Server-side conversion models from old xonvert (Conversion, DailyUsage,
+// SystemMetrics, ToolExecution/Config, ServiceUsage, ConversionConfig/Stats)
+// are intentionally dropped: tools now run client-side. We keep accounts,
+// plans/billing (Stripe + NOWPayments crypto), per-category usage metering,
+// admin-editable tiers/pricing, support tickets, email, audit, SEO content.
+// Migrated models keep old field names so the France copy is a direct insert.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Auth + account (NextAuth) + plan/billing
+// -----------------------------------------------------------------------------
+
+model User {
+  id                   String   @id @default(cuid())
+  email                String?  @unique
+  password             String?  // bcrypt hash (legacy field name, kept for migration)
+  name                 String?
+  image                String?
+  emailVerified        DateTime?
+  plan                 Plan     @default(FREE)
+  role                 Role     @default(USER)
+
+  // Subscription
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
+  subscriptionStatus   SubscriptionStatus @default(INACTIVE)
+  subscriptionEndsAt   DateTime?
+
+  // Per-user limit overrides (admin can grant more usage / bigger files)
+  dailyConversionLimit Int?     // null = use tier default
+  maxFileSize          Int?     // bytes; null = use tier default
+
+  // Security / identity
+  deviceFingerprint    String?
+  lastLoginAt          DateTime?
+  lastLoginIp          String?
+  resetToken           String?
+  resetTokenExpiry     DateTime?
+  marketingOptOut      Boolean  @default(false)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  accounts                  Account[]
+  sessions                  Session[]
+  payments                  Payment[]
+  cryptoPayments            CryptoPayment[]
+  subscriptionCancellations SubscriptionCancellation[]
+  tickets                   Ticket[]
+  apiKeys                   ApiKey[]
+  emails                    Email[]
+
+  @@index([email])
+  @@index([plan])
+  @@index([deviceFingerprint])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// -----------------------------------------------------------------------------
+// Usage metering (per-category, identity-keyed) + admin-editable tiers/pricing
+// -----------------------------------------------------------------------------
+
+// Per-category daily usage, keyed to a composite identity (fingerprint hash) or
+// account. This is what enforces "3 image / 3 audio / 3 video … per day".
+model CategoryUsage {
+  id          String   @id @default(cuid())
+  userId      String?
+  fingerprint String   // IP + browser fingerprint + cookie composite hash
+  category    String   // 'image','audio','video','pdf','document','presentation','ebook','cad','archive', etc.
+  date        DateTime @db.Date
+  count       Int      @default(0)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([fingerprint, category, date])
+  @@index([fingerprint, date])
+  @@index([userId, date])
+  @@index([category, date])
+}
+
+// Records a started/claimed 30s reward-wait per identity+category+day
+// (Postgres replacement for the old Redis reward-tracker — no Redis needed).
+model RewardClaim {
+  id          String   @id @default(cuid())
+  fingerprint String
+  category    String
+  date        DateTime @db.Date
+  startedAt   DateTime @default(now())
+  claimedAt   DateTime?
+
+  @@unique([fingerprint, category, date])
+  @@index([fingerprint, date])
+}
+
+// Admin-editable per-tier, per-category limits (file size + daily quota).
+model TierLimit {
+  id          String   @id @default(cuid())
+  tier        String   // 'FREE','PRO'
+  category    String
+  maxFileSize Int      // bytes
+  dailyLimit  Int      // per-category daily quota
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([tier, category])
+  @@index([tier])
+}
+
+// Admin-editable global tier config + feature flags.
+model TierConfig {
+  id              String   @id @default(cuid())
+  tier            String   @unique
+  totalDailyLimit Int
+  batchConversion Boolean  @default(false)
+  apiAccess       Boolean  @default(false)
+  cloudHistory    Boolean  @default(false)
+  removeWatermark Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Admin-editable pricing plans (display + Stripe + crypto links).
+model PricingPlan {
+  id                String   @id @default(cuid())
+  tier              String   @unique
+  name              String
+  description       String   @db.Text
+  price             Float
+  yearlyPrice       Float?
+  stripeProductId   String?
+  stripePriceId     String?
+  stripePaymentLink String?
+  features          Json     @default("[]")
+  order             Int      @default(0)
+  isPopular         Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([order])
+}
+
+// -----------------------------------------------------------------------------
+// Payments — Stripe + NOWPayments crypto
+// -----------------------------------------------------------------------------
+
+model Payment {
+  id                    String        @id @default(cuid())
+  userId                String
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripePaymentIntentId String?       @unique
+  stripeInvoiceId       String?       @unique
+  stripeChargeId        String?
+  stripeCustomerId      String?
+  stripeSubscriptionId  String?
+  amount                Float
+  currency              String        @default("usd")
+  status                PaymentStatus @default(PENDING)
+  paymentMethod         String?
+  plan                  String
+  billingPeriod         String?
+  invoiceUrl            String?
+  receiptUrl            String?
+  description           String?
+  metadata              Json?
+  failureCode           String?
+  failureMessage        String?
+  paidAt                DateTime?
+  failedAt              DateTime?
+  refundedAt            DateTime?
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+model CryptoPayment {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  paymentId       String   // NOWPayments invoice/payment ID
+  orderId         String   @unique
+  planType        String   // 'monthly' | 'yearly'
+  amount          Float
+  currency        String   @default("usd")
+  status          String   @default("pending")
+  providerStatus  String?
+  transactionId   String?
+  payCurrency     String?
+  metadata        Json?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([paymentId])
+  @@index([orderId])
+  @@index([status])
+}
+
+model SubscriptionCancellation {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reason      String?
+  cancelledAt DateTime @default(now())
+  plan        String
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  rateLimit   Int       @default(100)
+  dailyLimit  Int       @default(1000)
+  dailyUsed   Int       @default(0)
+  dailyReset  DateTime  @default(now())
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([keyHash])
+  @@index([userId])
+}
+
+// -----------------------------------------------------------------------------
+// Support tickets + contact + email + audit + SEO content
+// -----------------------------------------------------------------------------
+
+model Ticket {
+  id           String          @id @default(cuid())
+  ticketNumber Int             @unique
+  userId       String?
+  user         User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  name         String
+  email        String
+  subject      String
+  category     String          @default("general")
+  priority     TicketPriority  @default(NORMAL)
+  status       TicketStatus    @default(OPEN)
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  closedAt     DateTime?
+  messages     TicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([ticketNumber])
+  @@index([email])
+}
+
+model TicketMessage {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message   String   @db.Text
+  isStaff   Boolean  @default(false)
+  staffName String?
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model ContactMessage {
+  id          String               @id @default(cuid())
+  name        String
+  email       String
+  subject     String
+  message     String               @db.Text
+  ipAddress   String?
+  userAgent   String?
+  status      ContactMessageStatus @default(UNREAD)
+  priority    ContactPriority      @default(NORMAL)
+  assignedTo  String?
+  response    String?              @db.Text
+  respondedAt DateTime?
+  respondedBy String?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@index([status])
+  @@index([email])
+}
+
+model Email {
+  id        String      @id @default(cuid())
+  from      String
+  to        String
+  subject   String
+  body      String      @db.Text
+  html      String?     @db.Text
+  type      EmailType   @default(TRANSACTIONAL)
+  status    EmailStatus @default(PENDING)
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  messageId String?     @unique
+  error     String?
+  sentAt    DateTime?
+  openedAt  DateTime?
+  clickedAt DateTime?
+  createdAt DateTime    @default(now())
+
+  @@index([to])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  subject     String
+  bodyHtml    String   @db.Text
+  bodyText    String?  @db.Text
+  category    String   @default("general")
+  variables   String[] @default([])
+  isActive    Boolean  @default(true)
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+}
+
+model EmailConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  adminId    String
+  adminEmail String
+  action     String
+  entity     String
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt(sort: Desc)])
+}
+
+// Unique SEO content per convert pair (e.g. "pdf-to-jpg") — avoids thin content.
+model ConversionContent {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  sourceFormat     String
+  targetFormat     String
+  title            String
+  metaDescription  String   @db.Text
+  intro            String   @db.Text
+  whyConvert       String   @db.Text
+  howItWorks       String   @db.Text
+  qualityNotes     String   @db.Text
+  useCases         String   @db.Text
+  faq              Json     @default("[]")
+  formatComparison String   @db.Text @default("")
+  relatedLinks     String   @db.Text @default("")
+  h2Variants       Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([sourceFormat, targetFormat])
+  @@index([sourceFormat])
+  @@index([targetFormat])
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum Plan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  INACTIVE
+  CANCELLED
+  PAST_DUE
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+enum EmailType {
+  VERIFICATION
+  CONVERSION_COMPLETE
+  WELCOME
+  SUBSCRIPTION
+  TRANSACTIONAL
+  MARKETING
+  PASSWORD_RESET
+  SECURITY_ALERT
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  BOUNCED
+  OPENED
+  CLICKED
+}
+
+enum ContactMessageStatus {
+  UNREAD
+  READ
+  IN_PROGRESS
+  RESPONDED
+  CLOSED
+  SPAM
+}
+
+enum ContactPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}

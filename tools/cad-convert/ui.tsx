@@ -1,0 +1,92 @@
+'use client';
+
+import * as React from 'react';
+import { Upload, Download, Loader2, Box } from 'lucide-react';
+import { cadKind } from '@/engines/cad';
+import { convertCadInWorker } from '@/engines/cad/client';
+import { extOf } from '@/lib/convert/matrix';
+
+type Target = 'stl' | 'obj';
+
+export default function CadConvertTool() {
+  const [file, setFile] = React.useState<File | null>(null);
+  const [target, setTarget] = React.useState<Target>('stl');
+  const [busy, setBusy] = React.useState(false);
+  const [stats, setStats] = React.useState<{ parts: number; triangles: number } | null>(null);
+  const [error, setError] = React.useState('');
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const load = (f: File) => {
+    if (!cadKind(extOf(f.name))) { setError('Please choose a STEP (.step/.stp), IGES (.iges/.igs) or BREP file.'); return; }
+    setFile(f); setError(''); setStats(null);
+  };
+
+  const run = async () => {
+    if (!file) return;
+    setBusy(true); setError(''); setStats(null);
+    try {
+      const kind = cadKind(extOf(file.name))!;
+      const { text, stats } = await convertCadInWorker(file, kind, target);
+      setStats(stats);
+      const blob = new Blob([text], { type: 'text/plain' });
+      const base = file.name.replace(/\.[^.]+$/, '');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${base}.${target}`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setError((e as Error).message || 'Conversion failed.');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-4">
+      {!file && (
+        <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) load(f); }}
+          onDragOver={(e) => e.preventDefault()}
+          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
+          <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
+            <Upload className="h-5 w-5" /> Drop a CAD file (STEP, IGES, BREP) or click to browse
+          </button>
+          <input ref={inputRef} type="file" accept=".step,.stp,.iges,.igs,.brep" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
+        </div>
+      )}
+
+      {file && (
+        <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
+              <Box className="h-4 w-4 text-[var(--color-cat-convert)]" />
+              <span className="text-[12px] font-semibold">{file.name}</span>
+              <button type="button" onClick={() => { setFile(null); setStats(null); }} className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change file</button>
+            </div>
+            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+              CAD solids are tessellated into a triangle mesh — perfect for 3D printing (STL) or the web (OBJ). The original parametric geometry isn&apos;t preserved.
+              {stats && <div className="mt-2 font-mono text-[var(--color-fg)]">{stats.parts} part{stats.parts === 1 ? '' : 's'} · {stats.triangles.toLocaleString()} triangles</div>}
+            </div>
+          </div>
+          <aside className="space-y-3">
+            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
+              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Output format</div>
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {(['stl', 'obj'] as const).map((t) => (
+                  <button key={t} type="button" onClick={() => setTarget(t)}
+                    className={`border py-2 text-[11px] font-bold uppercase tracking-wider transition ${target === t ? 'border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                    {t.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 text-[11px] text-[var(--color-fg-subtle)]">STL for 3D printing/slicers. OBJ keeps separate parts.</div>
+            </div>
+            <button type="button" onClick={run} disabled={busy}
+              className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-convert)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Box className="h-3.5 w-3.5" />} {busy ? 'Tessellating…' : `Convert to ${target.toUpperCase()}`}
+            </button>
+            {error && <div className="text-[12px] text-red-600">{error}</div>}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}

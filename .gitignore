@@ -1,0 +1,18 @@
+node_modules
+.next
+out
+dist
+.env
+.env.local
+.env*.local
+*.log
+.DS_Store
+.vercel
+.cache
+tsconfig.tsbuildinfo
+
+# Cloudflare Origin Cert (never commit)
+certs/
+
+# Self-hosted GeoIP databases (downloaded per-server, not committed)
+/data/geoip/*.mmdb

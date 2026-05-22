@@ -1,0 +1,98 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * Peer-to-peer AUDIO/VIDEO connector, sharing the same /api/signal relay + STUN
+ * as Send and the Universal Clipboard. Unlike peer.ts (data only), this carries
+ * real-time media tracks: used for live screen-share / "watch together" and the
+ * no-signup video call. Media streams browser-to-browser, encrypted; the relay
+ * only carries the SDP/ICE handshake.
+ */
+
+import { getIceServers } from './ice';
+
+export type MediaState = 'connecting' | 'connected' | 'closed' | 'failed';
+
+export interface MediaHandlers {
+  /** Local tracks to publish (e.g. screen, or camera+mic). Omit for receive-only. */
+  localStream?: MediaStream | null;
+  onRemoteStream?: (stream: MediaStream) => void;
+  onState?: (s: MediaState) => void;
+}
+
+export interface MediaPeer { close: () => void }
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): MediaPeer {
+  let pc: RTCPeerConnection | null = null;
+  const remote = new MediaStream();
+  let cursor = 0;
+  let stopped = false;
+  let haveRemote = false;
+  let connected = false;
+  const iceQueue: RTCIceCandidateInit[] = [];
+
+  const markConnected = () => { connected = true; clearTimeout(watchdog); h.onState?.('connected'); };
+  const watchdog = setTimeout(() => { if (!connected && !stopped) h.onState?.('failed'); }, 20_000);
+
+  const post = (data: any) =>
+    fetch(`/api/signal/${encodeURIComponent(room)}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from: role, data }),
+    }).catch(() => {});
+
+  const handle = async (data: any) => {
+    if (!data || !pc) return;
+    if (data.kind === 'sdp' && data.sdp) {
+      await pc.setRemoteDescription(data.sdp).catch(() => {});
+      haveRemote = true;
+      for (const c of iceQueue.splice(0)) await pc.addIceCandidate(c).catch(() => {});
+      if (data.sdp.type === 'offer') {
+        const ans = await pc.createAnswer();
+        await pc.setLocalDescription(ans);
+        void post({ kind: 'sdp', sdp: pc.localDescription });
+      }
+    } else if (data.kind === 'ice' && data.cand) {
+      if (haveRemote) await pc.addIceCandidate(data.cand).catch(() => {});
+      else iceQueue.push(data.cand);
+    }
+  };
+
+  (async () => {
+    const iceServers = await getIceServers();
+    if (stopped) return;
+    pc = new RTCPeerConnection({ iceServers });
+
+    if (h.localStream) for (const t of h.localStream.getTracks()) pc.addTrack(t, h.localStream);
+    else { try { pc.addTransceiver('video', { direction: 'recvonly' }); pc.addTransceiver('audio', { direction: 'recvonly' }); } catch { /* */ } }
+
+    pc.ontrack = (e) => { remote.addTrack(e.track); h.onRemoteStream?.(remote); };
+    pc.onicecandidate = (e) => { if (e.candidate) void post({ kind: 'ice', cand: e.candidate.toJSON() }); };
+    pc.onconnectionstatechange = () => {
+      if (!pc) return;
+      if (pc.connectionState === 'connected') markConnected();
+      else if (pc.connectionState === 'failed') { clearTimeout(watchdog); h.onState?.('failed'); }
+      else if (pc.connectionState === 'disconnected' || pc.connectionState === 'closed') { if (!stopped) h.onState?.('closed'); }
+    };
+
+    if (role === 's') {
+      try {
+        const o = await pc.createOffer();
+        await pc.setLocalDescription(o);
+        await post({ kind: 'sdp', sdp: pc.localDescription });
+      } catch { h.onState?.('failed'); }
+    }
+
+    while (!stopped) {
+      try {
+        const r = await fetch(`/api/signal/${encodeURIComponent(room)}?from=${role}&after=${cursor}&_=${Date.now()}`, { cache: 'no-store' });
+        const j = (await r.json()) as { messages?: { seq: number; data: any }[]; cursor?: number };
+        for (const m of j.messages ?? []) await handle(m.data);
+        if (j.cursor) cursor = j.cursor;
+      } catch { /* keep polling */ }
+      await sleep(900);
+    }
+  })();
+
+  h.onState?.('connecting');
+  return { close: () => { stopped = true; clearTimeout(watchdog); try { pc?.close(); } catch { /* */ } } };
+}

@@ -679,7 +679,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">Xonvert AI needs a modern browser. Please update your browser, or try a recent <strong>Chrome</strong>, <strong>Edge</strong>, <strong>Safari</strong> or <strong>Firefox</strong>.</p>
         </div>
       ) : (
-        <div className={`flex ${embedded ? 'h-[72vh] min-h-[460px] sm:h-[56vh] sm:min-h-[420px]' : 'h-[78vh] min-h-[480px] sm:h-[62vh]'} flex-col border border-black/[0.08] bg-[var(--color-surface-1)]`}
+        <div className={`flex ${embedded ? 'h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] sm:h-[calc(100dvh-280px)]' : 'h-[calc(100dvh-200px)] min-h-[420px] max-h-[820px] sm:h-[calc(100dvh-230px)]'} flex-col border border-black/[0.08] bg-[var(--color-surface-1)]`}
           onDragOver={(e) => { e.preventDefault(); }}
           onDrop={(e) => { e.preventDefault(); ensureLoaded(); const fs = Array.from(e.dataTransfer.files ?? []); if (fs.length > 1) setPendingFiles(fs); else if (fs[0]) receiveFile(fs[0]); }}>
           {loadState === 'loading' && (

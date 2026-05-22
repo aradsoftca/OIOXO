@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 const AiApp = dynamic(() => import('@/app/ai/AiApp'), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[72vh] min-h-[460px] flex-col justify-end border border-black/[0.08] bg-[var(--color-surface-1)] sm:h-[56vh] sm:min-h-[420px]">
+    <div className="flex h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] flex-col justify-end border border-black/[0.08] bg-[var(--color-surface-1)] sm:h-[calc(100dvh-280px)]">
       <div className="grid flex-1 place-items-center text-[13px] text-[var(--color-fg-subtle)]">
         <span className="opacity-70">Loading your assistant…</span>
       </div>

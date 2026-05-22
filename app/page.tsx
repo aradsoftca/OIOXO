@@ -26,7 +26,7 @@ export default function HomePage() {
               AI
             </span>
           </h1>
-          <p className="mx-auto mt-2 max-w-xl text-[14px] font-medium text-[var(--color-fg-muted)] sm:text-[16px]">
+          <p className="mx-auto mt-2 text-[14px] font-medium text-balance text-[var(--color-fg-muted)] sm:whitespace-nowrap sm:text-[16px]">
             Your online AI handyman — convert, edit, create &amp; find the right tool for any file.
           </p>
         </div>

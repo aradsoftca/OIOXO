@@ -7,9 +7,10 @@
    ========================================================================== */
 
 @theme {
-  /* Typography */
-  --font-display: "Geist", "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+  /* Typography — fonts are loaded & self-hosted via next/font (see layout.tsx) */
+  --font-display: var(--font-geist), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-title: var(--font-grotesk), var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
   /* Canvas — warm cream, NOT pure white. Feels like nice paper. */
   --color-canvas: oklch(97.5% 0.012 80);
@@ -78,6 +79,10 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: geometricPrecision;
 }
+
+/* Display headings use the Space Grotesk title font for a modern, distinctive
+   look; body/UI stays on Geist. */
+h1, h2 { font-family: var(--font-title); }
 
 * { border-color: var(--color-stroke); }
 

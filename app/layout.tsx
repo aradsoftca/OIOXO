@@ -1,7 +1,14 @@
 import type { Metadata, Viewport } from 'next';
+import { Geist, Geist_Mono, Space_Grotesk } from 'next/font/google';
 import { AppShell } from '@/components/layout/AppShell';
 import { Providers } from '@/components/Providers';
 import './globals.css';
+
+// Modern type system, self-hosted by next/font (no runtime request):
+// Geist for UI/body, Space Grotesk for display headings, Geist Mono for code.
+const geist = Geist({ subsets: ['latin'], variable: '--font-geist', display: 'swap' });
+const geistMono = Geist_Mono({ subsets: ['latin'], variable: '--font-geist-mono', display: 'swap' });
+const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-grotesk', display: 'swap' });
 
 export const metadata: Metadata = {
   title: { default: 'Xonvert — Every file. Every tool. One tap.', template: '%s · Xonvert' },
@@ -27,7 +34,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${geist.variable} ${geistMono.variable} ${spaceGrotesk.variable}`}>
       <body className="bg-[var(--color-canvas)] text-[var(--color-fg)] antialiased">
         <Providers>
           <AppShell>{children}</AppShell>

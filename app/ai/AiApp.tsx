@@ -759,22 +759,27 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                 </span>
               </div>
             )}
-            <div className="flex items-end gap-2">
+            {/* On phones the textarea takes its own full-width white line (flex-wrap
+                forces it down); the controls reflow to a row beneath it. On sm+ it
+                stays inline as before: [attach][mic][textarea][send]. */}
+            <div className="flex flex-wrap items-end gap-2">
               <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length > 1) setPendingFiles(fs); else if (fs[0]) receiveFile(fs[0]); e.target.value = ''; }} />
-              <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach a file" className="grid h-10 w-10 shrink-0 place-items-center text-[var(--color-fg-muted)] transition hover:text-[var(--color-cat-dev)]"><Paperclip className="h-4 w-4" /></button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} title="Attach a file" className="order-2 grid h-10 w-10 shrink-0 place-items-center text-[var(--color-fg-muted)] transition hover:text-[var(--color-cat-dev)] sm:order-1"><Paperclip className="h-4 w-4" /></button>
               <button type="button" onClick={toggleVoice} title={recording ? 'Stop & send' : 'Speak (any language)'} disabled={transcribing}
-                className={`grid h-10 w-10 shrink-0 place-items-center transition ${recording ? 'animate-pulse bg-red-600 text-white' : 'text-[var(--color-fg-muted)] hover:text-[var(--color-cat-dev)]'} disabled:opacity-40`}>
+                className={`order-3 grid h-10 w-10 shrink-0 place-items-center transition sm:order-2 ${recording ? 'animate-pulse bg-red-600 text-white' : 'text-[var(--color-fg-muted)] hover:text-[var(--color-cat-dev)]'} disabled:opacity-40`}>
                 {transcribing ? <Loader2 className="h-4 w-4 animate-spin" /> : recording ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               </button>
               <textarea value={input} onChange={(e) => setInput(e.target.value)} rows={1} onFocus={ensureLoaded}
                 placeholder={recording ? 'Listening… tap ◼ to send' : loadState === 'ready' ? 'Ask, speak 🎙️, draw, paste or attach a file…' : loadState === 'loading' ? 'Getting ready…' : 'Ask anything…'}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                 onPaste={(e) => { const it = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/')); const f = it?.getAsFile(); if (f) { e.preventDefault(); receiveFile(new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png')}`, { type: f.type })); } }}
-                className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[14px] text-[var(--color-fg)] focus:outline-none" />
+                className="order-1 max-h-32 w-full resize-none rounded-xl border border-black/[0.12] bg-white px-3 py-2.5 text-[15px] text-[var(--color-fg)] shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-cat-dev)]/30 sm:order-3 sm:w-auto sm:flex-1 sm:rounded-none sm:border-0 sm:bg-transparent sm:px-2 sm:py-2 sm:text-[14px] sm:shadow-none sm:focus:ring-0" />
+              {/* Spacer pushes Send to the right on the mobile button row only. */}
+              <div className="order-4 flex-1 sm:hidden" />
               {generating ? (
-                <button type="button" onClick={() => { stopRef.current = true; }} className="grid h-10 w-10 shrink-0 place-items-center bg-red-600 text-white"><Square className="h-4 w-4" /></button>
+                <button type="button" onClick={() => { stopRef.current = true; }} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-red-600 text-white sm:order-4"><Square className="h-4 w-4" /></button>
               ) : (
-                <button type="button" onClick={send} disabled={loadState !== 'ready' || (!input.trim() && !pendingFile && pendingFiles.length < 2)} title={loadState !== 'ready' ? 'Getting ready…' : 'Send'} className="grid h-10 w-10 shrink-0 place-items-center bg-[var(--color-cat-dev)] text-white transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)]"><Send className="h-4 w-4" /></button>
+                <button type="button" onClick={send} disabled={loadState !== 'ready' || (!input.trim() && !pendingFile && pendingFiles.length < 2)} title={loadState !== 'ready' ? 'Getting ready…' : 'Send'} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-[var(--color-cat-dev)] text-white transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] sm:order-4"><Send className="h-4 w-4" /></button>
               )}
             </div>
           </div>

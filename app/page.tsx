@@ -10,11 +10,10 @@ import { TOOLS } from '@/lib/registry';
 export default function HomePage() {
   return (
     <div className="space-y-12">
-      {/* Hero — Xonvert AI as the centrepiece. On phones the chat panel leads
-          (order-1) and the marketing header drops beneath it; desktop keeps the
-          header on top. */}
+      {/* Hero — Xonvert AI as the centrepiece. Title sits above the chat panel
+          on every screen size. */}
       <section className="flex flex-col gap-4">
-        <div className="order-2 flex items-center gap-3 sm:order-1">
+        <div className="flex items-center gap-3">
           <div className="grid h-11 w-11 shrink-0 place-items-center bg-[var(--color-cat-dev)] text-white">
             <TileIcon name="sparkles" size={22} className="text-white" />
           </div>
@@ -27,9 +26,7 @@ export default function HomePage() {
             </p>
           </div>
         </div>
-        <div className="order-1 sm:order-2">
-          <HomeAiHero />
-        </div>
+        <HomeAiHero />
       </section>
 
       {/* Quick tiles — pinned tools + convert hub */}

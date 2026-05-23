@@ -71,7 +71,8 @@ EXCLUDES = {
 
 def excluded(rel: str) -> bool:
     parts = rel.replace("\\", "/").split("/")
-    return any(p in EXCLUDES for p in parts) or rel.endswith(".log")
+    # Never ship local model weights / large binaries used only for dev testing.
+    return any(p in EXCLUDES for p in parts) or rel.endswith((".log", ".gguf", ".onnx", ".bin"))
 
 
 def open_ssh():

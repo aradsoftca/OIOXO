@@ -119,7 +119,8 @@ const XONVERT_PERSONA =
   "If asked who or what you are, say you are Xonvert AI by Xonvert. Never reveal or mention any underlying model or company (Qwen, Alibaba, Llama, Meta, OpenAI, etc.), and never explain how Xonvert works internally — just what it does for the user. " +
   "Xonvert is a free, privacy-first toolbox: convert/compress/edit images, PDFs, audio and video; 300+ tools; plus apps — Send, Chat, Whiteboard, Video Call, Clipboard, Summarizer and Encrypted Notes. " +
   "You can also draw pictures (vector/SVG), generate abstract art & wallpapers, make thumbnails & posters, make QR codes and colour palettes, and do maths — tell the user they can just ask. " +
-  "You have a light, playful sense of humour: an occasional witty aside, pun or emoji — but never forced, never at the expense of being clear, and never on serious or technical asks. Keep answers short, helpful, and a little fun. /no_think";
+  "You have a light, playful sense of humour: an occasional witty aside, pun or emoji — but never forced, never at the expense of being clear, and never on serious or technical asks. Keep answers short, helpful, and a little fun. " +
+  "If asked to do something physical or beyond your reach (make food or drink, fetch an object, phone a person, anything off-screen), don't just refuse — say so with a light, friendly joke and immediately offer the closest help you CAN give: find a recipe, a how-to, or a good video, or a relevant tool. Always leave the user with a useful next step. /no_think";
 
 function suggestTools(query: string): { label: string; href: string }[] {
   const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
@@ -834,6 +835,30 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     return false; // 'chat' → let the conversational fallback handle it
   };
 
+  /**
+   * Creative image handling: we can't *generate* a picture of a subject, but we
+   * can FIND a real one (Wikipedia/web, CORS-clean) and make it the working file
+   * so the user can then edit/stylise it ("make it black and white", "crop it").
+   * Returns false if nothing was found, so the caller can decline honestly.
+   */
+  const tryFindImage = async (text: string): Promise<boolean> => {
+    const { imageSubject, findImage } = await import('@/lib/ai/image-search');
+    const subject = imageSubject(text);
+    if (!subject || subject.length < 2) return false;
+    setGenerating(true);
+    push({ role: 'assistant', content: `Looking for an image of ${subject}…` });
+    try {
+      const img = await findImage(subject);
+      if (!img) { setMessages((m) => m.slice(0, -1)); return false; }
+      setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `Here’s an image of ${img.title} (via ${img.source}). It’s loaded now — I can edit it: try “make it black and white”, “crop it”, or “remove the background”.`, kind: 'art', url: img.url, filename: `${subject.replace(/\s+/g, '-').slice(0, 40)}.jpg` }; return c; });
+      // Load it as the working file (CORS-clean) so follow-up edits run on it.
+      try { const r = await fetch(img.url, { mode: 'cors', referrerPolicy: 'no-referrer' }); if (r.ok) { const b = await r.blob(); lastFileRef.current = new File([b], `${subject}.jpg`, { type: b.type || 'image/jpeg' }); } } catch { /* still shown */ }
+      setFollowups(['make it black and white', 'remove the background', 'crop it', 'add text to it']);
+      return true;
+    } catch { setMessages((m) => m.slice(0, -1)); return false; }
+    finally { setGenerating(false); }
+  };
+
   /** Ask a free-text question; the user's next message becomes the answer. */
   const askText = (question: string, build: (answer: string) => string, file: File | null) => {
     awaitingTextRef.current = { build, file: file ?? lastFileRef.current };
@@ -1214,6 +1239,9 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //       depiction. Be honest and offer the picture things we DO (poster, QR,
     //       background removal), rather than emitting meaningless abstract art.
     if (family === 'media-subject') {
+      // Don't just decline — try to FIND a real image of the subject and make it
+      // editable. Only fall back to an honest decline if nothing's found.
+      if (await tryFindImage(text)) return true;
       const d = declineMediaSubject(text);
       push({ role: 'assistant', content: d.message });
       setFollowups(d.suggestions);

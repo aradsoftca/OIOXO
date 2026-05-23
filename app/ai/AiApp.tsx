@@ -872,9 +872,21 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     try {
       const img = await findImage(subject);
       if (!img) { setMessages((m) => m.slice(0, -1)); return false; }
-      setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `Here’s an image of ${img.title} (via ${img.source}). It’s loaded now — I can edit it: try “make it black and white”, “crop it”, or “remove the background”.`, kind: 'art', url: img.url, filename: `${subject.replace(/\s+/g, '-').slice(0, 40)}.jpg` }; return c; });
-      // Load it as the working file (CORS-clean) so follow-up edits run on it.
-      try { const r = await fetch(img.url, { mode: 'cors', referrerPolicy: 'no-referrer' }); if (r.ok) { const b = await r.blob(); lastFileRef.current = new File([b], `${subject}.jpg`, { type: b.type || 'image/jpeg' }); } } catch { /* still shown */ }
+      // FETCH the image to a blob FIRST, then display it via a blob: object URL.
+      // An external <img src> (upload.wikimedia.org) gets blocked inline by our
+      // CSP/hotlink rules (placeholder), even though a direct download works — a
+      // same-origin blob URL displays reliably AND becomes the editable file.
+      const fname = `${subject.replace(/\s+/g, '-').slice(0, 40)}.jpg`;
+      let displayUrl = img.url;
+      try {
+        const r = await fetch(img.url, { mode: 'cors', referrerPolicy: 'no-referrer' });
+        if (r.ok) {
+          const b = await r.blob();
+          lastFileRef.current = new File([b], `${subject}.jpg`, { type: b.type || 'image/jpeg' });
+          displayUrl = URL.createObjectURL(b);
+        }
+      } catch { /* fall back to the external URL */ }
+      setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `Here’s an image of ${img.title} (via ${img.source}). It’s loaded now — I can edit it: try “make it black and white”, “crop it”, or “remove the background”.`, kind: 'art', url: displayUrl, filename: fname }; return c; });
       setFollowups(['make it black and white', 'remove the background', 'crop it', 'add text to it']);
       return true;
     } catch { setMessages((m) => m.slice(0, -1)); return false; }

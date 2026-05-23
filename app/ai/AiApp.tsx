@@ -703,12 +703,13 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       // Remember the topic + primary source so "tell me more" can expand it.
       lastTopicRef.current = res.query || text;
       lastSourceRef.current = res.sources?.[0] ?? null;
-      // If the user asked in another language, translate the answer back to it.
-      let answer = res.answer;
-      const lang = sessionLangRef.current;
-      if (lang && answer) {
-        try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(answer, lang); if (t) answer = t; } catch { /* keep English */ }
-      }
+      const tBack = async (s: string) => {
+        const lang = sessionLangRef.current;
+        if (lang && s) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(s, lang); if (t) return t; } catch { /* keep English */ } }
+        return s;
+      };
+      // INSTANT: show the sourced answer right away.
+      let answer = await tBack(res.answer);
       setMessages((m) => {
         const c = [...m];
         c[c.length - 1] = answer
@@ -717,6 +718,36 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         return c;
       });
       if (answer) lastAnswerRef.current = answer;
+
+      // REPHRASE: rewrite the sourced text in the assistant's OWN words (same
+      // facts, nothing invented) — so it isn't a verbatim Wikipedia paste. Only
+      // swaps in if it stays grounded in the original.
+      if (res.answer && !stopRef.current && (await ensureModel())) {
+        try {
+          const reason = await import('@/lib/ai/reason');
+          const ev = [{ topic: res.query || text, text: res.answer, source: res.sources?.[0] ?? { title: '', url: '', site: '' } }];
+          const out = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: 'Rephrase the text below in your OWN words — keep every fact, invent nothing, 2–3 sentences, no preamble. /no_think' }, { role: 'user', content: res.answer }], temperature: 0.3, max_tokens: 200 });
+          const reworded = stripThink(out.choices?.[0]?.message?.content ?? '');
+          if (reworded && reason.isGrounded(reworded, ev, text) && !stopRef.current) {
+            answer = await tBack(reworded);
+            lastAnswerRef.current = answer;
+            setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources: res.sources, related: res.related }; return c; });
+          }
+        } catch { /* keep the sourced answer */ }
+      }
+
+      // ENTITY IMAGE: for a Wikipedia-sourced answer about someone/something,
+      // show their lead image below the text (as a blob, so it renders inline).
+      if (answer && !stopRef.current && res.sources?.some((s) => /wikipedia|wikimedia/i.test(`${s.site} ${s.url}`))) {
+        try {
+          const { findImage } = await import('@/lib/ai/image-search');
+          const img = await findImage(res.query || text);
+          if (img && !stopRef.current) {
+            const r = await fetch(img.url, { mode: 'cors', referrerPolicy: 'no-referrer' });
+            if (r.ok) { const b = await r.blob(); push({ role: 'assistant', content: '', kind: 'art', url: URL.createObjectURL(b), filename: `${(res.query || 'image').replace(/\s+/g, '-').slice(0, 40)}.jpg` }); }
+          }
+        } catch { /* no image, no problem */ }
+      }
       return true;
     } catch {
       setMessages((m) => m.slice(0, -1));
@@ -1255,6 +1286,22 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       const r = await routeToTool(text, null);
       const gOp = r.top && r.confidence !== 'weak' ? gameOpFor(r.top.doc.id) : undefined;
       if (gOp) { push({ role: 'assistant', content: gOp.run() }); return true; }
+    }
+
+    // 2.85) "Make an image that SAYS <text>" — render the words on a graphic
+    //        with NO model (was mis-routed to SVG generation, which reloaded the
+    //        model and produced nothing). Caught before media-subject/SVG.
+    {
+      const m = text.match(/\b(?:make|create|generate|design|give me|need|want|build)\b[\s\S]*?\b(?:image|picture|poster|graphic|banner|card|wallpaper)\b[\s\S]*?\b(?:that says|saying|says|that reads?|reading|writes?|write|with (?:the )?(?:text|words?|caption)(?: of)?|with)\b\s*[:\-]?\s*["“']?(.+?)["”']?\s*$/i);
+      const phrase = m?.[1]?.trim();
+      if (phrase && phrase.length >= 1 && phrase.length <= 80 && !/\b(my|loan|calculation|bmi|investment)\b/i.test(phrase)) {
+        const { heuristicSpec, renderPoster } = await import('@/lib/ai/poster');
+        const seed = Math.floor(Math.random() * 1e9);
+        const spec = heuristicSpec(phrase); spec.title = phrase; spec.subtitle = '';
+        const url = renderPoster(spec, seed);
+        push({ role: 'assistant', content: phrase, kind: 'art', url, prompt: phrase, seed, posterSpec: spec, filename: 'xonvert.png' });
+        return true;
+      }
     }
 
     // 2.9) "Make me a picture of <subject>" — we can't synthesize a real

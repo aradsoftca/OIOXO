@@ -137,15 +137,19 @@ function contentTerms(s: string): string[] {
   return Array.from(new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length >= 4 && !QSTOP.has(w))));
 }
 /**
- * Does `text` actually relate to the query? True if it shares any content word.
- * This is the guard that stops a noisy Wikipedia search from answering
- * "which is better shaq or jordan" with an unrelated "Anita Anand" article.
+ * Does `text` actually relate to the query? Requires the MAJORITY of the query's
+ * content words to appear as WHOLE words — not a stray substring. This stops a
+ * noisy Wikipedia search from answering "which is better shaq or jordan" with an
+ * unrelated "Anita Anand", and "michel jordan" with "Mont-Saint-Michel" (which
+ * only shared the substring "michel"). When the encyclopedia can't clear this
+ * bar, the caller falls through to the open web, which autocorrects misspellings.
  */
 function sharesTerm(query: string, text: string): boolean {
   const terms = contentTerms(query);
   if (!terms.length) return true; // nothing distinctive to check → don't block
-  const hay = text.toLowerCase();
-  return terms.some((t) => hay.includes(t));
+  const hayWords = new Set(text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').split(/\s+/).filter(Boolean));
+  const matched = terms.filter((t) => hayWords.has(t)).length;
+  return matched / terms.length >= 0.6;
 }
 
 /**

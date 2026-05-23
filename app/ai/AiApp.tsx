@@ -20,7 +20,7 @@ import { isGeneralQuestion, CONTACT_INTENT, classifyContact, HELP_INTENT, HELP_O
 import { classifyIntent } from '@/lib/ai/intent';
 import { declineMediaSubject, declineNoAnswer } from '@/lib/ai/decline';
 import { planGraph, runProducer, extractSlot, type GraphPlan } from '@/lib/ai/plan-graph';
-import { suggestAfterAnswer, isSaveAsPdf } from '@/lib/ai/suggest-next';
+import { isSaveAsPdf } from '@/lib/ai/suggest-next';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
 import { planRequest, segment, type Medium } from '@/lib/ai/planner';
 import { runChain, hasRunner } from '@/lib/ai/executor';
@@ -632,7 +632,6 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           if (lang && answer) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(answer, lang); if (t) answer = t; } catch { /* keep English */ } }
           setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
           lastAnswerRef.current = answer;
-          setFollowups(suggestAfterAnswer(analysis.topics.join(' ')));
           return true;
         }
         // No evidence gathered → fall through to the extractive engine below.
@@ -657,7 +656,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           : { role: 'assistant', content: `“${res.query}” could mean a few things — which did you have in mind?`, kind: 'search', sources: res.sources, related: res.related };
         return c;
       });
-      if (answer) { lastAnswerRef.current = answer; setFollowups(suggestAfterAnswer(res.query || text)); }
+      if (answer) lastAnswerRef.current = answer;
       return true;
     } catch {
       setMessages((m) => m.slice(0, -1));

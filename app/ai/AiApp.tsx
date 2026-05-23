@@ -901,6 +901,16 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
    * the runnable prefix end-to-end on-device and guides any remaining steps.
    * Returns false for single-step requests so the normal pipeline handles them.
    */
+  /** Model hook for model-backed chain steps (e.g. ai-summarize). Non-streaming,
+   *  think-stripped, bounded — one call per step. */
+  const chainGenerate = async (system: string, user: string): Promise<string> => {
+    if (!(await ensureModel())) return '';
+    try {
+      const out = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 0.2, max_tokens: 220 });
+      return stripThink(out.choices?.[0]?.message?.content ?? '');
+    } catch { return ''; }
+  };
+
   const tryPlan = async (text: string, file: File | null): Promise<boolean> => {
     if (segment(text).length < 2) return false;
     const eff = file ?? lastFileRef.current;
@@ -935,7 +945,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     setGenerating(true); stopRef.current = false;
     push({ role: 'assistant', content: `Step 1/${plan.steps.length}: ${plan.steps[0].narration}…` });
     try {
-      const outcome = await runChain(initial, plan.steps, (i, step) => setLast(`Step ${i + 1}/${plan.steps.length}: ${step.narration}…`), () => stopRef.current);
+      const outcome = await runChain(initial, plan.steps, (i, step) => setLast(`Step ${i + 1}/${plan.steps.length}: ${step.narration}…`), () => stopRef.current, { generate: chainGenerate });
       if (outcome.error === 'stopped') { setLast('Stopped.'); setGenerating(false); return true; }
       if (outcome.result && outcome.result.kind === 'text') {
         setLast(outcome.result.text || '(empty result)');
@@ -1428,7 +1438,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             setGenerating(true); stopRef.current = false;
             push({ role: 'assistant', content: steps.length > 1 ? narratePlan(plan).text : `Working on it — I’ll ${steps[0].narration}…` });
             try {
-              const out = await runChain(effFile, steps, (i, s) => { if (steps.length > 1) setLast(`Step ${i + 1}/${steps.length}: ${s.narration}…`); }, () => stopRef.current);
+              const out = await runChain(effFile, steps, (i, s) => { if (steps.length > 1) setLast(`Step ${i + 1}/${steps.length}: ${s.narration}…`); }, () => stopRef.current, { generate: chainGenerate });
               if (out.error === 'stopped') setLast('Stopped.');
               else if (out.result) applyResult(out.result);
               else setLast('⚠ That didn’t work — the file may be unsupported.');

@@ -92,15 +92,26 @@ const RUNNERS: Record<string, StepRunner> = {
     runPdf(file, async (pdf, buf) => pdf.addPageNumbers(buf, {}), 'numbered', params),
   'pdf-watermark': (file, params) =>
     runPdf(file, async (pdf, buf) => pdf.addTextWatermark(buf, { text: String(params.title ?? 'WATERMARK') }), 'watermarked', params),
+  // Extract a PDF's text as a chain step, so a binary PDF can flow into a
+  // text-only AI ability (translate / summarize).
+  'pdf-to-text': async (file) => {
+    const { extractPdfText } = await import('@/engines/pdf/rasterize');
+    const pages = await extractPdfText(await file.arrayBuffer());
+    const text = pages.map((p) => p.text).join('\n\n').trim();
+    return { kind: 'text', text: text || '(no extractable text in this PDF)' };
+  },
 };
 
 // AI abilities that run as text→text chain steps (not registry tools).
-const AI_TEXT_OPS = new Set(['ai-translate']);
+const AI_TEXT_OPS = new Set(['ai-translate', 'ai-summarize']);
 
 /** Whether a plan step can be executed inline (vs needing a tool hand-off). */
 export function hasRunner(toolId: string): boolean {
   return toolId in RUNNERS || AI_TEXT_OPS.has(toolId) || inlineCap(toolId) !== undefined || textOpFor(toolId) !== undefined;
 }
+
+/** Optional model hook so model-backed chain steps (summarize) can run. */
+export interface ChainOpts { generate?: (system: string, user: string) => Promise<string> }
 
 // A chain's working value is either a file (image/audio/pdf/doc steps) or a
 // string (text-tool steps). The executor converts between them on demand, so a
@@ -119,7 +130,7 @@ function asFile(v: WorkValue): File | null {
 }
 
 /** Run a single step against the current working value. */
-async function runStepValue(step: PlanStep, value: WorkValue): Promise<ActionResult> {
+async function runStepValue(step: PlanStep, value: WorkValue, opts?: ChainOpts): Promise<ActionResult> {
   // AI translate as a chain step: take the working text (from a prior step, a
   // text file, or a text op) and translate it. Pivots through English for any
   // language pair via the shared engine (browser Translator API / Opus-MT).
@@ -130,6 +141,15 @@ async function runStepValue(step: PlanStep, value: WorkValue): Promise<ActionRes
     const to = String(step.params.to ?? 'en');
     const from = (await t.detectLanguage(input)) ?? 'en';
     const out = from === to ? input : await t.translate(input, from, to);
+    return { kind: 'text', text: out && out.trim() ? out : input };
+  }
+  // AI summarize as a chain step: needs the model, supplied by the caller. If no
+  // model is wired (e.g. Node eval), this stops the chain for a clean hand-off.
+  if (step.toolId === 'ai-summarize') {
+    const input = await asText(value);
+    if (input == null || !input.trim()) return { kind: 'error', text: 'No text to summarize.' };
+    if (!opts?.generate) return { kind: 'error', text: 'summarize-needs-model' };
+    const out = await opts.generate('Summarize the text in 2–3 short sentences, using only the text. No preamble. /no_think', input.slice(0, 4000));
     return { kind: 'text', text: out && out.trim() ? out : input };
   }
   const textOp = textOpFor(step.toolId);
@@ -164,7 +184,7 @@ export interface ChainOutcome {
  * can guide the rest) or the first engine error. `onStep(i)` fires before each
  * step for live narration. `initial` may be a File or a string of text.
  */
-export async function runChain(initial: File | string, steps: PlanStep[], onStep?: (i: number, step: PlanStep) => void, shouldStop?: () => boolean): Promise<ChainOutcome> {
+export async function runChain(initial: File | string, steps: PlanStep[], onStep?: (i: number, step: PlanStep) => void, shouldStop?: () => boolean, opts?: ChainOpts): Promise<ChainOutcome> {
   let value: WorkValue = typeof initial === 'string' ? { file: null, text: initial } : { file: initial, text: null };
   let last: ActionResult | null = null;
   for (let i = 0; i < steps.length; i++) {
@@ -173,7 +193,7 @@ export async function runChain(initial: File | string, steps: PlanStep[], onStep
     if (!hasRunner(step.toolId)) return { result: last, ran: i, stoppedAt: i };
     onStep?.(i, step);
     let res: ActionResult;
-    try { res = await runStepValue(step, value); }
+    try { res = await runStepValue(step, value, opts); }
     catch (e) { return { result: last, ran: i, stoppedAt: i, error: (e as Error)?.message }; }
     if (res.kind === 'error') return { result: last, ran: i, stoppedAt: i, error: res.text };
     last = res;

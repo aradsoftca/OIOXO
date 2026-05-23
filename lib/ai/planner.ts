@@ -216,6 +216,11 @@ export function planRequest(text: string, opts: PlanOptions = {}): Plan {
       });
       continue;
     }
+    // Summarize is an AI ability too — a chain step (text→short text), not a tool.
+    if (/\b(summari[sz]e|summary|tl;?dr|key points|the gist)\b/i.test(clause)) {
+      steps.push({ toolId: 'ai-summarize', name: 'Summarize', href: '/summarize', clause, params: {}, narration: 'Summarize', confidence: 'confident', candidates: [] });
+      continue;
+    }
     const { doc, conf, cands } = routeClause(clause, medium);
     if (!doc || conf === 'weak') { unresolved.push(clause); continue; }
     medium = mediumOf(doc.category) ?? medium; // carry context forward
@@ -230,6 +235,22 @@ export function planRequest(text: string, opts: PlanOptions = {}): Plan {
       confidence: conf,
       candidates: cands.map((c) => ({ id: c.id, name: c.name })),
     });
+  }
+
+  // Prerequisite for an AI text-ability (translate/summarize) that leads the
+  // chain on a binary file: insert the matching text-extractor first, so
+  // "translate this PDF to Arabic" / "summarize this audio" run end-to-end
+  // (PDF→text→translate). Only when the chain STARTS with the AI op (the common
+  // single-ability case); mid-chain text is assumed produced upstream.
+  const aiText = (id: string) => id === 'ai-translate' || id === 'ai-summarize';
+  if (steps.length && aiText(steps[0].toolId)) {
+    const extractor = seed === 'pdf' ? { id: 'pdf-to-text', name: 'Extract PDF text' }
+      : seed === 'image' ? { id: 'image-ocr', name: 'Read text (OCR)' }
+      : seed === 'audio' ? { id: 'audio-to-text', name: 'Transcribe' }
+      : (opts.inputMedium === 'doc' ? { id: 'doc-convert', name: 'Read document' } : null);
+    if (extractor) {
+      steps.unshift({ toolId: extractor.id, name: extractor.name, href: `/tools/${extractor.id}`, clause: 'read the text first', params: {}, narration: extractor.name, confidence: 'confident', candidates: [], inferred: true });
+    }
   }
 
   const userSteps = steps.length;

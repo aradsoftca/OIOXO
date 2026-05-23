@@ -90,21 +90,20 @@ export async function gatherEvidence(a: QuestionAnalysis): Promise<Evidence[]> {
 export function buildSynthesis(a: QuestionAnalysis, evidence: Evidence[]): { system: string; user: string } {
   const notes = evidence.map((e, i) => `Note ${i + 1} — ${e.topic}:\n"""${e.text}"""`).join('\n\n');
   const rules =
-    'You are answering using ONLY the notes provided. Do not add any fact that is not in the notes. ' +
-    'If the notes do not cover something, say so briefly. Be concise, neutral, and clear. No preamble.';
+    'Answer using ONLY the notes provided. Add no fact not in the notes. Be SHORT and direct — no preamble, no filler.';
   let task: string;
   switch (a.kind) {
     case 'compare':
-      task = `Compare them in 3–5 sentences: what each is best known for, and how they differ. If the notes don't support a "winner", say it's a matter of opinion. Question: "${a.question}".`;
+      task = `In 2–3 short sentences: what each is best known for and the key difference. If the notes don't support a "winner", say it's a matter of opinion. Question: "${a.question}".`;
       break;
     case 'explain':
-      task = `Explain it clearly in 3–5 sentences, using only the notes. Question: "${a.question}".`;
+      task = `Explain in 2–3 short sentences, using only the notes. Question: "${a.question}".`;
       break;
     case 'list':
-      task = `Answer concisely using only the notes; if it's a ranking/opinion, attribute it to the sources. Question: "${a.question}".`;
+      task = `Answer in 1–3 short sentences using only the notes; attribute any ranking to the sources. Question: "${a.question}".`;
       break;
     default:
-      task = `Answer in 2–3 sentences using only the notes. Question: "${a.question}".`;
+      task = `Answer in 1–2 short sentences using only the notes. Question: "${a.question}".`;
   }
   return { system: rules, user: `${notes}\n\n${task}` };
 }

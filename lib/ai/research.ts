@@ -69,7 +69,7 @@ export function buildResearchSynthesis(question: string, evidence: Evidence[]): 
   const notes = evidence.map((e, i) => `Source ${i + 1} (${e.source.site}):\n"""${e.text}"""`).join('\n\n');
   return {
     system:
-      'Write a clear, well-organized answer to the question using ONLY the sources below. Merge the relevant facts across sources; do NOT copy one source verbatim and do NOT add anything not in the sources. 4–7 sentences, neutral and concise. No preamble, no "according to the sources".',
+      'Answer the question using ONLY the sources below. Be SHORT — 2–3 sentences, direct, no filler, no preamble, no "according to the sources". Merge the key facts; do not copy one source verbatim; add nothing not in the sources.',
     user: `${notes}\n\nQuestion: ${question}`,
   };
 }

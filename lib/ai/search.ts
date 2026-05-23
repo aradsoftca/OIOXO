@@ -106,8 +106,9 @@ async function getJson(url: string, headers?: Record<string, string>, ms = 6000)
 // Wikimedia and, unlike `User-Agent`, is settable from browser fetch.
 const WIKI_HEADERS = { 'Api-User-Agent': 'Xonvert/1.0 (https://xonvert.com; contact@xonvert.com)' };
 
-/** Keep an answer tight: first few sentences, capped, never mid-word. */
-export function trimExtract(text: string, maxChars = 600, maxSentences = 4): string {
+/** Keep an answer tight: first few sentences, capped, never mid-word. Short by
+ *  default — users want a quick answer, not an essay. */
+export function trimExtract(text: string, maxChars = 380, maxSentences = 3): string {
   const clean = text.replace(/\s+/g, ' ').trim();
   if (!clean) return '';
   const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [clean];

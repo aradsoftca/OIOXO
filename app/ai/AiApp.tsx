@@ -21,6 +21,8 @@ import { classifyIntent } from '@/lib/ai/intent';
 import { declineMediaSubject, declineNoAnswer } from '@/lib/ai/decline';
 import { planGraph, runProducer, extractSlot, type GraphPlan } from '@/lib/ai/plan-graph';
 import { isSaveAsPdf } from '@/lib/ai/suggest-next';
+import { candidatesFor, triagePrompt, parseDecision, fallbackDecision, type Decision } from '@/lib/ai/agent';
+import { docById } from '@/lib/ai/tool-index';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
 import { planRequest, segment, type Medium } from '@/lib/ai/planner';
 import { runChain, hasRunner } from '@/lib/ai/executor';
@@ -756,6 +758,47 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     finally { setGenerating(false); }
   };
 
+  /**
+   * The decider brain. When the fast deterministic rules don't resolve a
+   * request, the model makes ONE bounded choice over the few most relevant
+   * tools: run/open a TOOL, SEARCH the web (it writes the query), or CHAT. The
+   * choice is grammar-constrained so it can't hallucinate a tool or break JSON;
+   * a deterministic fallback covers the cold/WASM/bad-output cases. Returns true
+   * if it handled the request (search or tool); false to let chat take over.
+   */
+  const runAgent = async (text: string, file: File | null): Promise<boolean> => {
+    const cRaw = file ? fileCategory(file) : null;
+    const fc = (cRaw === 'image' || cRaw === 'audio' || cRaw === 'video') ? cRaw : null;
+    const cands = candidatesFor(text, fc);
+
+    let decision: Decision | null = null;
+    if (engineRef.current && cands.length) {
+      try {
+        const { messages, schema } = triagePrompt(text, cands, !!file);
+        const out = await engineRef.current.chat.completions.create({
+          messages, temperature: 0, max_tokens: 80,
+          response_format: { type: 'json_object', schema },
+        });
+        decision = parseDecision(out.choices?.[0]?.message?.content ?? '', cands);
+      } catch { /* fall back below */ }
+    }
+    if (!decision) decision = fallbackDecision(text, cands, !!file);
+
+    if (decision.action === 'search') return await trySearch(decision.query || text);
+
+    if (decision.action === 'tool' && decision.tool) {
+      const doc = docById(decision.tool);
+      if (doc) {
+        const eff = file ?? lastFileRef.current;
+        const efc = eff ? fileCategory(eff) : null;
+        const stageF = eff && (efc === 'image' || efc === 'audio' || efc === 'video') && fileMatchesCategory(doc, efc) ? eff : undefined;
+        push({ role: 'assistant', content: stageF ? `I’ll open ${doc.name} with your file ready.` : `Here’s the tool for that — ${doc.blurb}`, kind: 'tool', toolName: doc.name, toolHref: doc.href, stageFile: stageF });
+        return true;
+      }
+    }
+    return false; // 'chat' → let the conversational fallback handle it
+  };
+
   /** Ask a free-text question; the user's next message becomes the answer. */
   const askText = (question: string, build: (answer: string) => string, file: File | null) => {
     awaitingTextRef.current = { build, file: file ?? lastFileRef.current };
@@ -1473,6 +1516,12 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // model so the fun is consistent, not the tiny model's hit-or-miss attempt.
     const fun = funReply(text);
     if (fun) { push({ role: 'assistant', content: fun }); if (voiceActiveRef.current) speak(fun); return; }
+
+    // The decider brain: nothing deterministic matched, so let the model choose
+    // what to do — run/open a tool, or search the web (writing its own query) —
+    // instead of dumping the request on the weak chat model. Runs on the English
+    // form so retrieval + triage are at full strength.
+    if (await runAgent(englishText ?? text, file)) return;
 
     // Fallback — tool suggestions + the on-device model. When the user wrote in
     // another language, feed the model English (its strong language) and

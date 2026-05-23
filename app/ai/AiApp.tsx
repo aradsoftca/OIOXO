@@ -16,17 +16,80 @@ import { fileMatchesCategory } from '@/lib/ai/retrieval';
 import { stageHandoff } from '@/lib/ai/handoff';
 import { isDocument, extractDocText, selectContext, docIntent } from '@/lib/ai/docqa';
 import { matchApp } from '@/lib/ai/apps';
-import { looksNonLatin, isGeneralQuestion, CONTACT_INTENT, classifyContact, HELP_INTENT, HELP_OVERVIEW, DOC_REFERS_RE, CONVERT_PHRASE } from '@/lib/ai/route-intents';
+import { isGeneralQuestion, CONTACT_INTENT, classifyContact, HELP_INTENT, HELP_OVERVIEW, DOC_REFERS_RE, CONVERT_PHRASE } from '@/lib/ai/route-intents';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
+import { planRequest, segment, type Medium } from '@/lib/ai/planner';
+import { runChain, hasRunner } from '@/lib/ai/executor';
+import { narratePlan, recapPlan, capabilityContext } from '@/lib/ai/narrate';
+import type { SearchSource } from '@/lib/ai/search';
+import { actionsForMedium, nextStepsFor, type SuggestMedium, type SuggestionGroup } from '@/lib/ai/suggest';
+import { textOpFor, extractOperand, type TextOp } from '@/lib/ai/text-ops';
+import { devOpFor, type DevOp } from '@/lib/ai/dev-ops';
+import { colorOpFor } from '@/lib/ai/color-ops';
+import { combineFor, combineToolFor, isCombineIntent } from '@/lib/ai/combine';
+import { tryCalc } from '@/lib/ai/calc-ops';
+import { gameOpFor, looksLikeGameName, tryGameRandom } from '@/lib/ai/game-ops';
+import { tryTime } from '@/lib/ai/time-ops';
+import { tryFinance } from '@/lib/ai/finance-ops';
+import { subtitleOpFor } from '@/lib/ai/subtitle-ops';
+import { cssOpFor, CSS_TRIGGER } from '@/lib/ai/css-ops';
+import { seoOpFor, SEO_TRIGGER } from '@/lib/ai/seo-ops';
+import { warmIndex, type IndexDoc } from '@/lib/ai/tool-index';
 
-type Kind = 'text' | 'art' | 'svg' | 'qr' | 'palette' | 'calc' | 'file' | 'attach' | 'tool';
-interface Msg { role: 'user' | 'assistant'; content: string; kind?: Kind; url?: string; svg?: string; palette?: string[]; prompt?: string; seed?: number; filename?: string; note?: string; blob?: Blob; toolName?: string; toolHref?: string; alts?: { label: string; href: string }[]; stageFile?: File; posterSpec?: PosterSpec }
+// A bare factual lookup that isn't a tool request — "eiffel tower height",
+// "population of France" — worth answering from the web as a late fallback.
+const FACT_CHITCHAT = /\b(hi|hello|hey|yo|sup|thanks?|thank you|thx|ok|okay|cool|nice|lol|joke|poem|story|rhyme|sing|chat|how are you|your name|who are you|opinion|do you (like|think|feel))\b/i;
+const FACT_ACTIONY = /\b(make|create|build|generate|draw|paint|write|compose|design|play|convert|download|open)\b/i;
+const FACT_SIGNAL = /\b(of|in|invented|discovered|founded|capital|population|height|weight|distance|length|meaning|definition|born|died|located|tallest|largest|biggest|oldest|longest|fastest|author|director|ceo|president|founder|weather|temperature)\b/i;
+function looksFactual(text: string): boolean {
+  const t = text.trim();
+  const n = t.split(/\s+/).length;
+  if (n < 2 || n > 12) return false;
+  if (FACT_CHITCHAT.test(t) || FACT_ACTIONY.test(t)) return false;
+  const properNoun = /\S\s+[A-Z][a-z]{2,}/.test(t); // a capitalized word that isn't the first token
+  return properNoun || FACT_SIGNAL.test(t);
+}
+
+type Kind = 'text' | 'art' | 'svg' | 'qr' | 'palette' | 'calc' | 'file' | 'attach' | 'tool' | 'menu' | 'search';
+interface Msg { role: 'user' | 'assistant'; content: string; kind?: Kind; url?: string; svg?: string; palette?: string[]; prompt?: string; seed?: number; filename?: string; note?: string; blob?: Blob; toolName?: string; toolHref?: string; alts?: { label: string; href: string }[]; stageFile?: File; posterSpec?: PosterSpec; groups?: SuggestionGroup[]; clarify?: { label: string; value: string }[]; sources?: SearchSource[]; related?: string[] }
 
 const up = (s: string) => s.toUpperCase();
 const aOrAn = (w: string) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 const listFmts = (fmts: string[]) => fmts.map(up).join(', ');
 
 const MODEL_ID = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+
+// Tools where one parameter is essential and has no safe default. When the
+// request lacks it (`has` doesn't match), the AI asks with tappable answers
+// instead of guessing. Each answer is a full re-runnable phrase.
+const CLARIFY_RULES: Record<string, { has: RegExp; question: string; options: { label: string; value: string }[] }> = {
+  'image-resize': { has: /(\d|half|double|thumb|small|big|larg|tiny|huge)/i, question: 'What size would you like?', options: [
+    { label: '800px wide', value: 'resize to 800 wide' },
+    { label: '1280×720', value: 'resize to 1280x720' },
+    { label: 'Half size', value: 'resize to 50%' },
+    { label: 'Thumbnail', value: 'resize to 320 wide' },
+  ] },
+  'image-rotate': { has: /(\d|left|right|clockwise|counter|anti|upside|180|90|270)/i, question: 'Which way should I rotate it?', options: [
+    { label: '90° right', value: 'rotate 90 degrees' },
+    { label: '90° left', value: 'rotate left 90 degrees' },
+    { label: 'Upside down', value: 'rotate 180 degrees' },
+  ] },
+  'audio-trim': { has: /(\d|first|last|half|beginning|\bend\b|start)/i, question: 'How much should I keep?', options: [
+    { label: 'First 10s', value: 'keep the first 10 seconds' },
+    { label: 'First 30s', value: 'keep the first 30 seconds' },
+    { label: 'Last 10s', value: 'keep the last 10 seconds' },
+  ] },
+  'pdf-delete-pages': { has: /(\d|last|first)/i, question: 'Which pages should I remove?', options: [
+    { label: 'Page 1', value: 'delete page 1' },
+    { label: 'Last page', value: 'delete the last page' },
+    { label: 'Pages 1–2', value: 'delete pages 1-2' },
+  ] },
+  'pdf-extract-pages': { has: /(\d|last|first)/i, question: 'Which pages should I keep?', options: [
+    { label: 'Page 1', value: 'extract page 1' },
+    { label: 'Pages 1–3', value: 'extract pages 1-3' },
+    { label: 'Last page', value: 'extract the last page' },
+  ] },
+};
 
 // Module-level so the loaded model survives navigation. Open /ai once, leave,
 // come back — the same in-memory engine is reused instead of being re-created
@@ -203,6 +266,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const [loadPct, setLoadPct] = React.useState(0);
   const [messages, setMessages] = React.useState<Msg[]>([]);
   const [suggest, setSuggest] = React.useState<{ label: string; href: string }[]>([]);
+  const [followups, setFollowups] = React.useState<string[]>([]);
   const [input, setInput] = React.useState('');
   const [generating, setGenerating] = React.useState(false);
   const [copied, setCopied] = React.useState('');
@@ -210,6 +274,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const [pendingFiles, setPendingFiles] = React.useState<File[]>([]);
   const [recording, setRecording] = React.useState(false);
   const [transcribing, setTranscribing] = React.useState(false);
+  // Recent on-device searches — the live history surfaced on the empty panel.
+  const [recent, setRecent] = React.useState<{ query: string; ts: number }[]>([]);
   // Mobile "focus mode": the panel expands to fullscreen while in use so the
   // chat scroll isn't fighting the page scroll. Desktop is always inline.
   const [expanded, setExpanded] = React.useState(false);
@@ -227,6 +293,25 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const armedRef = React.useRef<string | null>(null);
   // The last file the user worked with, so "convert it to X" reuses it.
   const lastFileRef = React.useRef<File | null>(null);
+  // Conversation memory: previous working files (for "undo") and the last real
+  // job's wording (for "do that again" / "do the same to this one").
+  const fileHistoryRef = React.useRef<File[]>([]);
+  const lastJobRef = React.useRef<string | null>(null);
+  // The file a pending clarification applies to (so tapping an answer keeps it).
+  const clarifyFileRef = React.useRef<File | null>(null);
+  // A pending free-text question: the next message is taken as the answer and
+  // turned into a full re-runnable request via `build`.
+  const awaitingTextRef = React.useRef<{ build: (answer: string) => string; file: File | null } | null>(null);
+  // The detected language of the current turn (BCP-47), so replies/answers can
+  // be translated back into it. Null = English. Reset each turn.
+  const sessionLangRef = React.useRef<string | null>(null);
+
+  // Load recent on-device searches whenever the panel is empty (fresh / cleared).
+  const isEmpty = messages.length === 0;
+  React.useEffect(() => {
+    if (!isEmpty) return;
+    import('@/lib/ai/search-cache').then(({ recentSearches }) => recentSearches(6).then(setRecent)).catch(() => {});
+  }, [isEmpty]);
 
   const loadModel = React.useCallback(async () => {
     // Already loaded earlier this session (e.g. revisiting /ai) — reuse it.
@@ -264,6 +349,10 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // browsers without WASM are unsupported.
     const ok = typeof WebAssembly !== 'undefined';
     setSupported(ok);
+    // Warm the lexical tool index during idle time so the first request routes
+    // instantly — even on a slow device, before the model has finished loading.
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 300));
+    ric(() => { try { warmIndex(); } catch { /* non-critical */ } });
     // On the dedicated page, load right away. When embedded (e.g. the homepage
     // hero) defer until the user actually engages, so casual visitors and SEO
     // crawlers don't pay the load — see the input's onFocus.
@@ -274,6 +363,23 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const ensureLoaded = React.useCallback(() => {
     if (supported && !startedRef.current) void loadModel();
   }, [supported, loadModel]);
+
+  /**
+   * Await the language model only when a request actually needs it (chat,
+   * translation, SVG, document summary). Deterministic work — routing, tool
+   * execution, text ops, multi-step chains — never calls this, so it runs the
+   * instant the page loads, even before the model has downloaded. Kicks the load
+   * if it hasn't started, then waits (bounded) for it to be ready.
+   */
+  const ensureModel = React.useCallback(async (): Promise<boolean> => {
+    if (engineRef.current) return true;
+    if (!startedRef.current) void loadModel();
+    const start = Date.now();
+    while (!engineRef.current && Date.now() - start < 120_000) {
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return !!engineRef.current;
+  }, [loadModel]);
 
   // On phones, expand the panel to fullscreen the moment it's engaged.
   const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
@@ -323,17 +429,25 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       else c[c.length - 1] = { role: 'assistant', content: `⚠ ${res.text}` };
       return c;
     });
-    if (res.kind === 'file') lastFileRef.current = new File([res.blob], res.filename, { type: res.blob.type });
-    else if (res.kind === 'image' && res.blob) lastFileRef.current = new File([res.blob], res.filename ?? 'image.png', { type: res.blob.type });
+    // Snapshot the file we're replacing so "undo" can bring it back (cap depth).
+    const produced = res.kind === 'file' ? new File([res.blob], res.filename, { type: res.blob.type })
+      : res.kind === 'image' && res.blob ? new File([res.blob], res.filename ?? 'image.png', { type: res.blob.type }) : null;
+    if (produced) {
+      if (lastFileRef.current) { fileHistoryRef.current.push(lastFileRef.current); if (fileHistoryRef.current.length > 8) fileHistoryRef.current.shift(); }
+      lastFileRef.current = produced;
+    }
     // Spoken reply when the request came in by voice.
     if (voiceActiveRef.current) {
       if (res.kind === 'text') speak(res.text);
       else if (res.kind === 'file' || res.kind === 'image') speak('Done — your file is ready.');
       else if (res.kind === 'error') speak(res.text);
     }
-    // Proactive next step: a large image is worth offering to shrink/send.
-    const big = (res.kind === 'image' || res.kind === 'file') && res.blob && res.blob.size > 900_000;
-    if (big) push({ role: 'assistant', content: 'That’s still fairly large — say “compress it” to shrink it, or “send it” to share.' });
+    // Proactive next steps: offer the obvious follow-ups for the produced file
+    // as one-tap chips ("compress it", "convert to JPG", "send it").
+    if (res.kind === 'image' || (res.kind === 'file' && res.filename)) {
+      const outMedium = res.kind === 'image' ? 'image' : mediumForFile(new File([], res.filename));
+      setFollowups(nextStepsFor(outMedium));
+    }
   };
 
   const runConvertAndShow = async (file: File, category: 'image' | 'audio', target: string) => {
@@ -372,7 +486,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           : 'Sure — pick a file and tell me which format you want.', kind: 'attach' });
         return true;
       case 'ask-format':
-        push({ role: 'assistant', content: `Which format? I can turn ${aOrAn(plan.category)} ${plan.category} file into ${listFmts(plan.supported)}.` });
+        askClarify(`Which format would you like this ${plan.category} file in?`,
+          plan.supported.map((f) => ({ label: f.toUpperCase(), value: `convert to ${f}` })), effFile);
         return true;
       case 'unsupported':
         push({ role: 'assistant', content: `I can convert ${plan.category === 'image' ? 'images' : 'audio'} to ${listFmts(plan.supported)} — ${up(plan.target)} output isn’t supported yet.` });
@@ -400,10 +515,262 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       return;
     }
     setPendingFile(f);
+    // Magic: the moment a file lands, show what we can do with it — no need to
+    // ask. The user can still type a specific request instead.
+    showFileActions(f);
   };
 
   /** Replace the trailing placeholder message's text content. */
   const setLast = (content: string) => setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content }; return c; });
+
+  /** Medium of the working file, for the planner's prerequisite inference. */
+  const planMedium = (file: File | null): Medium => {
+    const f = file ?? lastFileRef.current;
+    if (!f) return null;
+    const c = fileCategory(f);
+    if (c === 'image' || c === 'audio' || c === 'video') return c;
+    const ext = (f.name.split('.').pop() ?? '').toLowerCase();
+    if (ext === 'pdf') return 'pdf';
+    if (/^(docx?|odt|rtf)$/.test(ext)) return 'doc';
+    return null;
+  };
+
+  /** Medium bucket for the proactive "what I can do with this" menu. */
+  const mediumForFile = (file: File | null): SuggestMedium | null => {
+    const f = file ?? lastFileRef.current;
+    if (!f) return null;
+    const c = fileCategory(f);
+    if (c === 'image' || c === 'audio' || c === 'video') return c;
+    const ext = (f.name.split('.').pop() ?? '').toLowerCase();
+    if (ext === 'pdf') return 'pdf';
+    if (/^(docx?|odt|rtf|pptx?|xlsx?|ods|odp)$/.test(ext)) return 'doc';
+    if (/^(txt|md|csv|json|html?|xml|log)$/.test(ext)) return 'text';
+    return null;
+  };
+
+  /** Proactively surface what we can do with a freshly attached file. */
+  const showFileActions = (file: File): boolean => {
+    const m = mediumForFile(file);
+    if (!m) return false;
+    const groups = actionsForMedium(m);
+    if (!groups.length) return false;
+    const noun = m === 'doc' ? 'document' : m === 'pdf' ? 'PDF' : m === 'text' ? 'text file' : m;
+    push({ role: 'assistant', content: `Got your ${noun}. Here’s what I can do with it — or just tell me in your own words:`, kind: 'menu', groups, stageFile: file });
+    return true;
+  };
+
+  /** Run a tapped follow-up suggestion against the file we just produced. */
+  const runFollowup = (text: string) => {
+    setFollowups([]);
+    push({ role: 'user', content: text });
+    void process(text, null);
+  };
+
+  /** Ask one crisp question with tappable answers, keeping the file in context. */
+  const askClarify = (question: string, options: { label: string; value: string }[], file: File | null) => {
+    clarifyFileRef.current = file ?? lastFileRef.current;
+    push({ role: 'assistant', content: question, clarify: options });
+  };
+  /** A tapped clarification answer — re-run with the remembered file. */
+  const runClarify = (value: string) => {
+    const f = clarifyFileRef.current;
+    clarifyFileRef.current = null;
+    push({ role: 'user', content: value });
+    void process(value, f);
+  };
+
+  /**
+   * Answer a factual question from the live web — on-device, extractive, cited.
+   * Returns true if a grounded answer was shown; false (placeholder removed) so
+   * the caller falls through to the chat model when nothing solid is found.
+   */
+  const trySearch = async (text: string): Promise<boolean> => {
+    setGenerating(true);
+    push({ role: 'assistant', content: 'Searching the web…' });
+    try {
+      const { answerQuestion } = await import('@/lib/ai/search');
+      const res = await answerQuestion(text);
+      if (!res) { setMessages((m) => m.slice(0, -1)); return false; }
+      // If the user asked in another language, translate the answer back to it.
+      let answer = res.answer;
+      const lang = sessionLangRef.current;
+      if (lang && answer) {
+        try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(answer, lang); if (t) answer = t; } catch { /* keep English */ }
+      }
+      setMessages((m) => {
+        const c = [...m];
+        c[c.length - 1] = answer
+          ? { role: 'assistant', content: answer, kind: 'search', sources: res.sources, related: res.related }
+          : { role: 'assistant', content: `“${res.query}” could mean a few things — which did you have in mind?`, kind: 'search', sources: res.sources, related: res.related };
+        return c;
+      });
+      return true;
+    } catch {
+      setMessages((m) => m.slice(0, -1));
+      return false;
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  /** Ask a free-text question; the user's next message becomes the answer. */
+  const askText = (question: string, build: (answer: string) => string, file: File | null) => {
+    awaitingTextRef.current = { build, file: file ?? lastFileRef.current };
+    push({ role: 'assistant', content: question });
+  };
+
+  const isTextLike = (f: File) => f.type.startsWith('text/') || /\.(txt|md|csv|json|log|html?|xml|tsv|ini|ya?ml|srt|vtt)$/i.test(f.name);
+
+  // Inline ops decode the whole file into memory; past these sizes a low-end
+  // phone can crash the tab, so we hand off to the tool page instead (it can
+  // stream / use a worker). Generous caps — normal files sail through.
+  const inlineSizeOk = (f: File): boolean => {
+    const c = fileCategory(f);
+    const ext = (f.name.split('.').pop() ?? '').toLowerCase();
+    const cap = c === 'image' ? 40e6 : c === 'audio' ? 150e6 : c === 'video' ? 200e6 : ext === 'pdf' ? 100e6 : 120e6;
+    return f.size <= cap;
+  };
+
+  /**
+   * Run a text tool inline. The "smart" part is finding the text to operate on —
+   * after a colon, in quotes, in a pasted block, or inside an attached .txt —
+   * so the user never has to leave the chat to uppercase, sort, dedupe, extract
+   * emails, base64, find-and-replace, and the rest of the text toolbox.
+   */
+  const runTextInline = async (doc: IndexDoc, op: TextOp, message: string, file: File | null): Promise<boolean> => {
+    let operand = extractOperand(message);
+    if (!operand) {
+      const f = file ?? lastFileRef.current;
+      if (f && isTextLike(f)) { try { operand = (await f.text()).trim(); } catch { /* unreadable */ } }
+    }
+    if (!operand) {
+      push({ role: 'assistant', content: `Sure — paste the text (or add it after a colon, e.g. “${doc.name}: your text here”) and I’ll ${op.verb}.` });
+      return true;
+    }
+    let out: string;
+    try { out = op.run(operand, message); }
+    catch { push({ role: 'assistant', content: '⚠ I couldn’t process that text.' }); return true; }
+    push({ role: 'assistant', content: out.length ? out : '(empty result)' });
+    return true;
+  };
+
+  /**
+   * Run a developer/generator tool inline. Transforms (JSON/XML format, hash,
+   * slug, JWT decode) pull their input like text ops; generators (UUID,
+   * password, lorem) need none.
+   */
+  const runDevInline = async (doc: IndexDoc, op: DevOp, message: string, file: File | null): Promise<boolean> => {
+    let operand = '';
+    if (op.needsInput) {
+      let ex = extractOperand(message);
+      if (!ex) { const f = file ?? lastFileRef.current; if (f && isTextLike(f)) { try { ex = (await f.text()).trim(); } catch { /* unreadable */ } } }
+      if (!ex) { push({ role: 'assistant', content: `Paste the input (or add it after a colon) and I’ll ${op.verb}.` }); return true; }
+      operand = ex;
+    }
+    let out: string;
+    try { out = await op.run(operand, message); }
+    catch { push({ role: 'assistant', content: '⚠ I couldn’t complete that.' }); return true; }
+    push({ role: 'assistant', content: out.length ? out : '(empty result)' });
+    return true;
+  };
+
+  /**
+   * Multi-step planner branch. Decomposes a compound request into an ordered
+   * tool chain, narrates the plan (so the user learns what we have), then runs
+   * the runnable prefix end-to-end on-device and guides any remaining steps.
+   * Returns false for single-step requests so the normal pipeline handles them.
+   */
+  const tryPlan = async (text: string, file: File | null): Promise<boolean> => {
+    if (segment(text).length < 2) return false;
+    const eff = file ?? lastFileRef.current;
+    const plan = planRequest(text, { inputMedium: planMedium(eff) });
+    if (plan.steps.length < 2) return false; // didn't decompose into a real chain
+
+    push({ role: 'assistant', content: narratePlan(plan).text });
+
+    // A pure text chain ("remove duplicate lines and sort them") runs on text
+    // from the message (or an attached .txt) — no file upload needed.
+    const allText = plan.steps.every((s) => textOpFor(s.toolId));
+    let initial: File | string | null = eff;
+    if (allText) {
+      initial = extractOperand(text);
+      if (!initial && eff && isTextLike(eff)) { try { initial = await eff.text(); } catch { /* unreadable */ } }
+    }
+    if (!initial) {
+      if (allText) {
+        push({ role: 'assistant', content: 'Paste the text (or add it after a colon) and I’ll run the whole sequence.' });
+      } else {
+        armedRef.current = text;
+        push({ role: 'assistant', content: 'Attach the file and I’ll run the whole sequence, privately.', kind: 'attach' });
+      }
+      return true;
+    }
+    if (initial instanceof File && !inlineSizeOk(initial)) {
+      const first = plan.steps[0];
+      push({ role: 'assistant', content: `That file’s large — I’ll open ${first.name} with it loaded so it’s handled safely; run the steps there.`, kind: 'tool', toolName: first.name, toolHref: first.href, stageFile: initial });
+      return true;
+    }
+    if (initial instanceof File) lastFileRef.current = initial;
+    setGenerating(true); stopRef.current = false;
+    push({ role: 'assistant', content: `Step 1/${plan.steps.length}: ${plan.steps[0].narration}…` });
+    try {
+      const outcome = await runChain(initial, plan.steps, (i, step) => setLast(`Step ${i + 1}/${plan.steps.length}: ${step.narration}…`), () => stopRef.current);
+      if (outcome.error === 'stopped') { setLast('Stopped.'); setGenerating(false); return true; }
+      if (outcome.result && outcome.result.kind === 'text') {
+        setLast(outcome.result.text || '(empty result)');
+        if (outcome.ran > 1) push({ role: 'assistant', content: recapPlan(plan, outcome.ran) });
+        setGenerating(false);
+        return true;
+      }
+      if (outcome.result && (outcome.result.kind === 'file' || outcome.result.kind === 'image')) {
+        applyResult(outcome.result);
+        if (outcome.ran > 1) push({ role: 'assistant', content: recapPlan(plan, outcome.ran) });
+      } else if (outcome.error) {
+        setLast(`⚠ I got partway, then hit a snag: ${outcome.error}`);
+      } else if (outcome.stoppedAt === 0) {
+        setLast('Here’s how to run this — your file is ready in each tool:');
+      }
+      // Steps we can't run inline yet → guide them, file preloaded.
+      if (outcome.stoppedAt >= 0 && outcome.stoppedAt < plan.steps.length) {
+        const rest = plan.steps.slice(outcome.stoppedAt);
+        const next = rest[0];
+        const out = lastFileRef.current ?? eff;
+        push({
+          role: 'assistant',
+          content: rest.length > 1
+            ? `For the remaining ${rest.length} steps, start with ${next.name} — your file is loaded.`
+            : `Last step: open ${next.name} — your file is loaded.`,
+          kind: 'tool', toolName: next.name, toolHref: next.href, stageFile: out ?? undefined,
+          alts: rest.slice(1, 4).map((s) => ({ label: s.name, href: s.href })),
+        });
+      }
+    } catch (e) {
+      console.error(e);
+      setLast('⚠ That sequence failed partway through.');
+    } finally {
+      setGenerating(false);
+    }
+    return true;
+  };
+
+  // "Can you… / do you have a tool for… / how do I…" — answer grounded in the
+  // real catalog (the top capability card + alternatives), never improvised.
+  const CAPABILITY_Q = /\b(can (you|i)|could you|are you able|do you (have|support|offer)|is there (a|an|any|some)?\s*(tool|way|feature|option)|how (do|can|would|to) (i|you)|how to)\b/i;
+  const tryCapabilityAnswer = (text: string): boolean => {
+    if (!CAPABILITY_Q.test(text)) return false;
+    if (segment(text).length >= 2) return false; // multi-step → let the planner handle
+    if (extractOperand(text)) return false;      // they supplied text to act on → do it, don't just link
+    const ctx = capabilityContext(text, 5);
+    if (!ctx.confident || !ctx.tools.length) return false;
+    const top = ctx.tools[0];
+    push({
+      role: 'assistant',
+      content: `Yes — ${ctx.cards[0]}`,
+      kind: 'tool', toolName: top.name, toolHref: top.href,
+      alts: ctx.tools.slice(1, 4).map((t) => ({ label: t.name, href: t.href })),
+    });
+    return true;
+  };
 
   /**
    * Stop generation. Sets the flag the streaming loops watch AND asks the
@@ -454,6 +821,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       : 'Answer the user’s question using ONLY the document text provided. If the answer isn’t in the text, say you couldn’t find it. Be concise.';
     const userMsg = intent === 'summarize' ? `Document:\n"""${context}"""` : `Document:\n"""${context}"""\n\nQuestion: ${text}`;
     stopRef.current = false;
+    if (!(await ensureModel())) { setLast('⚠ Still starting up — try again in a moment.'); setGenerating(false); return true; }
     try {
       const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: sys }, { role: 'user', content: userMsg }], stream: true, temperature: 0.2 });
       let acc = '';
@@ -472,6 +840,11 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
    * Only pushes output on success, so it's safe to call twice.
    */
   const routeAndAct = async (text: string, file: File | null): Promise<boolean> => {
+    // 0.5) "What can I do with this?" — surface the file's action menu directly.
+    if (/\b(what can (you|i) do|what (else )?can you do|what are my options|show( me)? (the )?options|what now)\b/i.test(text) && (file || lastFileRef.current)) {
+      if (showFileActions((file ?? lastFileRef.current)!)) return true;
+    }
+
     // 1) Conversions — deterministic planner (validates target + file category).
     if (await handleConvert(text, file)) return true;
 
@@ -503,6 +876,64 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       return true;
     }
 
+    // 2.6) Capability questions ("can you…", "how do I…", "is there a tool for…")
+    //       answered from the live catalog — the right tool + alternatives.
+    if (!file && tryCapabilityAnswer(text)) return true;
+
+    // 2.65) Specialized calculators (percent / tip / temperature / BMI) —
+    //        computed inline before the general-question guard sends them to the
+    //        chat model (which is bad at arithmetic).
+    if (!file) {
+      const calc = tryCalc(text);
+      if (calc) { push({ role: 'assistant', content: calc.result, kind: 'calc' }); return true; }
+      // Dice / coin / picker — pure randomisers, parsed from the message.
+      const gr = tryGameRandom(text);
+      if (gr) { push({ role: 'assistant', content: gr.result, kind: 'calc' }); return true; }
+      // Time tools — cron explain, unix timestamp, ISO-8601.
+      const tt = tryTime(text);
+      if (tt) { push({ role: 'assistant', content: tt.result, kind: 'calc' }); return true; }
+      // Finance — mortgage / savings / investment.
+      const fin = tryFinance(text);
+      if (fin) { push({ role: 'assistant', content: fin.result, kind: 'calc' }); return true; }
+      // Symbolic/scientific math — lazy-load mathjs only for plausible math.
+      if (/\b(derivative|differentiate|simplify|determinant|sqrt|sin|cos|tan|log|ln|exp|factorial|pi)\b|\^|\d\s*!/i.test(text)) {
+        const { tryMath } = await import('@/lib/ai/math-ops');
+        const mr = tryMath(text);
+        if (mr) { push({ role: 'assistant', content: mr.result, kind: 'calc' }); return true; }
+      }
+    }
+
+    // 2.7) Quick generators (UUID / password / lorem) — handled before the
+    //       generative-art branch so "generate a uuid" runs the tool instead of
+    //       being drawn as a picture.
+    if (/\b(uuid|guid|password|passphrase|lorem|random data|sample data|fake data|test data|mock data)\b/i.test(text)) {
+      const r = await routeToTool(text, null);
+      const dOp = r.top && r.confidence !== 'weak' ? devOpFor(r.top.doc.id) : undefined;
+      if (dOp) return await runDevInline(r.top!.doc, dOp, text, file);
+    }
+
+    // 2.71) CSS / code generators (gradient, box-shadow, glassmorphism…) — output
+    //        ready-to-copy CSS text; routed before the generative-art branch.
+    if (CSS_TRIGGER.test(text)) {
+      const r = await routeToTool(text, null);
+      const cOp = r.top && r.confidence !== 'weak' ? cssOpFor(r.top.doc.id) : undefined;
+      if (cOp) { push({ role: 'assistant', content: cOp.run(text) }); return true; }
+    }
+    // 2.715) SEO snippet generators (meta/OG/Twitter/robots/JSON-LD) — text output.
+    if (SEO_TRIGGER.test(text)) {
+      const r = await routeToTool(text, null);
+      const sOp = r.top && r.confidence !== 'weak' ? seoOpFor(r.top.doc.id) : undefined;
+      if (sOp) { push({ role: 'assistant', content: sOp.run(text) }); return true; }
+    }
+
+    // 2.72) Game-name generators (fantasy/sci-fi/username/clan/…) — before the
+    //        art branch so "generate a clan name" produces a name, not a picture.
+    if (looksLikeGameName(text)) {
+      const r = await routeToTool(text, null);
+      const gOp = r.top && r.confidence !== 'weak' ? gameOpFor(r.top.doc.id) : undefined;
+      if (gOp) { push({ role: 'assistant', content: gOp.run() }); return true; }
+    }
+
     // 3) Generative intents (calc / QR / palette / art / SVG).
     const intent = detectIntent(text);
     if (intent.kind === 'calc') {
@@ -520,6 +951,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       setGenerating(true);
       push({ role: 'assistant', content: 'Designing your graphic…' });
       try {
+        if (!(await ensureModel())) { setLast('⚠ Still starting up — try again in a moment.'); setGenerating(false); return true; }
         const seed = Math.floor(Math.random() * 1e9);
         const { url, spec } = await composePoster(intent.prompt, engineRef.current, seed);
         setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: spec.title || intent.prompt, kind: 'art', url, prompt: intent.prompt, seed, posterSpec: spec, filename: 'xonvert-thumbnail.png' }; return c; });
@@ -534,6 +966,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       if (emojiFor(intent.prompt)) { push({ role: 'assistant', content: intent.prompt, kind: 'art', url: artToUrl(intent.prompt, seed), prompt: intent.prompt, seed }); return true; }
       setGenerating(true);
       try {
+        if (!(await ensureModel())) { push({ role: 'assistant', content: intent.prompt, kind: 'art', url: artToUrl(intent.prompt, seed), prompt: intent.prompt, seed }); setGenerating(false); return true; }
         const out = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: svgSystemPrompt() }, { role: 'user', content: intent.prompt }], temperature: 0.5 });
         const svg = extractSvg(out.choices?.[0]?.message?.content ?? '');
         if (svg) push({ role: 'assistant', content: '', kind: 'svg', svg });
@@ -573,10 +1006,14 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // 3.4) Document understanding — questions / summary / OCR on a PDF or image.
     if (await tryDocQA(text, file)) return true;
 
-    // 3.45) Plain conversational questions ("what is ipv4", "explain DNS") with
-    //       no file and no action word are NOT a job — don't force them through
-    //       app/tool routing (which mis-fired). Fall through to the chat model.
-    if (!file && !lastFileRef.current && isGeneralQuestion(text)) return false;
+    // 3.45) Plain conversational questions ("what is ipv4", "who invented X")
+    //       with no file and no action word are NOT a job. First try to ANSWER
+    //       them from the live web on-device (extractive + cited); only if
+    //       nothing solid is found do we fall through to the chat model.
+    if (!file && !lastFileRef.current && isGeneralQuestion(text)) {
+      if (await trySearch(text)) return true;
+      return false;
+    }
 
     // 3.5) Multi-step recipes (compound jobs) — deterministic ordered chains.
     //      High-precision triggers, so they never steal a single-tool request.
@@ -612,6 +1049,12 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       return true;
     }
 
+    // 3.7) Multi-step jobs — decompose into an ordered tool chain, narrate it,
+    //       and run the whole sequence end-to-end on-device (the docx example).
+    //       Runs before single-tool routing so compound requests aren't reduced
+    //       to just their first action.
+    if (await tryPlan(text, file)) return true;
+
     // 4) Tool routing across all 323 (retrieval — no model). Inline-run when the
     //    match is a capability and we have the right file; otherwise open the tool.
     const fcRaw = file ? fileCategory(file) : null;
@@ -625,10 +1068,36 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         const m = id ? routing.candidates.find((c) => c.doc.id === id) : null;
         if (m) top = m.doc;
       }
+      // Text tools: run inline on text from the message (or an attached .txt).
+      const textOp = textOpFor(top.id);
+      if (textOp) return await runTextInline(top, textOp, text, file);
+      const devOp = devOpFor(top.id);
+      if (devOp) return await runDevInline(top, devOp, text, file);
+      // Subtitle transforms run on pasted/attached SRT/VTT, like text ops.
+      const subOp = subtitleOpFor(top.id);
+      if (subOp) return await runTextInline(top, subOp, text, file);
+      // Color tools: answer inline if a colour is in the message, else open the tool.
+      const colorOp = colorOpFor(top.id);
+      if (colorOp) { const out = colorOp.run(text); if (out) { push({ role: 'assistant', content: out }); return true; } }
+
       const cap = inlineCap(top.id);
       const effFile = file ?? lastFileRef.current;
       if (cap) {
         if (effFile && fileCategory(effFile) === cap.input) {
+          if (!inlineSizeOk(effFile)) {
+            push({ role: 'assistant', content: `That file’s quite large — I’ll open ${top.name} where it’s processed more safely. Your file is loaded.`, kind: 'tool', toolName: top.name, toolHref: top.href, stageFile: effFile });
+            return true;
+          }
+          // Smart clarify: ask one crisp question when a key parameter is
+          // genuinely missing (rather than guessing a default that may be wrong).
+          const rule = CLARIFY_RULES[top.id];
+          if (rule && !rule.has.test(text)) { askClarify(rule.question, rule.options, effFile); return true; }
+          // Text overlay tools need the words — ask if none were given.
+          if ((top.id === 'image-add-text' || top.id === 'image-watermark') && !/(say(?:ing)?|with|text|reads?|:|["“])/i.test(text)) {
+            const wm = top.id === 'image-watermark';
+            askText(wm ? 'What should the watermark say?' : 'What text should I add?', (ans) => `${wm ? 'watermark this image with' : 'add the text'} ${ans}`, effFile);
+            return true;
+          }
           lastFileRef.current = effFile;
           setGenerating(true);
           push({ role: 'assistant', content: `Working on it — I’ll ${cap.verb}…` });
@@ -641,6 +1110,45 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         push({ role: 'assistant', content: `Sure — pick ${aOrAn(cap.input)} ${cap.input} file and I’ll ${cap.verb}.`, kind: 'attach' });
         return true;
       }
+
+      // Executor-backed tools (PDF page ops, doc→PDF, format conversion) run
+      // inline on a single file too — not only inside multi-step chains.
+      if (hasRunner(top.id) && effFile) {
+        const med = planMedium(effFile);
+        const suits = top.id.startsWith('pdf-') ? med === 'pdf'
+          : top.id === 'doc-convert' ? med === 'doc' || med === 'pdf'
+          : top.id.includes('convert') ? med === 'image' || med === 'audio'
+          : med != null;
+        if (suits) {
+          if (!inlineSizeOk(effFile)) {
+            push({ role: 'assistant', content: `That file’s quite large — I’ll open ${top.name} where it’s processed more safely. Your file is loaded.`, kind: 'tool', toolName: top.name, toolHref: top.href, stageFile: effFile });
+            return true;
+          }
+          const rule = CLARIFY_RULES[top.id];
+          if (rule && !rule.has.test(text)) { askClarify(rule.question, rule.options, effFile); return true; }
+          // Watermark needs text — ask for it (free-text) rather than stamping a default.
+          if (top.id === 'pdf-watermark' && !/(say(?:ing)?|with|text|reads?|:|["“])/i.test(text)) {
+            askText('What should the watermark say?', (ans) => `watermark this pdf with ${ans}`, effFile);
+            return true;
+          }
+          const plan = planRequest(text, { inputMedium: med ?? undefined });
+          const steps = plan.steps.length ? plan.steps : null;
+          if (steps) {
+            lastFileRef.current = effFile;
+            setGenerating(true); stopRef.current = false;
+            push({ role: 'assistant', content: steps.length > 1 ? narratePlan(plan).text : `Working on it — I’ll ${steps[0].narration}…` });
+            try {
+              const out = await runChain(effFile, steps, (i, s) => { if (steps.length > 1) setLast(`Step ${i + 1}/${steps.length}: ${s.narration}…`); }, () => stopRef.current);
+              if (out.error === 'stopped') setLast('Stopped.');
+              else if (out.result) applyResult(out.result);
+              else setLast('⚠ That didn’t work — the file may be unsupported.');
+            } catch (e) { console.error(e); setLast('⚠ That didn’t work — the file may be unsupported.'); }
+            finally { setGenerating(false); }
+            return true;
+          }
+        }
+      }
+
       const alts = routing.candidates.filter((c) => c.doc.id !== top.id).slice(0, 3).map((c) => ({ label: c.doc.name, href: c.doc.href }));
       // If we have a file the tool accepts, hand it off so the tool opens preloaded.
       const efc = effFile ? fileCategory(effFile) : null;
@@ -653,30 +1161,22 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       return true;
     }
 
+    // Late fallback: a bare factual lookup ("eiffel tower height") that matched
+    // no tool — answer it from the web before giving up to the chat model.
+    if (!file && !lastFileRef.current && looksFactual(text)) {
+      if (await trySearch(text)) return true;
+    }
     return false;
   };
 
   /**
-   * Translate a non-English request to English using the already-loaded model,
-   * so the (English) router can understand it. Rough translation is fine —
-   * retrieval is robust to paraphrase. Returns null on failure.
+   * Detect a non-English request and translate it to English (browser built-in
+   * translator → Opus-MT fallback), so the English router/search can handle it.
+   * Returns the English text + source language, or null when it's English.
    */
-  const translateToEnglish = async (text: string): Promise<string | null> => {
-    if (!engineRef.current) return null;
-    try {
-      const out = await engineRef.current.chat.completions.create({
-        messages: [
-          { role: 'system', content: 'Translate the user message into English. Output ONLY the English translation — no quotes, no notes, no extra words. If it is already English, repeat it unchanged.' },
-          { role: 'user', content: text },
-        ],
-        temperature: 0,
-        max_tokens: 64,
-      });
-      const raw = (out.choices?.[0]?.message?.content ?? '').trim();
-      // Take the first line, strip surrounding quotes/labels.
-      const t = raw.split('\n')[0].replace(/^["'`]+|["'`]+$/g, '').replace(/^(translation|english)\s*[:\-]\s*/i, '').trim();
-      return t || null;
-    } catch { return null; }
+  const toEnglishLang = async (text: string): Promise<{ text: string; lang: string } | null> => {
+    try { const tr = await import('@/lib/ai/translate'); return await tr.toEnglish(text); }
+    catch { return null; }
   };
 
   /**
@@ -706,6 +1206,39 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const process = async (text: string, file: File | null) => {
     setSuggest([]);
 
+    // A free-text question is pending → take this message as the answer.
+    if (awaitingTextRef.current && text.trim()) {
+      const { build, file: f } = awaitingTextRef.current;
+      awaitingTextRef.current = null;
+      await routeAndAct(build(text.trim()), f);
+      return;
+    }
+
+    // --- conversation memory: undo / again / same-to-this --------------------
+    const REDO = /^\s*(do (it|that) again|again|once more|redo|repeat|same again)\s*$/i;
+    const SAME = /\b(do the same|same (thing )?(to|for|with|on) (this|that|it|the )?|apply the same)\b/i;
+    const UNDO = /^\s*(undo|go back|revert|never ?mind|that was wrong|previous( one)?)\s*$/i;
+
+    if (UNDO.test(text)) {
+      const prev = fileHistoryRef.current.pop();
+      if (prev) { lastFileRef.current = prev; setFollowups([]); push({ role: 'assistant', content: `Reverted — back to **${prev.name}**. What next?` }); }
+      else push({ role: 'assistant', content: 'Nothing to undo yet.' });
+      return;
+    }
+    if ((REDO.test(text) || SAME.test(text)) && lastJobRef.current) {
+      const target = file ?? lastFileRef.current;
+      if (!target && !lastJobRef.current.match(/qr|palette|calc|draw|generate/i)) {
+        push({ role: 'assistant', content: 'Attach the file you’d like me to do that to.' });
+        return;
+      }
+      push({ role: 'assistant', content: `Sure — doing the same again${file ? ' to the new file' : ''}.` });
+      await routeAndAct(lastJobRef.current, file);
+      return;
+    }
+    // Remember this turn's wording as the "last job" — but never a bare
+    // refinement command, or "again" would replay itself.
+    if (text.trim() && !REDO.test(text) && !UNDO.test(text)) lastJobRef.current = text;
+
     // Tool→app chain: "<do something> and send it" — run the action first, then
     // hand the produced file to Send.
     const chain = text.match(/^(.*?)[,\s]+(?:and|then)\s+(?:send|share)(?:\s+(?:it|this|them|the file))?\.?\s*$/i);
@@ -719,13 +1252,16 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     }
 
     // First pass in the original language (English requests resolve here for free).
+    sessionLangRef.current = null;
     if (await routeAndAct(text, file)) return;
 
-    // Nothing matched. ONLY if the text is non-Latin (e.g. CJK/Arabic/Cyrillic)
-    // do we translate to English and retry — translating English text just lets
-    // the tiny model paraphrase it into the wrong tool (it once "matched" Send).
-    const en = looksNonLatin(text) ? await translateToEnglish(text) : null;
-    if (en && en.toLowerCase() !== text.toLowerCase()) {
+    // Nothing matched. Detect the language and, if it isn't English, translate
+    // to English and retry routing — and remember the language so replies and
+    // answers can come back in it (the pivot that lets the weak model cope).
+    const det = await toEnglishLang(text);
+    const en = det && det.text.toLowerCase() !== text.toLowerCase() ? det.text : null;
+    if (det?.lang) sessionLangRef.current = det.lang;
+    if (en) {
       if (await routeAndAct(en, file)) return;
     }
 
@@ -734,17 +1270,37 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     const fun = funReply(text);
     if (fun) { push({ role: 'assistant', content: fun }); if (voiceActiveRef.current) speak(fun); return; }
 
-    // Fallback — tool suggestions + the on-device model (reply in the user's language).
+    // Fallback — tool suggestions + the on-device model. When the user wrote in
+    // another language, feed the model English (its strong language) and
+    // translate the reply back, rather than let it stumble in Arabic/Thai/etc.
+    const lang = sessionLangRef.current;
+    const userForModel = lang && en ? en : text;
     setSuggest(suggestTools(en && en !== text ? en : text));
     setGenerating(true); stopRef.current = false;
-    const history = [...messages, { role: 'user' as const, content: text }];
     push({ role: 'assistant', content: '' });
+    // This branch needs the model — wait for it now (it's been loading in the
+    // background since the request came in).
+    if (!(await ensureModel())) { setLast('⚠ The assistant is still starting up — try again in a moment.'); setGenerating(false); return; }
+    const history = [...messages, { role: 'user' as const, content: userForModel }];
+    // Ground the reply in the real catalog: when the message clearly relates to
+    // tools we have, give the model their names/blurbs so it answers from fact
+    // (and points to the right one) instead of improvising. General chat
+    // (greetings, definitions) gets no injection, so it stays natural.
+    const ctx = capabilityContext(userForModel, 5);
+    const grounding = ctx.confident
+      ? `\n\nRelevant Xonvert tools for this message — if one fits, name it and tell the user they can open it:\n${ctx.tools.map((t) => `- ${t.name}: ${t.blurb}`).join('\n')}`
+      : '';
+    const langNote = lang ? '\n\nRespond ONLY in clear English; your reply will be translated for the user.' : '';
     try {
       const stream = await engineRef.current.chat.completions.create({
-        messages: [{ role: 'system', content: XONVERT_PERSONA }, ...history.map((m) => ({ role: m.role, content: m.content }))], stream: true, temperature: 0.6,
+        messages: [{ role: 'system', content: XONVERT_PERSONA + grounding + langNote }, ...history.map((m) => ({ role: m.role, content: m.content }))], stream: true, temperature: 0.6,
       });
       let acc = '';
       for await (const chunk of stream) { if (stopRef.current) break; acc += chunk.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc }; return c; }); }
+      // Reply in the user's language: translate the finished English answer back.
+      if (lang && acc.trim() && !stopRef.current) {
+        try { const tr = await import('@/lib/ai/translate'); const out = await tr.fromEnglish(acc, lang); if (out) { acc = out; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc }; return c; }); } } catch { /* keep English */ }
+      }
       if (voiceActiveRef.current) speak(acc);
     } catch { setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: '⚠ Generation failed.' }; return c; }); }
     finally { setGenerating(false); }
@@ -768,6 +1324,19 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   };
 
   // Apply one operation to many files and return them as a single .zip.
+  // Combine many files into one (merge PDFs, join audio, images→PDF).
+  const runCombine = async (toolId: string, files: File[]) => {
+    const runner = combineFor(toolId);
+    if (!runner) { await processBatch('', files); return; }
+    const total = files.reduce((s, f) => s + f.size, 0);
+    if (total > 400e6) { push({ role: 'assistant', content: 'Those files are very large together — please combine them on the tool page so it stays smooth.' }); return; }
+    setGenerating(true);
+    push({ role: 'assistant', content: `Combining ${files.length} files…` });
+    try { applyResult(await runner(files)); }
+    catch (e) { console.error(e); setLast('⚠ Couldn’t combine those files — they may be in different or unsupported formats.'); }
+    finally { setGenerating(false); }
+  };
+
   const processBatch = async (text: string, files: File[]) => {
     const fc = fileCategory(files[0]);
     const cat = fc === 'image' || fc === 'audio' ? fc : null;
@@ -801,16 +1370,25 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
 
   const send = async () => {
     const text = input.trim();
+    setFollowups([]);
+    // Deterministic work (routing, tools, text ops, chains) doesn't need the
+    // model — only gate on "busy". Kick the model load in the background so it's
+    // ready by the time a chat/creative request actually needs it.
+    ensureLoaded();
     // Batch path: multiple files staged.
-    if (pendingFiles.length > 1 && !generating && loadState === 'ready') {
+    if (pendingFiles.length > 1 && !generating) {
       const fs = pendingFiles;
       push({ role: 'user', content: `${text || 'Process these'}  ·  📎 ${fs.length} files` });
       setInput(''); setPendingFiles([]);
-      await processBatch(text, fs);
+      // Combine into one ("merge these pdfs", "join these tracks") vs the
+      // per-file batch (apply an op to each, return a zip).
+      const combineTool = isCombineIntent(text) ? combineToolFor(fs, text) : null;
+      if (combineTool) await runCombine(combineTool, fs);
+      else await processBatch(text, fs);
       return;
     }
     const file = pendingFile;
-    if ((!text && !file) || generating || loadState !== 'ready') return;
+    if ((!text && !file) || generating) return;
     push({ role: 'user', content: file ? `${text || 'Convert this'}  ·  📎 ${file.name}` : text });
     setInput(''); setPendingFile(null);
     if (file) lastFileRef.current = file;
@@ -927,6 +1505,19 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                   )}
                   <p className="mt-3 min-h-[1.4em] text-[12px] text-[var(--term-dim)]">try: <RotatingHint phrases={HINT_PROMPTS} /></p>
                   <p className="mt-1 text-[12px] text-[var(--term-dim)]">or attach a file (📎) and say <em>“convert to wav”</em> or <em>“make this a png”</em> — I’ll run the right tool.</p>
+                  {recent.length > 0 && (
+                    <div className="mt-5">
+                      <div className="mb-1.5 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">
+                        <span>Recent</span>
+                        <button type="button" onClick={() => { import('@/lib/ai/search-cache').then(({ clearSearchCache }) => clearSearchCache()).then(() => setRecent([])); }} className="text-[var(--term-dim)] underline-offset-2 hover:text-[var(--term-fg)] hover:underline">clear</button>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-1.5">
+                        {recent.map((r) => (
+                          <button key={r.ts} type="button" onClick={() => { push({ role: 'user', content: r.query }); void process(r.query, null); }} className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{r.query}</button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -934,7 +1525,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
                 <div className={`grid h-8 w-8 shrink-0 place-items-center border ${m.role === 'user' ? 'border-[var(--term-user)]/30 bg-[var(--term-user)]/10 text-[var(--term-user)]' : 'border-[var(--term-fg)]/30 bg-[var(--term-fg)]/10 text-[var(--term-fg)]'}`}>{m.role === 'user' ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}</div>
                 <div className="min-w-0 max-w-[calc(100%-2.75rem)] space-y-2 sm:max-w-[82%]">
-                  {(!m.kind || m.kind === 'text' || m.kind === 'calc' || m.kind === 'attach' || m.kind === 'tool') && m.content && (
+                  {(!m.kind || m.kind === 'text' || m.kind === 'calc' || m.kind === 'attach' || m.kind === 'tool' || m.kind === 'menu' || m.kind === 'search') && m.content && (
                     <div className={`whitespace-pre-wrap break-words px-3 py-2 text-[14px] leading-relaxed ${m.role === 'user' ? 'border border-[var(--term-user)]/20 bg-[var(--term-user)]/10 text-[#cdeeff]' : 'text-[var(--term-fg)] terminal-glow'} ${m.kind === 'calc' ? 'text-[15px]' : ''}`}>
                       {m.role === 'assistant'
                         ? <TypeOut text={m.content} active={i === messages.length - 1} />
@@ -974,6 +1565,48 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                       )}
                     </div>
                   )}
+                  {m.clarify && m.clarify.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {m.clarify.map((o) => (
+                        <button key={o.value} type="button" onClick={() => runClarify(o.value)} className="inline-flex items-center gap-1 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-3 py-1.5 text-[12px] font-medium text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.16]">{o.label}</button>
+                      ))}
+                    </div>
+                  )}
+                  {m.kind === 'search' && (
+                    <div className="mt-1.5 space-y-2">
+                      {m.sources && m.sources.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Sources</span>
+                          {m.sources.map((s) => (
+                            <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{s.site} <ArrowRight className="h-3 w-3 -rotate-45" /></a>
+                          ))}
+                        </div>
+                      )}
+                      {m.related && m.related.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Related</span>
+                          {m.related.map((r) => (
+                            <button key={r} type="button" onClick={() => { push({ role: 'user', content: r }); void process(r, null); }} className="inline-flex items-center gap-1 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-3 py-1.5 text-[12px] font-medium text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.16]">{r}</button>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-[var(--color-fg-subtle)]">Looked this up from your device · facts come from the cited source, not the model</div>
+                    </div>
+                  )}
+                  {m.kind === 'menu' && m.groups && (
+                    <div className="space-y-2.5">
+                      {m.groups.map((g) => (
+                        <div key={g.title}>
+                          <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">{g.title}</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {g.actions.map((a) => (
+                              <Link key={a.href} href={a.href} onClick={() => { if (m.stageFile) stageHandoff(m.stageFile); }} title={a.blurb} className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{a.name}</Link>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {m.kind === 'attach' && (
                     <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-2 border border-[var(--color-cat-dev)]/40 bg-[var(--color-cat-dev)]/[0.06] px-3 py-2 text-[13px] font-semibold text-[var(--color-fg)] transition hover:bg-[var(--color-cat-dev)]/[0.12]">
                       <Paperclip className="h-4 w-4 text-[var(--color-cat-dev)]" /> Choose a file
@@ -1001,6 +1634,14 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                 </div>
               </div>
             ))}
+            {followups.length > 0 && !generating && (
+              <div className="flex flex-wrap items-center gap-2 pl-11">
+                <span className="text-[11px] text-[var(--term-dim)]">next:</span>
+                {followups.map((f) => (
+                  <button key={f} type="button" onClick={() => runFollowup(f)} className="inline-flex items-center gap-1.5 border border-[var(--term-user)]/30 bg-[var(--term-user)]/[0.08] px-3 py-1.5 text-[12px] font-medium text-[var(--term-user)] transition hover:bg-[var(--term-user)]/[0.16]">{f}</button>
+                ))}
+              </div>
+            )}
             {suggest.length > 0 && !generating && (
               <div className="flex flex-wrap gap-2 pl-11">
                 {suggest.map((s) => (
@@ -1024,7 +1665,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               <div className="mb-2 flex items-center gap-2">
                 <span className="inline-flex items-center gap-1.5 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-2.5 py-1 text-[12px] text-[var(--term-fg)]">
                   <Paperclip className="h-3 w-3" />
-                  <span>{pendingFiles.length} files — say what to do (e.g. “convert all to webp”)</span>
+                  <span>{pendingFiles.length} files — say what to do (e.g. “merge them” or “convert all to webp”)</span>
                   <button type="button" onClick={() => setPendingFiles([])} className="shrink-0 hover:text-red-400"><X className="h-3 w-3" /></button>
                 </span>
               </div>
@@ -1042,7 +1683,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               <div className="order-1 flex w-full items-start gap-2 sm:order-3 sm:w-auto sm:flex-1">
                 <span className="select-none pt-2 text-[15px] leading-none text-[var(--term-fg)] terminal-glow sm:text-[14px]" aria-hidden>&gt;</span>
                 <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} rows={3} onFocus={() => { ensureLoaded(); maybeExpand(); }}
-                  placeholder={recording ? 'listening… tap ◼ to send' : loadState === 'loading' ? 'booting…' : 'type a command…'}
+                  placeholder={recording ? 'listening… tap ◼ to send' : 'type a command… (tools work right away)'}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                   onPaste={(e) => { const it = Array.from(e.clipboardData.items).find((i) => i.type.startsWith('image/')); const f = it?.getAsFile(); if (f) { e.preventDefault(); receiveFile(new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png')}`, { type: f.type })); } }}
                   className="max-h-44 min-h-[4.5rem] flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed text-[var(--term-fg)] caret-[var(--term-fg)] placeholder:text-[var(--term-dim)] focus:outline-none sm:min-h-[3.75rem] sm:text-[14px]" />
@@ -1052,7 +1693,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               {generating ? (
                 <button type="button" onClick={(e) => { e.stopPropagation(); handleStop(); }} title="Stop" className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-red-600 text-white sm:order-4"><Square className="h-4 w-4" /></button>
               ) : (
-                <button type="button" onClick={send} disabled={loadState !== 'ready' || (!input.trim() && !pendingFile && pendingFiles.length < 2)} title={loadState !== 'ready' ? 'Booting…' : 'Send'} className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-[var(--term-fg)] text-[#06140d] transition hover:brightness-110 disabled:bg-[#14201a] disabled:text-[var(--term-dim)] sm:order-4"><Send className="h-4 w-4" /></button>
+                <button type="button" onClick={send} disabled={!input.trim() && !pendingFile && pendingFiles.length < 2} title="Send" className="order-5 grid h-10 w-10 shrink-0 place-items-center bg-[var(--term-fg)] text-[#06140d] transition hover:brightness-110 disabled:bg-[#14201a] disabled:text-[var(--term-dim)] sm:order-4"><Send className="h-4 w-4" /></button>
               )}
             </div>
           </div>

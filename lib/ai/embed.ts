@@ -63,6 +63,16 @@ async function embedOne(text: string): Promise<Float32Array> {
   return res.data.slice(0, DIM) as Float32Array;
 }
 
+/**
+ * Embed an arbitrary short string for callers outside the tool index (e.g. the
+ * search cache). Returns null when the embedder isn't already warm — so callers
+ * stay instant and never trigger a model download just to embed one query.
+ */
+export async function embedText(text: string): Promise<Float32Array | null> {
+  if (!_extractor) return null;
+  try { return await embedOne(text); } catch { return null; }
+}
+
 // --- IndexedDB blob cache (one record) -------------------------------------
 
 function idbOpen(): Promise<IDBDatabase> {

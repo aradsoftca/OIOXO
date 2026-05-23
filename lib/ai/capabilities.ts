@@ -14,7 +14,7 @@
 
 import type { ActionResult } from '@/lib/ai-actions';
 
-export type CapInput = 'image' | 'audio';
+export type CapInput = 'image' | 'audio' | 'video';
 
 export interface Capability {
   toolId: string;
@@ -144,6 +144,62 @@ function parseTrim(text: string, dur: number): { start: number; end: number } {
 
 // --- the registry ----------------------------------------------------------
 
+// --- image text overlay + watermark (canvas; text comes from the request) ---
+function parseOverlayText(text: string): string | null {
+  const m = text.match(/(?:say(?:ing)?|with|text|reads?|:)\s*["“]?([^"”\n]+?)["”]?\s*$/i) || text.match(/["“]([^"”]+)["”]/);
+  return m ? m[1].trim() : null;
+}
+async function runImageOverlay(file: File, text: string, mode: 'caption' | 'watermark'): Promise<ActionResult> {
+  const img = await import('@/engines/image');
+  const { data } = await img.decode(file);
+  const content = parseOverlayText(text) ?? (mode === 'watermark' ? 'WATERMARK' : 'Your text');
+  const c = document.createElement('canvas'); c.width = data.width; c.height = data.height;
+  const ctx = c.getContext('2d')!;
+  ctx.putImageData(data, 0, 0);
+  if (mode === 'watermark') {
+    ctx.save();
+    ctx.globalAlpha = 0.25; ctx.translate(c.width / 2, c.height / 2); ctx.rotate(-Math.PI / 6);
+    const fs = Math.max(20, Math.round(c.width / 12));
+    ctx.font = `bold ${fs}px sans-serif`; ctx.fillStyle = '#ffffff'; ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = fs / 16; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.strokeText(content, 0, 0); ctx.fillText(content, 0, 0);
+    ctx.restore();
+  } else {
+    const fs = Math.max(24, Math.round(c.width / 14));
+    ctx.font = `bold ${fs}px sans-serif`; ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#000000';
+    ctx.lineWidth = fs / 8; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    const x = c.width / 2, y = c.height - fs * 0.6;
+    ctx.strokeText(content, x, y); ctx.fillText(content, x, y);
+  }
+  const blob = await new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('encode failed'))), 'image/png'));
+  return { kind: 'image', url: URL.createObjectURL(blob), filename: `${base(file)}-${mode}.png`, note: content, blob };
+}
+
+// --- video: grab a still frame (fast; the heavy ops stay on the tool page) ---
+function withTimeout<T>(p: Promise<T>, ms: number, msg: string): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(msg)), ms))]);
+}
+async function runVideoFrame(file: File, suffix: string): Promise<ActionResult> {
+  const v = await import('@/engines/video');
+  // Bound the load+seek so a corrupt or unsupported video never hangs the chat.
+  const { video, url } = await withTimeout(v.loadVideoElement(file), 15_000, 'Could not load this video.');
+  try {
+    const t = Math.min(1, (video.duration || 3) / 3); // ~a third in, but ≥ frame 1s
+    const blob = await withTimeout(v.extractFrameAt(video, t, 1, 'image/png', 0.92), 15_000, 'Could not read a frame.');
+    return { kind: 'image', url: URL.createObjectURL(blob), filename: `${base(file)}-${suffix}.png`, note: 'frame', blob };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+/** Semitone shift from "up/down", "N semitones", "an octave". */
+function parsePitch(text: string): number {
+  const m = text.match(/(-?\d+)\s*(?:semitone|step|half-?step)/i);
+  if (m) return Math.max(-24, Math.min(24, parseInt(m[1], 10)));
+  if (/\boctave\b/i.test(text)) return /\b(down|lower)\b/i.test(text) ? -12 : 12;
+  if (/\b(down|lower|deeper|deep)\b/i.test(text)) return -4;
+  if (/\b(up|higher|raise|chipmunk)\b/i.test(text)) return 4;
+  return 3;
+}
+
 const LIST: Capability[] = [
   // image — unambiguous filters/transforms
   imageCap('image-grayscale', 'grayscale', 'convert it to grayscale', (f, _t, d) => f.grayscale(d)),
@@ -153,6 +209,40 @@ const LIST: Capability[] = [
   imageCap('image-sharpen', 'sharp', 'sharpen it', (f, _t, d) => f.sharpen(d)),
   imageCap('image-pixelate', 'pixelated', 'pixelate it', (_f, t, d) => t.pixelate(d, { size: 12 })),
   imageCap('image-flip', 'flipped', 'flip it', (_f, t, d) => t.flip(d, { horizontal: true })),
+  imageCap('image-vignette', 'vignette', 'add a vignette', (_f, t, d) => t.vignette(d, {})),
+  imageCap('image-blur', 'blurred', 'blur it', (f, _t, d) => f.convolve3x3(d, [1, 1, 1, 1, 1, 1, 1, 1, 1], 9)),
+  imageCap('image-round-corners', 'rounded', 'round the corners', (_f, t, d) => t.roundCorners(d, { radius: 48 })),
+  imageCap('image-border', 'bordered', 'add a border', (_f, t, d) => t.border(d, { width: 24, color: '#000000' })),
+  { toolId: 'image-thumbnail', input: 'image', verb: 'make a thumbnail', run: async (file) => {
+      const img = await import('@/engines/image');
+      const { data } = await img.decode(file);
+      const w = Math.min(320, data.width); const h = Math.round((data.height * w) / data.width);
+      const out = await img.resize(data, { width: w, height: h });
+      const { blob } = await img.encode(out, 'png', {});
+      return { kind: 'image', url: URL.createObjectURL(blob), filename: `${base(file)}-thumb.png`, note: `${w}×${h}`, blob };
+  } },
+  { toolId: 'image-upscale', input: 'image', verb: 'upscale it', run: async (file, text) => {
+      const { upscale } = await import('@/engines/upscale');
+      const factor: 2 | 4 = /\b4x|4 ?times|quadruple\b/i.test(text) ? 4 : 2;
+      const blob = await upscale(file, { factor });
+      return { kind: 'image', url: URL.createObjectURL(blob), filename: `${base(file)}-upscaled.png`, note: `${factor}×`, blob };
+  } },
+  { toolId: 'image-add-text', input: 'image', verb: 'add text to it', run: (file, text) => runImageOverlay(file, text, 'caption') },
+  { toolId: 'image-watermark', input: 'image', verb: 'add a watermark', run: (file, text) => runImageOverlay(file, text, 'watermark') },
+  { toolId: 'image-crop', input: 'image', verb: 'crop it', run: async (file, text) => {
+      const img = await import('@/engines/image');
+      const { data } = await img.decode(file);
+      const W = data.width, H = data.height;
+      let cw: number, ch: number;
+      const m = text.match(/(\d{2,5})\s*(?:x|×|by)\s*(\d{2,5})/i);
+      if (m && !/\bsquare\b/i.test(text)) { cw = Math.min(W, +m[1]); ch = Math.min(H, +m[2]); }
+      else { const s = Math.min(W, H); cw = s; ch = s; } // default / "square": centred square
+      const cx = (W - cw) >> 1, cy = (H - ch) >> 1;
+      const out = img.transforms.crop(data, { x: cx, y: cy, width: cw, height: ch });
+      const { blob } = await img.encode(out, 'png', {});
+      return { kind: 'image', url: URL.createObjectURL(blob), filename: `${base(file)}-cropped.png`, note: `${cw}×${ch}`, blob };
+  } },
+  { toolId: 'image-hue', input: 'image', verb: 'shift the hue', run: (file, text) => runImage(file, 'hue', (f, _t, d) => f.hue(d, { angle: parseAngle(text) })) },
   // image — background removal (async, alpha PNG)
   { toolId: 'image-remove-bg', input: 'image', verb: 'remove the background', run: async (file) => {
       const img = await import('@/engines/image');
@@ -166,6 +256,39 @@ const LIST: Capability[] = [
   audioCap('audio-fade-in', 'fade-in', 'add a fade-in', (a, ab) => a.fadeIn(ab, 2)),
   audioCap('audio-fade-out', 'fade-out', 'add a fade-out', (a, ab) => a.fadeOut(ab, 2)),
   audioCap('audio-vocal-remover', 'instrumental', 'remove the vocals', (a, ab) => a.removeVocals(ab, 1)),
+  audioCap('audio-stereo-to-mono', 'mono', 'make it mono', (a, ab) => a.toMono(ab)),
+  audioCap('audio-mono-to-stereo', 'stereo', 'make it stereo', (a, ab) => a.toStereo(ab)),
+  audioCap('audio-bass-boost', 'bass-boosted', 'boost the bass', (a, ab) => a.bassBoost(ab, 6)),
+  audioCap('audio-treble-boost', 'treble-boosted', 'boost the treble', (a, ab) => a.trebleBoost(ab, 6)),
+  audioCap('audio-echo', 'echo', 'add an echo', (a, ab) => a.echo(ab)),
+  audioCap('audio-reverb', 'reverb', 'add reverb', (a, ab) => a.reverb(ab, 0.5)),
+  { toolId: 'audio-pan', input: 'audio', verb: 'pan it', run: (file, text) =>
+      runAudio(file, 'panned', (a, ab) => a.pan(ab, /right/i.test(text) ? 0.7 : /left/i.test(text) ? -0.7 : 0)) },
+  { toolId: 'audio-stereo-width', input: 'audio', verb: 'adjust the stereo width', run: (file, text) =>
+      runAudio(file, 'width', (a, ab) => a.stereoWidth(ab, /narrow|tight|mono/i.test(text) ? 0.5 : /wide|wider|broad/i.test(text) ? 1.6 : 1.3)) },
+  { toolId: 'audio-pitch', input: 'audio', verb: 'shift the pitch', run: (file, text) =>
+      runAudio(file, 'pitch', (a, ab) => a.pitchShift(ab, parsePitch(text))) },
+  { toolId: 'audio-tempo', input: 'audio', verb: 'change the tempo', run: (file, text) =>
+      runAudio(file, 'tempo', (a, ab) => a.changeTempo(ab, parseSpeed(text))) },
+
+  // media understanding — read text out of media (output is text, so it can
+  // even feed a following text-op in a chain: "transcribe … and remove dupes")
+  { toolId: 'image-ocr', input: 'image', verb: 'read the text in it', run: async (file) => {
+      const ocr = await import('@/engines/ocr');
+      const { text } = await ocr.recognize(file);
+      const t = (text ?? '').trim();
+      return { kind: 'text', text: t || 'I couldn’t find any text in that image.' };
+  } },
+  { toolId: 'audio-to-text', input: 'audio', verb: 'transcribe it', run: async (file) => {
+      const { transcribe } = await import('@/engines/transcribe');
+      const res = await transcribe(file, { size: 'tiny' });
+      const t = (res.text ?? '').trim();
+      return { kind: 'text', text: t || 'I couldn’t detect any speech in that audio.' };
+  } },
+
+  // video — fast still-frame grab (other video ops route to the tool page)
+  { toolId: 'video-thumbnail', input: 'video', verb: 'grab a thumbnail', run: (file) => runVideoFrame(file, 'thumbnail') },
+  { toolId: 'video-poster', input: 'video', verb: 'grab a poster frame', run: (file) => runVideoFrame(file, 'poster') },
   { toolId: 'audio-volume', input: 'audio', verb: 'adjust the volume', run: (file, text) =>
       runAudio(file, 'volume', (a, ab) => a.gain(ab, parseGain(text))) },
   { toolId: 'audio-speed', input: 'audio', verb: 'change the speed', run: (file, text) =>

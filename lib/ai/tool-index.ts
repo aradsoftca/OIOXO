@@ -13,6 +13,7 @@
 
 import { TOOLS } from '@/lib/registry';
 import type { ToolManifest, Category, ComputeTier } from '@/lib/registry/types';
+import { knowledgeFor } from './knowledge';
 
 export interface IndexDoc {
   id: string;
@@ -28,8 +29,14 @@ export interface IndexDoc {
   needsFile: boolean;
   /** Pre-tokenised, weighted terms (term repeated by field weight). */
   terms: string[];
+  /** Term frequencies, precomputed once so search never rebuilds them. */
+  tf: Map<string, number>;
+  /** sqrt(term count) — precomputed length normaliser for the ranker. */
+  norm: number;
   /** Human-readable blob used by the embedding layer. */
   searchText: string;
+  /** Plain-language capability sentence — what the AI tells the user (Layer 2). */
+  card: string;
 }
 
 const STOP = new Set([
@@ -62,13 +69,21 @@ function buildDoc(t: ToolManifest): IndexDoc {
   const keywords = t.keywords ?? [];
   const accepts = t.accepts ?? [];
   const produces = t.produces ?? [];
-  // Field weighting: name and keywords matter most for routing intent.
+  const know = knowledgeFor(t);
+  // Field weighting: name and keywords matter most, but curated utterances —
+  // how people actually phrase the request — are just as decisive, so they get
+  // the same ×2 boost. Auto-derived knowledge terms (MIME words, category &
+  // action synonyms) add recall at ×1 without drowning the distinctive words.
   const terms = [
     ...tokenize(t.name), ...tokenize(t.name),     // name ×2
     ...keywords.flatMap((k) => tokenize(k)), ...keywords.flatMap((k) => tokenize(k)), // keywords ×2
+    ...know.utterances.flatMap((u) => tokenize(u)), ...know.utterances.flatMap((u) => tokenize(u)), // utterances ×2
+    ...know.terms.flatMap((w) => tokenize(w)),    // MIME/category/action synonyms ×1
     ...tokenize(t.blurb),
     ...tokenize(t.category),
   ];
+  const tf = new Map<string, number>();
+  for (const t of terms) tf.set(t, (tf.get(t) ?? 0) + 1);
   return {
     id: t.id,
     name: t.name,
@@ -81,7 +96,13 @@ function buildDoc(t: ToolManifest): IndexDoc {
     href: `/tools/${t.id}`,
     needsFile: acceptsCategory(accepts) !== null && acceptsCategory(accepts) !== 'any' ? true : accepts.length > 0,
     terms,
-    searchText: [t.name, keywords.join(', '), t.blurb].filter(Boolean).join('. '),
+    tf,
+    norm: Math.sqrt(terms.length || 1),
+    // Embeddings see the full human surface: name, keywords, blurb, the curated
+    // capability card, and real utterances — so semantic matches understand the
+    // tool by meaning, not just its short blurb.
+    searchText: [t.name, keywords.join(', '), know.card, know.utterances.join('. ')].filter(Boolean).join('. '),
+    card: know.card,
   };
 }
 
@@ -98,13 +119,23 @@ export function docById(id: string): IndexDoc | undefined {
   return _byId.get(id);
 }
 
+/**
+ * Build the index + document-frequency table ahead of time. Cheap, but doing it
+ * during an idle callback (rather than on the first query) means the very first
+ * routing call is instant even on a slow phone. Idempotent.
+ */
+export function warmIndex(): void {
+  indexDocs();
+  docFreq();
+}
+
 /** Document frequency per term — used by the lexical ranker (idf). */
 let _df: Map<string, number> | null = null;
 export function docFreq(): Map<string, number> {
   if (_df) return _df;
   const df = new Map<string, number>();
   for (const d of indexDocs()) {
-    for (const term of new Set(d.terms)) df.set(term, (df.get(term) ?? 0) + 1);
+    for (const term of d.tf.keys()) df.set(term, (df.get(term) ?? 0) + 1); // tf keys are unique
   }
   _df = df;
   return df;

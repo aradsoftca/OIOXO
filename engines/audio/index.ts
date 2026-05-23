@@ -6,6 +6,8 @@
  * - Operations: trim, concat, gain, fade, normalize, speed, reverse, mono/stereo.
  */
 
+import * as dsp from './dsp';
+
 let _ctx: AudioContext | null = null;
 function ctx(): AudioContext {
   if (!_ctx) _ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
@@ -85,6 +87,59 @@ export function gain(ab: AudioBuffer, multiplier: number): AudioBuffer {
     for (let i = 0; i < src.length; i++) dst[i] = clamp(src[i] * multiplier);
   }
   return out;
+}
+
+/**
+ * Apply a per-channel DSP transform (from ./dsp) that may grow the signal
+ * (echo/reverb tails). `extraSec` reserves room for the tail so it isn't cut.
+ */
+function applyDsp(ab: AudioBuffer, fn: (x: Float32Array, sr: number) => Float32Array, extraSec = 0): AudioBuffer {
+  const extra = Math.round(extraSec * ab.sampleRate);
+  const out = newBuffer(ab.numberOfChannels, ab.length + extra, ab.sampleRate);
+  for (let c = 0; c < ab.numberOfChannels; c++) {
+    const src = ab.getChannelData(c);
+    const padded = extra ? (() => { const p = new Float32Array(src.length + extra); p.set(src); return p; })() : src;
+    const processed = fn(padded, ab.sampleRate);
+    const dst = out.getChannelData(c);
+    for (let i = 0; i < dst.length; i++) dst[i] = clamp(processed[i] ?? 0);
+  }
+  return out;
+}
+
+export function bassBoost(ab: AudioBuffer, gainDb = 6): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.shelf(x, sr, 'low', 200, gainDb));
+}
+export function trebleBoost(ab: AudioBuffer, gainDb = 6): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.shelf(x, sr, 'high', 3500, gainDb));
+}
+export function echo(ab: AudioBuffer, delaySec = 0.3, decay = 0.4): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.echo(x, sr, delaySec, decay), delaySec * 4);
+}
+export function reverb(ab: AudioBuffer, amount = 0.5): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.reverb(x, sr, amount), 0.6);
+}
+
+/** Per-channel DSP that changes length (pitch/tempo) — output sized to result. */
+function applyResizing(ab: AudioBuffer, fn: (x: Float32Array) => Float32Array): AudioBuffer {
+  const chans: Float32Array[] = [];
+  for (let c = 0; c < ab.numberOfChannels; c++) chans.push(fn(ab.getChannelData(c)));
+  const len = chans[0]?.length ?? ab.length;
+  const out = newBuffer(ab.numberOfChannels, len, ab.sampleRate);
+  for (let c = 0; c < ab.numberOfChannels; c++) {
+    const dst = out.getChannelData(c);
+    const src = chans[c];
+    for (let i = 0; i < dst.length; i++) dst[i] = clamp(src[i] ?? 0);
+  }
+  return out;
+}
+
+/** Shift pitch (in semitones) without changing duration. */
+export function pitchShift(ab: AudioBuffer, semitones: number): AudioBuffer {
+  return applyResizing(ab, (x) => dsp.pitchShift(x, semitones));
+}
+/** Change tempo (speed factor) without changing pitch. */
+export function changeTempo(ab: AudioBuffer, speed: number): AudioBuffer {
+  return applyResizing(ab, (x) => dsp.timeStretch(x, 1 / Math.max(0.1, speed)));
 }
 
 export function fadeIn(ab: AudioBuffer, durSec: number): AudioBuffer {

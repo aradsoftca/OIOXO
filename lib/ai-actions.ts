@@ -252,7 +252,59 @@ const httpHeaders: QuickSkill = {
   },
 };
 
-export const QUICK_SKILLS: QuickSkill[] = [myIp, dnsLookup, geoIp, httpHeaders];
+const sslCheck: QuickSkill = {
+  id: 'ssl',
+  // "check the SSL for example.com" — needs a domain so "what is ssl" stays a definition.
+  match: (lc) => (/\bssl\b|\btls\b|\bcertificate\b|\bcert\b/.test(lc)) && /\.[a-z]{2,}/.test(lc),
+  run: async (text) => {
+    const host = extractHost(text);
+    if (!host) return { kind: 'text', text: 'Which site? e.g. “check the SSL for example.com”.' };
+    try {
+      const d = await postJson('/api/net/ssl', { host });
+      if (d.error) return { kind: 'text', text: String(d.error) };
+      const parts = [`SSL for ${d.host}`];
+      if (d.issuer) parts.push(`issued by ${d.issuer}`);
+      if (typeof d.daysRemaining === 'number') parts.push(d.expired ? 'EXPIRED' : `valid for ${d.daysRemaining} more days`);
+      if (d.validTo) parts.push(`until ${String(d.validTo)}`);
+      return { kind: 'text', text: parts.join(' · ') };
+    } catch { return { kind: 'error', text: 'SSL check failed.' }; }
+  },
+};
+
+const whoisLookup: QuickSkill = {
+  id: 'whois',
+  match: (lc) => (/\bwhois\b|who owns|domain (?:info|owner|registr|age)/.test(lc)) && /\.[a-z]{2,}/.test(lc),
+  run: async (text) => {
+    const host = extractHost(text);
+    if (!host) return { kind: 'text', text: 'Which domain? e.g. “whois example.com”.' };
+    try {
+      const d = await postJson('/api/net/whois', { domain: host });
+      if (d.error) return { kind: 'text', text: String(d.error) };
+      const parts = [`WHOIS ${d.domain}`];
+      if (d.registrar) parts.push(`registrar: ${d.registrar}`);
+      if (d.created) parts.push(`created: ${d.created}`);
+      if (d.expires) parts.push(`expires: ${d.expires}`);
+      return { kind: 'text', text: parts.length > 1 ? parts.join(' · ') : `WHOIS record for ${d.domain} retrieved.` };
+    } catch { return { kind: 'error', text: 'WHOIS lookup failed.' }; }
+  },
+};
+
+const pingHost: QuickSkill = {
+  id: 'ping',
+  match: (lc) => (/\bping\b|\breachable\b|\blatency\b|is .+ (?:up|down|online|reachable)/.test(lc)) && (/\.[a-z]{2,}/.test(lc) || /\d{1,3}\.\d{1,3}/.test(lc)),
+  run: async (text) => {
+    const host = extractHost(text);
+    if (!host) return { kind: 'text', text: 'Which host? e.g. “ping example.com”.' };
+    try {
+      const d = await postJson('/api/net/ping', { host });
+      if (d.error) return { kind: 'text', text: String(d.error) };
+      if (d.avg == null) return { kind: 'text', text: `${d.host} didn’t respond (100% packet loss).` };
+      return { kind: 'text', text: `${d.host} (${d.addr}) · avg ${d.avg} ms · min ${d.min} · max ${d.max} · ${d.loss}% loss` };
+    } catch { return { kind: 'error', text: 'Ping failed.' }; }
+  },
+};
+
+export const QUICK_SKILLS: QuickSkill[] = [myIp, dnsLookup, geoIp, httpHeaders, sslCheck, whoisLookup, pingHost];
 
 /** First quick skill that matches the message, or null. */
 export function resolveQuickSkill(text: string): QuickSkill | null {

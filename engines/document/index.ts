@@ -75,3 +75,47 @@ export async function docxToPdf(file: File): Promise<Blob> {
   const html = await docxToHtml(file);
   return htmlToPdf(html, file.name);
 }
+
+/**
+ * Render plain text to a paginated PDF using pdf-lib only — no DOM, no
+ * html2canvas, no rasterization. Fast, tiny output, selectable text, and it
+ * runs on literally any device (and in Node). Used as the AI's default doc→PDF
+ * so a conversion never stalls or OOMs a low-end phone. `htmlToPdf` remains the
+ * full-fidelity path for the tool page.
+ */
+export async function textToPdf(text: string, title = 'document'): Promise<Blob> {
+  const { PDFDocument, StandardFonts } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  try { doc.setTitle(title); } catch { /* non-fatal */ }
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const size = 11, margin = 56, lineH = 15.5, pageW = 595.28, pageH = 841.89;
+  const maxW = pageW - margin * 2;
+  // StandardFonts encode WinAnsi only; replace anything outside it so a stray
+  // emoji or CJK char can't throw and abort the whole conversion.
+  const safe = (s: string) => s.replace(/[^\t\n\r\x20-\xFF]/g, '?');
+  let page = doc.addPage([pageW, pageH]);
+  let y = pageH - margin;
+  const newline = () => { y -= lineH; if (y < margin) { page = doc.addPage([pageW, pageH]); y = pageH - margin; } };
+  const draw = (ln: string) => { try { page.drawText(ln, { x: margin, y, size, font }); } catch { /* skip unencodable */ } newline(); };
+  for (const raw of safe(text).split(/\r?\n/)) {
+    const para = raw.replace(/\t/g, '    ');
+    if (!para.trim()) { newline(); continue; }
+    const words = para.split(/\s+/);
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      let width: number;
+      try { width = font.widthOfTextAtSize(test, size); } catch { width = test.length * size * 0.5; }
+      if (width > maxW && line) { draw(line); line = w; } else line = test;
+    }
+    if (line) draw(line);
+  }
+  const bytes = await doc.save();
+  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Blob([buf], { type: 'application/pdf' });
+}
+
+/** Fast, universal docx→PDF for automated/AI use (text-based, no rasterization). */
+export async function docxToPdfText(file: File): Promise<Blob> {
+  return textToPdf(await docxToText(file), file.name);
+}

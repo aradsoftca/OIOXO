@@ -350,7 +350,17 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         // Fast path: on-device GPU via web-llm. Reuse an in-flight load if the
         // user navigated away and back mid-download.
         const webllm = await import('@mlc-ai/web-llm');
-        sharedEnginePromise ??= webllm.CreateMLCEngine(MODEL_ID, { initProgressCallback: (r: any) => { if (typeof r.progress === 'number') setLoadPct(r.progress); } });
+        const init = { initProgressCallback: (r: any) => { if (typeof r.progress === 'number') setLoadPct(r.progress); } };
+        // Cap the context window to what we actually use (synthesis ≈800 tok,
+        // doc-QA ≈700, decisions tiny — all well under 2048). The KV cache is
+        // sized to this window, so a smaller window roughly HALVES the model's
+        // working memory vs the 4k+ default — the main cause of "whole device
+        // froze" (web-llm device-loss is mostly OOM). No quality/speed cost: we
+        // never approach the limit. Resilient: if the override is ever rejected,
+        // fall back to a default load so the assistant always starts.
+        sharedEnginePromise ??= webllm
+          .CreateMLCEngine(MODEL_ID, init, { context_window_size: 2048 })
+          .catch(() => webllm.CreateMLCEngine(MODEL_ID, init));
         engineRef.current = sharedEngine = await sharedEnginePromise;
         sharedBackend = 'gpu';
       } else {
@@ -1657,7 +1667,9 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // This branch needs the model — wait for it now (it's been loading in the
     // background since the request came in).
     if (!(await ensureModel())) { setLast('⚠ The assistant is still starting up — try again in a moment.'); setGenerating(false); return; }
-    const history = [...messages, { role: 'user' as const, content: userForModel }];
+    // Only the recent turns — keeps the prompt small (less memory/compute) and
+    // safely within the context window; older chat rarely changes the reply.
+    const history = [...messages.slice(-8), { role: 'user' as const, content: userForModel }];
     // Ground the reply in the real catalog: when the message clearly relates to
     // tools we have, give the model their names/blurbs so it answers from fact
     // (and points to the right one) instead of improvising. General chat

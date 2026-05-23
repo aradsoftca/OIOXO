@@ -22,6 +22,7 @@
 
 import type { SearchAnswer, SearchSource } from './search';
 import { trimExtract } from './search';
+import { extractStructured, type AnswerType } from './extract';
 
 // The open-web reader. `https://r.jina.ai/<url>` → that page as clean markdown,
 // CORS-enabled and key-free. Swap for a self-hosted instance for full autonomy.
@@ -178,4 +179,56 @@ export async function answerFromWeb(query: string): Promise<SearchAnswer | null>
 
   // 3) Links but no extractable prose → offer them as related (disambiguation).
   return { answer: '', query, sources, related };
+}
+
+/**
+ * Gather CLEAN, relevant passages for a query — the critical input to synthesis.
+ * Searches, then reads the top pages and pulls a few prose paragraphs from each
+ * (not raw HTML/nav), so the model gets expert text it can actually merge, not a
+ * dump it drowns in. Falls back to the result snippet when a page won't read.
+ */
+export async function gatherPassages(query: string, maxPages = 2): Promise<{ text: string; source: SearchSource }[]> {
+  const md = await readThrough(DDG + encodeURIComponent(query));
+  if (!md) return [];
+  const results = parseResults(md);
+  const out: { text: string; source: SearchSource }[] = [];
+  for (const r of results.slice(0, maxPages)) {
+    let text = '';
+    const page = await readThrough(r.url, 9000);
+    if (page) {
+      const paras: string[] = [];
+      for (const raw of page.split('\n')) { const s = proseLine(raw); if (s) { paras.push(s); if (paras.join(' ').length > 600) break; } }
+      text = paras.join(' ');
+    }
+    if (!text && r.snippet) text = r.snippet;
+    if (text) out.push({ text: trimExtract(text, 700, 6), source: { title: r.title, url: r.url, site: siteOf(r.url) } });
+  }
+  return out;
+}
+
+/**
+ * Frontier-on-find-and-respond: search, then read the top result pages IN FULL
+ * and pull out the structured answer the expert page already contains (recipe
+ * ingredients + steps, how-to steps, a code block). The model authors nothing —
+ * we surface real expert content, cited. Null → caller falls back to summary.
+ */
+export async function richAnswer(query: string, type: AnswerType): Promise<SearchAnswer | null> {
+  const md = await readThrough(DDG + encodeURIComponent(query));
+  if (!md) return null;
+  const results = parseResults(md);
+  if (!results.length) return null;
+  for (const r of results.slice(0, 3)) {
+    const page = await readThrough(r.url, 10000);
+    if (!page) continue;
+    const structured = extractStructured(page, type);
+    if (structured) {
+      return {
+        answer: structured,
+        query,
+        sources: [{ title: r.title, url: r.url, site: siteOf(r.url) }, ...results.slice(0, 3).filter((x) => x.url !== r.url).map((x) => ({ title: x.title, url: x.url, site: siteOf(x.url) }))].slice(0, 3),
+        related: results.slice(0, 5).map((x) => x.title),
+      };
+    }
+  }
+  return null;
 }

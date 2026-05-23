@@ -604,28 +604,54 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     setGenerating(true);
     push({ role: 'assistant', content: 'Searching the web…' });
     try {
-      // Answer Brain: for questions that need real analysis (comparisons,
-      // how/why, lists) GATHER several sources and SYNTHESIZE a grounded answer
-      // — read both sides, then write. Single-entity lookups stay extractive.
+      // STRATEGY A — the answer already exists structured on a page (recipe,
+      // how-to, code). Find the best page and extract it. Frontier-quality
+      // because an expert wrote it; the model authors nothing.
+      const { detectAnswerType } = await import('@/lib/ai/extract');
+      const atype = detectAnswerType(text);
+      if (atype === 'recipe' || atype === 'howto' || atype === 'code') {
+        setLast('Finding the best source…');
+        const { richAnswer } = await import('@/lib/ai/web-read');
+        const rich = await richAnswer(text, atype);
+        if (rich && rich.answer) {
+          lastTopicRef.current = rich.query || text; lastSourceRef.current = rich.sources[0] ?? null; lastAnswerRef.current = rich.answer;
+          const { answer: rAns, sources: rSrc, related: rRel } = rich;
+          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: rAns, kind: 'search', sources: rSrc, related: rRel }; return c; });
+          return true;
+        }
+      }
+
+      // STRATEGY B — a rich question (compare / how-why / list): PLAN the
+      // searches, GATHER clean passages from several pages, then SYNTHESIZE one
+      // organized, grounded answer (verified). Not a copy-pasted snippet.
       const reason = await import('@/lib/ai/reason');
       const analysis = reason.analyzeQuestion(text);
       if (reason.wantsSynthesis(analysis)) {
-        setLast('Reading the sources and analyzing…');
-        const evidence = await reason.gatherEvidence(analysis);
+        const research = await import('@/lib/ai/research');
+        setLast('Working out what to search…');
+        let queries: string[] = [];
+        if (await ensureModel()) {
+          try {
+            const { messages, schema } = research.planQueriesMessages(text);
+            const out = await engineRef.current.chat.completions.create({ messages, temperature: 0, max_tokens: 80, response_format: { type: 'json_object', schema } });
+            queries = research.parseQueries(out.choices?.[0]?.message?.content ?? '');
+          } catch { /* fall back */ }
+        }
+        if (!queries.length) queries = research.fallbackQueries(text, analysis.topics);
+        setLast('Reading the sources and writing an answer…');
+        const evidence = await research.gatherForQueries(queries);
         if (evidence.length) {
-          const sources = reason.evidenceSources(evidence);
-          lastTopicRef.current = analysis.topics.join(' vs ');
+          const sources = research.researchSources(evidence);
+          lastTopicRef.current = text;
           lastSourceRef.current = sources[0] ?? null;
           let answer = '';
           if (await ensureModel()) {
-            const { system, user } = reason.buildSynthesis(analysis, evidence);
+            const { system, user } = research.buildResearchSynthesis(text, evidence);
             try {
-              const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], stream: true, temperature: 0.2 });
+              const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], stream: true, temperature: 0.3 });
               let acc = '';
               for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc, kind: 'search', sources }; return c; }); }
-              // Verify the synthesis is supported by the evidence; if it drifted,
-              // fall back to the gathered notes rather than show invention.
-              answer = acc.trim() && reason.isGrounded(acc, evidence) ? acc.trim() : reason.extractiveFallback(evidence);
+              answer = acc.trim() && research.isGrounded(acc, evidence) ? acc.trim() : reason.extractiveFallback(evidence);
             } catch { answer = reason.extractiveFallback(evidence); }
           } else {
             answer = reason.extractiveFallback(evidence);
@@ -636,7 +662,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           lastAnswerRef.current = answer;
           return true;
         }
-        // No evidence gathered → fall through to the extractive engine below.
+        // Nothing gathered → fall through to the extractive engine below.
       }
 
       const { answerQuestion } = await import('@/lib/ai/search');

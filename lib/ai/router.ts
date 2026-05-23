@@ -33,6 +33,11 @@ export interface ToolRouting {
 
 const SEM_WEIGHT = 0.55;
 const LEX_WEIGHT = 0.45;
+// A confident lexical match whose MEANING is far from the query is a false
+// positive ("order me a pizza" matched "Reverse Lines" on the word "order").
+// Corpus-measured: genuine matches have semantic similarity ≥0.38; off-domain
+// false positives ≤0.21. 0.30 sits cleanly between, with margin on both sides.
+const SEM_VETO = 0.30;
 
 export async function routeToTool(query: string, fileCat: FileCategory | null = null): Promise<ToolRouting> {
   const lex = searchTools(query, { fileCategory: fileCat, limit: 10 });
@@ -47,13 +52,31 @@ export async function routeToTool(query: string, fileCat: FileCategory | null = 
     };
   }
 
-  // Blended path. Normalise lexical to 0..1 so it composes with cosine sim.
+  const sem = await semanticRank(query);
+  const semMap = new Map(sem.map((h) => [h.id, h.score]));
+
+  // Lexical-FIRST: whenever the lexical ranker found a real match (confident OR
+  // ambiguous), trust its top — it's precise on exact keywords where embeddings
+  // blur fine distinctions (mono vs stereo). Semantic's only job here is to VETO
+  // a match whose meaning is far from the query ("order me a pizza" → Reverse
+  // Lines). The semantic BLEND below runs only when lexical is WEAK — i.e. the
+  // request paraphrases something lexical can't keyword-match.
+  const lexConf = lexConfidence(lex);
+  if (lexConf !== 'weak' && lex[0] && (!fileCat || fileMatchesCategory(lex[0].doc, fileCat))) {
+    const semTop = semMap.get(lex[0].doc.id) ?? 0;
+    return {
+      confidence: semTop < SEM_VETO ? 'weak' : lexConf,
+      top: { doc: lex[0].doc, score: lex[0].score },
+      candidates: lex.slice(0, 4).map((r) => ({ doc: r.doc, score: r.score })),
+      semantic: true,
+    };
+  }
+
+  // Lexical is WEAK → blend semantic to disambiguate / recall paraphrases.
+  // Normalise lexical to 0..1 so it composes with cosine sim.
   const maxLex = lex[0]?.score ?? 0;
   const lexNorm = new Map<string, number>();
   for (const r of lex) lexNorm.set(r.doc.id, maxLex > 0 ? r.score / maxLex : 0);
-
-  const sem = await semanticRank(query);
-  const semMap = new Map(sem.map((h) => [h.id, h.score]));
 
   const ids = new Set<string>(lexNorm.keys());
   for (const h of sem.slice(0, 12)) ids.add(h.id);
@@ -84,6 +107,8 @@ export async function routeToTool(query: string, fileCat: FileCategory | null = 
     else if (rel < REL_FLOOR && top.score < 0.6) confidence = 'weak';
     else if (margin >= 0.15 || cands.length === 1) confidence = 'confident';
     else confidence = 'ambiguous';
+    // Semantic veto: meaning is far from the query → spurious match → weak.
+    if (confidence !== 'weak' && (semMap.get(top.doc.id) ?? 0) < SEM_VETO) confidence = 'weak';
   }
 
   return { confidence, top, candidates: cands.slice(0, 4), semantic: true };

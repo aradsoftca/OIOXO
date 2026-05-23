@@ -1110,6 +1110,16 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //      look like a job.)
     const family = classifyIntent(text, { hasFile: !!file, hasTopic: !!lastTopicRef.current });
 
+    // 0.65) Too vague to act on confidently ("fix this", "do something", "the
+    //        usual") — ASK instead of guessing a random tool. With a file, show
+    //        what we can do with it; otherwise invite a clear request.
+    if (/^\s*(fix (this|it)|do something( cool| nice| with (this|it))?|do your thing|make it (better|nice|cool|good|pretty)|the usual|whatever|surprise me|just do it|help me( with (this|it))?)\s*[?.!]*\s*$/i.test(text)) {
+      const f = file ?? lastFileRef.current;
+      if (f && showFileActions(f)) return true;
+      push({ role: 'assistant', content: 'Happy to help — what would you like to do? I can convert, compress, edit, summarise, translate, generate, or just answer a question. Drop a file or tell me in your own words.' });
+      return true;
+    }
+
     // 0.7) "Save this as a PDF" — turn the previous answer into a document.
     if (!file && isSaveAsPdf(text) && lastAnswerRef.current) {
       if (await saveAnswerAsPdf(lastAnswerRef.current)) return true;

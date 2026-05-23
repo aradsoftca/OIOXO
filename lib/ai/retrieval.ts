@@ -50,6 +50,53 @@ function queryMedium(qTerms: string[]): 'image' | 'audio' | 'video' | 'pdf' | nu
 
 const PLURAL_RE = /\b(all|these|those|multiple|several|many|every|each|bunch|batch|bulk|files|photos|images|pictures|pdfs|videos|songs)\b/i;
 
+// --- typo tolerance --------------------------------------------------------
+
+// Bounded Levenshtein: returns distance, or `max+1` once it provably exceeds max.
+function editDistance(a: string, b: string, max: number): number {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      cur.push(v); if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return max + 1; // whole row already over budget → bail
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+let _vocab: string[] | null = null;
+function vocabulary(): string[] {
+  if (!_vocab) _vocab = Array.from(docFreq().keys()).filter((t) => t.length >= 4);
+  return _vocab;
+}
+
+/**
+ * Correct a query term that matches NO tool vocabulary to its nearest known term
+ * ("kompress" → "compress", "imag" → "image"). General typo tolerance — no
+ * per-word rules. Only fires for unmatched 4+ char terms, so real terms and
+ * short words are untouched.
+ */
+function correctTerm(term: string, df: Map<string, number>): string {
+  if (term.length < 4 || (df.get(term) ?? 0) > 0) return term;
+  // Distance 1 only: catches the overwhelmingly common single-char typos while
+  // never "correcting" a real word that's 2 edits from a tool term (e.g.
+  // "protected" → "protect", which would flip unlock→protect).
+  const max = 1;
+  let best = term, bestD = max + 1;
+  for (const v of vocabulary()) {
+    if (Math.abs(v.length - term.length) > max) continue;
+    const d = editDistance(term, v, bestD - 1);
+    if (d < bestD) { bestD = d; best = v; if (d === 1) break; }
+  }
+  return best;
+}
+
 export function fileMatchesCategory(doc: IndexDoc, cat: NonNullable<SearchOptions['fileCategory']>): boolean {
   // AI abilities (translate/summarize) work on text extracted from ANY medium,
   // so they stay eligible under any file filter — otherwise "summarize this pdf"
@@ -71,11 +118,13 @@ export function fileMatchesCategory(doc: IndexDoc, cat: NonNullable<SearchOption
  * for routing — the distinctive word in a request usually names the tool.
  */
 export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
-  const qTerms = tokenize(query);
-  if (!qTerms.length) return [];
-
   const docs = indexDocs();
   const df = docFreq();
+  // Tokenize, then typo-correct any term that matches nothing → the request
+  // routes correctly even when misspelled ("kompress this imag").
+  const qTerms = tokenize(query).map((t) => correctTerm(t, df));
+  if (!qTerms.length) return [];
+
   const N = docs.length;
   const limit = opts.limit ?? 8;
 

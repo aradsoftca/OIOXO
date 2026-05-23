@@ -26,7 +26,7 @@ export type { Evidence };
 export function planQueriesMessages(question: string): { messages: { role: 'system' | 'user'; content: string }[]; schema: string } {
   return {
     messages: [
-      { role: 'system', content: 'Turn the user question into 1 to 3 focused web search queries that would find the best pages to answer it (use keywords, not full sentences). For a comparison, make one query per thing. Reply ONLY JSON: {"queries":["..."]}.' },
+      { role: 'system', content: 'Turn the user question into 1 to 3 focused web search queries that would find the best pages to answer it (use keywords, not full sentences). For a comparison, make one query per thing. Reply ONLY JSON: {"queries":["..."]}. /no_think' },
       { role: 'user', content: question },
     ],
     schema: JSON.stringify({ type: 'object', properties: { queries: { type: 'array', items: { type: 'string' } } }, required: ['queries'] }),
@@ -69,7 +69,7 @@ export function buildResearchSynthesis(question: string, evidence: Evidence[]): 
   const notes = evidence.map((e, i) => `Source ${i + 1} (${e.source.site}):\n"""${e.text}"""`).join('\n\n');
   return {
     system:
-      'Answer the question using ONLY the sources below. Be SHORT — 2–3 sentences, direct, no filler, no preamble, no "according to the sources". Merge the key facts; do not copy one source verbatim; add nothing not in the sources.',
+      'Answer the question using ONLY the sources below. Be SHORT — 2–3 sentences, direct, no filler, no preamble, no "according to the sources". Merge the key facts; do not copy one source verbatim; add nothing not in the sources. /no_think',
     user: `${notes}\n\nQuestion: ${question}`,
   };
 }

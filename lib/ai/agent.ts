@@ -52,7 +52,7 @@ export function triagePrompt(message: string, candidates: Candidate[], hasFile: 
     '- "search": the user asks a question or wants facts, info, news, prices, definitions — set "query" to a concise web search.\n' +
     '- "chat": greeting, thanks, or small talk.\n' +
     'Prefer "search" for any factual question — never answer facts from memory. ' +
-    'Reply with ONLY JSON: {"action":"tool|search|chat","tool":"","query":""}.';
+    'Reply with ONLY JSON: {"action":"tool|search|chat","tool":"","query":""}. /no_think';
   const user = `Request: "${message}"\nAttached file: ${hasFile ? 'yes' : 'no'}\nRelevant tools:\n${menu}`;
   const ids = candidates.map((c) => c.id);
   const schema = JSON.stringify({

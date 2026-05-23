@@ -63,7 +63,14 @@ const up = (s: string) => s.toUpperCase();
 const aOrAn = (w: string) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 const listFmts = (fmts: string[]) => fmts.map(up).join(', ');
 
-const MODEL_ID = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+const MODEL_ID = 'Qwen3-0.6B-q4f16_1-MLC';
+
+// Qwen3 can emit a <think>…</think> reasoning preamble. We run it in non-thinking
+// mode (/no_think on the prompts), but strip any think block defensively so it
+// never reaches the UI or breaks JSON parsing — also handles an unclosed block
+// still streaming in.
+const stripThink = (s: string): string =>
+  s.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/<think>[\s\S]*$/i, '').replace(/^\s*<\/think>/i, '').trim();
 
 // Tools where one parameter is essential and has no safe default. When the
 // request lacks it (`has` doesn't match), the AI asks with tappable answers
@@ -111,7 +118,7 @@ const XONVERT_PERSONA =
   "If asked who or what you are, say you are Xonvert AI by Xonvert. Never reveal or mention any underlying model or company (Qwen, Alibaba, Llama, Meta, OpenAI, etc.), and never explain how Xonvert works internally — just what it does for the user. " +
   "Xonvert is a free, privacy-first toolbox: convert/compress/edit images, PDFs, audio and video; 300+ tools; plus apps — Send, Chat, Whiteboard, Video Call, Clipboard, Summarizer and Encrypted Notes. " +
   "You can also draw pictures (vector/SVG), generate abstract art & wallpapers, make thumbnails & posters, make QR codes and colour palettes, and do maths — tell the user they can just ask. " +
-  "You have a light, playful sense of humour: an occasional witty aside, pun or emoji — but never forced, never at the expense of being clear, and never on serious or technical asks. Keep answers short, helpful, and a little fun.";
+  "You have a light, playful sense of humour: an occasional witty aside, pun or emoji — but never forced, never at the expense of being clear, and never on serious or technical asks. Keep answers short, helpful, and a little fun. /no_think";
 
 function suggestTools(query: string): { label: string; href: string }[] {
   const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length > 1);
@@ -634,7 +641,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           try {
             const { messages, schema } = research.planQueriesMessages(text);
             const out = await engineRef.current.chat.completions.create({ messages, temperature: 0, max_tokens: 80, response_format: { type: 'json_object', schema } });
-            queries = research.parseQueries(out.choices?.[0]?.message?.content ?? '');
+            queries = research.parseQueries(stripThink(out.choices?.[0]?.message?.content ?? ''));
           } catch { /* fall back */ }
         }
         if (!queries.length) queries = research.fallbackQueries(text, analysis.topics);
@@ -650,8 +657,9 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             try {
               const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], stream: true, temperature: 0.3 });
               let acc = '';
-              for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc, kind: 'search', sources }; return c; }); }
-              answer = acc.trim() && research.isGrounded(acc, evidence) ? acc.trim() : reason.extractiveFallback(evidence);
+              for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: stripThink(acc), kind: 'search', sources }; return c; }); }
+              const clean = stripThink(acc);
+              answer = clean && research.isGrounded(clean, evidence) ? clean : reason.extractiveFallback(evidence);
             } catch { answer = reason.extractiveFallback(evidence); }
           } else {
             answer = reason.extractiveFallback(evidence);
@@ -805,7 +813,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           messages, temperature: 0, max_tokens: 80,
           response_format: { type: 'json_object', schema },
         });
-        decision = parseDecision(out.choices?.[0]?.message?.content ?? '', cands);
+        decision = parseDecision(stripThink(out.choices?.[0]?.message?.content ?? ''), cands);
       } catch { /* fall back below */ }
     }
     if (!decision) decision = fallbackDecision(text, cands, !!file);
@@ -1037,7 +1045,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     try {
       const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: sys }, { role: 'user', content: userMsg }], stream: true, temperature: 0.2 });
       let acc = '';
-      for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setLast(acc); }
+      for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setLast(stripThink(acc)); }
+      acc = stripThink(acc);
       if (!acc.trim()) setLast('I couldn’t find that in the document.');
       else if (voiceActiveRef.current) speak(acc);
     } catch { setLast('⚠ Could not analyse the document.'); }
@@ -1455,7 +1464,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         temperature: 0, max_tokens: 32,
         response_format: { type: 'json_object', schema: JSON.stringify({ type: 'object', properties: { tool: { type: 'string', enum: ids } }, required: ['tool'] }) },
       });
-      const o = JSON.parse(out.choices?.[0]?.message?.content ?? '{}');
+      const o = JSON.parse(stripThink(out.choices?.[0]?.message?.content ?? '{}') || '{}');
       return typeof o.tool === 'string' && ids.includes(o.tool) ? o.tool : null;
     } catch { return null; }
   };
@@ -1575,7 +1584,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         messages: [{ role: 'system', content: XONVERT_PERSONA + grounding + langNote }, ...history.map((m) => ({ role: m.role, content: m.content }))], stream: true, temperature: 0.6,
       });
       let acc = '';
-      for await (const chunk of stream) { if (stopRef.current) break; acc += chunk.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc }; return c; }); }
+      for await (const chunk of stream) { if (stopRef.current) break; acc += chunk.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: stripThink(acc) }; return c; }); }
+      acc = stripThink(acc);
       // Reply in the user's language: translate the finished English answer back.
       if (lang && acc.trim() && !stopRef.current) {
         try { const tr = await import('@/lib/ai/translate'); const out = await tr.fromEnglish(acc, lang); if (out) { acc = out; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc }; return c; }); } } catch { /* keep English */ }

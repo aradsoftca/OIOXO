@@ -90,7 +90,7 @@ export async function gatherEvidence(a: QuestionAnalysis): Promise<Evidence[]> {
 export function buildSynthesis(a: QuestionAnalysis, evidence: Evidence[]): { system: string; user: string } {
   const notes = evidence.map((e, i) => `Note ${i + 1} — ${e.topic}:\n"""${e.text}"""`).join('\n\n');
   const rules =
-    'Answer using ONLY the notes provided. Add no fact not in the notes. Be SHORT and direct — no preamble, no filler.';
+    'Answer using ONLY the notes provided. Add no fact not in the notes. Be SHORT and direct — no preamble, no filler. /no_think';
   let task: string;
   switch (a.kind) {
     case 'compare':

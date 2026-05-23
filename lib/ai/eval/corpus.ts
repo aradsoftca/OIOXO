@@ -255,4 +255,13 @@ export const PLAN_CORPUS: PlanCase[] = [
     query: 'remove duplicate lines and sort them',
     steps: ['text-remove-duplicates', 'text-sort-lines'],
   },
+  // AI abilities chained after tools (translate is a first-class chain step).
+  {
+    query: 'transcribe this audio and translate it to spanish',
+    steps: ['audio-to-text', 'ai-translate'],
+  },
+  {
+    query: 'remove duplicate lines and translate to arabic',
+    steps: ['text-remove-duplicates', 'ai-translate'],
+  },
 ];

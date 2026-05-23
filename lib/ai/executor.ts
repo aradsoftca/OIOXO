@@ -94,9 +94,12 @@ const RUNNERS: Record<string, StepRunner> = {
     runPdf(file, async (pdf, buf) => pdf.addTextWatermark(buf, { text: String(params.title ?? 'WATERMARK') }), 'watermarked', params),
 };
 
+// AI abilities that run as text→text chain steps (not registry tools).
+const AI_TEXT_OPS = new Set(['ai-translate']);
+
 /** Whether a plan step can be executed inline (vs needing a tool hand-off). */
 export function hasRunner(toolId: string): boolean {
-  return toolId in RUNNERS || inlineCap(toolId) !== undefined || textOpFor(toolId) !== undefined;
+  return toolId in RUNNERS || AI_TEXT_OPS.has(toolId) || inlineCap(toolId) !== undefined || textOpFor(toolId) !== undefined;
 }
 
 // A chain's working value is either a file (image/audio/pdf/doc steps) or a
@@ -117,6 +120,18 @@ function asFile(v: WorkValue): File | null {
 
 /** Run a single step against the current working value. */
 async function runStepValue(step: PlanStep, value: WorkValue): Promise<ActionResult> {
+  // AI translate as a chain step: take the working text (from a prior step, a
+  // text file, or a text op) and translate it. Pivots through English for any
+  // language pair via the shared engine (browser Translator API / Opus-MT).
+  if (step.toolId === 'ai-translate') {
+    const input = await asText(value);
+    if (input == null || !input.trim()) return { kind: 'error', text: 'No text to translate — add a step that produces text first.' };
+    const t = await import('@/lib/ai/translate');
+    const to = String(step.params.to ?? 'en');
+    const from = (await t.detectLanguage(input)) ?? 'en';
+    const out = from === to ? input : await t.translate(input, from, to);
+    return { kind: 'text', text: out && out.trim() ? out : input };
+  }
   const textOp = textOpFor(step.toolId);
   if (textOp) {
     const input = await asText(value);

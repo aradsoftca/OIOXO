@@ -15,6 +15,7 @@
 
 import { searchTools, confidence } from './retrieval';
 import { docById, type IndexDoc } from './tool-index';
+import { detectTranslate } from './translate-op';
 
 export type Medium = 'image' | 'audio' | 'video' | 'pdf' | 'doc' | 'text' | null;
 
@@ -202,6 +203,19 @@ export function planRequest(text: string, opts: PlanOptions = {}): Plan {
   let medium: FilterMedium = seed === 'image' || seed === 'audio' || seed === 'video' || seed === 'pdf' ? seed : null;
 
   for (const clause of clauses) {
+    // AI abilities are first-class chain steps, not just registry tools. A
+    // "translate to <lang>" clause becomes an ai-translate step (text→text) so a
+    // chain like "transcribe this and translate to Spanish" runs end-to-end
+    // instead of mis-routing the translate clause to some tool.
+    const tr = detectTranslate(clause);
+    if (tr) {
+      steps.push({
+        toolId: 'ai-translate', name: `Translate to ${tr.toName}`, href: '/ai', clause,
+        params: { to: tr.to, toName: tr.toName },
+        narration: `Translate to ${tr.toName}`, confidence: 'confident', candidates: [],
+      });
+      continue;
+    }
     const { doc, conf, cands } = routeClause(clause, medium);
     if (!doc || conf === 'weak') { unresolved.push(clause); continue; }
     medium = mediumOf(doc.category) ?? medium; // carry context forward

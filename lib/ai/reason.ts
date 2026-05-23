@@ -120,14 +120,36 @@ function words(s: string): string[] {
  * overlap means it drifted into invented territory → caller shows the extractive
  * notes instead. Cheap, language-agnostic, and good enough to catch fabrication.
  */
-export function isGrounded(answer: string, evidence: Evidence[]): boolean {
+export function isGrounded(answer: string, evidence: Evidence[], question = ''): boolean {
+  // An honest admission ("the sources don't say", "no information provided") is
+  // grounded behaviour — never reject it.
+  if (/\b(not (provided|in the (sources?|notes?|text)|mentioned|stated|specified|covered)|no (information|mention|details?)|couldn'?t find|could not find|do(es)?n'?t (say|mention|specify)|isn'?t (in|stated))\b/i.test(answer)) return true;
+
   const ans = words(answer);
-  if (ans.length < 4) return false;
-  const hay = new Set(words(evidence.map((e) => `${e.topic} ${e.text}`).join(' ')));
+  if (ans.length < 2) return false; // empty/near-empty only — short answers are fine
+  const evidenceText = evidence.map((e) => `${e.topic} ${e.text}`).join(' ');
+  const hay = new Set(words(evidenceText));
   if (!hay.size) return false;
   let hit = 0;
   for (const w of ans) if (hay.has(w)) hit++;
-  return hit / ans.length >= 0.5;
+  if (hit / ans.length < 0.5) return false;
+
+  // Specifics guard — catches the dangerous case where the answer is mostly
+  // grounded words but invents a NAME or NUMBER ("…awarded to Stephen Hawking"
+  // when the notes never said so). We check MID-SENTENCE capitalised words (real
+  // proper nouns — sentence-initial words are capitalised by grammar, e.g.
+  // "Solar panels", so we skip them) and numbers: each must appear in the
+  // sources (or the question), else it's fabricated.
+  const haystack = `${evidenceText} ${question}`.toLowerCase();
+  for (const sentence of answer.split(/(?<=[.!?])\s+/)) {
+    const toks = sentence.trim().split(/\s+/);
+    for (let i = 1; i < toks.length; i++) {
+      const w = toks[i].replace(/[^A-Za-z'’-]/g, '');
+      if (/^[A-Z][A-Za-z'’-]{3,}$/.test(w) && !haystack.includes(w.toLowerCase())) return false;
+    }
+  }
+  for (const n of answer.match(/\b\d[\d,.]*\b/g) ?? []) if (!haystack.includes(n.replace(/[.,]+$/, ''))) return false;
+  return true;
 }
 
 /** Combine evidence into a readable extractive fallback (no model). */

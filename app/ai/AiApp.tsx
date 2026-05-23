@@ -661,7 +661,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
               let acc = '';
               for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: stripThink(acc), kind: 'search', sources }; return c; }); }
               const clean = stripThink(acc);
-              answer = clean && research.isGrounded(clean, evidence) ? clean : reason.extractiveFallback(evidence);
+              answer = clean && research.isGrounded(clean, evidence, text) ? clean : reason.extractiveFallback(evidence);
             } catch { answer = reason.extractiveFallback(evidence); }
           } else {
             answer = reason.extractiveFallback(evidence);

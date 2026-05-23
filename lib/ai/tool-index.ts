@@ -14,6 +14,7 @@
 import { TOOLS } from '@/lib/registry';
 import type { ToolManifest, Category, ComputeTier } from '@/lib/registry/types';
 import { knowledgeFor } from './knowledge';
+import { AI_CAP_MANIFESTS } from './ai-capabilities';
 
 export interface IndexDoc {
   id: string;
@@ -110,7 +111,9 @@ let _docs: IndexDoc[] | null = null;
 let _byId: Map<string, IndexDoc> | null = null;
 
 export function indexDocs(): IndexDoc[] {
-  if (!_docs) _docs = TOOLS.map(buildDoc);
+  // Tools + the AI's own abilities, indexed by the SAME ranker — one engine
+  // routes both, so chaining/routing an ability needs no special-case code.
+  if (!_docs) _docs = [...TOOLS, ...AI_CAP_MANIFESTS].map(buildDoc);
   return _docs;
 }
 

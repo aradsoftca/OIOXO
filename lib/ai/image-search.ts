@@ -27,6 +27,7 @@ async function getJson(url: string, headers?: Record<string, string>, ms = 7000)
 /** Strip "make a cartoon picture of …" framing down to the bare subject. */
 export function imageSubject(text: string): string {
   return text
+    .split(/\s+\band\b\s+/i)[0] // "…of mona lisa and make it b&w" → just the subject
     .replace(/\b(can you|could you|please|i want|i'?d like|give me|show me|make|create|draw|paint|generate|find|get|me)\b/gi, ' ')
     .replace(/\b(realistic|hd|high[- ]res|cartoon|cartoonized?|comic|sketch|drawing|painting|portrait|photo(graph)?|picture|image|pic|wallpaper|poster|of|about|showing|featuring|with|for)\b/gi, ' ')
     .replace(/\b(a|an|the)\b/gi, ' ')

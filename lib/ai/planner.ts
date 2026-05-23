@@ -203,36 +203,22 @@ export function planRequest(text: string, opts: PlanOptions = {}): Plan {
   let medium: FilterMedium = seed === 'image' || seed === 'audio' || seed === 'video' || seed === 'pdf' ? seed : null;
 
   for (const clause of clauses) {
-    // AI abilities are first-class chain steps, not just registry tools. A
-    // "translate to <lang>" clause becomes an ai-translate step (text→text) so a
-    // chain like "transcribe this and translate to Spanish" runs end-to-end
-    // instead of mis-routing the translate clause to some tool.
-    const tr = detectTranslate(clause);
-    if (tr) {
-      steps.push({
-        toolId: 'ai-translate', name: `Translate to ${tr.toName}`, href: '/ai', clause,
-        params: { to: tr.to, toName: tr.toName },
-        narration: `Translate to ${tr.toName}`, confidence: 'confident', candidates: [],
-      });
-      continue;
-    }
-    // Summarize is an AI ability too — a chain step (text→short text), not a tool.
-    if (/\b(summari[sz]e|summary|tl;?dr|key points|the gist)\b/i.test(clause)) {
-      steps.push({ toolId: 'ai-summarize', name: 'Summarize', href: '/summarize', clause, params: {}, narration: 'Summarize', confidence: 'confident', candidates: [] });
-      continue;
-    }
+    // ONE engine routes every clause — tools AND AI abilities (ai-translate /
+    // ai-summarize live in the same index now), so no per-ability regex.
     const { doc, conf, cands } = routeClause(clause, medium);
     if (!doc || conf === 'weak') { unresolved.push(clause); continue; }
     medium = mediumOf(doc.category) ?? medium; // carry context forward
     const params = extractParams(doc.id, clause);
+    let name = doc.name;
+    let narration = narrate(doc.name, params);
+    // Capability-specific param extraction (not routing): the translate target
+    // language. This is parsing, not a routing branch.
+    if (doc.id === 'ai-translate') {
+      const tr = detectTranslate(clause) ?? detectTranslate('translate ' + clause);
+      if (tr) { params.to = tr.to; params.toName = tr.toName; name = `Translate to ${tr.toName}`; narration = name; }
+    }
     steps.push({
-      toolId: doc.id,
-      name: doc.name,
-      href: doc.href,
-      clause,
-      params,
-      narration: narrate(doc.name, params),
-      confidence: conf,
+      toolId: doc.id, name, href: doc.href, clause, params, narration, confidence: conf,
       candidates: cands.map((c) => ({ id: c.id, name: c.name })),
     });
   }

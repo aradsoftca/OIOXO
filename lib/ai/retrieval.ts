@@ -51,6 +51,10 @@ function queryMedium(qTerms: string[]): 'image' | 'audio' | 'video' | 'pdf' | nu
 const PLURAL_RE = /\b(all|these|those|multiple|several|many|every|each|bunch|batch|bulk|files|photos|images|pictures|pdfs|videos|songs)\b/i;
 
 export function fileMatchesCategory(doc: IndexDoc, cat: NonNullable<SearchOptions['fileCategory']>): boolean {
+  // AI abilities (translate/summarize) work on text extracted from ANY medium,
+  // so they stay eligible under any file filter — otherwise "summarize this pdf"
+  // would be filtered to PDF tools and lose the summarize intent.
+  if (doc.id.startsWith('ai-')) return true;
   const a = doc.accepts.join(' ');
   switch (cat) {
     case 'image': return /image\//.test(a);

@@ -1213,28 +1213,6 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       if (gOp) { push({ role: 'assistant', content: gOp.run() }); return true; }
     }
 
-    // 2.73) Text translation — "translate this to Spanish". The app already has
-    //        the translation engine; expose it directly (it used to mis-route to
-    //        a CSS-transform tool because it matched the word "translate").
-    {
-      const tr = detectTranslate(text);
-      if (tr) {
-        let operand = tr.operand;
-        if (!operand) { const f = file ?? lastFileRef.current; if (f && isTextLike(f)) { try { operand = (await f.text()).trim(); } catch { /* unreadable */ } } }
-        if (!operand) { askText(`What should I translate to ${tr.toName}?`, (ans) => `translate to ${tr.toName.toLowerCase()}: ${ans}`, file); return true; }
-        setGenerating(true);
-        push({ role: 'assistant', content: `Translating to ${tr.toName}…` });
-        try {
-          const t = await import('@/lib/ai/translate');
-          const from = (await t.detectLanguage(operand)) || 'en';
-          const out = from === tr.to ? operand : await t.translate(operand, from, tr.to);
-          setLast(out && out.trim() ? out : '⚠ I couldn’t translate that.');
-        } catch { setLast('⚠ I couldn’t translate that.'); }
-        finally { setGenerating(false); }
-        return true;
-      }
-    }
-
     // 2.9) "Make me a picture of <subject>" — we can't synthesize a real
     //       depiction. Be honest and offer the picture things we DO (poster, QR,
     //       background removal), rather than emitting meaningless abstract art.
@@ -1407,6 +1385,30 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       // Color tools: answer inline if a colour is in the message, else open the tool.
       const colorOp = colorOpFor(top.id);
       if (colorOp) { const out = colorOp.run(text); if (out) { push({ role: 'assistant', content: out }); return true; } }
+
+      // AI abilities (translate / summarize) routed as a single request — run on
+      // the message's text (or attached/last text) through the SAME executor that
+      // runs them in chains. No special-case branch per ability.
+      if (top.id === 'ai-translate' || top.id === 'ai-summarize') {
+        let operand = extractOperand(text);
+        if (!operand) { const f = file ?? lastFileRef.current; if (f && isTextLike(f)) { try { operand = (await f.text()).trim(); } catch { /* unreadable */ } } }
+        if (!operand) {
+          const tr = top.id === 'ai-translate' ? detectTranslate(text) : null;
+          askText(top.id === 'ai-translate' ? `What should I translate${tr ? ` to ${tr.toName}` : ''}?` : 'Paste the text to summarize.', (ans) => `${text}: ${ans}`, file);
+          return true;
+        }
+        const plan = planRequest(text, {});
+        if (plan.steps.length) {
+          setGenerating(true); stopRef.current = false;
+          push({ role: 'assistant', content: top.id === 'ai-translate' ? 'Translating…' : 'Summarizing…' });
+          try {
+            const out = await runChain(operand, plan.steps, () => {}, () => stopRef.current, { generate: chainGenerate });
+            setLast(out.result?.kind === 'text' && out.result.text ? out.result.text : '⚠ I couldn’t complete that.');
+          } catch { setLast('⚠ I couldn’t complete that.'); }
+          finally { setGenerating(false); }
+          return true;
+        }
+      }
 
       const cap = inlineCap(top.id);
       const effFile = file ?? lastFileRef.current;

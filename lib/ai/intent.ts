@@ -85,6 +85,11 @@ export function classifyIntent(text: string, ctx: IntentCtx = {}): Intent {
 
   const action = hasToolAction(t);
 
+  // 4.5) A recipe is always a look-up question, even though "make/bake/cook" are
+  //      action verbs ("how do i make sourdough bread" is a recipe, not a tool
+  //      job). Recipe detection is specific enough not to catch tool requests.
+  if (detectAnswerType(t) === 'recipe') return 'question';
+
   // 5) Capability question — about a tool action, not a fact.
   if (CAPABILITY_PREFIX.test(t) && action) return 'capability';
 

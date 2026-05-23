@@ -23,6 +23,7 @@ import { planGraph, runProducer, extractSlot, type GraphPlan } from '@/lib/ai/pl
 import { isSaveAsPdf } from '@/lib/ai/suggest-next';
 import { candidatesFor, triagePrompt, parseDecision, fallbackDecision, type Decision } from '@/lib/ai/agent';
 import { docById } from '@/lib/ai/tool-index';
+import { detectTranslate } from '@/lib/ai/translate-op';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
 import { planRequest, segment, type Medium } from '@/lib/ai/planner';
 import { runChain, hasRunner } from '@/lib/ai/executor';
@@ -1175,6 +1176,28 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       const r = await routeToTool(text, null);
       const gOp = r.top && r.confidence !== 'weak' ? gameOpFor(r.top.doc.id) : undefined;
       if (gOp) { push({ role: 'assistant', content: gOp.run() }); return true; }
+    }
+
+    // 2.73) Text translation — "translate this to Spanish". The app already has
+    //        the translation engine; expose it directly (it used to mis-route to
+    //        a CSS-transform tool because it matched the word "translate").
+    {
+      const tr = detectTranslate(text);
+      if (tr) {
+        let operand = tr.operand;
+        if (!operand) { const f = file ?? lastFileRef.current; if (f && isTextLike(f)) { try { operand = (await f.text()).trim(); } catch { /* unreadable */ } } }
+        if (!operand) { askText(`What should I translate to ${tr.toName}?`, (ans) => `translate to ${tr.toName.toLowerCase()}: ${ans}`, file); return true; }
+        setGenerating(true);
+        push({ role: 'assistant', content: `Translating to ${tr.toName}…` });
+        try {
+          const t = await import('@/lib/ai/translate');
+          const from = (await t.detectLanguage(operand)) || 'en';
+          const out = from === tr.to ? operand : await t.translate(operand, from, tr.to);
+          setLast(out && out.trim() ? out : '⚠ I couldn’t translate that.');
+        } catch { setLast('⚠ I couldn’t translate that.'); }
+        finally { setGenerating(false); }
+        return true;
+      }
     }
 
     // 2.9) "Make me a picture of <subject>" — we can't synthesize a real

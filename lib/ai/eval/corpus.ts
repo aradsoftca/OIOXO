@@ -160,6 +160,10 @@ export interface IntentCase {
   note?: string;
 }
 export const INTENT_CORPUS: IntentCase[] = [
+  // recipe / code with no question word still route to look-up (not dead-end)
+  { query: 'cupcake recipe', expect: 'question' },
+  { query: 'python read a file line by line', expect: 'question' },
+  { query: 'javascript sort an array', expect: 'question' },
   // factual / opinion / live → question (answered, never a tool)
   { query: 'can you tell bitcoin price right now', expect: 'question' },
   { query: 'best game 2026', expect: 'question' },

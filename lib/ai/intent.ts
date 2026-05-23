@@ -11,6 +11,7 @@
  */
 
 import { ACTION_RE, QUESTION_RE } from './route-intents';
+import { detectAnswerType } from './extract';
 
 export type Intent =
   | 'task'          // wants a job done (file present, action verb, format, tool noun)
@@ -93,10 +94,16 @@ export function classifyIntent(text: string, ctx: IntentCtx = {}): Intent {
   //    a bare imperative like "uppercase this: hello" has neither an ACTION_RE
   //    verb nor a question word, and must NOT be mistaken for a question (it's a
   //    job the tool router handles).
+  // A recipe / code request often has no question word ("cupcake recipe",
+  // "python read a file") — but it's still something to look up and present.
+  const at = detectAnswerType(t);
+  const infoType = at === 'recipe' || at === 'code' || at === 'howto';
+
   const asksSomething =
     QUESTION_RE.test(t) ||
     OPINION_RE.test(t) ||
     LIVE_RE.test(t) ||
+    infoType ||
     /\b(i (want|need|would like) to know|i'?m curious|tell me|do you know|any idea|what about)\b/i.test(t);
   if (asksSomething && !action) return 'question';
 

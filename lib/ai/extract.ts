@@ -15,14 +15,19 @@
 export type AnswerType = 'recipe' | 'howto' | 'code' | 'definition' | 'general';
 
 const RECIPE_CUE = /\b(recipe|how (do|to) (i )?(make|bake|cook|prepare)|ingredients for|how (is|are) .* (made|baked|cooked))\b/i;
-const HOWTO_CUE = /\b(how (do|to|can) (i|you)?\s|step by step|tutorial|guide to|instructions for|how to)\b/i;
-const CODE_CUE = /\b(code|function|snippet|example|regex|syntax|how to (write|code|implement)|in (python|javascript|js|java|c\+\+|rust|go|typescript|sql|bash))\b/i;
+const HOWTO_CUE = /\b(how (do|to|can) (i|you)?\s|step by step|tutorial|guide to|instructions for|how to|steps to)\b/i;
+const CODE_CUE = /\b(code|function|snippet|regex|syntax|how to (write|code|implement))\b/i;
+// A programming language named alongside a coding verb → a code question
+// ("python read a file", "javascript sort an array"), which the literal CODE_CUE
+// misses.
+const LANG = /\b(python|javascript|typescript|node(?:js)?|java|rust|golang|go|sql|bash|shell|php|ruby|c\+\+|c#|kotlin|swift|html|css|react)\b/i;
+const CODE_VERB = /\b(read|write|loop|print|parse|sort|reverse|split|append|function|array|string|file|class|method|import|install|connect|query|regex|snippet|example|syntax|error)\b/i;
 const DEFINE_CUE = /\b(what (is|are|does)|define|definition of|meaning of|what'?s)\b/i;
 
 /** Classify the kind of answer a question wants, to pick an extraction strategy. */
 export function detectAnswerType(query: string): AnswerType {
   if (RECIPE_CUE.test(query)) return 'recipe';
-  if (CODE_CUE.test(query)) return 'code';
+  if (CODE_CUE.test(query) || (LANG.test(query) && CODE_VERB.test(query))) return 'code';
   if (HOWTO_CUE.test(query)) return 'howto';
   if (DEFINE_CUE.test(query)) return 'definition';
   return 'general';

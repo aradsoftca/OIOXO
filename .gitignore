@@ -16,3 +16,4 @@ certs/
 
 # Self-hosted GeoIP databases (downloaded per-server, not committed)
 /data/geoip/*.mmdb
+scripts/qwen3-q4.gguf

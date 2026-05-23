@@ -35,10 +35,16 @@ export interface SearchOptions {
 // is a strong, reliable signal — so a request that names one shouldn't route to
 // a different medium's tool (e.g. "compress this VIDEO" → never pdf-compress).
 const MEDIUM_WORDS: Record<string, 'image' | 'audio' | 'video' | 'pdf'> = {
-  photo: 'image', picture: 'image', pic: 'image', image: 'image', images: 'image', jpg: 'image', jpeg: 'image', png: 'image',
-  song: 'audio', audio: 'audio', sound: 'audio', music: 'audio', track: 'audio', mp3: 'audio', recording: 'audio',
-  video: 'video', clip: 'video', movie: 'video', footage: 'video', mp4: 'video', film: 'video',
-  pdf: 'pdf',
+  // Singular AND plural forms — "compress my photos" must read as image just
+  // like "compress my photo" (the plurals used to be missing, so a plural
+  // request had no medium signal and tied across every medium's compressor).
+  photo: 'image', photos: 'image', picture: 'image', pictures: 'image', pic: 'image', pics: 'image',
+  image: 'image', images: 'image', jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', webp: 'image',
+  song: 'audio', songs: 'audio', audio: 'audio', sound: 'audio', sounds: 'audio', music: 'audio',
+  track: 'audio', tracks: 'audio', mp3: 'audio', recording: 'audio', recordings: 'audio',
+  video: 'video', videos: 'video', clip: 'video', clips: 'video', movie: 'video', movies: 'video',
+  footage: 'video', mp4: 'video', film: 'video', films: 'video',
+  pdf: 'pdf', pdfs: 'pdf',
 };
 const MEDIUM_CATS = new Set(['image', 'audio', 'video', 'pdf']);
 
@@ -48,7 +54,23 @@ function queryMedium(qTerms: string[]): 'image' | 'audio' | 'video' | 'pdf' | nu
   return null;
 }
 
+/** Distinct media named in the query. Two or more means a CONVERSION ("photos
+ *  into a pdf") — the anchoring must not then penalise the target medium. */
+function distinctMedia(qTerms: string[]): number {
+  const s = new Set<string>();
+  for (const t of qTerms) { const m = MEDIUM_WORDS[t]; if (m) s.add(m); }
+  return s.size;
+}
+
 const PLURAL_RE = /\b(all|these|those|multiple|several|many|every|each|bunch|batch|bulk|files|photos|images|pictures|pdfs|videos|songs)\b/i;
+
+// Quantity / plurality words are routing SIGNALS (handled by PLURAL_RE), not
+// content: no tool's vocabulary contains "all" or "every", so leaving them in
+// the query's distinctive-mass total only deflates relevance — "resize all
+// these images" scored rel 0.38 (below floor → weak) where "resize images"
+// scored 1.00. Drop them from scoring so plural requests aren't penalised for
+// saying "all". ("batch"/"bulk" are kept — they're real batch-tool vocabulary.)
+const QUANTITY_STOP = new Set(['all', 'these', 'those', 'every', 'each', 'multiple', 'several', 'many', 'bunch', 'them', 'whole', 'entire']);
 
 // --- typo tolerance --------------------------------------------------------
 
@@ -122,14 +144,22 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
   const df = docFreq();
   // Tokenize, then typo-correct any term that matches nothing → the request
   // routes correctly even when misspelled ("kompress this imag").
-  const qTerms = tokenize(query).map((t) => correctTerm(t, df));
-  if (!qTerms.length) return [];
+  const allTerms = tokenize(query).map((t) => correctTerm(t, df));
+  if (!allTerms.length) return [];
+  // Quantity words are signals, not content — drop them from scoring so they
+  // don't deflate relevance (but keep them if that would empty the query).
+  const qTerms = allTerms.filter((t) => !QUANTITY_STOP.has(t));
+  if (!qTerms.length) qTerms.push(...allTerms);
 
   const N = docs.length;
   const limit = opts.limit ?? 8;
 
   // Intent signals read once from the whole query (not per-doc).
   const medium = queryMedium(qTerms);     // explicit "video"/"song"/"pdf"/…
+  // A request naming two media is a conversion ("photos into a pdf") — keep the
+  // same-medium boost but DON'T penalise the other medium, or the target tool
+  // (images-to-pdf) gets demoted below an in-medium tool.
+  const converting = distinctMedia(qTerms) >= 2;
   const plural = PLURAL_RE.test(query);   // "all", "these", "batch", plural nouns
 
   // Query term weights (idf), de-duplicated.
@@ -169,11 +199,17 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
     // Length-normalise so keyword-stuffed tools don't dominate (precomputed).
     score /= doc.norm;
 
-    // Medium anchoring: if the user named a medium and this tool belongs to a
-    // *different* medium category, it almost certainly isn't what they meant
-    // (the classic "compress this video" → pdf-compress bleed). Non-medium
-    // categories like convert/generator/dev are never penalised.
-    if (medium && MEDIUM_CATS.has(doc.category) && doc.category !== medium) score *= 0.4;
+    // Medium anchoring: if the user named a medium, push tools of that SAME
+    // medium up and tools of a *different* medium down. The penalty alone wasn't
+    // enough when a cross-medium tool also caught a rare adjacent word ("shrink
+    // this PHOTO so it fits in an EMAIL" → pdf-compress, because shrinking a PDF
+    // for email is a real PDF use-case); the same-medium boost lets image-compress
+    // win on the medium signal. Non-medium categories (convert/generator/dev) are
+    // untouched, so cross-medium conversions ("photos into a pdf") aren't harmed.
+    if (medium && MEDIUM_CATS.has(doc.category)) {
+      if (doc.category === medium) score *= 1.6;          // boost the named medium
+      else if (!converting) score *= 0.4;                 // demote other media (unless converting)
+    }
 
     // Batch tools answer bulk requests ("convert all to webp"), not singular
     // ones ("convert this png"). Demote them unless the query signals plurality.

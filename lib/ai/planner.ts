@@ -78,9 +78,14 @@ export function segment(text: string): string[] {
     .map((p) => restoreAnd(p).trim())
     .filter(Boolean);
 
+  // A clause naming a page range is actionable even without a classic verb
+  // ("take pages 3-5 of this pdf" — "take" isn't an action word, but the page
+  // span is the intent). Keeps the extract-pages step from being dropped as
+  // leading context.
+  const PAGE_ACTION = /\bpages?\s+\d|\bpage\s+\d|\b\d+\s*(?:to|-|–|—|through|thru)\s*\d+\b/i;
   const clauses: string[] = [];
   for (const part of raw) {
-    if (VERB.test(part)) {
+    if (VERB.test(part) || PAGE_ACTION.test(part)) {
       clauses.push(part);
     } else if (clauses.length) {
       // Object-only continuation ("white" after "black", "the result") — fold
@@ -199,6 +204,12 @@ export function planRequest(text: string, opts: PlanOptions = {}): Plan {
   const unresolved: string[] = [];
 
   // Seed the medium from the input file, then let each resolved step update it.
+  // (We deliberately DON'T pre-seed from a medium merely *named* in the text:
+  // that over-constrains the opening conversion clause — "convert this word doc
+  // to PDF" must reach doc-convert, whose input is a doc, not a PDF. Instead the
+  // first resolved step establishes the medium, and it carries forward — so once
+  // "…pages 3-5 of this pdf" routes to a PDF tool, the later "remove the images"
+  // clause is anchored to PDF and can't grab image-merge.)
   const seed = opts.inputMedium ?? null;
   let medium: FilterMedium = seed === 'image' || seed === 'audio' || seed === 'video' || seed === 'pdf' ? seed : null;
 

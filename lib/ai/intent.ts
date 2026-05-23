@@ -37,7 +37,7 @@ const CHITCHAT_RE = /^\s*(hi|hii+|hey+|hello|yo|sup|howdy|greetings|good (mornin
 // "make/draw a picture OF/ABOUT <subject>" — a request for a real depiction we
 // cannot produce. Excludes the abstract/generative art and graphic tools we DO
 // offer (wallpaper, pattern, qr, thumbnail, poster, og image, favicon, meme…).
-const MEDIA_VERB = /\b(make|create|draw|generate|paint|design|render|produce|give me)\b/i;
+const MEDIA_VERB = /\b(make|create|draw|generate|paint|design|render|produce|give me|want|need|show me|find( me)?|get me|looking for|i'?d like)\b/i;
 const MEDIA_NOUN = /\b(image|picture|pic|photo|photograph|drawing|illustration|portrait|painting|artwork|art)\b/i;
 const MEDIA_OF = /\b(of|about|showing|depicting|featuring|with)\s+\S/i;
 const MEDIA_OK = /\b(abstract|wallpaper|pattern|gradient|texture|qr|thumbnail|poster|banner|og|open[- ]?graph|favicon|icon|logo|meme|collage|placeholder|avatar|background|geometric)\b/i;

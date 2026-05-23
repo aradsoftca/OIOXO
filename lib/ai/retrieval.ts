@@ -158,7 +158,9 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
   const medium = queryMedium(qTerms);     // explicit "video"/"song"/"pdf"/…
   // A request naming two media is a conversion ("photos into a pdf") — keep the
   // same-medium boost but DON'T penalise the other medium, or the target tool
-  // (images-to-pdf) gets demoted below an in-medium tool.
+  // (images-to-pdf) gets demoted below an in-medium tool. (This also leaves
+  // cross-media-object requests like "extract the audio from this video" alone,
+  // where penalising would wrongly demote the correct video tool.)
   const converting = distinctMedia(qTerms) >= 2;
   const plural = PLURAL_RE.test(query);   // "all", "these", "batch", plural nouns
 

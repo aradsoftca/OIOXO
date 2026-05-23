@@ -129,6 +129,94 @@ export const CORPUS: EvalCase[] = [
   { query: 'comprimer ce pdf', expect: ['pdf-compress'], lang: 'fr', note: 'french: compress pdf' },
 ];
 
+/**
+ * NEGATIVE cases — requests that are NOT a tool job. The ranker must report
+ * `weak` for these so the pipeline doesn't force a spurious tool (the bugs:
+ * "bitcoin price" → World Clock, "best game 2026" → eDPI Calculator). This is
+ * the relevance-floor's scoreboard.
+ */
+export const NEGATIVE_CORPUS: { query: string; note?: string }[] = [
+  { query: 'can you tell bitcoin price right now', note: 'live price → was World Clock' },
+  { query: 'bitcoin price right now', note: 'handled by intent gate, but routing must be weak' },
+  { query: 'best game 2026', note: 'opinion → was eDPI Calculator' },
+  { query: 'i need to know best game 2026' },
+  { query: 'stock price of apple' },
+  { query: 'whats the latest news today' },
+  { query: 'make image about dario', note: 'subject depiction → was abstract art' },
+  { query: 'who is dario' },
+  { query: 'do you know how ww1 started' },
+  { query: 'what is the capital of france' },
+  { query: 'should i buy a tesla', note: 'opinion' },
+];
+
+/**
+ * INTENT cases — the family the gate should assign. `hasTopic` simulates a prior
+ * web answer in context (for follow-ups).
+ */
+export interface IntentCase {
+  query: string;
+  expect: import('../intent').Intent;
+  ctx?: { hasFile?: boolean; hasTopic?: boolean };
+  note?: string;
+}
+export const INTENT_CORPUS: IntentCase[] = [
+  // factual / opinion / live → question (answered, never a tool)
+  { query: 'can you tell bitcoin price right now', expect: 'question' },
+  { query: 'best game 2026', expect: 'question' },
+  { query: 'i need to know best game 2026', expect: 'question' },
+  { query: 'who is dario', expect: 'question' },
+  { query: 'what is the capital of france', expect: 'question' },
+  { query: 'whats the latest news', expect: 'question' },
+  // follow-ups (need a prior topic)
+  { query: 'tell me more', expect: 'followup', ctx: { hasTopic: true } },
+  { query: 'why?', expect: 'followup', ctx: { hasTopic: true } },
+  { query: 'go on', expect: 'followup', ctx: { hasTopic: true } },
+  // capability questions — about a tool action
+  { query: 'can you compress a pdf', expect: 'capability' },
+  { query: 'how do i remove a background', expect: 'capability' },
+  { query: 'is there a tool to merge pdfs', expect: 'capability' },
+  // tasks — a job to run
+  { query: 'compress this image', expect: 'task' },
+  { query: 'convert this wav to mp3', expect: 'task' },
+  { query: 'remove the background', expect: 'task' },
+  { query: 'merge these pdfs into one', expect: 'task' },
+  // bare imperatives with verbs NOT in ACTION_RE must still be tasks, not
+  // questions (regression guard for the router-first default).
+  { query: 'uppercase this: hello world', expect: 'task' },
+  { query: 'reverse this text', expect: 'task' },
+  { query: 'slugify this title', expect: 'task' },
+  { query: 'sort these lines', expect: 'task' },
+  // media-subject — can't depict
+  { query: 'make image about dario', expect: 'media-subject' },
+  { query: 'draw a picture of a cat', expect: 'media-subject' },
+  { query: 'generate an illustration of the eiffel tower', expect: 'media-subject' },
+  // but abstract/graphic art is fine → NOT media-subject
+  { query: 'make an abstract wallpaper', expect: 'task' },
+  { query: 'generate a qr code for my link', expect: 'task' },
+  // chitchat
+  { query: 'hello there', expect: 'chitchat' },
+  { query: 'who are you', expect: 'chitchat' },
+  { query: 'thanks!', expect: 'chitchat' },
+];
+
+/**
+ * COMPOSITION cases — requests that wire a value producer into a renderer. The
+ * Task Brain must build the right two-node graph and know how many parameters
+ * are still missing (so it asks). `producer: ''` means it must NOT be read as a
+ * composition (kind 'none').
+ */
+export interface ComposeCase { query: string; producer: string; renderer: string; missing: number; }
+export const COMPOSE_CORPUS: ComposeCase[] = [
+  { query: 'can you make an image with my loan calculation on it', producer: 'finance-mortgage', renderer: 'render-poster', missing: 3 },
+  { query: 'make an image with my loan calc of 300000 at 6% for 30 years on it', producer: 'finance-mortgage', renderer: 'render-poster', missing: 0 },
+  { query: 'make a poster of my investment returns', producer: 'finance-investment', renderer: 'render-poster', missing: 3 },
+  { query: 'put my savings forecast on a picture', producer: 'finance-savings', renderer: 'render-poster', missing: 3 },
+  { query: 'make a qr code with my mortgage payment', producer: 'finance-mortgage', renderer: 'gen-qr-code', missing: 3 },
+  { query: 'compress this image', producer: '', renderer: '', missing: -1 },
+  { query: 'remove the background', producer: '', renderer: '', missing: -1 },
+  { query: 'make a poster', producer: '', renderer: '', missing: -1 },
+];
+
 /** Multi-step requests: the ordered set of tools a planner should produce. */
 export interface PlanCase {
   query: string;

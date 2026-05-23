@@ -16,7 +16,11 @@ import { fileMatchesCategory } from '@/lib/ai/retrieval';
 import { stageHandoff } from '@/lib/ai/handoff';
 import { isDocument, extractDocText, selectContext, docIntent } from '@/lib/ai/docqa';
 import { matchApp } from '@/lib/ai/apps';
-import { isGeneralQuestion, CONTACT_INTENT, classifyContact, HELP_INTENT, HELP_OVERVIEW, DOC_REFERS_RE, CONVERT_PHRASE } from '@/lib/ai/route-intents';
+import { isGeneralQuestion, CONTACT_INTENT, classifyContact, HELP_INTENT, HELP_OVERVIEW, DOC_REFERS_RE, CONVERT_PHRASE, looksNonLatin } from '@/lib/ai/route-intents';
+import { classifyIntent } from '@/lib/ai/intent';
+import { declineMediaSubject, declineNoAnswer } from '@/lib/ai/decline';
+import { planGraph, runProducer, extractSlot, type GraphPlan } from '@/lib/ai/plan-graph';
+import { suggestAfterAnswer, isSaveAsPdf } from '@/lib/ai/suggest-next';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
 import { planRequest, segment, type Medium } from '@/lib/ai/planner';
 import { runChain, hasRunner } from '@/lib/ai/executor';
@@ -305,6 +309,16 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   // The detected language of the current turn (BCP-47), so replies/answers can
   // be translated back into it. Null = English. Reset each turn.
   const sessionLangRef = React.useRef<string | null>(null);
+  // The topic + primary source of the last web answer, so a follow-up ("tell me
+  // more", "why?") continues it — reading the source in full for more detail —
+  // instead of searching the literal words.
+  const lastTopicRef = React.useRef<string | null>(null);
+  const lastSourceRef = React.useRef<{ url: string; title: string; site: string } | null>(null);
+  // The text of the last answer, so "save this as a PDF" can render it.
+  const lastAnswerRef = React.useRef<string | null>(null);
+  // A composition plan paused for a missing parameter: which slot we're asking
+  // for, so the next message fills it and we resume the chain.
+  const pendingGraphRef = React.useRef<{ plan: GraphPlan; idx: number } | null>(null);
 
   // Load recent on-device searches whenever the panel is empty (fresh / cleared).
   const isEmpty = messages.length === 0;
@@ -588,9 +602,48 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     setGenerating(true);
     push({ role: 'assistant', content: 'Searching the web…' });
     try {
+      // Answer Brain: for questions that need real analysis (comparisons,
+      // how/why, lists) GATHER several sources and SYNTHESIZE a grounded answer
+      // — read both sides, then write. Single-entity lookups stay extractive.
+      const reason = await import('@/lib/ai/reason');
+      const analysis = reason.analyzeQuestion(text);
+      if (reason.wantsSynthesis(analysis)) {
+        setLast('Reading the sources and analyzing…');
+        const evidence = await reason.gatherEvidence(analysis);
+        if (evidence.length) {
+          const sources = reason.evidenceSources(evidence);
+          lastTopicRef.current = analysis.topics.join(' vs ');
+          lastSourceRef.current = sources[0] ?? null;
+          let answer = '';
+          if (await ensureModel()) {
+            const { system, user } = reason.buildSynthesis(analysis, evidence);
+            try {
+              const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], stream: true, temperature: 0.2 });
+              let acc = '';
+              for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: acc, kind: 'search', sources }; return c; }); }
+              // Verify the synthesis is supported by the evidence; if it drifted,
+              // fall back to the gathered notes rather than show invention.
+              answer = acc.trim() && reason.isGrounded(acc, evidence) ? acc.trim() : reason.extractiveFallback(evidence);
+            } catch { answer = reason.extractiveFallback(evidence); }
+          } else {
+            answer = reason.extractiveFallback(evidence);
+          }
+          const lang = sessionLangRef.current;
+          if (lang && answer) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(answer, lang); if (t) answer = t; } catch { /* keep English */ } }
+          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
+          lastAnswerRef.current = answer;
+          setFollowups(suggestAfterAnswer(analysis.topics.join(' ')));
+          return true;
+        }
+        // No evidence gathered → fall through to the extractive engine below.
+      }
+
       const { answerQuestion } = await import('@/lib/ai/search');
       const res = await answerQuestion(text);
       if (!res) { setMessages((m) => m.slice(0, -1)); return false; }
+      // Remember the topic + primary source so "tell me more" can expand it.
+      lastTopicRef.current = res.query || text;
+      lastSourceRef.current = res.sources?.[0] ?? null;
       // If the user asked in another language, translate the answer back to it.
       let answer = res.answer;
       const lang = sessionLangRef.current;
@@ -604,6 +657,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           : { role: 'assistant', content: `“${res.query}” could mean a few things — which did you have in mind?`, kind: 'search', sources: res.sources, related: res.related };
         return c;
       });
+      if (answer) { lastAnswerRef.current = answer; setFollowups(suggestAfterAnswer(res.query || text)); }
       return true;
     } catch {
       setMessages((m) => m.slice(0, -1));
@@ -611,6 +665,96 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     } finally {
       setGenerating(false);
     }
+  };
+
+  /**
+   * Expand the previous answer for a follow-up ("tell me more"): read the last
+   * source page in full and show a longer extract. Returns false (placeholder
+   * removed) if it can't, so the caller falls back to re-searching the topic.
+   */
+  const tryExpand = async (source: { url: string; title: string; site: string }): Promise<boolean> => {
+    setGenerating(true);
+    push({ role: 'assistant', content: 'Reading more on that…' });
+    try {
+      const { expandFromUrl } = await import('@/lib/ai/web-read');
+      let more = await expandFromUrl(source.url);
+      if (!more) { setMessages((m) => m.slice(0, -1)); return false; }
+      const lang = sessionLangRef.current;
+      if (lang) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(more, lang); if (t) more = t; } catch { /* keep English */ } }
+      setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: more!, kind: 'search', sources: [source] }; return c; });
+      return true;
+    } catch { setMessages((m) => m.slice(0, -1)); return false; }
+    finally { setGenerating(false); }
+  };
+
+  // --- Task Brain: composition with slot-filling ---------------------------
+
+  /** Ask for the next missing parameter of a paused composition. */
+  const askGraphSlot = (plan: GraphPlan, idx: number) => {
+    pendingGraphRef.current = { plan, idx };
+    const slot = plan.missing[idx].slot;
+    push({ role: 'assistant', content: slot.question ?? `What ${slot.name}?`, clarify: slot.options });
+  };
+
+  /** Fill the current slot from the user's answer, then ask the next or run. */
+  const fillGraphSlot = (value: string) => {
+    const pend = pendingGraphRef.current;
+    if (!pend) return;
+    const { plan, idx } = pend;
+    const m = plan.missing[idx];
+    const gs = plan.nodes[m.nodeIdx].slots.find((s) => s.slot.name === m.slot.name);
+    if (gs) gs.value = extractSlot(m.slot, value) ?? value.trim();
+    if (idx + 1 < plan.missing.length) { askGraphSlot(plan, idx + 1); return; }
+    pendingGraphRef.current = null;
+    void executeGraph(plan);
+  };
+
+  /** Begin a composition: ask for any missing params, else run it now. */
+  const startGraph = (plan: GraphPlan): boolean => {
+    push({ role: 'assistant', content: plan.summary });
+    if (plan.missing.length) { askGraphSlot(plan, 0); return true; }
+    void executeGraph(plan);
+    return true;
+  };
+
+  /** Run a composed plan: producer (calc) → result text → renderer (image/pdf/QR). */
+  const executeGraph = async (plan: GraphPlan) => {
+    setGenerating(true); stopRef.current = false;
+    push({ role: 'assistant', content: 'On it — calculating, then creating your file…' });
+    try {
+      const producer = plan.nodes[0];
+      const result = runProducer(producer);
+      if (!result) { setLast('⚠ I couldn’t compute that — please check the numbers.'); setGenerating(false); return; }
+      const renderer = plan.nodes[1] ?? producer;
+      if (renderer.toolId === 'gen-qr-code') {
+        const QR = (await import('qrcode')).default;
+        const url = await QR.toDataURL(result, { width: 320, margin: 1 });
+        setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: result, kind: 'qr', url, filename: 'xonvert-qr.png' }; return c; });
+      } else if (renderer.toolId === 'render-pdf') {
+        const { textToPdf } = await import('@/engines/document');
+        applyResult({ kind: 'file', blob: await textToPdf(result), filename: 'xonvert.pdf' });
+      } else {
+        // render-poster → a titled graphic; the model designs the layout.
+        if (!(await ensureModel())) { setLast('⚠ Still starting up — try again in a moment.'); setGenerating(false); return; }
+        const seed = Math.floor(Math.random() * 1e9);
+        const { url, spec } = await composePoster(result, engineRef.current, seed);
+        setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: spec.title || result, kind: 'art', url, prompt: result, seed, posterSpec: spec, filename: 'xonvert.png' }; return c; });
+      }
+      push({ role: 'assistant', content: `Done — I ran ${producer.name}${plan.nodes[1] ? ` → ${plan.nodes[1].name}` : ''}.` });
+    } catch (e) { console.error(e); setLast('⚠ That didn’t work — please try again.'); }
+    finally { setGenerating(false); }
+  };
+
+  /** Render the previous answer as a downloadable PDF ("save this as a PDF"). */
+  const saveAnswerAsPdf = async (textBody: string): Promise<boolean> => {
+    setGenerating(true);
+    push({ role: 'assistant', content: 'Making a PDF…' });
+    try {
+      const { textToPdf } = await import('@/engines/document');
+      applyResult({ kind: 'file', blob: await textToPdf(textBody, 'Xonvert answer'), filename: 'xonvert-answer.pdf' });
+      return true;
+    } catch { setLast('⚠ Couldn’t make the PDF.'); return true; }
+    finally { setGenerating(false); }
   };
 
   /** Ask a free-text question; the user's next message becomes the answer. */
@@ -845,6 +989,26 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       if (showFileActions((file ?? lastFileRef.current)!)) return true;
     }
 
+    // 0.6) Decide the request FAMILY once, up front, and let it gate the
+    //      ambiguous steps below — so a question ("bitcoin price") can't be
+    //      grabbed by the capability gate, and an opinion ("best game 2026")
+    //      can't fall through to tool routing. (Only count a file provided THIS
+    //      turn as task-signal; a stale working file shouldn't make a question
+    //      look like a job.)
+    const family = classifyIntent(text, { hasFile: !!file, hasTopic: !!lastTopicRef.current });
+
+    // 0.7) "Save this as a PDF" — turn the previous answer into a document.
+    if (!file && isSaveAsPdf(text) && lastAnswerRef.current) {
+      if (await saveAnswerAsPdf(lastAnswerRef.current)) return true;
+    }
+
+    // 0.8) Composition: a request that wires a value PRODUCER (a calc/finance
+    //      tool) into a RENDERER (image/pdf/QR) — "make an image with my loan
+    //      calculation on it". Checked before media-subject (so it isn't read as
+    //      "draw a picture of X") and before generative art.
+    const graph = planGraph(text);
+    if (graph.kind === 'compose') return startGraph(graph);
+
     // 1) Conversions — deterministic planner (validates target + file category).
     if (await handleConvert(text, file)) return true;
 
@@ -877,8 +1041,10 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     }
 
     // 2.6) Capability questions ("can you…", "how do I…", "is there a tool for…")
-    //       answered from the live catalog — the right tool + alternatives.
-    if (!file && tryCapabilityAnswer(text)) return true;
+    //       answered from the live catalog — the right tool + alternatives. Gated
+    //       on the intent: "can you tell me the bitcoin price" is a factual
+    //       question, NOT a capability question, so it must not match here.
+    if (family === 'capability' && tryCapabilityAnswer(text)) return true;
 
     // 2.65) Specialized calculators (percent / tip / temperature / BMI) —
     //        computed inline before the general-question guard sends them to the
@@ -932,6 +1098,16 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       const r = await routeToTool(text, null);
       const gOp = r.top && r.confidence !== 'weak' ? gameOpFor(r.top.doc.id) : undefined;
       if (gOp) { push({ role: 'assistant', content: gOp.run() }); return true; }
+    }
+
+    // 2.9) "Make me a picture of <subject>" — we can't synthesize a real
+    //       depiction. Be honest and offer the picture things we DO (poster, QR,
+    //       background removal), rather than emitting meaningless abstract art.
+    if (family === 'media-subject') {
+      const d = declineMediaSubject(text);
+      push({ role: 'assistant', content: d.message });
+      setFollowups(d.suggestions);
+      return true;
     }
 
     // 3) Generative intents (calc / QR / palette / art / SVG).
@@ -1006,12 +1182,26 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // 3.4) Document understanding — questions / summary / OCR on a PDF or image.
     if (await tryDocQA(text, file)) return true;
 
-    // 3.45) Plain conversational questions ("what is ipv4", "who invented X")
-    //       with no file and no action word are NOT a job. First try to ANSWER
-    //       them from the live web on-device (extractive + cited); only if
-    //       nothing solid is found do we fall through to the chat model.
-    if (!file && !lastFileRef.current && isGeneralQuestion(text)) {
-      if (await trySearch(text)) return true;
+    // 3.45) Questions are NOT a job. A factual/informational/opinion question
+    //       ("who invented X", "best game 2026"), or a follow-up ("tell me
+    //       more"), is answered from the web — never routed to a tool. Calc,
+    //       quick-skills and generators already ran above, so anything reaching
+    //       here is genuinely informational.
+    if (!file && (family === 'question' || family === 'followup' || (!lastFileRef.current && isGeneralQuestion(text)))) {
+      // A follow-up expands the previous answer: read its source in full for
+      // more detail. Falls back to re-searching the topic if that fails.
+      if (family === 'followup' && lastSourceRef.current) {
+        if (await tryExpand(lastSourceRef.current)) return true;
+      }
+      const q = family === 'followup' && lastTopicRef.current ? lastTopicRef.current : text;
+      if (await trySearch(q)) return true;
+      // A genuine question we couldn't ground: admit it rather than forcing a
+      // tool or letting the tiny model invent facts.
+      if (family === 'question' || family === 'followup') {
+        const d = declineNoAnswer();
+        push({ role: 'assistant', content: d.message });
+        return true;
+      }
       return false;
     }
 
@@ -1206,6 +1396,9 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   const process = async (text: string, file: File | null) => {
     setSuggest([]);
 
+    // A composition is paused for a parameter → this message fills that slot.
+    if (pendingGraphRef.current && text.trim()) { fillGraphSlot(text.trim()); return; }
+
     // A free-text question is pending → take this message as the answer.
     if (awaitingTextRef.current && text.trim()) {
       const { build, file: f } = awaitingTextRef.current;
@@ -1251,18 +1444,30 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       }
     }
 
-    // First pass in the original language (English requests resolve here for free).
     sessionLangRef.current = null;
-    if (await routeAndAct(text, file)) return;
 
-    // Nothing matched. Detect the language and, if it isn't English, translate
-    // to English and retry routing — and remember the language so replies and
-    // answers can come back in it (the pivot that lets the weak model cope).
-    const det = await toEnglishLang(text);
-    const en = det && det.text.toLowerCase() !== text.toLowerCase() ? det.text : null;
-    if (det?.lang) sessionLangRef.current = det.lang;
-    if (en) {
-      if (await routeAndAct(en, file)) return;
+    // Non-Latin scripts (Arabic/Persian, CJK, Cyrillic, …) MUST be translated to
+    // English BEFORE routing. Routing the raw foreign string lets its tokens make
+    // a spurious lexical match that fires first (the Persian "PDF→Word" request
+    // matched audio-tempo) — so the translate-retry never got a turn. Translate
+    // up front, route on English, and remember the language for the reply.
+    let primary = text;
+    let englishText: string | null = null; // the English form, for the chat fallback
+    if (looksNonLatin(text)) {
+      const pre = await toEnglishLang(text);
+      if (pre?.lang) sessionLangRef.current = pre.lang;
+      if (pre && pre.text && pre.text.toLowerCase() !== text.toLowerCase()) { primary = pre.text; englishText = pre.text; }
+    }
+    if (await routeAndAct(primary, file)) return;
+
+    // Latin text that's still another language (Spanish/French/…): the raw pass
+    // above didn't match, so translate now and retry once in English.
+    if (primary === text) {
+      const det = await toEnglishLang(text);
+      const en = det && det.text.toLowerCase() !== text.toLowerCase() ? det.text : null;
+      if (det?.lang) sessionLangRef.current = det.lang;
+      englishText = en;
+      if (en && (await routeAndAct(en, file))) return;
     }
 
     // Reliable easter eggs (greetings, jokes, "who are you") — land before the
@@ -1274,8 +1479,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // another language, feed the model English (its strong language) and
     // translate the reply back, rather than let it stumble in Arabic/Thai/etc.
     const lang = sessionLangRef.current;
-    const userForModel = lang && en ? en : text;
-    setSuggest(suggestTools(en && en !== text ? en : text));
+    const userForModel = lang && englishText ? englishText : text;
+    setSuggest(suggestTools(englishText && englishText !== text ? englishText : text));
     setGenerating(true); stopRef.current = false;
     push({ role: 'assistant', content: '' });
     // This branch needs the model — wait for it now (it's been loading in the

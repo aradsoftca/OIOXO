@@ -40,25 +40,51 @@ export interface SearchAnswer {
 // --- query cleaning --------------------------------------------------------
 
 // Leading phrasing we strip to get at the actual topic/entity. Order matters:
-// longest, most specific patterns first.
+// longest, most specific patterns first. Conversational wrappers ("do you know",
+// "i want to know", "can you tell me") get stripped too — searching them
+// verbatim was matching noise ("do you know how ww1 started" → a tank officer).
 const LEAD = [
-  /^\s*(can you (please )?(tell me|explain|describe))\b/i,
+  /^\s*(do you know|did you know|any idea|i(’|')?m curious( about)?|i (just )?(want|need|would like|wanted) to know|i was wondering)\b/i,
+  /^\s*(can you (please )?(tell me|explain|describe)|could you (tell me|explain))\b/i,
   /^\s*(tell me (about|more about)?|explain( to me)?|describe|define|what(’|')?s the (meaning|definition) of|meaning of|definition of)\b/i,
   /^\s*(who(’|')?s|who (is|are|was|were)|what(’|')?s|what (is|are|was|were)|where (is|are|was)|when (was|did|is)|how (does|do|did|tall|big|old|far|long))\b/i,
   /^\s*(what|who|why|where|when|which|how)\b/i,
 ];
 
+// Common abbreviations the encyclopedia indexes under their full name. Expanding
+// them sharpens the search ("ww1" → "world war i").
+const ABBREV: [RegExp, string][] = [
+  [/\bww\s?1\b/gi, 'world war i'],
+  [/\bww\s?2\b/gi, 'world war ii'],
+  [/\bwwii\b/gi, 'world war ii'],
+  [/\bwwi\b/gi, 'world war i'],
+  [/\busa\b/gi, 'united states'],
+  [/\buk\b/gi, 'united kingdom'],
+];
+
 /** Reduce a natural question to a search topic ("who invented X" → "X invented"). */
 export function cleanQuery(text: string): string {
   let q = text.trim().replace(/\s+/g, ' ');
-  for (const re of LEAD) {
-    const next = q.replace(re, '').trim();
-    if (next && next !== q) { q = next; break; }
+  // Peel conversational/question wrappers — possibly more than one ("do you know
+  // how ww1 started" → "ww1 started").
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+    for (const re of LEAD) {
+      const next = q.replace(re, '').trim();
+      if (next && next !== q) { q = next; changed = true; break; }
+    }
+    if (!changed) break;
   }
+  for (const [re, full] of ABBREV) q = q.replace(re, full);
   // Drop leading filler and trailing punctuation.
   q = q.replace(/^(the|a|an|of|about)\s+/i, '').replace(/[?!.\s]+$/g, '').trim();
   return q || text.trim().replace(/[?!.\s]+$/g, '');
 }
+
+// Signals that the answer is time-sensitive — a live figure, recent event, or
+// "best of <year>" opinion — which the open web answers and an encyclopedia
+// article does not. These route to Tier 2 (web) ahead of Wikipedia.
+const LIVE_RE = /\b(price|stock|stocks|shares?|crypto|bitcoin|btc|ethereum|exchange rate|news|latest|today|tonight|right now|currently|recent|recently|this (year|week|month)|trending|score|scores|results?|release date|best|top|cheapest|2024|2025|2026|2027)\b/i;
 
 // --- fetch with timeout ----------------------------------------------------
 
@@ -81,7 +107,7 @@ async function getJson(url: string, headers?: Record<string, string>, ms = 6000)
 const WIKI_HEADERS = { 'Api-User-Agent': 'Xonvert/1.0 (https://xonvert.com; contact@xonvert.com)' };
 
 /** Keep an answer tight: first few sentences, capped, never mid-word. */
-function trimExtract(text: string, maxChars = 600, maxSentences = 4): string {
+export function trimExtract(text: string, maxChars = 600, maxSentences = 4): string {
   const clean = text.replace(/\s+/g, ' ').trim();
   if (!clean) return '';
   const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)/g) ?? [clean];
@@ -103,6 +129,23 @@ interface SourceHit {
   related?: string[];
   /** Higher = more authoritative for ranking when sources disagree. */
   weight: number;
+}
+
+// Content words of a query (4+ chars, no stopwords) — for the relevance guard.
+const QSTOP = new Set(['what', 'which', 'where', 'when', 'whom', 'whose', 'about', 'that', 'this', 'with', 'from', 'into', 'than', 'then', 'better', 'best', 'worse', 'worst', 'versus', 'compared', 'between', 'their', 'there', 'they', 'does', 'did', 'is', 'are', 'the', 'and', 'or', 'of', 'to', 'a', 'an', 'how', 'why', 'who']);
+function contentTerms(s: string): string[] {
+  return Array.from(new Set(s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter((w) => w.length >= 4 && !QSTOP.has(w))));
+}
+/**
+ * Does `text` actually relate to the query? True if it shares any content word.
+ * This is the guard that stops a noisy Wikipedia search from answering
+ * "which is better shaq or jordan" with an unrelated "Anita Anand" article.
+ */
+function sharesTerm(query: string, text: string): boolean {
+  const terms = contentTerms(query);
+  if (!terms.length) return true; // nothing distinctive to check → don't block
+  const hay = text.toLowerCase();
+  return terms.some((t) => hay.includes(t));
 }
 
 /**
@@ -131,10 +174,13 @@ async function wikipedia(query: string): Promise<SourceHit | null> {
     return { answer: '', source: { title: String(top.title), url: String(top.fullurl), site: 'Wikipedia' }, related: titles.slice(0, 6), weight: 0 };
   }
   // The top search hit can be a list/stub with an empty intro — scan for the
-  // first page that actually carries prose, so a good answer isn't dropped.
+  // first page that actually carries prose AND is relevant. The relevance guard
+  // (shares a query term) stops a noisy multi-entity / misspelled query from
+  // returning a top hit with nothing to do with it ("…shaq or jordan" →
+  // "Anita Anand") — reject that and let the caller fall through to the web.
   const withProse = list.find((p) => {
     const e = String(p.extract ?? '').trim();
-    return e.length > 40 && !/\bmay refer to\b|\bcan refer to\b/i.test(e);
+    return e.length > 40 && !/\bmay refer to\b|\bcan refer to\b/i.test(e) && sharesTerm(query, `${p.title} ${e}`);
   });
   if (!withProse) {
     return titles.length > 1
@@ -147,6 +193,24 @@ async function wikipedia(query: string): Promise<SourceHit | null> {
     related: titles.filter((t) => t !== withProse.title).slice(0, 4),
     weight: 2,
   };
+}
+
+/**
+ * Gather the best available source text for a SINGLE topic/entity — the unit the
+ * Answer Brain reads before it synthesizes. Tries the private encyclopedia
+ * first, then the open web. Returns the text + one citation, or null.
+ */
+export async function fetchTopic(topic: string): Promise<{ text: string; source: SearchSource } | null> {
+  const q = cleanQuery(topic);
+  if (!q) return null;
+  const wiki = await wikipedia(q);
+  if (wiki && wiki.answer) return { text: wiki.answer, source: wiki.source };
+  try {
+    const { answerFromWeb } = await import('./web-read');
+    const web = await answerFromWeb(q);
+    if (web && web.answer) return { text: web.answer, source: web.sources[0] ?? { title: q, url: `https://duckduckgo.com/?q=${encodeURIComponent(q)}`, site: 'web' } };
+  } catch { /* offline */ }
+  return null;
 }
 
 /**
@@ -271,9 +335,30 @@ export async function answerQuestion(text: string): Promise<SearchAnswer | null>
     return special.answer;
   }
 
+  // Exact live market quote ("bitcoin price", "AAPL stock", "tesla shares") — a
+  // real-time number from one general quote source (any symbol), read through
+  // the CORS shim. Volatile → never cached. Falls through if we can't name a
+  // symbol or the fetch fails.
+  try {
+    const { liveQuote } = await import('./quote');
+    const q = await liveQuote(text);
+    if (q && q.answer) return q;
+  } catch { /* fall through */ }
+
+  // Live / recent / opinion queries ("latest news", "best games 2026") are
+  // answered by the open web, NOT a static encyclopedia article — so for these,
+  // try Tier 2 first. (Volatile, so we don't cache the result.)
+  if (LIVE_RE.test(text)) {
+    try {
+      const { answerFromWeb } = await import('./web-read');
+      const web = await answerFromWeb(query);
+      if (web && web.answer) return web;
+    } catch { /* fall through to Tier 1 */ }
+  }
+
+  // Tier 1 — on-device, private, CORS-enabled encyclopedia sources.
   const [wiki, ddg] = await Promise.all([wikipedia(query), duckduckgo(query)]);
   const hits = [wiki, ddg].filter((h): h is SourceHit => !!h);
-  if (!hits.length) return null;
 
   // Prefer hits that actually carry an answer, strongest weight first.
   const answered = hits.filter((h) => h.answer).sort((a, b) => b.weight - a.weight);
@@ -288,7 +373,18 @@ export async function answerQuestion(text: string): Promise<SearchAnswer | null>
     return result;
   }
 
-  // No prose answer, but we have disambiguation candidates → offer them.
+  // Tier 2 — the open web (live data, recent events, anything Tier 1 missed),
+  // read on-device through the open-source reader. Only reached when the private
+  // sources came up empty, so most questions never leave Wikipedia/Wikidata.
+  try {
+    const { answerFromWeb } = await import('./web-read');
+    const web = await answerFromWeb(query);
+    if (web && web.answer) { void putCached(text, web); return web; }
+    // Disambiguation-only from the web is still useful as chips.
+    if (web && web.related?.length) return web;
+  } catch { /* reader unavailable → fall through */ }
+
+  // No prose answer, but Tier 1 left disambiguation candidates → offer them.
   const related = Array.from(new Set(hits.flatMap((h) => h.related ?? []))).slice(0, 6);
   if (related.length) {
     return { answer: '', query, sources: dedupeSources(hits.map((h) => h.source)), related };

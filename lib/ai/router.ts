@@ -11,7 +11,7 @@
  * when confidence is 'ambiguous', grammar-constrained to those few IDs.
  */
 
-import { searchTools, confidence as lexConfidence, fileMatchesCategory, type SearchOptions } from './retrieval';
+import { searchTools, confidence as lexConfidence, fileMatchesCategory, REL_FLOOR, type SearchOptions } from './retrieval';
 import { semanticRank, isEmbeddingsReady } from './embed';
 import { docById, type IndexDoc } from './tool-index';
 
@@ -68,12 +68,20 @@ export async function routeToTool(query: string, fileCat: FileCategory | null = 
   }
   cands.sort((a, b) => b.score - a.score);
 
+  // Lexical relevance (idf-coverage) of the blended winner — its own absolute
+  // floor, independent of the semantic score. A pure-semantic hit absent from
+  // the lexical list has rel 0; we only let a strong blended score override the
+  // floor, so genuine paraphrase matches survive but spurious ones don't.
+  const lexRel = new Map(lex.map((r) => [r.doc.id, r.rel]));
+
   const top = cands[0] ?? null;
   let confidence: ToolRouting['confidence'] = 'weak';
   if (top) {
     const second = cands[1]?.score ?? 0;
     const margin = top.score > 0 ? (top.score - second) / top.score : 1;
+    const rel = lexRel.get(top.doc.id) ?? 0;
     if (top.score < 0.3) confidence = 'weak';
+    else if (rel < REL_FLOOR && top.score < 0.6) confidence = 'weak';
     else if (margin >= 0.15 || cands.length === 1) confidence = 'confident';
     else confidence = 'ambiguous';
   }

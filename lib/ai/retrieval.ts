@@ -15,6 +15,14 @@ import { indexDocs, docFreq, tokenize, type IndexDoc } from './tool-index';
 export interface Ranked {
   doc: IndexDoc;
   score: number;
+  /**
+   * Absolute relevance, 0..1: the fraction of the query's *distinctive* (idf-
+   * weighted) information this tool actually matched. Unlike `score`, this is
+   * comparable across queries — a tool that scores high only by matching a
+   * common word ("now", "price") has low `rel`. Used to reject spurious matches
+   * ("bitcoin price" → World Clock) that the relative confidence margin misses.
+   */
+  rel: number;
 }
 
 export interface SearchOptions {
@@ -77,6 +85,10 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
     const idf = Math.log((N + 1) / ((df.get(term) ?? 0) + 1)) + 1;
     qWeights.set(term, (qWeights.get(term) ?? 0) + idf);
   }
+  // Total distinctive mass of the query — the denominator for `rel`. A tool's
+  // relevance is how much of THIS the tool's matched terms account for.
+  let queryIdf = 0;
+  for (const w of qWeights.values()) queryIdf += w;
 
   const ranked: Ranked[] = [];
   for (const doc of docs) {
@@ -88,10 +100,12 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
 
     let score = 0;
     let matched = 0;
+    let matchedIdf = 0;            // idf mass this doc actually matched
     for (const [term, qw] of qWeights) {
       const f = tf.get(term);
       if (!f) continue;
       matched += 1;
+      matchedIdf += qw;
       score += qw * (1 + Math.log(f)); // sublinear tf
     }
     if (score === 0) continue;
@@ -113,7 +127,7 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
     const isBatch = doc.id.includes('batch') || /\b(batch|bulk)\b/i.test(doc.name);
     if (isBatch && !plural) score *= 0.45;
 
-    ranked.push({ doc, score });
+    ranked.push({ doc, score, rel: queryIdf > 0 ? matchedIdf / queryIdf : 0 });
   }
 
   ranked.sort((a, b) => b.score - a.score);
@@ -121,15 +135,30 @@ export function searchTools(query: string, opts: SearchOptions = {}): Ranked[] {
 }
 
 /**
+ * Minimum `rel` (idf-coverage) for a match to count as relevant at all. Below
+ * this, the top tool explained too little of the query's distinctive content —
+ * it matched only common words ("now", "price", "best") and missed the point.
+ * Genuine tool requests sit at 0.53–1.0 in the corpus; spurious off-domain hits
+ * ("can you tell bitcoin price" → World Clock = 0.38) sit well below. The 0.4
+ * line leaves a comfortable margin above the genuine floor.
+ */
+export const REL_FLOOR = 0.4;
+
+/**
  * Confidence read on a ranked list:
  *  - `confident`: clear winner — act without the model.
  *  - `ambiguous`: a few close candidates — let the model break the tie.
  *  - `weak`: nothing strong — fall back to chat / suggestions.
+ *
+ * Two independent gates make a winner "weak": a low absolute score (nothing
+ * matched much) OR low relevance (what matched wasn't the distinctive part of
+ * the query). The second is what stops a high-scoring spurious match.
  */
 export function confidence(ranked: Ranked[]): 'confident' | 'ambiguous' | 'weak' {
   if (ranked.length === 0) return 'weak';
   const top = ranked[0].score;
   if (top < 0.15) return 'weak';
+  if (ranked[0].rel < REL_FLOOR) return 'weak';
   const second = ranked[1]?.score ?? 0;
   const margin = top > 0 ? (top - second) / top : 1;
   if (margin >= 0.35 || ranked.length === 1) return 'confident';

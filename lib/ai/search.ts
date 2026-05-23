@@ -76,7 +76,9 @@ export function cleanQuery(text: string): string {
     if (!changed) break;
   }
   for (const [re, full] of ABBREV) q = q.replace(re, full);
-  // Drop leading filler and trailing punctuation.
+  // Drop a leading auxiliary left after the question word ("why DID rome fall"
+  // → "rome fall"), then leading filler and trailing punctuation.
+  q = q.replace(/^(did|does|do|is|are|was|were|has|have|had|will|would|can|could|should)\s+/i, '');
   q = q.replace(/^(the|a|an|of|about)\s+/i, '').replace(/[?!.\s]+$/g, '').trim();
   return q || text.trim().replace(/[?!.\s]+$/g, '');
 }

@@ -42,10 +42,31 @@ export function parseQueries(raw: string): string[] {
   } catch { return []; }
 }
 
-/** Deterministic queries when the model can't plan (cold / WASM / bad output). */
+/**
+ * Decompose an explanatory question into facets to gather from several angles —
+ * the deterministic backbone of multi-hop answers ("why did Rome fall" → the
+ * event + its causes + its effects). Reliable (not the weak model), so the
+ * synthesis always has multiple facts to connect. Returns 1 query for simple
+ * lookups.
+ */
+export function facetQueries(question: string): string[] {
+  const core = cleanQuery(question);
+  const lc = question.toLowerCase();
+  if (/\bwhy\b/.test(lc)) return uniq([core, `${core} causes`, `${core} reasons explained`]);
+  if (/\bhow (does|do|did|is|are|can)\b/.test(lc) || /^\s*how\b/.test(lc)) return uniq([core, `${core} explained`, `${core} step by step`]);
+  if (/\bdifference between\b|\bvs\b|\bversus\b|\bcompared? to\b/.test(lc)) return uniq([core]); // comparison handled by per-entity gather
+  if (/\beffects?\b|\bimpact\b|\bconsequences?\b/.test(lc)) return uniq([core, `${core} consequences`, `${core} explained`]);
+  return [core];
+}
+
+const uniq = (a: string[]) => Array.from(new Set(a.filter(Boolean))).slice(0, 3);
+
+/** Deterministic queries when the model can't plan (cold / WASM / bad output) —
+ *  uses facet decomposition so explanatory questions still gather many angles. */
 export function fallbackQueries(question: string, extraTopics: string[] = []): string[] {
-  const qs = [cleanQuery(question), ...extraTopics.map((t) => cleanQuery(t))].filter(Boolean);
-  return Array.from(new Set(qs)).slice(0, 3);
+  const facets = facetQueries(question);
+  if (facets.length > 1) return facets;
+  return uniq([cleanQuery(question), ...extraTopics.map((t) => cleanQuery(t))]);
 }
 
 /** Run the queries and collect clean, de-duplicated passages (the synthesis input). */
@@ -69,7 +90,7 @@ export function buildResearchSynthesis(question: string, evidence: Evidence[]): 
   const notes = evidence.map((e, i) => `Source ${i + 1} (${e.source.site}):\n"""${e.text}"""`).join('\n\n');
   return {
     system:
-      'Answer the question using ONLY the sources below. Be SHORT — 2–3 sentences, direct, no filler, no preamble, no "according to the sources". Merge the key facts; do not copy one source verbatim; add nothing not in the sources. /no_think',
+      'Answer the question using ONLY the sources below. Be SHORT — 2–3 sentences, direct, no filler, no preamble, no "according to the sources" or "S1/S2". CONNECT the facts across the sources to explain (especially for how/why questions). If the sources do not support an answer or connection, say you could not find it. Do not copy one source verbatim; add nothing not in the sources. /no_think',
     user: `${notes}\n\nQuestion: ${question}`,
   };
 }

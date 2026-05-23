@@ -1314,12 +1314,15 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //       quick-skills and generators already ran above, so anything reaching
     //       here is genuinely informational.
     if (!file && (family === 'question' || family === 'followup' || (!lastFileRef.current && isGeneralQuestion(text)))) {
-      // A follow-up expands the previous answer: read its source in full for
-      // more detail. Falls back to re-searching the topic if that fails.
+      // A bare follow-up ("tell me more") expands the previous answer's source.
       if (family === 'followup' && lastSourceRef.current) {
         if (await tryExpand(lastSourceRef.current)) return true;
       }
-      const q = family === 'followup' && lastTopicRef.current ? lastTopicRef.current : text;
+      // Conversational coherence: resolve pronouns / continuations against the
+      // last topic so "where was he born?" becomes "where was Einstein born?".
+      const { rewriteFollowup } = await import('@/lib/ai/followup');
+      const rewritten = rewriteFollowup(text, lastTopicRef.current);
+      const q = rewritten ?? (family === 'followup' && lastTopicRef.current ? lastTopicRef.current : text);
       if (await trySearch(q)) return true;
       // A genuine question we couldn't ground: admit it rather than forcing a
       // tool or letting the tiny model invent facts.

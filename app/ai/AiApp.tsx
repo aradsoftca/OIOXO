@@ -656,22 +656,31 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
           let answer = await translateBack(reason.extractiveFallback(evidence));
           setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
           lastAnswerRef.current = answer;
-          // REFINE LIVE: when the model is ready, synthesize a connected answer
-          // and replace the instant one in place — but only if it stays grounded.
+          // REFINE: when the model is ready, synthesize a connected answer and
+          // SWAP it in only once VERIFIED grounded — so an ungrounded draft never
+          // flashes on screen. If the first attempt drifts, SELF-CORRECT with a
+          // stricter prompt before keeping the instant extract.
           if (!stopRef.current && (await ensureModel())) {
-            const { system, user } = research.buildResearchSynthesis(text, evidence);
+            const synth = async (msgs: { role: string; content: string }[]) => {
+              const out = await engineRef.current.chat.completions.create({ messages: msgs, temperature: 0.2, max_tokens: 220 });
+              return stripThink(out.choices?.[0]?.message?.content ?? '');
+            };
             try {
-              const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], stream: true, temperature: 0.3 });
-              let acc = '';
-              for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: stripThink(acc) || answer, kind: 'search', sources }; return c; }); }
-              const clean = stripThink(acc);
-              if (clean && research.isGrounded(clean, evidence, text)) {
+              const a = research.buildResearchSynthesis(text, evidence);
+              let clean = await synth([{ role: 'system', content: a.system }, { role: 'user', content: a.user }]);
+              let ok = clean && research.isGrounded(clean, evidence, text);
+              if (!ok && !stopRef.current) {
+                // Self-correct: one stricter, literal pass.
+                const s = research.buildStrictSynthesis(text, evidence);
+                const retry = await synth([{ role: 'system', content: s.system }, { role: 'user', content: s.user }]);
+                if (retry && research.isGrounded(retry, evidence, text)) { clean = retry; ok = true; }
+              }
+              if (ok && !stopRef.current) {
                 answer = await translateBack(clean);
                 lastAnswerRef.current = answer;
+                setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
               }
-              // Settle on the final answer (synthesis if grounded, else the instant one).
-              setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
-            } catch { /* keep the instant answer */ }
+            } catch { /* keep the instant extract */ }
           }
           return true;
         }

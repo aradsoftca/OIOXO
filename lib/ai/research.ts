@@ -96,6 +96,20 @@ export function buildResearchSynthesis(question: string, evidence: Evidence[]): 
   };
 }
 
+/**
+ * Stricter retry prompt for self-correction: used when the first synthesis was
+ * rejected by the grounding gate (it drifted/invented). Forces literal copying
+ * of names/numbers and an explicit "not found" escape.
+ */
+export function buildStrictSynthesis(question: string, evidence: Evidence[]): { system: string; user: string } {
+  const notes = evidence.map((e, i) => `Source ${i + 1} (${e.source.site}):\n"""${e.text}"""`).join('\n\n');
+  return {
+    system:
+      'Answer the question using ONLY the sources. Copy every name, number and key term EXACTLY as written in the sources — invent NOTHING. If the sources do not contain the answer, reply exactly: "I couldn\'t find that in the sources." Be SHORT — 1–2 sentences, no preamble. /no_think',
+    user: `${notes}\n\nQuestion: ${question}`,
+  };
+}
+
 /** Dedup citations from gathered evidence (for the answer's source chips). */
 export function researchSources(evidence: Evidence[]) {
   const seen = new Set<string>();

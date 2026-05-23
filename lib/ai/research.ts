@@ -71,11 +71,12 @@ export function fallbackQueries(question: string, extraTopics: string[] = []): s
 
 /** Run the queries and collect clean, de-duplicated passages (the synthesis input). */
 export async function gatherForQueries(queries: string[]): Promise<Evidence[]> {
+  // Fetch all facets in PARALLEL (was sequential — 3× slower on multi-hop).
+  const results = await Promise.all(queries.slice(0, 3).map((q) => gatherPassages(q, 2).then((ps) => ({ q, ps })).catch(() => ({ q, ps: [] }))));
   const seen = new Set<string>();
   const ev: Evidence[] = [];
-  for (const q of queries.slice(0, 3)) {
-    const passages = await gatherPassages(q, 2);
-    for (const p of passages) {
+  for (const { q, ps } of results) {
+    for (const p of ps) {
       if (seen.has(p.source.url) || !p.text) continue;
       seen.add(p.source.url);
       ev.push({ topic: q, text: p.text, source: p.source });

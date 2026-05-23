@@ -637,39 +637,42 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       const analysis = reason.analyzeQuestion(text);
       if (reason.wantsSynthesis(analysis)) {
         const research = await import('@/lib/ai/research');
-        setLast('Working out what to search…');
-        let queries: string[] = [];
-        if (await ensureModel()) {
-          try {
-            const { messages, schema } = research.planQueriesMessages(text);
-            const out = await engineRef.current.chat.completions.create({ messages, temperature: 0, max_tokens: 80, response_format: { type: 'json_object', schema } });
-            queries = research.parseQueries(stripThink(out.choices?.[0]?.message?.content ?? ''));
-          } catch { /* fall back */ }
-        }
-        if (!queries.length) queries = research.fallbackQueries(text, analysis.topics);
-        setLast('Reading the sources and writing an answer…');
+        void ensureModel(); // EAGER WARM: start the model load now, in parallel with the gather
+        setLast('Reading the sources…');
+        // Deterministic facet decomposition (no model wait) → gather in parallel.
+        const queries = research.fallbackQueries(text, analysis.topics);
         const evidence = await research.gatherForQueries(queries);
         if (evidence.length) {
           const sources = research.researchSources(evidence);
           lastTopicRef.current = text;
           lastSourceRef.current = sources[0] ?? null;
-          let answer = '';
-          if (await ensureModel()) {
+          const translateBack = async (s: string) => {
+            const lang = sessionLangRef.current;
+            if (lang && s) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(s, lang); if (t) return t; } catch { /* keep English */ } }
+            return s;
+          };
+          // INSTANT ANSWER: show the best source's extract immediately — the user
+          // never waits for the (possibly cold) model to get a real answer.
+          let answer = await translateBack(reason.extractiveFallback(evidence));
+          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
+          lastAnswerRef.current = answer;
+          // REFINE LIVE: when the model is ready, synthesize a connected answer
+          // and replace the instant one in place — but only if it stays grounded.
+          if (!stopRef.current && (await ensureModel())) {
             const { system, user } = research.buildResearchSynthesis(text, evidence);
             try {
               const stream = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: system }, { role: 'user', content: user }], stream: true, temperature: 0.3 });
               let acc = '';
-              for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: stripThink(acc), kind: 'search', sources }; return c; }); }
+              for await (const ch of stream) { if (stopRef.current) break; acc += ch.choices[0]?.delta?.content ?? ''; setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: stripThink(acc) || answer, kind: 'search', sources }; return c; }); }
               const clean = stripThink(acc);
-              answer = clean && research.isGrounded(clean, evidence, text) ? clean : reason.extractiveFallback(evidence);
-            } catch { answer = reason.extractiveFallback(evidence); }
-          } else {
-            answer = reason.extractiveFallback(evidence);
+              if (clean && research.isGrounded(clean, evidence, text)) {
+                answer = await translateBack(clean);
+                lastAnswerRef.current = answer;
+              }
+              // Settle on the final answer (synthesis if grounded, else the instant one).
+              setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
+            } catch { /* keep the instant answer */ }
           }
-          const lang = sessionLangRef.current;
-          if (lang && answer) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(answer, lang); if (t) answer = t; } catch { /* keep English */ } }
-          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
-          lastAnswerRef.current = answer;
           return true;
         }
         // Nothing gathered → fall through to the extractive engine below.

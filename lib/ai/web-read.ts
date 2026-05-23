@@ -191,17 +191,23 @@ export async function gatherPassages(query: string, maxPages = 2): Promise<{ tex
   const md = await readThrough(DDG + encodeURIComponent(query));
   if (!md) return [];
   const results = parseResults(md);
+  // SNIPPET-FIRST (fast): the search already returns a clean 1–2 sentence summary
+  // per result — enough for synthesis, and it avoids a slow per-page fetch. We
+  // only read a full page when the snippets are too thin to answer from.
   const out: { text: string; source: SearchSource }[] = [];
   for (const r of results.slice(0, maxPages)) {
-    let text = '';
-    const page = await readThrough(r.url, 9000);
-    if (page) {
-      const paras: string[] = [];
-      for (const raw of page.split('\n')) { const s = proseLine(raw); if (s) { paras.push(s); if (paras.join(' ').length > 600) break; } }
-      text = paras.join(' ');
+    if (r.snippet && r.snippet.length >= 40) {
+      out.push({ text: trimExtract(r.snippet, 500, 4), source: { title: r.title, url: r.url, site: siteOf(r.url) } });
     }
-    if (!text && r.snippet) text = r.snippet;
-    if (text) out.push({ text: trimExtract(text, 700, 6), source: { title: r.title, url: r.url, site: siteOf(r.url) } });
+  }
+  if (out.length) return out;
+  // Fallback: snippets were empty — read the top page for prose.
+  const page = results[0] ? await readThrough(results[0].url, 9000) : null;
+  if (page) {
+    const paras: string[] = [];
+    for (const raw of page.split('\n')) { const s = proseLine(raw); if (s) { paras.push(s); if (paras.join(' ').length > 600) break; } }
+    const text = paras.join(' ');
+    if (text) out.push({ text: trimExtract(text, 700, 6), source: { title: results[0].title, url: results[0].url, site: siteOf(results[0].url) } });
   }
   return out;
 }

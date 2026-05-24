@@ -56,3 +56,12 @@ export async function execNativeStream(
     }
   }
 }
+
+/** Write the project to a real directory (desktop only) via the Rust `write_files`
+ *  command, so the native runner can execute the genuine test command against it.
+ *  Returns the workspace dir. Throws in the PWA. */
+export async function writeNativeFiles(files: { path: string; content: string }[], dir?: string): Promise<string> {
+  const invoke = tauriInvoke();
+  if (!invoke) throw new Error('Native filesystem is only available in the oioxo desktop app.');
+  return invoke('write_files', { files, dir }) as Promise<string>;
+}

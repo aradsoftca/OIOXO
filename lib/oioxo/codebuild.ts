@@ -3,11 +3,14 @@
  * coder (generator) + the WebContainer oracle (runner) → generate→run→repair→
  * green. This is what the workspace UI calls. (OIOXO_CODE.md P1.)
  */
-import { runCodeLoop, type CodeFile, type LoopResult, type RunFn, type RunResult } from './codeloop';
+import { runCodeLoop, type CodeFile, type GenerateFn, type LoopResult, type RunFn, type RunResult } from './codeloop';
 import { makeCoderGenerate } from './codegen';
 import { makeWebContainerRun, runSupported } from './coderun';
 import { typeCheckFiles, formatDiags } from './typecheck';
 import { grabForErrors } from './grab';
+import { makeNativeRun } from './nativerun';
+import { makeOllamaGenerate } from './bigcoder';
+import { isDesktop } from './native';
 
 export { runSupported };
 export type { CodeFile, LoopResult };
@@ -37,6 +40,12 @@ export interface BuildOptions {
   /** P4: allow fetching unknown libs' types from the CDN when the type oracle
    *  reports `Cannot find module` (default true in typecheck mode). */
   grab?: boolean;
+  /** P5: run the real test command as an OS process in the oioxo desktop app
+   *  (the strongest oracle). Ignored / throws in a plain browser. Overrides mode. */
+  native?: boolean;
+  /** P5: drive the loop with a bigger LOCAL coder via Ollama instead of the small
+   *  WebGPU coder — same prompt + loop, still on the user's own machine. */
+  coder?: { kind: 'ollama'; model: string; base?: string };
 }
 
 /**
@@ -52,7 +61,15 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
   let extApis = '';
   const getExtApis = () => extApis;
 
-  if (opts.mode === 'typecheck') {
+  if (opts.native) {
+    // P5 native tier: real OS process + real filesystem (desktop app only).
+    if (!isDesktop()) throw new Error('Native execution requires the oioxo desktop app.');
+    run = makeNativeRun({ onData: opts.onData });
+    if (opts.files.some((f) => f.path === 'package.json')) {
+      opts.onData?.('\n$ npm install\n');
+      await run(opts.files, 'npm install').catch(() => {});
+    }
+  } else if (opts.mode === 'typecheck') {
     // Fast TYPE oracle — no WebContainer, no install, works anywhere. The lib map
     // grows as we grab unknown packages, so we own it here (not makeTypeCheckRun).
     const libs = new Map(opts.libFiles ?? []);
@@ -87,12 +104,19 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
       await run(opts.files, 'npm install').catch(() => {});
     }
   }
+  // The writer: bigger local Ollama coder if requested, else the small WebGPU
+  // coder. Either way the SAME grounded prompt + grab closure + verified loop.
+  const generate: GenerateFn =
+    opts.coder?.kind === 'ollama'
+      ? makeOllamaGenerate(opts.coder.model, { base: opts.coder.base, getExtApis })
+      : makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis });
+
   return runCodeLoop({
     task: opts.task,
     files: opts.files,
     testCmd,
     maxIters: opts.maxIters,
-    generate: makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis }),
+    generate,
     run,
     onStep: opts.onStep,
   });

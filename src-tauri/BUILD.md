@@ -6,8 +6,20 @@ wired to the coding agent via `lib/oioxo/native.ts`.
 
 ## What's here
 - `tauri.conf.json` — window loads `https://oioxo.com/`, `withGlobalTauri` on.
-- `src/lib.rs` — the `exec` command (runs a shell command, returns code/stdout/stderr).
+- `src/lib.rs` — the native commands:
+  - `exec` — runs a shell command, returns code/stdout/stderr.
+  - `write_files` — materializes the coding-agent's project onto the real disk
+    (path-escape guarded), so the native runner can run the genuine test command
+    against it. Returns the workspace dir.
 - `capabilities/default.json` — allows the oioxo.com origin to use IPC.
+
+## Native coding tier (P5)
+In the desktop app, `lib/oioxo/nativerun.ts` `makeNativeRun()` composes
+`write_files` + `exec` into the loop's `RunFn`, so the execute→repair loop runs
+the **real** test command as an OS process (full toolchain + speed) instead of the
+in-browser WebContainer. The workspace UI auto-detects this ("Native exec" badge).
+A bigger LOCAL coder is also optional: if the user runs **Ollama**, the same loop
+can be driven by a 7B–32B model (`lib/oioxo/bigcoder.ts`) — still on their machine.
 
 ## Prerequisites (build machine)
 - **Rust (MSVC toolchain)** — `rustup default stable-x86_64-pc-windows-msvc`

@@ -5,6 +5,8 @@ import { FolderOpen, File as FileIcon, Folder, Save, Sparkles, ArrowUp, Loader2,
 import { fsSupported, openFolder, readFileText, writeFileText, writeByPath, isTextFile, snapshotTree, filesFromTree, type FileNode } from '@/lib/oioxo/fs';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
+import { detectTier } from '@/lib/oioxo/tier';
+import { detectOllama, type OllamaInfo } from '@/lib/oioxo/bigcoder';
 import { SKILLS } from '@/lib/oioxo/skills';
 import { chatStream } from '@/lib/oioxo/runtime';
 import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib/oioxo/webcontainer';
@@ -545,6 +547,11 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
   // 'typecheck' = fast in-browser TS type oracle (no install, works anywhere);
   // 'test' = run the real test suite in a WebContainer (needs cross-origin isolation).
   const [mode, setMode] = React.useState<'typecheck' | 'test'>('typecheck');
+  // P5 environment: native desktop tier + an optional local Ollama big coder.
+  const [native] = React.useState(() => detectTier() === 'native');
+  const [ollama, setOllama] = React.useState<OllamaInfo | null>(null);
+  const [useBig, setUseBig] = React.useState(false);
+  React.useEffect(() => { let on = true; detectOllama().then((o) => { if (on) setOllama(o); }); return () => { on = false; }; }, []);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [steps, setSteps] = React.useState<{ attempt: number; ok: boolean }[]>([]);
@@ -559,13 +566,15 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
     try {
       const files = await filesFromTree(tree);
       const original = new Map(files.map((f) => [f.path, f.content]));
-      const libFiles = mode === 'typecheck' ? await loadTsLibs() : undefined;
+      const libFiles = mode === 'typecheck' && !native ? await loadTsLibs() : undefined;
       const res = await buildOrFix({
         task: task.trim(),
         files,
         match,
         mode,
         libFiles,
+        native,
+        coder: useBig && ollama ? { kind: 'ollama', model: ollama.models[0], base: ollama.base } : undefined,
         onProgress: (p) => setProgress(p),
         onStep: (s) => setSteps((prev) => [...prev, { attempt: s.attempt, ok: s.ok }]),
         onData: (c) => setLog((prev) => (prev + c).slice(-8000)),
@@ -591,23 +600,38 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
           <Wrench className="h-3.5 w-3.5 text-[#E2B24A]" /> Agent — build or fix on-device
         </span>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg bg-zinc-200 p-0.5 text-[10px] font-semibold">
-            {(['typecheck', 'test'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                disabled={busy}
-                title={m === 'typecheck' ? 'Fast type oracle — works in any browser' : 'Run the test suite in a sandbox (needs Chromium + isolation)'}
-                className={[
-                  'rounded-md px-2 py-0.5 transition disabled:opacity-50',
-                  mode === m ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700',
-                ].join(' ')}
-              >
-                {m === 'typecheck' ? 'Types' : 'Tests'}
-              </button>
-            ))}
-          </div>
+          {ollama && (
+            <label
+              title={`Run a bigger local coder via Ollama (${ollama.models[0]}) — still on your machine`}
+              className="flex items-center gap-1 text-[10px] font-semibold text-zinc-500"
+            >
+              <input type="checkbox" checked={useBig} disabled={busy} onChange={(e) => setUseBig(e.target.checked)} className="accent-[#E2B24A]" />
+              Local {ollama.models[0].split(':')[0]}
+            </label>
+          )}
+          {native ? (
+            <span className="rounded-md bg-[#E2B24A]/20 px-2 py-0.5 text-[10px] font-semibold text-[#7a5c12]" title="Desktop app — runs the real test command on your machine">
+              Native exec
+            </span>
+          ) : (
+            <div className="flex rounded-lg bg-zinc-200 p-0.5 text-[10px] font-semibold">
+              {(['typecheck', 'test'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  disabled={busy}
+                  title={m === 'typecheck' ? 'Fast type oracle — works in any browser' : 'Run the test suite in a sandbox (needs Chromium + isolation)'}
+                  className={[
+                    'rounded-md px-2 py-0.5 transition disabled:opacity-50',
+                    mode === m ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700',
+                  ].join(' ')}
+                >
+                  {m === 'typecheck' ? 'Types' : 'Tests'}
+                </button>
+              ))}
+            </div>
+          )}
           <button type="button" onClick={onClose} className="text-xs text-zinc-400 hover:text-zinc-600">close</button>
         </div>
       </div>

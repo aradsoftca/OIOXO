@@ -51,7 +51,7 @@ export interface WebResult { title: string; url: string; snippet: string; }
  *  shared entry point for callers that need the result list (e.g. video search).
  *  Empty array on any failure. */
 export async function searchWeb(query: string, limit = 10): Promise<WebResult[]> {
-  const md = await readThrough(DDG + encodeURIComponent(query));
+  const md = await readThrough(DDG + encodeURIComponent(query) + '&kl=us-en');
   if (!md) return [];
   return parseResults(md).slice(0, limit);
 }
@@ -164,7 +164,7 @@ const siteOf = (url: string): string => { try { return new URL(url).hostname.rep
  * so the existing UI renders it unchanged. Null when nothing usable is found.
  */
 export async function answerFromWeb(query: string): Promise<SearchAnswer | null> {
-  const md = await readThrough(DDG + encodeURIComponent(query));
+  const md = await readThrough(DDG + encodeURIComponent(query) + '&kl=us-en');
   if (!md) return null;
   const results = parseResults(md);
   if (!results.length) return null;
@@ -203,7 +203,7 @@ export async function answerFromWeb(query: string): Promise<SearchAnswer | null>
  * dump it drowns in. Falls back to the result snippet when a page won't read.
  */
 export async function gatherPassages(query: string, maxPages = 6): Promise<{ text: string; source: SearchSource }[]> {
-  const md = await readThrough(DDG + encodeURIComponent(query));
+  const md = await readThrough(DDG + encodeURIComponent(query) + '&kl=us-en');
   if (!md) return [];
   const results = parseResults(md);
   // SNIPPET-FIRST (fast): the search already returns a clean 1–2 sentence summary
@@ -236,7 +236,7 @@ export async function gatherPassages(query: string, maxPages = 6): Promise<{ tex
  * we surface real expert content, cited. Null → caller falls back to summary.
  */
 export async function richAnswer(query: string, type: AnswerType): Promise<SearchAnswer | null> {
-  const md = await readThrough(DDG + encodeURIComponent(query));
+  const md = await readThrough(DDG + encodeURIComponent(query) + '&kl=us-en');
   if (!md) return null;
   const results = parseResults(md);
   if (!results.length) return null;

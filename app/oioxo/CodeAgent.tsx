@@ -7,6 +7,7 @@ import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { detectTier } from '@/lib/oioxo/tier';
 import { detectOllama, type OllamaInfo } from '@/lib/oioxo/bigcoder';
+import { useEntitlement } from '@/lib/oioxo/useEntitlement';
 import { SKILLS } from '@/lib/oioxo/skills';
 import { chatStream } from '@/lib/oioxo/runtime';
 import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib/oioxo/webcontainer';
@@ -548,6 +549,7 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
   // 'test' = run the real test suite in a WebContainer (needs cross-origin isolation).
   const [mode, setMode] = React.useState<'typecheck' | 'test'>('typecheck');
   // P5 environment: native desktop tier + an optional local Ollama big coder.
+  const { tier, pro } = useEntitlement();
   const [native] = React.useState(() => detectTier() === 'native');
   const [ollama, setOllama] = React.useState<OllamaInfo | null>(null);
   const [useBig, setUseBig] = React.useState(false);
@@ -600,6 +602,15 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
           <Wrench className="h-3.5 w-3.5 text-[#E2B24A]" /> Agent — build or fix on-device
         </span>
         <div className="flex items-center gap-2">
+          <span
+            title={pro ? 'Pro — everything unlocked' : 'Free tier — upgrade to unlock bigger models, search and sync'}
+            className={[
+              'rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide',
+              pro ? 'bg-[#E2B24A]/20 text-[#7a5c12]' : 'bg-zinc-200 text-zinc-500',
+            ].join(' ')}
+          >
+            {tier}
+          </span>
           {ollama && (
             <label
               title={`Run a bigger local coder via Ollama (${ollama.models[0]}) — still on your machine`}

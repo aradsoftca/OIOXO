@@ -8,6 +8,8 @@ import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { detectTier } from '@/lib/oioxo/tier';
 import { detectOllama, type OllamaInfo } from '@/lib/oioxo/bigcoder';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
+import { fixExamplesFromTrajectory } from '@/lib/oioxo/conductor';
+import { addExamples, stats as trajStats, downloadDataset } from '@/lib/oioxo/trajectory-store';
 import { SKILLS } from '@/lib/oioxo/skills';
 import { chatStream } from '@/lib/oioxo/runtime';
 import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib/oioxo/webcontainer';
@@ -559,6 +561,9 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
   const [steps, setSteps] = React.useState<{ attempt: number; ok: boolean }[]>([]);
   const [log, setLog] = React.useState('');
   const [result, setResult] = React.useState<null | { ok: boolean; iters: number; changed: number; error?: string }>(null);
+  // Captured verified-fix examples (the conductor's training data, grown on-device).
+  const [captured, setCaptured] = React.useState(0);
+  React.useEffect(() => { trajStats().then((s) => setCaptured(s.total)).catch(() => {}); }, []);
   const logRef = React.useRef<HTMLPreElement>(null);
   React.useEffect(() => { logRef.current?.scrollTo({ top: 1e9 }); }, [log]);
 
@@ -576,6 +581,7 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
         mode,
         libFiles,
         native,
+        record: true, // capture the trajectory so verified red→green repairs become training data
         coder: useBig && ollama ? { kind: 'ollama', model: ollama.models[0], base: ollama.base } : undefined,
         onProgress: (p) => setProgress(p),
         onStep: (s) => setSteps((prev) => [...prev, { attempt: s.attempt, ok: s.ok }]),
@@ -588,6 +594,14 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
         }
       }
       setResult({ ok: res.ok, iters: res.iters, changed });
+      // Mine the verified red→green repairs and add them to the device's dataset.
+      if (res.trajectory?.length) {
+        const examples = fixExamplesFromTrajectory(task.trim(), res.trajectory);
+        if (examples.length) {
+          await addExamples(examples).catch(() => 0);
+          await trajStats().then((s) => setCaptured(s.total)).catch(() => {});
+        }
+      }
     } catch (e) {
       setResult({ ok: false, iters: 0, changed: 0, error: String((e as Error)?.message || e) });
     } finally {
@@ -692,6 +706,20 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
                 ? `Done — green after ${result.iters} ${result.iters === 1 ? 'try' : 'tries'}. Wrote ${result.changed} file${result.changed === 1 ? '' : 's'}.`
                 : `Couldn't get it green in ${result.iters} tries. Wrote ${result.changed} (best effort) — refine the task and retry.`}
           </span>
+        </div>
+      )}
+      {captured > 0 && (
+        <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-lg bg-zinc-100 px-3 py-1.5 text-[11px] text-zinc-500">
+          <span title="Each verified fix becomes private, oracle-labeled training data on your device — it improves the agent and never leaves unless you export it.">
+            {captured} verified fix{captured === 1 ? '' : 'es'} captured on-device
+          </span>
+          <button
+            type="button"
+            onClick={() => void downloadDataset()}
+            className="font-semibold text-[#7a5c12] hover:underline"
+          >
+            Export dataset
+          </button>
         </div>
       )}
     </div>

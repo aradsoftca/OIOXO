@@ -555,6 +555,8 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
   const [native] = React.useState(() => detectTier() === 'native');
   const [ollama, setOllama] = React.useState<OllamaInfo | null>(null);
   const [useBig, setUseBig] = React.useState(false);
+  // Pro "thorough" mode: best-of-N candidates per attempt (oracle ranks them).
+  const [thorough, setThorough] = React.useState(false);
   React.useEffect(() => { let on = true; detectOllama().then((o) => { if (on) setOllama(o); }); return () => { on = false; }; }, []);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
@@ -582,6 +584,7 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
         libFiles,
         native,
         record: true, // capture the trajectory so verified red→green repairs become training data
+        candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
         coder: useBig && ollama ? { kind: 'ollama', model: ollama.models[0], base: ollama.base } : undefined,
         onProgress: (p) => setProgress(p),
         onStep: (s) => setSteps((prev) => [...prev, { attempt: s.attempt, ok: s.ok }]),
@@ -625,6 +628,15 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
           >
             {tier}
           </span>
+          {pro && (
+            <label
+              title="Thorough: draft several candidates per step and keep the one the oracle proves best (more compute, higher success)."
+              className="flex items-center gap-1 text-[10px] font-semibold text-zinc-500"
+            >
+              <input type="checkbox" checked={thorough} disabled={busy} onChange={(e) => setThorough(e.target.checked)} className="accent-[#E2B24A]" />
+              Thorough
+            </label>
+          )}
           {ollama && (
             <label
               title={`Run a bigger local coder via Ollama (${ollama.models[0]}) — still on your machine`}

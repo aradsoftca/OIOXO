@@ -49,6 +49,11 @@ export interface LoopOptions {
   testCmd?: string;
   /** Max generate→run cycles before giving up (default 5). */
   maxIters?: number;
+  /** Verification-guided best-of-N: per attempt, draft this many candidates and
+   *  keep the one the ORACLE likes best (passing, else fewest errors). >1 trades
+   *  model calls for correctness — the deterministic form of the conductor's RANK
+   *  role. Default 1 (single draft, unchanged behavior). */
+  candidates?: number;
   generate: GenerateFn;
   run: RunFn;
   /** Progress hook (UI: show each attempt's result). */
@@ -97,9 +102,18 @@ export function applyEdits(files: CodeFile[], edits: Edit[]): CodeFile[] {
  * Returns the final files + whether it succeeded — never throws (a thrown
  * generator/runner ends the cycle and the loop reports the last state).
  */
+/** Is run result `a` better than `b`? Passing beats failing; among failures,
+ *  fewer error characters wins (a rough "closer to green" proxy). */
+function better(a: RunResult, b: RunResult | null): boolean {
+  if (!b) return true;
+  if (a.ok !== b.ok) return a.ok;
+  return a.errors.length < b.errors.length;
+}
+
 export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   const cmd = opts.testCmd ?? 'npm test';
   const maxIters = Math.max(1, opts.maxIters ?? 5);
+  const nCand = Math.max(1, opts.candidates ?? 1);
   let files = [...opts.files];
   let last: RunResult = { ok: false, output: '', errors: '' };
   const history: { attempt: number; ok: boolean }[] = [];
@@ -108,16 +122,29 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   for (let attempt = 0; attempt < maxIters; attempt++) {
     const filesBefore = files;
     const error = attempt === 0 ? undefined : last.errors;
-    let edits: Edit[] = [];
-    try {
-      edits = (await opts.generate({ task: opts.task, files, error, attempt })) ?? [];
-      if (edits.length) files = applyEdits(files, edits);
-      last = await opts.run(files, cmd);
-    } catch (e) {
-      last = { ok: false, output: String((e as Error)?.message || e), errors: String((e as Error)?.message || e) };
+    // Draft up to nCand candidates from the SAME starting point; the oracle ranks
+    // them and we keep the best. Stop early the instant one passes.
+    let bestFiles = filesBefore;
+    let bestEdits: Edit[] = [];
+    let bestRes: RunResult | null = null;
+    for (let k = 0; k < nCand; k++) {
+      let cand = filesBefore;
+      let edits: Edit[] = [];
+      let res: RunResult;
+      try {
+        edits = (await opts.generate({ task: opts.task, files: filesBefore, error, attempt })) ?? [];
+        cand = edits.length ? applyEdits(filesBefore, edits) : filesBefore;
+        res = await opts.run(cand, cmd);
+      } catch (e) {
+        res = { ok: false, output: String((e as Error)?.message || e), errors: String((e as Error)?.message || e) };
+      }
+      if (better(res, bestRes)) { bestRes = res; bestFiles = cand; bestEdits = edits; }
+      if (res.ok) break;
     }
+    files = bestFiles;
+    last = bestRes ?? last;
     history.push({ attempt, ok: last.ok });
-    trajectory?.push({ attempt, error, filesBefore, edits, ok: last.ok });
+    trajectory?.push({ attempt, error, filesBefore, edits: bestEdits, ok: last.ok });
     opts.onStep?.({ attempt, ok: last.ok, errors: last.errors });
     if (last.ok) return { ok: true, files, iters: attempt + 1, lastOutput: last.output, history, trajectory };
   }

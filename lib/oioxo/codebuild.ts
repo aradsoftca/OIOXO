@@ -46,6 +46,9 @@ export interface BuildOptions {
   /** P5: drive the loop with a bigger LOCAL coder via Ollama instead of the small
    *  WebGPU coder — same prompt + loop, still on the user's own machine. */
   coder?: { kind: 'ollama'; model: string; base?: string };
+  /** Verification-guided best-of-N per attempt (the conductor's RANK role, done by
+   *  the oracle). >1 trades compute for correctness — a natural Pro "thorough" mode. */
+  candidates?: number;
 }
 
 /**
@@ -116,6 +119,7 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     files: opts.files,
     testCmd,
     maxIters: opts.maxIters,
+    candidates: opts.candidates,
     generate,
     run,
     onStep: opts.onStep,

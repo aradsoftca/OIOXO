@@ -69,17 +69,11 @@ export function haversineKm(a: { lat: number; lon: number }, b: { lat: number; l
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(s)));
 }
 
-/** Geocode a place name via our own server (local gazetteer, no third party). */
+/** Geocode a place name — fully ON-DEVICE (cached world-cities gazetteer in the
+ *  browser, no server, no third party). Null if not found. */
 export async function geocode(place: string): Promise<GeoPoint | null> {
-  try {
-    const r = await fetch(`/api/geo?q=${encodeURIComponent(place)}`, { cache: 'force-cache' });
-    if (!r.ok) return null;
-    const d = await r.json();
-    if (typeof d?.lat === 'number' && typeof d?.lon === 'number') {
-      return { lat: d.lat, lon: d.lon, label: String(d.label || place) };
-    }
-  } catch { /* offline / not found */ }
-  return null;
+  const { geocodeLocal } = await import('../geo/geocoder');
+  return geocodeLocal(place);
 }
 
 const km2mi = (km: number) => km * 0.621371;

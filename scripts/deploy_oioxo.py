@@ -9,6 +9,8 @@ side-dir build. Safe to re-run.
 
   python scripts/deploy_oioxo.py
 """
+import base64
+import os
 import posixpath
 import sys
 import time
@@ -18,6 +20,36 @@ import deploy  # module ref, for deploy.ROTATED_KEY after rotation
 from deploy import (
     open_ssh, run, mkdir_p, remote_exists, upload_tar, load_deploy_secrets, PROJECT,
 )
+
+
+def ensure_oioxo_secrets():
+    """Provision the licensing secrets the entitlement gate needs, ONCE, into the
+    gitignored .env.deploy.local so they persist across deploys (load_deploy_secrets
+    then ships them to the remote .env):
+      - OIOXO_ENTITLEMENT_SECRET: signs entitlements. STABLE — rotating it would
+        invalidate every issued entitlement, so we generate it once and keep it.
+      - OIOXO_PRO_KEY: base64 of 32 bytes; decrypts the Pro brain asset. Stable for
+        now (no hosted Pro asset yet); switch to per-deploy rotation + re-encrypt
+        (encrypt_asset.mjs) once the conductor weights are served.
+    """
+    print("\n========== OIOXO LICENSING SECRETS ==========")
+    secrets_file = PROJECT / ".env.deploy.local"
+    existing = secrets_file.read_text(encoding="utf-8") if secrets_file.exists() else ""
+    have = {ln.split("=", 1)[0].strip() for ln in existing.splitlines() if "=" in ln and not ln.strip().startswith("#")}
+    add = []
+    if "OIOXO_ENTITLEMENT_SECRET" not in have:
+        add.append(("OIOXO_ENTITLEMENT_SECRET", base64.urlsafe_b64encode(os.urandom(48)).decode().rstrip("=")))
+    if "OIOXO_PRO_KEY" not in have:
+        add.append(("OIOXO_PRO_KEY", base64.b64encode(os.urandom(32)).decode()))
+    if add:
+        with secrets_file.open("a", encoding="utf-8") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            for k, v in add:
+                f.write(f"{k}={v}\n")
+        print(f"      generated {', '.join(k for k, _ in add)} → {secrets_file.name} (stable, gitignored)")
+    else:
+        print("      entitlement secrets already present ✓")
 
 REMOTE_DIR = "/root/oioxo"
 PM2_NAME = "oioxo"
@@ -133,6 +165,7 @@ def main():
     preflight(ssh)
     ensure_db(ssh)
 
+    ensure_oioxo_secrets()     # provision entitlement signing key + Pro content key (stable)
     deploy.rotate_brain_key()  # mint a fresh WASM key + re-encrypt BEFORE upload
 
     print("\n========== UPLOADING SOURCE ==========")

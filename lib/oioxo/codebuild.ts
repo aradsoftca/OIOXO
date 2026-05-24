@@ -3,10 +3,11 @@
  * coder (generator) + the WebContainer oracle (runner) → generate→run→repair→
  * green. This is what the workspace UI calls. (OIOXO_CODE.md P1.)
  */
-import { runCodeLoop, type CodeFile, type LoopResult, type RunFn } from './codeloop';
+import { runCodeLoop, type CodeFile, type LoopResult, type RunFn, type RunResult } from './codeloop';
 import { makeCoderGenerate } from './codegen';
 import { makeWebContainerRun, runSupported } from './coderun';
-import { makeTypeCheckRun } from './typecheck';
+import { typeCheckFiles, formatDiags } from './typecheck';
+import { grabForErrors } from './grab';
 
 export { runSupported };
 export type { CodeFile, LoopResult };
@@ -33,6 +34,9 @@ export interface BuildOptions {
   onProgress?: (p: number) => void;
   /** Per-attempt outcome for the UI timeline. */
   onStep?: (s: { attempt: number; ok: boolean; errors: string }) => void;
+  /** P4: allow fetching unknown libs' types from the CDN when the type oracle
+   *  reports `Cannot find module` (default true in typecheck mode). */
+  grab?: boolean;
 }
 
 /**
@@ -44,10 +48,35 @@ export interface BuildOptions {
 export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
   let run: RunFn;
   let testCmd = opts.testCmd;
+  // P4: external API signatures grabbed mid-loop, fed to the next draft.
+  let extApis = '';
+  const getExtApis = () => extApis;
+
   if (opts.mode === 'typecheck') {
-    // Fast TYPE oracle — no WebContainer, no install, works anywhere.
-    run = makeTypeCheckRun(opts.libFiles);
+    // Fast TYPE oracle — no WebContainer, no install, works anywhere. The lib map
+    // grows as we grab unknown packages, so we own it here (not makeTypeCheckRun).
+    const libs = new Map(opts.libFiles ?? []);
+    const grab = opts.grab !== false;
+    const grabbedAlready = new Set<string>();
     testCmd = 'typecheck';
+    run = async (files: CodeFile[]): Promise<RunResult> => {
+      let diags = await typeCheckFiles(files, libs);
+      if (grab && diags.some((d) => d.code === 2307)) {
+        // "Cannot find module 'X'" → fetch its real types, then re-check.
+        const errs = formatDiags(diags);
+        opts.onData?.(`\n· searching for missing packages…\n`);
+        const res = await grabForErrors(errs, grabbedAlready).catch(() => null);
+        if (res && res.grabbed.length) {
+          for (const [p, c] of res.libFiles) libs.set(p, c);
+          extApis = [extApis, res.apiIndex].filter(Boolean).join('\n\n').slice(0, 8000);
+          opts.onData?.(`✓ grabbed ${res.grabbed.map((g) => `${g.name}@${g.version}`).join(', ')}\n`);
+          diags = await typeCheckFiles(files, libs);
+        }
+      }
+      const ok = diags.length === 0;
+      const errors = formatDiags(diags);
+      return { ok, output: ok ? '✓ No type errors.' : errors, errors };
+    };
   } else {
     if (!runSupported()) throw new Error('On-device run needs a cross-origin-isolated Chromium browser.');
     run = makeWebContainerRun(opts.onData);
@@ -63,7 +92,7 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     files: opts.files,
     testCmd,
     maxIters: opts.maxIters,
-    generate: makeCoderGenerate(opts.match, { onProgress: opts.onProgress }),
+    generate: makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis }),
     run,
     onStep: opts.onStep,
   });

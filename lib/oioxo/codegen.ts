@@ -29,17 +29,19 @@ function renderFiles(files: { path: string; content: string }[], cap = 8000): st
 
 /** Build the user message for a draft (attempt 0) or a repair (attempt ≥1).
  *  With a retrieved context it shows only the RELEVANT files + the project's
- *  exact API signatures (so the model uses real APIs instead of inventing). */
-export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext): string {
+ *  exact API signatures (so the model uses real APIs instead of inventing).
+ *  `extApis` carries grabbed external-library signatures (P4 search-grab-fix). */
+export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extApis?: string): string {
   const shown = retrieved?.relevantFiles ?? ctx.files;
   const files = shown.length ? `Relevant files:\n${renderFiles(shown)}\n\n` : '';
   const apis = retrieved?.symbolIndex
     ? `Project APIs (exact signatures — call these, do NOT invent names):\n${retrieved.symbolIndex.slice(0, 4000)}\n\n`
     : '';
+  const ext = extApis ? `External libraries (fetched — use these REAL APIs, do NOT guess):\n${extApis.slice(0, 4000)}\n\n` : '';
   if (ctx.attempt === 0 || !ctx.error) {
-    return `Task: ${ctx.task}\n\n${apis}${files}Write the file(s) to do this.`;
+    return `Task: ${ctx.task}\n\n${ext}${apis}${files}Write the file(s) to do this.`;
   }
-  return `Task: ${ctx.task}\n\n${apis}${files}It FAILED with:\n${ctx.error}\n\nMake the minimal fix. Output only the changed file(s).`;
+  return `Task: ${ctx.task}\n\n${ext}${apis}${files}It FAILED with:\n${ctx.error}\n\nMake the minimal fix. Output only the changed file(s).`;
 }
 
 /**
@@ -75,15 +77,20 @@ export function parseEdits(reply: string): Edit[] {
 }
 
 /** A GenerateFn backed by the on-device coder. `match` selects the installed
- *  model (defaults to a Qwen2.5-Coder); loads/caches on first use. */
-export function makeCoderGenerate(match: string[] = CODER, opts: { onProgress?: (p: number) => void } = {}): GenerateFn {
+ *  model (defaults to a Qwen2.5-Coder); loads/caches on first use. `getExtApis`
+ *  supplies grabbed external-library signatures (P4), re-read each call so APIs
+ *  fetched mid-loop reach the next draft. */
+export function makeCoderGenerate(
+  match: string[] = CODER,
+  opts: { onProgress?: (p: number) => void; getExtApis?: () => string } = {},
+): GenerateFn {
   return async (ctx: GenContext): Promise<Edit[]> => {
     const retrieved = await retrieveContext(ctx.task, ctx.files).catch(() => undefined);
     const reply = await chat(
       match,
       [
         { role: 'system', content: SYSTEM },
-        { role: 'user', content: buildPrompt(ctx, retrieved) },
+        { role: 'user', content: buildPrompt(ctx, retrieved, opts.getExtApis?.()) },
       ],
       { onProgress: opts.onProgress, maxTokens: 1400, temperature: ctx.attempt === 0 ? 0.3 : 0.2 },
     );

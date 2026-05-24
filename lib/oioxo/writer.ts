@@ -1,11 +1,13 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /**
- * oioxo on-device WRITER — our distilled 135M model (payam1394/oioxo-writer),
+ * oioxo on-device WRITER — our distilled 135M model (payam1394/oioxo-writer8),
  * run in the browser via transformers.js v3/v4 (@huggingface/transformers) with
- * dtype 'q4' → loads the ~91MB q4 weights. Produces summaries / short articles
- * from source text, privately, no server. Loaded once; cached after first fetch.
+ * dtype 'q4' → loads the ~86MB q4 weights. writer8 adds the answer-from-notes,
+ * compare/decide and short-conversation shapes (writer7 only knew summary/
+ * article); mixed q4(block 64)+int8-embeddings keeps it under the 90MB budget.
+ * Produces text from a brief, privately, no server. Loaded once; cached.
  */
-const MODEL = 'payam1394/oioxo-writer';
+const MODEL = 'payam1394/oioxo-writer8';
 
 let _pipe: any = null;
 let _loading: Promise<any> | null = null;

@@ -137,15 +137,39 @@ export function buildBrief(question: string, evidence: Evidence[], opts: BriefOp
   const brief: Brief = { question, points, sources: sources.slice(0, 4) };
 
   if (opts.compare && opts.topics && opts.topics.length >= 2) {
-    brief.byTopic = opts.topics.slice(0, 3).map((topic) => {
-      const k = norm(topic);
-      const mine = points.filter(
-        (p) => norm(p.topic).includes(k) || k.includes(norm(p.topic)) || norm(p.text).includes(k),
-      );
-      return { topic, points: mine };
-    });
+    brief.byTopic = attributeSides(points, opts.topics.slice(0, 3));
   }
   return brief;
+}
+
+/**
+ * STRICT per-side attribution for a comparison. A fact joins a side only when it
+ * is CLEARLY and EXCLUSIVELY about that side — so the tiny writer never sees a
+ * Camry fact filed under "Mazda 3". We score each side by its DISTINCTIVE tokens
+ * (words unique to that one option, e.g. "mazda"/"camry" but not a shared word)
+ * appearing in the fact's text, plus a boost when the fact came from that side's
+ * own search query. A fact with no clear winner — a head-to-head sentence that
+ * names both, or one that names neither — is dropped from the per-side notes
+ * (it would only invite confusion). This is the analyze-stage hardening that
+ * fixes attribute-bleed in code, with zero model cost.
+ */
+function attributeSides(points: BriefPoint[], sides: string[]): { topic: string; points: BriefPoint[] }[] {
+  const sideToks = sides.map((t) => contentTerms(t));
+  // Keep only tokens unique to ONE side (drop words two options share).
+  const freq = new Map<string, number>();
+  for (const toks of sideToks) for (const tk of new Set(toks)) freq.set(tk, (freq.get(tk) ?? 0) + 1);
+  const distinct = sideToks.map((toks) => toks.filter((tk) => freq.get(tk) === 1));
+
+  const buckets: BriefPoint[][] = sides.map(() => []);
+  for (const p of points) {
+    const hay = new Set(norm(p.text).split(' ').filter(Boolean));
+    // PRESENCE per side (not counts): a side is named if any of its distinctive
+    // tokens appear, OR the fact came from that side's own search query.
+    const named = sides.map((t, i) => distinct[i].some((tk) => hay.has(tk)) || norm(p.topic) === norm(t));
+    if (named.filter(Boolean).length !== 1) continue; // names zero or ≥2 sides → drop (no bleed)
+    buckets[named.indexOf(true)].push(p);
+  }
+  return sides.map((topic, i) => ({ topic, points: buckets[i] }));
 }
 
 /** Render the Brief as labelled notes for the writer prompt — a comparison keeps

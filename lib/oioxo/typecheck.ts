@@ -42,7 +42,16 @@ export async function typeCheckFiles(files: CodeFile[], libFiles?: Map<string, s
     moduleResolution: ts.ModuleResolutionKind.Bundler ?? ts.ModuleResolutionKind.NodeNext,
     jsx: ts.JsxEmit.ReactJSX,
   };
-  const read = (f: string) => map.get(norm(f)) ?? libFiles?.get(norm(f)) ?? sys?.readFile?.(f);
+  // The vfs CDN lib map keys lib files as `/lib.es2020.d.ts`; lib files also
+  // cross-reference each other by bare name (`lib.es2015.d.ts`). Resolve a lib
+  // request against the map tolerantly (with/without leading slash).
+  const fromLibs = (f: string): string | undefined => {
+    if (!libFiles) return undefined;
+    const n = norm(f);
+    const base = n.replace(/^.*\//, '');
+    return libFiles.get(n) ?? libFiles.get('/' + base) ?? libFiles.get(base);
+  };
+  const read = (f: string) => map.get(norm(f)) ?? fromLibs(f) ?? sys?.readFile?.(f);
   const host: any = {
     fileExists: (f: string) => read(f) != null,
     readFile: read,
@@ -50,7 +59,10 @@ export async function typeCheckFiles(files: CodeFile[], libFiles?: Map<string, s
       const text = read(f);
       return text != null ? ts.createSourceFile(f, text, lang, true) : undefined;
     },
-    getDefaultLibFileName: (o: any) => (ts.getDefaultLibFilePath ? ts.getDefaultLibFilePath(o) : 'lib.d.ts'),
+    // Browser: no filesystem — return the bare lib name so it resolves against
+    // the injected lib map. Node: the absolute on-disk path via ts.sys.
+    getDefaultLibFileName: (o: any) =>
+      libFiles ? ts.getDefaultLibFileName(o) : ts.getDefaultLibFilePath(o),
     writeFile: () => {},
     getCurrentDirectory: () => sys?.getCurrentDirectory?.() ?? '/',
     getDirectories: (p: string) => sys?.getDirectories?.(p) ?? [],

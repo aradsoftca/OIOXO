@@ -4,6 +4,7 @@ import * as React from 'react';
 import { FolderOpen, File as FileIcon, Folder, Save, Sparkles, ArrowUp, Loader2, AlertTriangle, Check, Play, Terminal, Wrench } from 'lucide-react';
 import { fsSupported, openFolder, readFileText, writeFileText, writeByPath, isTextFile, snapshotTree, filesFromTree, type FileNode } from '@/lib/oioxo/fs';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
+import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { SKILLS } from '@/lib/oioxo/skills';
 import { chatStream } from '@/lib/oioxo/runtime';
 import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib/oioxo/webcontainer';
@@ -541,6 +542,9 @@ function CoderChat({
  *  files are written to disk. The "device proves it" surface. */
 function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: unknown; match: string[]; onClose: () => void }) {
   const [task, setTask] = React.useState('');
+  // 'typecheck' = fast in-browser TS type oracle (no install, works anywhere);
+  // 'test' = run the real test suite in a WebContainer (needs cross-origin isolation).
+  const [mode, setMode] = React.useState<'typecheck' | 'test'>('typecheck');
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [steps, setSteps] = React.useState<{ attempt: number; ok: boolean }[]>([]);
@@ -555,10 +559,13 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
     try {
       const files = await filesFromTree(tree);
       const original = new Map(files.map((f) => [f.path, f.content]));
+      const libFiles = mode === 'typecheck' ? await loadTsLibs() : undefined;
       const res = await buildOrFix({
         task: task.trim(),
         files,
         match,
+        mode,
+        libFiles,
         onProgress: (p) => setProgress(p),
         onStep: (s) => setSteps((prev) => [...prev, { attempt: s.attempt, ok: s.ok }]),
         onData: (c) => setLog((prev) => (prev + c).slice(-8000)),
@@ -583,7 +590,26 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
         <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-600">
           <Wrench className="h-3.5 w-3.5 text-[#E2B24A]" /> Agent — build or fix on-device
         </span>
-        <button type="button" onClick={onClose} className="text-xs text-zinc-400 hover:text-zinc-600">close</button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg bg-zinc-200 p-0.5 text-[10px] font-semibold">
+            {(['typecheck', 'test'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                disabled={busy}
+                title={m === 'typecheck' ? 'Fast type oracle — works in any browser' : 'Run the test suite in a sandbox (needs Chromium + isolation)'}
+                className={[
+                  'rounded-md px-2 py-0.5 transition disabled:opacity-50',
+                  mode === m ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700',
+                ].join(' ')}
+              >
+                {m === 'typecheck' ? 'Types' : 'Tests'}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={onClose} className="text-xs text-zinc-400 hover:text-zinc-600">close</button>
+        </div>
       </div>
       <div className="flex gap-2 px-3 pb-2">
         <input

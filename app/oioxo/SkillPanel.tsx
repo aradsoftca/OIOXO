@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { Code2, Image as ImageIcon, Video, Cpu, Check, Download, Loader2, Monitor, Lock } from 'lucide-react';
-import { SKILLS, type SkillId, type SkillModel } from '@/lib/oioxo/skills';
+import { SKILLS, recommendModel, type SkillId, type SkillModel } from '@/lib/oioxo/skills';
 import { TIER_LABEL, tierAtLeast } from '@/lib/oioxo/hardware';
 import { useHardware, useSkill } from '@/lib/oioxo/useSkills';
 
@@ -17,6 +17,8 @@ export default function SkillPanel({ skillId }: { skillId: SkillId }) {
   const hw = useHardware();
   const { installed, progress, error, install } = useSkill(skillId);
   const [installing, setInstalling] = React.useState<string | null>(null);
+  // The best in-browser model this device can run — surfaced as "Recommended".
+  const recommended = hw ? recommendModel(skillId, hw.tier) : null;
 
   async function onInstall(m: SkillModel) {
     setInstalling(m.id);
@@ -75,6 +77,11 @@ export default function SkillPanel({ skillId }: { skillId: SkillId }) {
                   {native && (
                     <span className="rounded-full bg-zinc-900/5 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
                       native app
+                    </span>
+                  )}
+                  {recommended?.id === m.id && !isInstalled && (
+                    <span className="rounded-full bg-[#E2B24A]/20 px-2 py-0.5 text-[11px] font-semibold text-[#7a5c12]">
+                      Recommended for your device
                     </span>
                   )}
                 </div>

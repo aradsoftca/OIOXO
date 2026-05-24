@@ -8,7 +8,7 @@
  *  - 'native'      → needs the native (Tauri) app + a capable GPU. Image gen
  *                    (no browser SD runtime wired yet) and video gen live here.
  */
-import type { Tier } from './hardware';
+import { type Tier, tierAtLeast, tierRank } from './hardware';
 
 export type SkillId = 'code' | 'image' | 'video';
 export type SkillRuntime = 'webllm' | 'native';
@@ -64,6 +64,15 @@ export const SKILLS: Record<SkillId, Skill> = {
     ],
   },
 };
+
+/** The strongest in-browser (webllm) model the device tier can actually run —
+ *  e.g. Strong GPU → Qwen2.5-Coder-7B, Capable → 1.5B, Entry → the 0.5B general.
+ *  So we recommend the best coder the hardware supports instead of a fixed size.
+ *  Returns null when nothing in-browser fits (e.g. no WebGPU → use the native app). */
+export function recommendModel(skill: SkillId, tier: Tier): SkillModel | null {
+  const fits = SKILLS[skill].models.filter((m) => m.runtime === 'webllm' && tierAtLeast(tier, m.minTier));
+  return fits.sort((a, b) => tierRank(b.minTier) - tierRank(a.minTier))[0] ?? null;
+}
 
 const KEY = (s: SkillId) => `oioxo:skill:${s}`;
 

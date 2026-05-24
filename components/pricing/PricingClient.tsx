@@ -4,25 +4,42 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Crown, Loader2, Bitcoin, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { IS_OIOXO } from '@/lib/brand';
 
 type Billing = 'monthly' | 'yearly';
 
-const FREE_FEATURES = [
-  'All 400+ tools, unlocked',
-  'Everything runs on your device — files never leave',
-  'One free action per category each day',
-  'A short wait unlocks a second action',
-  'No account required',
-];
+const FREE_FEATURES = IS_OIOXO
+  ? [
+      'The full workspace + on-device AI — chat, convert, edit, and code',
+      'Models run on your device — your code and files never leave',
+      'A daily allowance on heavy features (search, big models)',
+      'No account required to start',
+    ]
+  : [
+      'All 400+ tools, unlocked',
+      'Everything runs on your device — files never leave',
+      'One free action per category each day',
+      'A short wait unlocks a second action',
+      'No account required',
+    ];
 
-const PRO_FEATURES = [
-  'Unlimited use of every tool — no daily caps',
-  'No waits, ever',
-  'Batch processing across files',
-  'Cloud history & saved presets, synced',
-  'Priority support',
-  'One account unlocks the whole platform',
-];
+const PRO_FEATURES = IS_OIOXO
+  ? [
+      'The on-device coding agent — build & fix, verified on your machine',
+      'Bigger on-device models + bring your own frontier key',
+      'Web search & grounded answers — no caps',
+      'Cloud sync of projects, history & presets',
+      'Priority model updates & support',
+      'One account unlocks coding, AI, and every tool',
+    ]
+  : [
+      'Unlimited use of every tool — no daily caps',
+      'No waits, ever',
+      'Batch processing across files',
+      'Cloud history & saved presets, synced',
+      'Priority support',
+      'One account unlocks the whole platform',
+    ];
 
 export function PricingClient({
   authed,
@@ -104,7 +121,7 @@ export function PricingClient({
             <span className="text-[13px] text-[var(--color-fg-muted)]">forever</span>
           </div>
           <p className="mt-2 text-[13px] text-[var(--color-fg-muted)]">
-            Everything you need for the occasional file.
+            {IS_OIOXO ? 'Try the whole platform on your device.' : 'Everything you need for the occasional file.'}
           </p>
           <ul className="mt-6 space-y-2.5">
             {FREE_FEATURES.map((f) => (
@@ -184,8 +201,9 @@ export function PricingClient({
       </div>
 
       <p className="text-center text-[12px] text-[var(--color-fg-muted)]">
-        Cancel anytime. Crypto payments via NOWPayments. No files are ever uploaded — every tool
-        runs on your device.
+        {IS_OIOXO
+          ? 'Cancel anytime. Crypto payments via NOWPayments. Models run on your device — your code and files never leave.'
+          : 'Cancel anytime. Crypto payments via NOWPayments. No files are ever uploaded — every tool runs on your device.'}
       </p>
     </div>
   );

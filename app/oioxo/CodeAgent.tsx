@@ -15,6 +15,7 @@ import { chatStream } from '@/lib/oioxo/runtime';
 import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib/oioxo/webcontainer';
 import { useSkill } from '@/lib/oioxo/useSkills';
 import SkillPanel from './SkillPanel';
+import CodeEditor from './CodeEditor';
 
 export default function CodeAgent() {
   const { installed } = useSkill('code');
@@ -152,14 +153,13 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
           {active ? (
-            <textarea
+            <CodeEditor
               value={active.content}
-              onChange={(e) => {
-                setActive({ ...active, content: e.target.value });
+              filename={active.node.name}
+              onChange={(next) => {
+                setActive((cur) => (cur ? { ...cur, content: next } : cur));
                 setDirty(true);
               }}
-              spellCheck={false}
-              className="min-h-0 flex-1 resize-none bg-white p-3 font-mono text-[13px] leading-relaxed text-zinc-800 focus:outline-none"
             />
           ) : (
             <div className="grid flex-1 place-items-center text-sm text-zinc-400">Open a file to edit it.</div>

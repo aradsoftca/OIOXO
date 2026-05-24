@@ -17,6 +17,7 @@ import { analyzeQuestion, isGrounded, type Evidence } from './reason';
 import { buildBrief, briefToNotes, briefToDigest, briefHasContent } from './brief';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
+import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
 import { detectAnswerType, type AnswerType } from './extract';
 import { richAnswer } from './web-read';
 import { toEnglish, fromEnglish } from './translate';
@@ -102,6 +103,8 @@ export interface OioxoReply {
   images?: ImageHit[];
   /** Relevant videos to embed (how-to / explain) — we read their words, cite, link. */
   videos?: VideoHit[];
+  /** Map points to plot (geo questions: distance / where) + whether to connect them. */
+  map?: { points: GeoPoint[]; line?: boolean };
   /** Sources are kept but NOT shown by default (only if the user asks). */
   sources?: SearchSource[];
   /** Related follow-up topics. */
@@ -555,6 +558,17 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
   try {
     const safe = safetyReferral(text);
     if (safe) return safe;
+
+    // GEO: a maps question ("how far is X from Y", "where is X") — understand the
+    // intent, geocode on our own server, COMPUTE on-device (haversine), state it
+    // plainly + plot it. Falls through to normal search if a place can't resolve.
+    if (!fileCat) {
+      const gi = detectGeoIntent(text);
+      if (gi) {
+        const g = await answerGeo(gi).catch(() => null);
+        if (g) return { text: g.text, map: { points: g.points, line: g.line } };
+      }
+    }
 
     // CONVERSATION MOVE (no file in hand — a file means a tool op, not chat).
     // Search is a move INSIDE the conversation: a stated need → acknowledge and

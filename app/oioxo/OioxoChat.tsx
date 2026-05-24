@@ -6,6 +6,7 @@ import { ArrowUp, Sparkles, ExternalLink, Rocket, Code2, Play } from 'lucide-rea
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { respond, type OioxoReply } from '@/lib/ai/oioxo-engine';
 import { OioxoLoader, OioxoThinking } from './OioxoBrand';
+import { MapView } from './MapView';
 
 interface Msg {
   id: number;
@@ -226,6 +227,9 @@ function MessageRow({ msg, onAsk, onOpenCode }: { msg: Msg; onAsk: (s: string) =
                   </a>
                 ))}
               </div>
+            )}
+            {!!msg.reply?.map?.points?.length && (
+              <MapView points={msg.reply.map.points} line={msg.reply.map.line} />
             )}
             {!!msg.reply?.videos?.length && (
               <div className="mt-3 flex gap-2 overflow-x-auto pb-1">

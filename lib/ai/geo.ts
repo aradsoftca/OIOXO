@@ -38,6 +38,15 @@ const clean = (s: string) =>
 export function detectGeoIntent(text: string): GeoIntent | null {
   const t = text.trim();
 
+  // ROAD/DRIVING questions ("how long to drive A→B", "driving distance", "by
+  // car/road", "route from…") are answered as a FACT by search — a world road
+  // graph is gigabytes, too big for on-device. Let these fall through so the
+  // search→analyze→answer brain handles them. On-device haversine stays for the
+  // straight-line "how far is X from Y".
+  if (/\b(driv\w+|by car|by road|by bus|by train|road trip|commute|how long to (get|travel|reach|drive)|travel time|fastest (way|route)|directions?)\b/i.test(t)) {
+    return null;
+  }
+
   // distance — two places, several phrasings
   let m =
     t.match(/\bhow far\s+(?:is\s+|from\s+)?(.+?)\s+(?:from|to)\s+(.+)$/i) ||

@@ -173,6 +173,16 @@ function isSameOrigin(req: NextRequest): boolean {
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // oioxo.com is the platform: serve the oioxo shell at the root. Host-gated, so
+  // it's inert on every other domain (xonvert.com is completely unaffected).
+  const host = req.headers.get('host') || '';
+  if (host.includes('oioxo.com') && pathname === '/') {
+    const url = req.nextUrl.clone();
+    url.pathname = '/oioxo';
+    return NextResponse.rewrite(url);
+  }
+
   if (!pathname.startsWith('/api/')) return NextResponse.next();
 
   // 1) Origin lock — reject cross-origin use of our endpoints.
@@ -214,5 +224,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/:path*'],
+  matcher: ['/', '/api/:path*'],
 };

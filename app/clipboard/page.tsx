@@ -1,12 +1,13 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
 import ClipboardApp from './ClipboardApp';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Universal Clipboard — copy on one device, paste on another',
   description: 'Sync text and links between your phone and computer instantly over an encrypted peer-to-peer connection. No account, nothing stored on a server.',
   openGraph: {
-    title: 'Xonvert Universal Clipboard — copy here, paste there',
+    title: `${BRAND} Universal Clipboard — copy here, paste there`,
     description: 'Beam clipboard text between devices, peer-to-peer. Nothing touches a server.',
   },
 };

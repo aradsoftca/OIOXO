@@ -59,3 +59,60 @@ export async function findImage(subject: string): Promise<FoundImage | null> {
   }
   return null; // nothing solid → caller declines honestly (better than a bad image)
 }
+
+/**
+ * Find SEVERAL related images for a query — the little thumbnail row shown under
+ * an answer (like a frontier model's image strip). Source doesn't matter; we use
+ * Openverse (free, keyless, CORS-enabled) which aggregates many providers for
+ * broad coverage on ANY query, and fall back to Wikimedia Commons. Returns clean
+ * thumbnail URLs in relevance order. Always degrades to [] on any failure.
+ */
+export async function findImages(query: string, n = 4): Promise<FoundImage[]> {
+  const q0 = query.trim();
+  if (!q0) return [];
+  const out: FoundImage[] = [];
+  const seen = new Set<string>();
+  const push = (img: FoundImage | null) => {
+    if (img && img.url && !seen.has(img.url)) {
+      seen.add(img.url);
+      out.push(img);
+    }
+  };
+
+  // 1) UNDERSTAND the subject first: resolve to a canonical Wikipedia title,
+  //    which fixes typos/casing ("michel jordan" → "Michael Jordan") and
+  //    disambiguates — so we search for the RIGHT thing, not a literal keyword.
+  const os = await getJson(
+    'https://en.wikipedia.org/w/api.php?action=opensearch&format=json&limit=1&redirects=resolve&origin=*&search=' +
+      encodeURIComponent(q0), WIKI_HEADERS);
+  const title = Array.isArray(os) && Array.isArray(os[1]) && os[1][0] ? String(os[1][0]) : q0;
+
+  // 2) The CANONICAL image of the entity, first (its real photo).
+  push(await findImage(q0));
+
+  // 3) More real photos of the corrected entity — Wikimedia Commons.
+  const commons = await getJson(
+    'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*' +
+      '&generator=search&gsrnamespace=6&gsrlimit=20&gsrsearch=' + encodeURIComponent(title) +
+      '&prop=imageinfo&iiprop=url|mime&iiurlwidth=400', WIKI_HEADERS);
+  const pages = commons?.query?.pages;
+  if (pages) {
+    const rows = (Object.values(pages) as any[]).filter((p) => p?.imageinfo?.[0]).sort((a, b) => (a.index ?? 1e9) - (b.index ?? 1e9));
+    for (const p of rows) {
+      const info = p.imageinfo[0];
+      if (!/^image\/(jpeg|png|webp|jpg)$/i.test(String(info.mime ?? ''))) continue;
+      push({ url: info.thumburl || info.url, title: String(p.title ?? '').replace(/^File:/, ''), source: 'Wikimedia Commons', pageUrl: String(info.descriptionurl ?? '') });
+      if (out.length >= n) break;
+    }
+  }
+
+  // 4) Supplement with Openverse (broad, keyless) for variety / non-entity queries.
+  if (out.length < n) {
+    const ov = await getJson('https://api.openverse.org/v1/images/?page_size=' + (n + 8) + '&q=' + encodeURIComponent(title));
+    for (const r of Array.isArray(ov?.results) ? ov.results : []) {
+      push({ url: r?.thumbnail || r?.url, title: String(r.title ?? title), source: String(r.source ?? 'web'), pageUrl: String(r.foreign_landing_url ?? r.url ?? '') });
+      if (out.length >= n) break;
+    }
+  }
+  return out.slice(0, n);
+}

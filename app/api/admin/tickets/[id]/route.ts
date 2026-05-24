@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getAdmin } from '@/lib/admin';
 import { sendTicketReplyEmail } from '@/lib/email/service';
+import { BRAND } from '@/lib/brand';
 
 export const runtime = 'nodejs';
 
@@ -43,7 +44,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         ticketId: id,
         message,
         isStaff: true,
-        staffName: body.staffName || 'Xonvert Support',
+        staffName: body.staffName || `${BRAND} Support`,
       },
     });
   }

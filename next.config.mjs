@@ -10,6 +10,10 @@ const basePath = process.env.NEXT_BASE_PATH || '';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Build output dir. Overridable at BUILD time (NEXT_DIST_DIR) so deploys can
+  // build into a side dir while the live `.next` keeps serving — zero-downtime.
+  // At runtime NEXT_DIST_DIR is unset, so `next start` serves the swapped-in `.next`.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
   basePath: basePath || undefined,
   assetPrefix: basePath || undefined,
   // Don't fail prod builds on lint — we lint via CI/IDE.
@@ -65,7 +69,11 @@ const nextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
+          // 'credentialless' keeps cross-origin isolation (SharedArrayBuffer /
+          // ffmpeg-mt / WebContainers still work) BUT lets cross-origin images
+          // (Openverse/Wikimedia search results) load — 'require-corp' blocked
+          // them, showing broken thumbnails.
+          { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
           { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
           // Don't let another site embed our pages (incl. the AI) in a frame.
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
@@ -140,15 +148,21 @@ const nextConfig = {
             {
               compact: true,
               identifierNamesGenerator: 'hexadecimal',
-              // The transforms that break inline blob workers — keep OFF:
+              // Known-good hex-only renaming. Stronger transforms are NOT worth
+              // it here: splitStrings made builds ~15min at 482 pages, and the
+              // numbers/simplify set destabilized the Next build (pages-manifest
+              // ENOENT). The strong worker-breakers (stringArray/control-flow)
+              // need a worker-extraction refactor + browser QA. The real moat is
+              // the WASM brain-core, not JS obfuscation.
+              numbersToExpressions: false,
+              simplify: true,
+              disableConsoleOutput: false,
               stringArray: false,
               selfDefending: false,
               controlFlowFlattening: false,
               deadCodeInjection: false,
-              numbersToExpressions: false,
               renameProperties: false,
               transformObjectKeys: false,
-              disableConsoleOutput: false,
               log: false,
             },
             // Don't touch the framework runtime / worker glue — obfuscating those

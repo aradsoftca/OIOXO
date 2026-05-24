@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { POSTS } from '@/lib/blog/posts';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Blog',
-  description: 'Guides and notes from Xonvert — file formats, privacy-first tools, and how to get more done in your browser.',
+  description: `Guides and notes from ${BRAND} — file formats, privacy-first tools, and how to get more done in your browser.`,
 };
 
 export default function BlogPage() {

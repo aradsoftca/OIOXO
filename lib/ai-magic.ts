@@ -1,3 +1,4 @@
+import { BRAND } from '@/lib/brand';
 /**
  * "Magic tricks" that make the tiny on-device model punch far above its weight,
  * with NO extra model download:
@@ -69,7 +70,7 @@ export function detectIntent(text: string): Intent {
 // jokes are hit-or-miss). Only consulted on the CHAT fallback, so it never
 // hijacks a real tool/convert/draw request.
 const GREETINGS = [
-  'Hey! 👋 I’m Xonvert AI — what are we making today?',
+  `Hey! 👋 I’m ${BRAND} AI — what are we making today?`,
   'Hi there! Files to convert, a thumbnail to design, or just here to chat? I’m game.',
   'Yo. Drop a file or a request — I do the heavy lifting, privately, right here.',
 ];
@@ -91,8 +92,8 @@ export function funReply(text: string): string | null {
   if (/^(hi|hey+|hello|yo|sup|hiya|howdy|gm|good (morning|evening|afternoon))\b/.test(lc)) return pickFrom(GREETINGS);
   if (/(tell|got|know|hear).*(joke|funny)|^joke\b|make me laugh|cheer me up/.test(lc)) return pickFrom(JOKES);
   if (/^\s*(thanks|thank you|thx|ty|cheers)\b/.test(lc)) return pickFrom(THANKS);
-  if (/\bwho are you\b|\bwhat are you\b/.test(lc)) return 'I’m Xonvert AI — your private, on-device sidekick. I convert, compress, edit, draw, make thumbnails, and find the right tool, all without your files ever leaving this tab. A Swiss Army knife that actually respects your privacy. 🛠️';
-  if (/\bare you (chatgpt|gpt|openai|gemini|claude|bard|copilot)\b/.test(lc)) return 'Nope — I’m Xonvert AI, running right here on your device. No cloud, no eavesdropping. What can I make for you?';
+  if (/\bwho are you\b|\bwhat are you\b/.test(lc)) return `I’m ${BRAND} AI — your private, on-device sidekick. I convert, compress, edit, draw, make thumbnails, and find the right tool, all without your files ever leaving this tab. A Swiss Army knife that actually respects your privacy. 🛠️`;
+  if (/\bare you (chatgpt|gpt|openai|gemini|claude|bard|copilot)\b/.test(lc)) return `Nope — I’m ${BRAND} AI, running right here on your device. No cloud, no eavesdropping. What can I make for you?`;
   if (/\bi love you\b/.test(lc)) return 'Aw. 💚 I’ll show it in crisp conversions and clean thumbnails.';
   if (/\b(i'?m )?bored\b|entertain me/.test(lc)) return 'Say the word and I’ll whip up a wallpaper, a thumbnail, a QR code, or a charmingly bad joke. Dealer’s choice. 🎲';
   return null;

@@ -1,22 +1,23 @@
 import type { Metadata } from 'next';
 import { LegalShell, H2, UL } from '@/components/legal/LegalShell';
+import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
-  description: 'The terms governing your use of Xonvert.',
+  description: `The terms governing your use of ${BRAND}.`,
 };
 
 export default function TermsPage() {
   return (
     <LegalShell title="Terms of Service" updated="May 20, 2026">
       <p>
-        These terms govern your use of xonvert.com (the &ldquo;Service&rdquo;). By using the Service you
+        These terms govern your use of {BRAND_DOMAIN} (the &ldquo;Service&rdquo;). By using the Service you
         agree to them. If you don&apos;t agree, please don&apos;t use the Service.
       </p>
 
       <H2>The service</H2>
       <p>
-        Xonvert provides browser-based tools to convert, compress, edit, view, and analyze files, plus
+        {BRAND} provides browser-based tools to convert, compress, edit, view, and analyze files, plus
         related utilities. Most tools run entirely in your browser. We provide the Service on an
         &ldquo;as is&rdquo; and &ldquo;as available&rdquo; basis.
       </p>
@@ -44,7 +45,7 @@ export default function TermsPage() {
 
       <H2>Intellectual property</H2>
       <p>
-        The Service, its design, source code, compiled assets, and underlying tools are owned by Xonvert
+        The Service, its design, source code, compiled assets, and underlying tools are owned by {BRAND}
         and protected by copyright and other laws. Your files and their contents remain entirely yours —
         we claim no rights over them.
       </p>
@@ -61,7 +62,7 @@ export default function TermsPage() {
       <H2>Disclaimer &amp; liability</H2>
       <p>
         The Service is provided without warranties of any kind. To the maximum extent permitted by law,
-        Xonvert is not liable for indirect or consequential damages, or for any data loss — always keep
+        {BRAND} is not liable for indirect or consequential damages, or for any data loss — always keep
         your own backups of important files. Our total liability is limited to the amount you paid us in
         the prior 12 months.
       </p>

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { PRO_PRICING } from '@/lib/stripe';
+import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
 
 const NOWPAYMENTS_API_URL = 'https://api.nowpayments.io/v1';
 
@@ -31,9 +32,9 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 });
 
   const amount = PRO_PRICING[plan];
-  const planLabel = plan === 'yearly' ? 'Xonvert Pro — Yearly' : 'Xonvert Pro — Monthly';
+  const planLabel = plan === 'yearly' ? `${BRAND} Pro — Yearly` : `${BRAND} Pro — Monthly`;
   const orderId = `xonvert_${userId}_${plan}_${Date.now()}`;
-  const baseUrl = process.env.NEXTAUTH_URL || 'https://new.xonvert.com';
+  const baseUrl = process.env.NEXTAUTH_URL || `https://${BRAND_DOMAIN}`;
 
   const response = await fetch(`${NOWPAYMENTS_API_URL}/invoice`, {
     method: 'POST',

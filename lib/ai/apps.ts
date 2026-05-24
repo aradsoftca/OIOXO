@@ -31,8 +31,8 @@ export const APPS: AppEntry[] = [
     match: (lc) => /\b(white ?board|draw together|shared (board|canvas)|brainstorm board|sketch together)\b/.test(lc) },
   { id: 'clipboard', name: 'Clipboard', href: '/clipboard', blurb: 'sync clipboard between your devices.',
     match: (lc) => /\b(clipboard|copy (text |stuff )?between|sync (clipboard|text) (across|between)|paste across devices)\b/.test(lc) },
-  { id: 'watch', name: 'Watch Party', href: '/watch', blurb: 'watch a video together, in sync.',
-    match: (lc) => /\b(watch (together|party)|watch a (video|movie|film) together|sync (video|playback))\b/.test(lc) },
+  { id: 'watch', name: 'Screen Share', href: '/watch', blurb: 'share your screen live, or watch a video together in sync.',
+    match: (lc) => /\b(share (my )?screen|screen[ -]?shar(e|ing)|present my screen|watch (together|party)|watch a (video|movie|film) together|sync (video|playback))\b/.test(lc) },
   { id: 'note', name: 'Encrypted Notes', href: '/note', blurb: 'private, encrypted notes.',
     match: (lc) => /\b(encrypted note|secure note|private note|secret note|make a note|save a note|new note)\b/.test(lc) },
 ];

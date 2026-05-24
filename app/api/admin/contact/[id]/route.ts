@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getAdmin, logAudit } from '@/lib/admin';
 import { sendEmail } from '@/lib/email/service';
+import { BRAND } from '@/lib/brand';
 
 export const runtime = 'nodejs';
 
@@ -30,7 +31,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     try {
       await sendEmail({
         to: msg.email,
-        subject: `Re: ${msg.subject} — Xonvert`,
+        subject: `Re: ${msg.subject} — ${BRAND}`,
         html: `<p>Hi ${msg.name},</p><div style="white-space:pre-wrap">${response}</div>`,
         text: `Hi ${msg.name},\n\n${response}`,
         type: 'TRANSACTIONAL',

@@ -3,6 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { BRAND } from '@/lib/brand';
 
 interface Msg { id: string; message: string; isStaff: boolean; staffName: string | null; createdAt: string }
 interface Ticket {
@@ -50,7 +51,7 @@ export default function TicketViewPage() {
               <div key={m.id} className={`tile-surface ${m.isStaff ? '' : 'opacity-90'}`} data-neutral="true">
                 <div className="tile-content gap-1.5 !justify-start">
                   <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
-                    {m.isStaff ? (m.staffName || 'Xonvert Support') : 'You'} · {new Date(m.createdAt).toLocaleString()}
+                    {m.isStaff ? (m.staffName || `${BRAND} Support`) : 'You'} · {new Date(m.createdAt).toLocaleString()}
                   </div>
                   <div className="whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--color-fg)]">{m.message}</div>
                 </div>

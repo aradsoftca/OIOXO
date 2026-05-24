@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { sendEmail } from '@/lib/email/service';
+import { BRAND } from '@/lib/brand';
 
 export const runtime = 'nodejs';
 
@@ -79,9 +80,9 @@ export async function POST(req: Request) {
   try {
     await sendEmail({
       to: email,
-      subject: `We received your request #${ticketNumber} — Xonvert`,
+      subject: `We received your request #${ticketNumber} — ${BRAND}`,
       html: `<p>Hi ${name}, thanks for reaching out. Your request <b>#${ticketNumber}</b> ("${subject}") is logged and our team will reply by email.</p>`,
-      text: `Hi ${name}, your Xonvert support request #${ticketNumber} ("${subject}") is logged. We'll reply by email.`,
+      text: `Hi ${name}, your ${BRAND} support request #${ticketNumber} ("${subject}") is logged. We'll reply by email.`,
       type: 'TRANSACTIONAL',
       userId,
     });

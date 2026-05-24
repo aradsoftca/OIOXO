@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { BRAND_DOMAIN } from '@/lib/brand';
 
 /**
  * Stateless unsubscribe token: HMAC(email) with NEXTAUTH_SECRET. Lets an email
@@ -25,6 +26,6 @@ export function verifyUnsubscribe(email: string, token: string): boolean {
 
 /** Build the full unsubscribe URL to drop into marketing email footers. */
 export function unsubscribeUrl(email: string): string {
-  const base = process.env.NEXTAUTH_URL || 'https://xonvert.com';
+  const base = process.env.NEXTAUTH_URL || `https://${BRAND_DOMAIN}`;
   return `${base}/unsubscribe?email=${encodeURIComponent(email)}&token=${unsubscribeToken(email)}`;
 }

@@ -2,8 +2,9 @@ import type { MetadataRoute } from 'next';
 import { TOOLS, CATEGORIES } from '@/lib/registry';
 import { CONVERT_PAIRS } from '@/lib/convert/pairs';
 import { POSTS } from '@/lib/blog/posts';
+import { BRAND_DOMAIN } from '@/lib/brand';
 
-const SITE = 'https://xonvert.com';
+const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 function url(path: string): string {

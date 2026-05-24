@@ -14,7 +14,10 @@
 
 export type AnswerType = 'recipe' | 'howto' | 'code' | 'definition' | 'general';
 
-const RECIPE_CUE = /\b(recipe|how (do|to) (i )?(make|bake|cook|prepare)|ingredients for|how (is|are) .* (made|baked|cooked))\b/i;
+// Recipe intent: an explicit "recipe"/"ingredients for", OR any "how <subject>
+// make/cook/bake/prepare X" phrasing — including "how THEY make", "how do I
+// make", "how to cook", "how is X made". The verb anywhere shortly after "how".
+const RECIPE_CUE = /\b(recipe|ingredients for|how\s+(?:do|to|can|could|you|they|we|does|is|are|i)\s+(?:\w+\s+){0,3}(make|makes|bake|cook|prepare|prepared|made|baked|cooked))\b/i;
 const HOWTO_CUE = /\b(how (do|to|can) (i|you)?\s|step by step|tutorial|guide to|instructions for|how to|steps to)\b/i;
 const CODE_CUE = /\b(code|function|snippet|regex|syntax|how to (write|code|implement))\b/i;
 // A programming language named alongside a coding verb → a code question

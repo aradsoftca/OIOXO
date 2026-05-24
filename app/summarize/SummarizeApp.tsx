@@ -3,6 +3,7 @@
 
 import * as React from 'react';
 import { FileText, Loader2, ShieldCheck, Download, Square, AlertTriangle, Sparkles, Languages, Upload, Copy, Check } from 'lucide-react';
+import { BRAND } from '@/lib/brand';
 
 const MODELS = [
   { id: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC', label: 'Light & fast', size: '~0.3 GB' },
@@ -36,7 +37,7 @@ export default function SummarizeApp() {
     try {
       const webllm = await import('@mlc-ai/web-llm');
       engineRef.current = await webllm.CreateMLCEngine(modelId, {
-        initProgressCallback: (r: any) => { setLoadText('Loading Xonvert AI…'); if (typeof r.progress === 'number') setLoadPct(r.progress); },
+        initProgressCallback: (r: any) => { setLoadText(`Loading ${BRAND} AI…`); if (typeof r.progress === 'number') setLoadPct(r.progress); },
       });
       setLoadState('ready');
     } catch (e) { console.error(e); setLoadState('idle'); setLoadText('Failed to load — try the Light & fast model.'); }

@@ -6,10 +6,11 @@ import { SectionTitle } from '@/components/layout/SectionTitle';
 import { CATALOG, isLive, liveCount, TOTAL_TOOLS } from '@/lib/catalog';
 import { CATEGORIES } from '@/lib/registry/types';
 import { TOOLS } from '@/lib/registry';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'All tools',
-  description: 'Every Xonvert tool, grouped by category.',
+  description: `Every ${BRAND} tool, grouped by category.`,
 };
 
 interface SearchParams {

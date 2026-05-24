@@ -75,7 +75,7 @@ export function ToolsBar() {
   }, [openIdx]);
 
   return (
-    <div className="sticky top-14 z-30 hidden border-b border-black/[0.05] bg-[oklch(97.5%_0.012_80/0.92)] backdrop-blur-xl md:block">
+    <div className="sticky top-14 z-30 hidden border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/92 backdrop-blur-xl md:block">
       <div className="mx-auto max-w-[1440px] px-3">
         {/* Uniform grid: every category the same width, wraps to as many rows as
             needed so none are ever hidden. */}

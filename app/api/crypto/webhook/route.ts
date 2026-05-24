@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db';
+import { BRAND } from '@/lib/brand';
 
 export const runtime = 'nodejs';
 
@@ -100,7 +101,7 @@ async function activate(orderId: string, payload: Record<string, unknown>) {
         paymentMethod: 'crypto',
         plan: 'PRO',
         billingPeriod: pending.planType,
-        description: `Xonvert Pro (${pending.planType}) — Crypto payment`,
+        description: `${BRAND} Pro (${pending.planType}) — Crypto payment`,
         paidAt: new Date(),
         metadata: {
           provider: 'nowpayments',

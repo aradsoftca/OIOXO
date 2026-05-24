@@ -1,9 +1,8 @@
+import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
 /**
  * Minimal, inbox-friendly HTML email templates. Plain, single-column, inline
  * styles only — no external images or web fonts (those hurt deliverability).
  */
-
-const BRAND = 'Xonvert';
 
 function shell(title: string, bodyHtml: string): string {
   return `<!DOCTYPE html>
@@ -37,7 +36,7 @@ function fallbackLink(url: string): string {
 export const emailTemplates = {
   verification(url: string, name?: string) {
     return {
-      subject: 'Verify your email — Xonvert',
+      subject: `Verify your email — ${BRAND}`,
       html: shell('Verify your email', [
         p(`Hi${name ? ' ' + name : ''}, welcome to ${BRAND}. Confirm your email to activate your account.`),
         button(url, 'Verify email'),
@@ -50,7 +49,7 @@ export const emailTemplates = {
 
   passwordReset(url: string, name?: string) {
     return {
-      subject: 'Reset your password — Xonvert',
+      subject: `Reset your password — ${BRAND}`,
       html: shell('Reset your password', [
         p(`Hi${name ? ' ' + name : ''}, we received a request to reset your ${BRAND} password.`),
         button(url, 'Reset password'),
@@ -63,24 +62,24 @@ export const emailTemplates = {
 
   welcome(name?: string) {
     return {
-      subject: 'Welcome to Xonvert',
+      subject: `Welcome to ${BRAND}`,
       html: shell('Welcome aboard', [
         p(`Hi${name ? ' ' + name : ''}, your ${BRAND} account is ready. Convert files, edit images, and more — right in your browser.`),
-        button('https://xonvert.com/tools', 'Explore tools'),
+        button(`https://${BRAND_DOMAIN}/tools`, 'Explore tools'),
       ].join('')),
-      text: `Welcome to ${BRAND}! Explore tools: https://xonvert.com/tools`,
+      text: `Welcome to ${BRAND}! Explore tools: https://${BRAND_DOMAIN}/tools`,
     };
   },
 
   ticketReply(ticketNumber: string | number, name: string, message: string, url: string) {
     return {
-      subject: `Re: your support request #${ticketNumber} — Xonvert`,
+      subject: `Re: your support request #${ticketNumber} — ${BRAND}`,
       html: shell(`Reply to ticket #${ticketNumber}`, [
         p(`Hi${name ? ' ' + name : ''}, our team replied to your support request:`),
         `<div style="background:#0f1115;border:1px solid #232733;border-radius:8px;padding:14px 16px;margin:0 0 16px;font-size:14px;line-height:1.6;color:#e7e9ee;white-space:pre-wrap">${message}</div>`,
         button(url, 'View conversation'),
       ].join('')),
-      text: `Reply to your Xonvert ticket #${ticketNumber}:\n\n${message}\n\nView: ${url}`,
+      text: `Reply to your ${BRAND} ticket #${ticketNumber}:\n\n${message}\n\nView: ${url}`,
     };
   },
 };

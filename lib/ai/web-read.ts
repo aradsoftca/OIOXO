@@ -47,6 +47,21 @@ async function readThrough(targetUrl: string, ms = 9000): Promise<string | null>
 
 export interface WebResult { title: string; url: string; snippet: string; }
 
+/** Run a web search through the reader and return parsed organic results — the
+ *  shared entry point for callers that need the result list (e.g. video search).
+ *  Empty array on any failure. */
+export async function searchWeb(query: string, limit = 10): Promise<WebResult[]> {
+  const md = await readThrough(DDG + encodeURIComponent(query));
+  if (!md) return [];
+  return parseResults(md).slice(0, limit);
+}
+
+/** Read any URL as clean text through the reader (public wrapper). Used to pull a
+ *  video page's transcript/description as a normal text source. Null on failure. */
+export function readPageText(url: string, ms = 9000): Promise<string | null> {
+  return readThrough(url, ms);
+}
+
 // DuckDuckGo's HTML endpoint doesn't bot-block (Google does) and renders cleanly
 // through the reader. Result links arrive wrapped as duckduckgo.com/l/?uddg=<url>.
 const DDG = 'https://html.duckduckgo.com/html/?q=';
@@ -83,7 +98,7 @@ function parseResults(md: string): WebResult[] {
   // Split on result headings so each block's snippet stays with its title.
   const blocks = md.split(/^##\s+/m).slice(1);
   for (const block of blocks) {
-    if (out.length >= 6) break;
+    if (out.length >= 10) break;
     // First link in the block is the title → URL.
     const head = block.match(/^\[([^\]]{2,160})\]\((https:\/\/duckduckgo\.com\/l\/\?uddg=[^)]+)\)/);
     if (!head) continue;
@@ -187,17 +202,19 @@ export async function answerFromWeb(query: string): Promise<SearchAnswer | null>
  * (not raw HTML/nav), so the model gets expert text it can actually merge, not a
  * dump it drowns in. Falls back to the result snippet when a page won't read.
  */
-export async function gatherPassages(query: string, maxPages = 2): Promise<{ text: string; source: SearchSource }[]> {
+export async function gatherPassages(query: string, maxPages = 6): Promise<{ text: string; source: SearchSource }[]> {
   const md = await readThrough(DDG + encodeURIComponent(query));
   if (!md) return [];
   const results = parseResults(md);
   // SNIPPET-FIRST (fast): the search already returns a clean 1–2 sentence summary
   // per result — enough for synthesis, and it avoids a slow per-page fetch. We
-  // only read a full page when the snippets are too thin to answer from.
+  // pull a snippet from MANY results (broad, multi-source) so synthesis can weigh
+  // several independent sources, not lean on one. Only read a full page when no
+  // snippets are usable.
   const out: { text: string; source: SearchSource }[] = [];
   for (const r of results.slice(0, maxPages)) {
     if (r.snippet && r.snippet.length >= 40) {
-      out.push({ text: trimExtract(r.snippet, 500, 4), source: { title: r.title, url: r.url, site: siteOf(r.url) } });
+      out.push({ text: trimExtract(r.snippet, 320, 3), source: { title: r.title, url: r.url, site: siteOf(r.url) } });
     }
   }
   if (out.length) return out;

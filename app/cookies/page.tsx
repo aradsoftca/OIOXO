@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import { LegalShell, H2, UL } from '@/components/legal/LegalShell';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Cookie Policy',
-  description: 'The small set of cookies Xonvert uses — strictly functional, no ad tracking.',
+  description: `The small set of cookies ${BRAND} uses — strictly functional, no ad tracking.`,
 };
 
 export default function CookiesPage() {

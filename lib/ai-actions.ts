@@ -185,8 +185,8 @@ async function postJson(path: string, body: unknown): Promise<Record<string, unk
 
 const myIp: QuickSkill = {
   id: 'my-ip',
-  // "my ip", "what's my ip" — but NOT "find ip of example.com" (that's geoip).
-  match: (lc) => /\bip\b/.test(lc) && /\b(my|mine)\b/.test(lc),
+  // "my ip", "what's my ip", "my ipv4/ipv6" — but NOT "find ip of example.com".
+  match: (lc) => /\bip(v4|v6)?\b/.test(lc) && /\b(my|mine)\b/.test(lc),
   run: async () => {
     try {
       const r = await powFetch('/api/net/myip', { cache: 'no-store' });

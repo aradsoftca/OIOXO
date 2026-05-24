@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Bot, Send, Loader2, ShieldCheck, Square, AlertTriangle, User, ArrowRight, Download, RefreshCw, Paperclip, X, FileDown, Mic } from 'lucide-react';
 import { TOOLS } from '@/lib/registry';
 import { CATALOG } from '@/lib/catalog';
+import { BRAND } from '@/lib/brand';
 import { detectIntent, safeCalc, paletteFor, renderArt, renderEmojiArt, emojiFor, svgSystemPrompt, extractSvg, funReply } from '@/lib/ai-magic';
 import { planConvert, runConvert, fileCategory, resolveQuickSkill, type ActionResult } from '@/lib/ai-actions';
 import { routeToTool, type FileCategory } from '@/lib/ai/router';
@@ -36,6 +37,13 @@ import { colorOpFor } from '@/lib/ai/color-ops';
 import { combineFor, combineToolFor, isCombineIntent } from '@/lib/ai/combine';
 import { tryCalc } from '@/lib/ai/calc-ops';
 import { gameOpFor, looksLikeGameName, tryGameRandom } from '@/lib/ai/game-ops';
+import { inferGoal, type Goal } from '@/lib/ai/goal';
+import { planJob, type JobStep } from '@/lib/ai/job';
+import { outlinePrompt, parseOutline, sectionPrompt, assemble, gatherQueries, type ComposeSpec } from '@/lib/ai/compose';
+import { gatherForQueries, researchSources, type Evidence } from '@/lib/ai/research';
+import { planCapability, wordFamily, type Family } from '@/lib/ai/capability-graph';
+import { candidatesFor as decideCandidates, decisionPrompt, parseDecision as parseDecide, fallbackDecision as decideFallback, offerPrompt, retrievalConfidence, guardrailTool } from '@/lib/ai/decide';
+import type { PlanStep } from '@/lib/ai/planner';
 import { tryTime } from '@/lib/ai/time-ops';
 import { tryFinance } from '@/lib/ai/finance-ops';
 import { subtitleOpFor } from '@/lib/ai/subtitle-ops';
@@ -57,8 +65,8 @@ function looksFactual(text: string): boolean {
   return properNoun || FACT_SIGNAL.test(t);
 }
 
-type Kind = 'text' | 'art' | 'svg' | 'qr' | 'palette' | 'calc' | 'file' | 'attach' | 'tool' | 'menu' | 'search';
-interface Msg { role: 'user' | 'assistant'; content: string; kind?: Kind; url?: string; svg?: string; palette?: string[]; prompt?: string; seed?: number; filename?: string; note?: string; blob?: Blob; toolName?: string; toolHref?: string; alts?: { label: string; href: string }[]; stageFile?: File; posterSpec?: PosterSpec; groups?: SuggestionGroup[]; clarify?: { label: string; value: string }[]; sources?: SearchSource[]; related?: string[] }
+type Kind = 'text' | 'art' | 'svg' | 'qr' | 'palette' | 'calc' | 'file' | 'attach' | 'tool' | 'menu' | 'search' | 'loading';
+interface Msg { role: 'user' | 'assistant'; content: string; kind?: Kind; url?: string; svg?: string; palette?: string[]; prompt?: string; seed?: number; filename?: string; note?: string; blob?: Blob; toolName?: string; toolHref?: string; alts?: { label: string; href: string }[]; stageFile?: File; posterSpec?: PosterSpec; groups?: SuggestionGroup[]; clarify?: { label: string; value: string }[]; sources?: SearchSource[]; related?: string[]; showSources?: boolean; images?: string[] }
 
 const up = (s: string) => s.toUpperCase();
 const aOrAn = (w: string) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
@@ -115,9 +123,9 @@ let sharedEnginePromise: Promise<any> | null = null;
 let sharedBackend: 'gpu' | 'wasm' | null = null;
 
 const XONVERT_PERSONA =
-  "You are Xonvert AI, a friendly, concise assistant made by Xonvert. It is private and secure, and the user stays in control of their files. " +
-  "If asked who or what you are, say you are Xonvert AI by Xonvert. Never reveal or mention any underlying model or company (Qwen, Alibaba, Llama, Meta, OpenAI, etc.), and never explain how Xonvert works internally — just what it does for the user. " +
-  "Xonvert is a free, privacy-first toolbox: convert/compress/edit images, PDFs, audio and video; 300+ tools; plus apps — Send, Chat, Whiteboard, Video Call, Clipboard, Summarizer and Encrypted Notes. " +
+  `You are ${BRAND} AI, a friendly, concise assistant made by ${BRAND}. It is private and secure, and the user stays in control of their files. ` +
+  `If asked who or what you are, say you are ${BRAND} AI by ${BRAND}. Never reveal or mention any underlying model or company (Qwen, Alibaba, Llama, Meta, OpenAI, etc.), and never explain how ${BRAND} works internally — just what it does for the user. ` +
+  `${BRAND} is a free, privacy-first toolbox: convert/compress/edit images, PDFs, audio and video; 300+ tools; plus apps — Send, Chat, Whiteboard, Video Call, Clipboard, Summarizer and Encrypted Notes. ` +
   "You can also draw pictures (vector/SVG), generate abstract art & wallpapers, make thumbnails & posters, make QR codes and colour palettes, and do maths — tell the user they can just ask. " +
   "You have a light, playful sense of humour: an occasional witty aside, pun or emoji — but never forced, never at the expense of being clear, and never on serious or technical asks. Keep answers short, helpful, and a little fun. " +
   "If asked to do something physical or beyond your reach (make food or drink, fetch an object, phone a person, anything off-screen), don't just refuse — say so with a light, friendly joke and immediately offer the closest help you CAN give: find a recipe, a how-to, or a good video, or a relevant tool. Always leave the user with a useful next step. /no_think";
@@ -388,6 +396,10 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // instantly — even on a slow device, before the model has finished loading.
     const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback ?? ((cb: () => void) => window.setTimeout(cb, 300));
     ric(() => { try { warmIndex(); } catch { /* non-critical */ } });
+    // Load the WASM brain core during idle time. Until it's ready every brain
+    // function falls back to the identical TS, so this only ever swaps the
+    // implementation under the hood — it can't change behaviour or block.
+    ric(() => { import('@/lib/ai/wasm-bridge').then((m) => m.initBrainWasm()).catch(() => {}); });
     // On the dedicated page, load right away. When embedded (e.g. the homepage
     // hero) defer until the user actually engages, so casual visitors and SEO
     // crawlers don't pay the load — see the input's onFocus.
@@ -621,7 +633,8 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
    */
   const trySearch = async (text: string): Promise<boolean> => {
     setGenerating(true);
-    push({ role: 'assistant', content: 'Searching the web…' });
+    // A cool loader — never reveal that we're searching the web or anything else.
+    push({ role: 'assistant', content: 'Thinking', kind: 'loading' });
     try {
       // STRATEGY A — the answer already exists structured on a page (recipe,
       // how-to, code). Find the best page and extract it. Frontier-quality
@@ -640,113 +653,96 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
         }
       }
 
-      // STRATEGY B — a rich question (compare / how-why / list): PLAN the
-      // searches, GATHER clean passages from several pages, then SYNTHESIZE one
-      // organized, grounded answer (verified). Not a copy-pasted snippet.
+      // STRATEGY B — every other question. The MODEL drives it end to end: it
+      // turns the question (WITH conversation context) into focused searches —
+      // so "who is dj aligator" looks up the PERSON and "how old is he?" resolves
+      // "he" — then READS the gathered passages and WRITES the answer in its own
+      // words, judging what's relevant. We NEVER show raw snippets; if a specific
+      // detail is missing it says so gracefully. This is the model managing the
+      // task, not hand-coded rules.
       const reason = await import('@/lib/ai/reason');
+      const research = await import('@/lib/ai/research');
       const analysis = reason.analyzeQuestion(text);
-      if (reason.wantsSynthesis(analysis)) {
-        const research = await import('@/lib/ai/research');
-        void ensureModel(); // EAGER WARM: start the model load now, in parallel with the gather
-        setLast('Reading the sources…');
-        // Deterministic facet decomposition (no model wait) → gather in parallel.
-        const queries = research.fallbackQueries(text, analysis.topics);
-        const evidence = await research.gatherForQueries(queries);
-        if (evidence.length) {
-          const sources = research.researchSources(evidence);
-          lastTopicRef.current = text;
-          lastSourceRef.current = sources[0] ?? null;
-          const translateBack = async (s: string) => {
-            const lang = sessionLangRef.current;
-            if (lang && s) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(s, lang); if (t) return t; } catch { /* keep English */ } }
-            return s;
-          };
-          // INSTANT ANSWER: show the best source's extract immediately — the user
-          // never waits for the (possibly cold) model to get a real answer.
-          let answer = await translateBack(reason.extractiveFallback(evidence));
-          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
-          lastAnswerRef.current = answer;
-          // REFINE: when the model is ready, synthesize a connected answer and
-          // SWAP it in only once VERIFIED grounded — so an ungrounded draft never
-          // flashes on screen. If the first attempt drifts, SELF-CORRECT with a
-          // stricter prompt before keeping the instant extract.
-          if (!stopRef.current && (await ensureModel())) {
-            const synth = async (msgs: { role: string; content: string }[]) => {
-              const out = await engineRef.current.chat.completions.create({ messages: msgs, temperature: 0.2, max_tokens: 220 });
-              return stripThink(out.choices?.[0]?.message?.content ?? '');
-            };
-            try {
-              const a = research.buildResearchSynthesis(text, evidence);
-              let clean = await synth([{ role: 'system', content: a.system }, { role: 'user', content: a.user }]);
-              let ok = clean && research.isGrounded(clean, evidence, text);
-              if (!ok && !stopRef.current) {
-                // Self-correct: one stricter, literal pass.
-                const s = research.buildStrictSynthesis(text, evidence);
-                const retry = await synth([{ role: 'system', content: s.system }, { role: 'user', content: s.user }]);
-                if (retry && research.isGrounded(retry, evidence, text)) { clean = retry; ok = true; }
-              }
-              if (ok && !stopRef.current) {
-                answer = await translateBack(clean);
-                lastAnswerRef.current = answer;
-                setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
-              }
-            } catch { /* keep the instant extract */ }
-          }
-          return true;
-        }
-        // Nothing gathered → fall through to the extractive engine below.
-      }
+      const modelReady = await ensureModel();
 
-      const { answerQuestion } = await import('@/lib/ai/search');
-      const res = await answerQuestion(text);
-      if (!res) { setMessages((m) => m.slice(0, -1)); return false; }
-      // Remember the topic + primary source so "tell me more" can expand it.
-      lastTopicRef.current = res.query || text;
-      lastSourceRef.current = res.sources?.[0] ?? null;
+      const synth = async (msgs: { role: string; content: string }[], maxTokens = 240) => {
+        const out = await engineRef.current.chat.completions.create({ messages: msgs, temperature: 0.3, max_tokens: maxTokens });
+        return stripThink(out.choices?.[0]?.message?.content ?? '');
+      };
       const tBack = async (s: string) => {
         const lang = sessionLangRef.current;
         if (lang && s) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(s, lang); if (t) return t; } catch { /* keep English */ } }
         return s;
       };
-      // INSTANT: show the sourced answer right away.
-      let answer = await tBack(res.answer);
-      setMessages((m) => {
-        const c = [...m];
-        c[c.length - 1] = answer
-          ? { role: 'assistant', content: answer, kind: 'search', sources: res.sources, related: res.related }
-          : { role: 'assistant', content: `“${res.query}” could mean a few things — which did you have in mind?`, kind: 'search', sources: res.sources, related: res.related };
-        return c;
-      });
-      if (answer) lastAnswerRef.current = answer;
+      // Conversation context lets the model resolve pronouns + carry the topic.
+      const convo = lastTopicRef.current
+        ? `Earlier in this chat the topic was "${lastTopicRef.current}".${lastAnswerRef.current ? ` You previously said: "${lastAnswerRef.current.slice(0, 220)}".` : ''} Resolve any pronouns ("he/she/it/they") against that.\n`
+        : '';
 
-      // REPHRASE: rewrite the sourced text in the assistant's OWN words (same
-      // facts, nothing invented) — so it isn't a verbatim Wikipedia paste. Only
-      // swaps in if it stays grounded in the original.
-      if (res.answer && !stopRef.current && (await ensureModel())) {
+      // 1) The model writes the search queries (understands intent + resolves
+      //    references); deterministic facets only if the model is cold.
+      let queries: string[] = [];
+      if (modelReady && !stopRef.current) {
         try {
-          const reason = await import('@/lib/ai/reason');
-          const ev = [{ topic: res.query || text, text: res.answer, source: res.sources?.[0] ?? { title: '', url: '', site: '' } }];
-          const out = await engineRef.current.chat.completions.create({ messages: [{ role: 'system', content: 'Rephrase the text below in your OWN words — keep every fact, invent nothing, 2–3 sentences, no preamble. /no_think' }, { role: 'user', content: res.answer }], temperature: 0.3, max_tokens: 200 });
-          const reworded = stripThink(out.choices?.[0]?.message?.content ?? '');
-          if (reworded && reason.isGrounded(reworded, ev, text) && !stopRef.current) {
-            answer = await tBack(reworded);
-            lastAnswerRef.current = answer;
-            setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources: res.sources, related: res.related }; return c; });
-          }
-        } catch { /* keep the sourced answer */ }
+          const qp = research.planQueriesMessages(`${convo}Question: ${text}`);
+          queries = research.parseQueries(await synth([{ role: 'system', content: qp.messages[0].content }, { role: 'user', content: qp.messages[1].content }], 80));
+        } catch { /* fall back */ }
       }
+      if (!queries.length) queries = research.fallbackQueries(text, analysis.topics);
 
-      // ENTITY IMAGE: for a Wikipedia-sourced answer about someone/something,
-      // show their lead image below the text (as a blob, so it renders inline).
-      if (answer && !stopRef.current && res.sources?.some((s) => /wikipedia|wikimedia/i.test(`${s.site} ${s.url}`))) {
+      // 2) Gather passages; if the open web is dry, use the structured answer
+      //    engine (Wikipedia/dictionary) as evidence to synthesize over.
+      let evidence = await research.gatherForQueries(queries);
+      if (!evidence.length) {
         try {
-          const { findImage } = await import('@/lib/ai/image-search');
-          const img = await findImage(res.query || text);
-          if (img && !stopRef.current) {
-            const r = await fetch(img.url, { mode: 'cors', referrerPolicy: 'no-referrer' });
-            if (r.ok) { const b = await r.blob(); push({ role: 'assistant', content: '', kind: 'art', url: URL.createObjectURL(b), filename: `${(res.query || 'image').replace(/\s+/g, '-').slice(0, 40)}.jpg` }); }
+          const { answerQuestion } = await import('@/lib/ai/search');
+          const res = await answerQuestion(text);
+          if (res?.answer) evidence = [{ topic: text, text: res.answer, source: res.sources?.[0] ?? { title: '', url: '', site: '' } }];
+        } catch { /* nothing */ }
+      }
+      if (!evidence.length) { setMessages((m) => m.slice(0, -1)); return false; }
+
+      const sources = research.researchSources(evidence);
+      lastTopicRef.current = text;
+      lastSourceRef.current = sources[0] ?? null;
+      const passages = evidence.map((e) => `- ${e.text}`).join('\n').slice(0, 1900);
+
+      // 3) The model READS the passages and WRITES the answer — own words, only
+      //    from the passages, ignoring off-topic notes, honest when the exact
+      //    detail is absent. Never mentions sources or that it searched.
+      let answer = '';
+      if (modelReady && !stopRef.current) {
+        try {
+          answer = await synth([
+            { role: 'system', content: 'You are Xonvert, a sharp and friendly assistant. Using ONLY the notes below, answer the user\'s question directly in 2–4 natural sentences, in your own words. Ignore notes that are off-topic. If the notes do not contain the specific detail asked, give what IS known and briefly note that detail isn\'t available. Never mention "notes", "sources", or that you searched; invent nothing. /no_think' },
+            { role: 'user', content: `${convo}Notes:\n${passages}\n\nQuestion: ${text}` },
+          ]);
+        } catch { /* fall through to a single clean extract */ }
+      }
+      // Model cold/empty → ONE cleaned passage, never a multi-snippet salad.
+      if (!answer) answer = evidence[0].text.replace(/\s+/g, ' ').trim();
+      answer = await tBack(answer);
+      lastAnswerRef.current = answer;
+      setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources }; return c; });
+
+      // IMAGE ROW: under ANY answer, show a few related images in a small row
+      // (like a frontier model's image strip). Fetch each to a blob so it renders
+      // inline regardless of CSP. Best-effort — silently shows nothing on failure.
+      if (answer && !stopRef.current) {
+        try {
+          const { findImages, imageSubject } = await import('@/lib/ai/image-search');
+          const imgs = await findImages(imageSubject(text) || text, 4);
+          const urls = (await Promise.all(imgs.map(async (im) => {
+            try {
+              const r = await fetch(im.url, { mode: 'cors', referrerPolicy: 'no-referrer' });
+              if (r.ok) { const b = await r.blob(); if (b.type.startsWith('image/')) return URL.createObjectURL(b); }
+            } catch { /* skip this one */ }
+            return null;
+          }))).filter((u): u is string => !!u);
+          if (urls.length && !stopRef.current) {
+            setMessages((m) => { const c = [...m]; const last = c[c.length - 1]; if (last?.role === 'assistant') c[c.length - 1] = { ...last, images: urls }; return c; });
           }
-        } catch { /* no image, no problem */ }
+        } catch { /* no images, no problem */ }
       }
       return true;
     } catch {
@@ -1156,12 +1152,178 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
   };
 
   /**
+   * Composition jobs — "write a detailed article about X, with images, as a PDF,
+   * read it aloud". The brain plans a pipeline (gather → write → illustrate →
+   * package → voice); we run it end-to-end, narrating each step. Long-form is
+   * written section-by-section (outline → sections → stitch) so the tiny model
+   * produces a real essay instead of a stunted blurb — the thing we can do that
+   * frontier models won't, because it's on-device with no token budget. Returns
+   * false (no-op) when the request isn't a composition job, so the normal
+   * pipeline handles it. Generative-from-scratch only — skipped when a file is in
+   * play (those are tool jobs).
+   */
+  const runBrainJob = async (text: string, file: File | null): Promise<boolean> => {
+    if (file) return false;
+    const goal = inferGoal(text, { hasFile: false, hasTopic: !!lastTopicRef.current });
+    const job = planJob(goal, text);
+    if (!job) return false;
+    const writeStep = job.steps.find((s): s is Extract<JobStep, { type: 'write' }> => s.type === 'write');
+    if (!writeStep) return false;
+
+    const spec: ComposeSpec = { form: writeStep.form, topic: writeStep.topic, length: writeStep.length, lang: writeStep.lang };
+    const gen = async (messages: { role: 'system' | 'user'; content: string }[], opts: { schema?: string; maxTokens: number; temperature?: number }): Promise<string> => {
+      const req: Record<string, unknown> = { messages, temperature: opts.temperature ?? 0.4, max_tokens: opts.maxTokens };
+      if (opts.schema) req.response_format = { type: 'json_object', schema: opts.schema };
+      const out = await engineRef.current.chat.completions.create(req as never);
+      return stripThink(out.choices?.[0]?.message?.content ?? '');
+    };
+
+    setGenerating(true); stopRef.current = false;
+    push({ role: 'assistant', content: job.summary });
+    try {
+      if (!(await ensureModel())) { setLast('⚠ Still starting up — try again in a moment.'); return true; }
+
+      // 1) Outline (bounded: the model just picks a few headings).
+      setLast('Planning the structure…');
+      const op = outlinePrompt(spec);
+      const headings = parseOutline(await gen(op.messages, { schema: op.schema, maxTokens: 220, temperature: 0.3 }), spec);
+
+      // 2) Research (factual forms) — gather clean passages to write from.
+      let evidence: Evidence[] = [];
+      if (job.steps.some((s) => s.type === 'gather')) {
+        setLast('Gathering details…');
+        try { evidence = await gatherForQueries(gatherQueries(spec, headings)); } catch { /* write from knowledge */ }
+      }
+      // Feed the model only the passage TEXT — never the site names, or it
+      // parrots them into the prose ("according to researchgate.net…"), which
+      // breaks the rule that answers are presented as ours.
+      const facts = evidence.map((e) => `- ${e.text}`).join('\n').slice(0, 1400);
+
+      // 3) Write each section in its own bounded call (lifts the ~220 cap).
+      const bodies: string[] = [];
+      for (let i = 0; i < headings.length; i++) {
+        if (stopRef.current) break;
+        setLast(headings.length > 1 ? `Writing ${i + 1}/${headings.length}: ${headings[i]}…` : 'Writing…');
+        const sp = sectionPrompt(spec, headings[i], headings, bodies.join('\n\n'));
+        const msgs = facts
+          ? [sp.messages[0], { role: 'user' as const, content: `${sp.messages[1].content}\n\nGround it in these facts:\n${facts}` }]
+          : sp.messages;
+        bodies.push(await gen(msgs, { maxTokens: sp.maxTokens, temperature: 0.45 }));
+      }
+      const article = assemble(spec, headings, bodies);
+
+      // Show the finished piece, citing sources when we actually researched.
+      const sources = evidence.length ? researchSources(evidence) : undefined;
+      setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: article, kind: sources ? 'search' : undefined, sources }; return c; });
+      lastAnswerRef.current = article;
+
+      // 4) Illustrate — fetch a real image of the subject (becomes editable too).
+      if (job.steps.some((s) => s.type === 'illustrate')) {
+        try { await tryFindImage(`picture of ${spec.topic}`); } catch { /* optional */ }
+      }
+
+      // 5) Package — assemble into the deliverable file (PDF; DOCX has no engine).
+      const pkg = job.steps.find((s): s is Extract<JobStep, { type: 'package' }> => s.type === 'package');
+      if (pkg) {
+        if (!pkg.supported) push({ role: 'assistant', content: 'A Word file isn’t something I can build here — I’ll give you a PDF instead.' });
+        setGenerating(true);
+        push({ role: 'assistant', content: 'Making the PDF…' });
+        try {
+          const { textToPdf } = await import('@/engines/document');
+          const fname = `${spec.topic.replace(/\s+/g, '-').slice(0, 40) || 'document'}.pdf`;
+          applyResult({ kind: 'file', blob: await textToPdf(article, spec.topic), filename: fname });
+        } catch { setLast('⚠ Couldn’t make the PDF — the text is above.'); }
+      }
+
+      // 6) Voice — read the piece aloud (browser speech).
+      if (job.steps.some((s) => s.type === 'voice')) {
+        speak(article.replace(/[#*_>`]/g, '').replace(/\s+/g, ' ').trim());
+      }
+      return true;
+    } catch (e) {
+      console.error(e);
+      setLast('⚠ I couldn’t finish that piece. Try again, or ask for a shorter version.');
+      return true;
+    } finally { setGenerating(false); }
+  };
+
+  /**
+   * Capability-graph CHAIN — a cross-family goal no single tool serves
+   * ("turn this audio into a bmp" = audio→image→bmp). The graph discovers the
+   * route; we run it end-to-end ONLY when there's a file to work on and EVERY
+   * step is inline-runnable. If any step needs a tool hand-off (no inline runner
+   * yet), we defer (return false) so the normal router opens the right tool —
+   * this branch then lights up automatically as runner coverage grows. Safe and
+   * narrow: it acts only on genuine multi-hop, fully-inline transforms.
+   */
+  const runCapabilityChain = async (goal: Goal, file: File | null): Promise<boolean> => {
+    const eff = file ?? lastFileRef.current;
+    if (!eff || !goal.to || (goal.intent !== 'transform' && goal.intent !== 'create')) return false;
+    const catRaw = fileCategory(eff);
+    const fromFam: Family | null = (catRaw === 'image' || catRaw === 'audio' || catRaw === 'video') ? catRaw : null;
+    if (!fromFam) return false;
+    const toFam = wordFamily(goal.to);
+    if (!toFam || toFam === fromFam) return false;       // same-family → normal router
+    const path = planCapability(fromFam, goal.to);
+    if (!path || path.edges.length < 2) return false;     // single tool → normal router
+
+    const steps: PlanStep[] = [];
+    for (const e of path.edges) {
+      const inline = hasRunner(e.toolId) || !!inlineCap(e.toolId) || !!textOpFor(e.toolId);
+      if (!inline) return false;                          // a step needs a tool page → defer
+      const doc = docById(e.toolId);
+      const isConvert = /convert|format/i.test(e.toolId);
+      steps.push({
+        toolId: e.toolId, name: doc?.name ?? e.toolId, href: doc?.href ?? '#',
+        clause: isConvert ? `convert to ${goal.to}` : (doc?.name ?? e.toolId),
+        params: {},
+        narration: isConvert ? `convert to ${goal.to.toUpperCase()}` : (doc?.blurb ?? e.toolId),
+        confidence: 'confident', candidates: [],
+      });
+    }
+
+    lastFileRef.current = eff;
+    setGenerating(true); stopRef.current = false;
+    push({ role: 'assistant', content: `On it — I’ll ${steps.map((s) => s.narration).join(', then ')}.` });
+    try {
+      const out = await runChain(eff, steps, (i, s) => setLast(`Step ${i + 1}/${steps.length}: ${s.narration}…`), () => stopRef.current, { generate: chainGenerate });
+      if (out.error === 'stopped') setLast('Stopped.');
+      else if (out.result) applyResult(out.result);
+      else setLast('⚠ That didn’t work — the file may be unsupported.');
+    } catch (e) { console.error(e); setLast('⚠ That didn’t work — the file may be unsupported.'); }
+    finally { setGenerating(false); }
+    return true;
+  };
+
+  /**
    * Run the deterministic pipeline (convert → skill → generative → tool routing
    * + inline execution) for one phrasing of the request. Returns true if it
    * produced a result; false if nothing matched (caller may translate + retry).
    * Only pushes output on success, so it's safe to call twice.
    */
   const routeAndAct = async (text: string, file: File | null): Promise<boolean> => {
+    // 0.35) "Where's that from / sources?" — answers are normally presented as
+    //        ours with no attribution; only reveal sources when explicitly asked.
+    if (!file && /^\s*(sources?|citations?|references?|links?|proof|where('?s| is| are| did)?\s*(it|that|this|you|u)?\s*(get|got|from|find|come from)?|how do you know|says? who|cite (it|that|this|your sources?)?)\b[\s?.!]*$/i.test(text)) {
+      let srcIdx = -1;
+      for (let j = messages.length - 1; j >= 0; j--) {
+        const mm = messages[j];
+        if (mm.role === 'assistant' && mm.sources && mm.sources.length) { srcIdx = j; break; }
+      }
+      if (srcIdx >= 0) {
+        setMessages((m) => { const c = [...m]; if (c[srcIdx]) c[srcIdx] = { ...c[srcIdx], showSources: true }; return c; });
+        push({ role: 'assistant', content: 'Here’s where I drew that from:' });
+      } else {
+        push({ role: 'assistant', content: 'That came from my own knowledge — nothing external to cite for it.' });
+      }
+      return true;
+    }
+
+    // 0.4) Composition jobs (write/research/illustrate/voice/package) — the brain
+    //       plans and runs a whole pipeline. Checked first: these span research +
+    //       long-form writing no single tool covers. No-op for everything else.
+    if (await runBrainJob(text, file)) return true;
+
     // 0.5) "What can I do with this?" — surface the file's action menu directly.
     if (/\b(what can (you|i) do|what (else )?can you do|what are my options|show( me)? (the )?options|what now)\b/i.test(text) && (file || lastFileRef.current)) {
       if (showFileActions((file ?? lastFileRef.current)!)) return true;
@@ -1174,6 +1336,26 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //      turn as task-signal; a stale working file shouldn't make a question
     //      look like a job.)
     const family = classifyIntent(text, { hasFile: !!file, hasTopic: !!lastTopicRef.current });
+
+    // 0.62) Understand the request as a goal (cheap, deterministic). Used to (a)
+    //        answer in the user's language even for Latin-script requests like
+    //        "in italiano …" — set the session language so the search synthesis
+    //        is translated back; and (b) offer help when the user is BLOCKED on a
+    //        capability we have but hasn't given us the file yet.
+    const goal = inferGoal(text, { hasFile: !!file, hasTopic: !!lastTopicRef.current });
+    if (!sessionLangRef.current && goal.lang && goal.lang !== 'en' && goal.lang !== 'auto') {
+      sessionLangRef.current = goal.lang;
+    }
+
+    // 0.63) "Why can't I edit my PDF?" / "how do I crop this photo" with no file
+    //        yet — they're stuck on something we DO. Don't web-search it; offer to
+    //        do it and ask for the file. Only when a media family is implied.
+    if (goal.intent === 'assist' && !file && !lastFileRef.current && goal.from) {
+      const fam = goal.from;
+      armedRef.current = text;
+      push({ role: 'assistant', content: `I can help with that — send me the ${fam === 'pdf' ? 'PDF' : fam} and tell me what you'd like to do (edit, convert, compress, and more). Drop it here and I'll take it from there.`, kind: 'attach' });
+      return true;
+    }
 
     // 0.65) Too vague to act on confidently ("fix this", "do something", "the
     //        usual") — ASK instead of guessing a random tool. With a file, show
@@ -1199,6 +1381,11 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
 
     // 1) Conversions — deterministic planner (validates target + file category).
     if (await handleConvert(text, file)) return true;
+
+    // 1.4) Capability-graph chain — a cross-family transform no single tool does
+    //       (audio→image→bmp), run end-to-end when every step is inline-runnable.
+    //       No-op (defers) otherwise, so it can't hijack the normal converter.
+    if (await runCapabilityChain(goal, file)) return true;
 
     // 1.5) A format conversion the inline planner didn't run (e.g. PDF→Word):
     //      open the converter, so a stray verb like "turn"/"change" can't match
@@ -1455,15 +1642,69 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     //       to just their first action.
     if (await tryPlan(text, file)) return true;
 
-    // 4) Tool routing across all 323 (retrieval — no model). Inline-run when the
-    //    match is a capability and we have the right file; otherwise open the tool.
+    // 3.9) MODEL DECIDES — retrieval proposes a few candidate tools (with what
+    //      each ACCEPTS); the model chooses one, answers, chats, or honestly
+    //      DECLINES when nothing fits (so an audio→3D request isn't forced onto a
+    //      wrong tool — the model says it can't, and what it can do instead).
+    //      Only when the model is already warm, so cold/simple requests stay
+    //      instant; any parse/cold failure falls back to the routing below — never
+    //      worse than before. The model PROPOSES the tool; execution stays shared.
+    let forcedToolId: string | null = null;
+    {
+      const dcRaw = file ? fileCategory(file) : (lastFileRef.current ? fileCategory(lastFileRef.current) : null);
+      const dFam = dcRaw === 'image' || dcRaw === 'audio' || dcRaw === 'video' ? dcRaw : null;
+      const lastAsst = [...messages].reverse().find((m) => m.role === 'assistant' && !!m.content);
+      const dCtx = { hasFile: !!file, fileFamily: dFam, lastTopic: lastTopicRef.current, lastReply: lastAsst?.content ?? null };
+      const cands = decideCandidates(text, dFam);
+      // Guardrail: trust an obvious, TYPE-COMPATIBLE, single-step match and skip
+      // the noisy model ("make it vintage" → image-vintage). It deliberately does
+      // NOT fire on multi-step requests (→ model chains) or keyword false-matches
+      // on the wrong input type ("m4a to cad" → model offers). Input family is the
+      // file's, or the one inferred from the words when there's no file.
+      const inputFam = dFam ?? goal.from ?? null;
+      const guard = guardrailTool(text, cands, inputFam, retrievalConfidence(text, dFam));
+      if (guard) {
+        forcedToolId = guard.id;
+      } else if (cands.length && engineRef.current) {
+        const { messages, schema } = decisionPrompt(text, cands, dCtx);
+        let decision = null;
+        try {
+          const out = await engineRef.current.chat.completions.create({ messages, temperature: 0, max_tokens: 160, response_format: { type: 'json_object', schema } });
+          decision = parseDecide(stripThink(out.choices?.[0]?.message?.content ?? ''), cands);
+        } catch { /* fall back below */ }
+        if (!decision) decision = decideFallback(text, cands, dCtx);
+        if (decision.action === 'offer') {
+          // No tool does it directly → a SEPARATE free-form call writes a
+          // resourceful way-forward (do part / ask for the missing piece /
+          // suggest a first step) — prose the model does better on its own.
+          let msg = '';
+          try {
+            const { messages: om } = offerPrompt(text, dCtx);
+            const out = await engineRef.current.chat.completions.create({ messages: om, temperature: 0.5, max_tokens: 130 });
+            msg = stripThink(out.choices?.[0]?.message?.content ?? '').trim();
+          } catch { /* default below */ }
+          push({ role: 'assistant', content: msg || 'I can’t do that one directly — but tell me a bit more about the goal and I’ll find a way, or point you to the closest thing I can do.' });
+          return true;
+        }
+        if (decision.action === 'answer') { if (await trySearch(decision.query || text)) return true; }
+        if (decision.action === 'tool' && decision.tools[0]) forcedToolId = decision.tools[0];
+        // 'chain' / 'chat' → fall through to the shared routing/execution below.
+      } else if (cands.length) {
+        void ensureModel(); // warm for next time; this turn uses fast routing
+      }
+    }
+
+    // 4) Tool routing across all 323. Inline-run when the match is a capability
+    //    and we have the right file; otherwise open the tool. When the model
+    //    chose a tool above, run THAT (even if keyword retrieval was unsure).
     const fcRaw = file ? fileCategory(file) : null;
     const fc: FileCategory | null = fcRaw === 'image' || fcRaw === 'audio' || fcRaw === 'video' ? fcRaw : null;
     const routing = await routeToTool(text, fc);
-    if (routing.top && routing.confidence !== 'weak') {
-      // Ambiguous → grammar-constrained model tie-break among the candidates.
-      let top = routing.top.doc;
-      if (routing.confidence === 'ambiguous' && routing.candidates.length > 1) {
+    const forcedDoc = forcedToolId ? docById(forcedToolId) : null;
+    if ((forcedDoc || routing.top) && (forcedDoc || routing.confidence !== 'weak')) {
+      // The model's pick wins; else the retrieval top (with a model tie-break).
+      let top = forcedDoc ?? routing.top!.doc;
+      if (!forcedDoc && routing.confidence === 'ambiguous' && routing.candidates.length > 1) {
         const id = await pickToolId(text, routing.candidates.map((c) => ({ id: c.doc.id, name: c.doc.name, blurb: c.doc.blurb })));
         const m = id ? routing.candidates.find((c) => c.doc.id === id) : null;
         if (m) top = m.doc;
@@ -1919,7 +2160,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
       {supported === false ? (
         <div className="border border-amber-500/30 bg-amber-50/40 p-6">
           <div className="flex items-center gap-2 text-[14px] font-bold"><AlertTriangle className="h-4 w-4 text-amber-600" /> Browser not supported</div>
-          <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">Xonvert AI needs a modern browser. Please update your browser, or try a recent <strong>Chrome</strong>, <strong>Edge</strong>, <strong>Safari</strong> or <strong>Firefox</strong>.</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-fg-muted)]">{BRAND} AI needs a modern browser. Please update your browser, or try a recent <strong>Chrome</strong>, <strong>Edge</strong>, <strong>Safari</strong> or <strong>Firefox</strong>.</p>
         </div>
       ) : (
         <div className={`terminal terminal-scan relative flex overflow-hidden flex-col border border-[#1c2b22] shadow-[0_18px_60px_-20px_rgba(0,0,0,0.5)] ${expanded ? 'fixed inset-0 z-[60] h-[100dvh] min-h-0 max-h-none border-0' : embedded ? 'h-[calc(100dvh-210px)] min-h-[380px] max-h-[680px] sm:h-[calc(100dvh-280px)]' : 'h-[calc(100dvh-200px)] min-h-[420px] max-h-[820px] sm:h-[calc(100dvh-230px)]'}`}
@@ -1931,7 +2172,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f56]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
-            <span className="ml-2 truncate text-[11px] tracking-tight text-[var(--term-dim)]">xonvert@ai: ~/assistant</span>
+            <span className="ml-2 truncate text-[11px] tracking-tight text-[var(--term-dim)]">{BRAND.toLowerCase()}@ai: ~/assistant</span>
             <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-[var(--term-dim)]">{loadState === 'ready' ? (backend === 'wasm' ? 'compat' : 'online') : loadState === 'loading' ? 'booting' : 'idle'}</span>
             {expanded && (
               <button type="button" onClick={(e) => { e.stopPropagation(); setExpanded(false); textareaRef.current?.blur(); }} aria-label="Close" className="ml-2 grid h-7 w-7 shrink-0 place-items-center rounded text-[var(--term-dim)] transition hover:bg-white/5 hover:text-[var(--term-fg)]">
@@ -1980,7 +2221,24 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                         : m.content}
                     </div>
                   )}
+                  {m.images && m.images.length > 0 && (
+                    <div className="flex gap-1.5 overflow-x-auto px-3 pb-1 pt-0.5">
+                      {m.images.map((u, k) => (
+                        <img key={k} src={u} alt="" loading="lazy" className="h-20 w-20 shrink-0 rounded-md border border-[var(--term-fg)]/15 object-cover" />
+                      ))}
+                    </div>
+                  )}
                   {!m.content && !m.kind && generating && i === messages.length - 1 && <div className="px-3 py-2 text-[var(--term-fg)] terminal-glow"><span className="terminal-caret" aria-hidden /></div>}
+                  {m.kind === 'loading' && (
+                    <div className="flex items-center gap-2 px-3 py-2.5 text-[var(--term-fg)]" aria-label="Working">
+                      <span className="flex items-end gap-1">
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--term-fg)] animate-bounce" style={{ animationDelay: '0ms', animationDuration: '900ms' }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--term-fg)] animate-bounce" style={{ animationDelay: '150ms', animationDuration: '900ms' }} />
+                        <span className="h-1.5 w-1.5 rounded-full bg-[var(--term-fg)] animate-bounce" style={{ animationDelay: '300ms', animationDuration: '900ms' }} />
+                      </span>
+                      <span className="text-[13px] tracking-wide text-[var(--term-dim)] animate-pulse">{m.content || 'Thinking'}</span>
+                    </div>
+                  )}
                   {(m.kind === 'art' || m.kind === 'qr') && m.url && (
                     <div className="space-y-1.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2020,25 +2278,15 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                       ))}
                     </div>
                   )}
-                  {m.kind === 'search' && (
-                    <div className="mt-1.5 space-y-2">
-                      {m.sources && m.sources.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Sources</span>
-                          {m.sources.map((s) => (
-                            <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{s.site} <ArrowRight className="h-3 w-3 -rotate-45" /></a>
-                          ))}
-                        </div>
-                      )}
-                      {m.related && m.related.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Related</span>
-                          {m.related.map((r) => (
-                            <button key={r} type="button" onClick={() => { push({ role: 'user', content: r }); void process(r, null); }} className="inline-flex items-center gap-1 border border-[var(--term-fg)]/30 bg-[var(--term-fg)]/[0.08] px-3 py-1.5 text-[12px] font-medium text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.16]">{r}</button>
-                          ))}
-                        </div>
-                      )}
-                      <div className="text-[10px] text-[var(--color-fg-subtle)]">Looked this up from your device · facts come from the cited source, not the model</div>
+                  {/* Answers are presented as Xonvert's own. Sources stay hidden
+                      unless the user explicitly asks ("sources?"), which flips
+                      showSources on the message. No origin/attribution footer. */}
+                  {m.kind === 'search' && m.showSources && m.sources && m.sources.length > 0 && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Sources</span>
+                      {m.sources.map((s) => (
+                        <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{s.site} <ArrowRight className="h-3 w-3 -rotate-45" /></a>
+                      ))}
                     </div>
                   )}
                   {m.kind === 'menu' && m.groups && (
@@ -2159,7 +2407,7 @@ function Shell({ children, embedded }: { children: React.ReactNode; embedded?: b
       <header className="flex items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-dev)] text-white"><Bot className="h-5 w-5" /></div>
         <div>
-          <h1 className="text-[24px] font-extrabold tracking-tight">Xonvert AI</h1>
+          <h1 className="text-[24px] font-extrabold tracking-tight">{BRAND} AI</h1>
           <p className="text-[13px] text-[var(--color-fg-muted)]">A private AI assistant — chats, draws, makes thumbnails, art &amp; QR codes, and finds the right tool.</p>
         </div>
       </header>

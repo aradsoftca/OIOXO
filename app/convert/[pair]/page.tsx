@@ -7,6 +7,7 @@ import { getTool } from '@/lib/registry';
 import { ConvertFrame } from '@/components/tool/ConvertFrame';
 import { getConversionContent } from '@/lib/convert/content';
 import { ConversionSEO } from '@/components/convert/ConversionSEO';
+import { BRAND } from '@/lib/brand';
 
 interface Props { params: Promise<{ pair: string }>; }
 
@@ -31,7 +32,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       'convert online',
       'file converter',
     ],
-    openGraph: { title: `${title} · Xonvert`, description: blurb },
+    openGraph: { title: `${title} · ${BRAND}`, description: blurb },
     alternates: { canonical: `/convert/${slug}` },
   };
 }

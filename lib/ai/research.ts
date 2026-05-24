@@ -52,6 +52,28 @@ export function parseQueries(raw: string): string[] {
 export function facetQueries(question: string): string[] {
   const core = cleanQuery(question);
   const lc = question.toLowerCase();
+  // GENERIC multi-part handling (structural, no topic vocabulary): a question
+  // that asks more than one thing — two+ interrogatives, or clauses joined by
+  // "and"/commas — is researched part-by-part. We split into clauses and ground
+  // any subjectless aspect in the shared subject (the words before the first
+  // question word). Works for ANY multi-part question, not a memorised pattern.
+  const interro = question.match(QWORD_G) || [];
+  if (interro.length >= 2) {
+    const clauses = question.split(/\s*(?:,|;|\band\b|\balso\b)\s*/i).map((c) => c.trim()).filter(Boolean);
+    // The shared subject comes from the FIRST clause: the words before its first
+    // question word ("ww1 how…" → "world war i"), else the clause's cleaned head.
+    const head = clauses[0] ?? question;
+    const beforeQ = head.split(QWORD)[0].trim();
+    const subject = (beforeQ.length >= 2 ? cleanQuery(beforeQ) : cleanQuery(head)).split(/\s+/).slice(0, 3).join(' ');
+    const qs = clauses.map((c) => {
+      const cc = cleanQuery(c);
+      if (!cc) return '';
+      // Ground a short subjectless aspect ("how ended") in the shared subject.
+      return cc.split(/\s+/).length <= 2 && subject && !cc.includes(subject) ? `${subject} ${cc}` : cc;
+    });
+    const out = uniq(qs.filter(Boolean));
+    if (out.length >= 2) return out;
+  }
   if (/\bwhy\b/.test(lc)) return uniq([core, `${core} causes`, `${core} reasons explained`]);
   if (/\bhow (does|do|did|is|are|can)\b/.test(lc) || /^\s*how\b/.test(lc)) return uniq([core, `${core} explained`, `${core} step by step`]);
   if (/\bdifference between\b|\bvs\b|\bversus\b|\bcompared? to\b/.test(lc)) return uniq([core]); // comparison handled by per-entity gather
@@ -61,6 +83,11 @@ export function facetQueries(question: string): string[] {
 
 const uniq = (a: string[]) => Array.from(new Set(a.filter(Boolean))).slice(0, 3);
 
+// Interrogatives — the structural markers of "a question" (used to split a
+// multi-part question into its parts). Not topic vocabulary.
+const QWORD = /\b(?:how|why|what|when|where|who|which|whom|whose)\b/i;
+const QWORD_G = /\b(?:how|why|what|when|where|who|which|whom|whose)\b/gi;
+
 /** Deterministic queries when the model can't plan (cold / WASM / bad output) —
  *  uses facet decomposition so explanatory questions still gather many angles. */
 export function fallbackQueries(question: string, extraTopics: string[] = []): string[] {
@@ -69,21 +96,49 @@ export function fallbackQueries(question: string, extraTopics: string[] = []): s
   return uniq([cleanQuery(question), ...extraTopics.map((t) => cleanQuery(t))]);
 }
 
-/** Run the queries and collect clean, de-duplicated passages (the synthesis input). */
-export async function gatherForQueries(queries: string[]): Promise<Evidence[]> {
-  // Fetch all facets in PARALLEL (was sequential — 3× slower on multi-hop).
-  const results = await Promise.all(queries.slice(0, 3).map((q) => gatherPassages(q, 2).then((ps) => ({ q, ps })).catch(() => ({ q, ps: [] }))));
+/**
+ * Run the queries and collect clean passages from MANY sources — the synthesis
+ * input. Broad on purpose (up to `cap` passages) and DIVERSE: at most 2 from any
+ * one site, so the answer weighs several independent sources instead of leaning
+ * on one (e.g. Wikipedia). Snippet-first, fetched in parallel → still fast.
+ */
+export async function gatherForQueries(queries: string[], cap = 10): Promise<Evidence[]> {
+  const results = await Promise.all(
+    queries.slice(0, 3).map((q) => gatherPassages(q, 6).then((ps) => ({ q, ps })).catch(() => ({ q, ps: [] as Awaited<ReturnType<typeof gatherPassages>> }))),
+  );
   const seen = new Set<string>();
+  const perSite = new Map<string, number>();
   const ev: Evidence[] = [];
-  for (const { q, ps } of results) {
-    for (const p of ps) {
-      if (seen.has(p.source.url) || !p.text) continue;
+  // Round-robin across facets so a multi-part question (start AND end) keeps both
+  // sides, rather than filling up on whichever facet returned first.
+  const maxDepth = Math.max(0, ...results.map((r) => r.ps.length));
+  for (let i = 0; i < maxDepth && ev.length < cap; i++) {
+    for (const { q, ps } of results) {
+      const p = ps[i];
+      if (!p || !p.text || seen.has(p.source.url)) continue;
+      const site = p.source.site || 'web';
+      if ((perSite.get(site) ?? 0) >= 2) continue; // diversity cap per source
       seen.add(p.source.url);
+      perSite.set(site, (perSite.get(site) ?? 0) + 1);
       ev.push({ topic: q, text: p.text, source: p.source });
-      if (ev.length >= 4) return ev;
+      if (ev.length >= cap) break;
     }
   }
   return ev;
+}
+
+/**
+ * Gather rich, multi-source notes for a DECISION between options. Reads EACH
+ * side broadly AND head-to-head sources, so the answer can actually weigh them
+ * instead of parroting one listing ("read all, then analyze"). Snippet-first +
+ * diversity-capped via gatherForQueries, so it stays fast and multi-source.
+ */
+export async function gatherComparison(topics: string[], _question: string): Promise<Evidence[]> {
+  const [a, b] = topics;
+  // Exactly three queries (gatherForQueries reads the first three): each option
+  // on its own, plus a head-to-head query that surfaces real comparison pages.
+  const queries = [cleanQuery(a), cleanQuery(b), `${cleanQuery(a)} vs ${cleanQuery(b)} comparison`].filter(Boolean);
+  return gatherForQueries(queries, 12);
 }
 
 /** Build the synthesis messages: write ONE organized answer from the passages. */

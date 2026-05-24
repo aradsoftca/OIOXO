@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { getTool, TOOLS } from '@/lib/registry';
 import { ToolFrame } from '@/components/tool/ToolFrame';
 import { softwareAppJsonLd, breadcrumbJsonLd } from '@/lib/seo/jsonld';
+import { BRAND } from '@/lib/brand';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -20,7 +21,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: tool.name,
     description: tool.blurb,
-    openGraph: { title: `${tool.name} · Xonvert`, description: tool.blurb },
+    openGraph: { title: `${tool.name} · ${BRAND}`, description: tool.blurb },
   };
 }
 

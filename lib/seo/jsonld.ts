@@ -1,7 +1,8 @@
 import type { ToolManifest } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
+import { BRAND_DOMAIN } from '@/lib/brand';
 
-const SITE = 'https://xonvert.com';
+const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 function abs(path: string): string {

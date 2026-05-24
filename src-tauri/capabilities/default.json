@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default permissions; allow the live oioxo.com origin to use IPC (so the native exec command works from the loaded site).",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "https://oioxo.com",
+      "https://oioxo.com/*"
+    ]
+  },
+  "permissions": [
+    "core:default"
+  ]
+}

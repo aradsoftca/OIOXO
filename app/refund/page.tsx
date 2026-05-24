@@ -1,16 +1,17 @@
 import type { Metadata } from 'next';
 import { LegalShell, H2, UL } from '@/components/legal/LegalShell';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Refund Policy',
-  description: 'How refunds and cancellations work for Xonvert Pro.',
+  description: `How refunds and cancellations work for ${BRAND} Pro.`,
 };
 
 export default function RefundPage() {
   return (
     <LegalShell title="Refund Policy" updated="May 20, 2026">
       <p>
-        We want you to be happy with Xonvert Pro. Because the free tier lets you try the tools before
+        We want you to be happy with {BRAND} Pro. Because the free tier lets you try the tools before
         paying, please make sure they fit your needs before subscribing.
       </p>
 

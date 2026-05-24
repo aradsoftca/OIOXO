@@ -40,16 +40,40 @@ export interface Evidence {
 // "which is better, A or B" — split into the two things being weighed.
 const COMPARE_CUE = /\b(vs\.?|versus|compared? to|difference between|which (one )?is (better|best|worse)|better|or)\b/i;
 
-// Strip the comparison framing to isolate the two entities.
+// Strip the comparison framing to isolate the two entities — robust to a real,
+// messy prompt with a preamble ("i need a new bike, i don't know if fuji is
+// better or canadian tire" → ["fuji", "canadian tire"]).
 function comparePair(text: string): string[] | null {
-  let t = text.trim()
+  const t = text.trim()
+    // Strip opinion/preamble framing first ("in your opinion …", "i think …")
+    // so the entity is the thing, not the framing ("in your opinion mazda 3").
+    .replace(/^\s*(in (your|my) opinion|imo|imho|honestly|personally|i (think|reckon|feel|believe|guess)|do you (think|reckon|feel|believe))\b[,:]?\s*/i, '')
     .replace(/^\s*(which (one )?is (better|best|worse|stronger|faster|bigger)|who is (better|best)|compare|what'?s the difference between|difference between|whats better)\b[:,]?\s*/i, '')
     .replace(/[?.!]+$/g, '')
     .trim();
   // Split on the strongest comparison delimiter present.
   const parts = t.split(/\s+(?:vs\.?|versus|or|compared to|and)\s+/i).map((s) => s.trim()).filter(Boolean);
-  if (parts.length === 2 && parts.every((p) => p.length >= 2 && p.length <= 60)) return parts;
-  return null;
+  if (parts.length !== 2) return null;
+  // Clean each side down to the bare entity: LEFT keeps only its final clause
+  // (drops a leading "i need…, i don't know…"); RIGHT keeps up to the next clause
+  // boundary. Then strip framing words and a comparative tail ("fuji is better",
+  // "tea better for you" → "fuji", "tea") from both — the "better" can trail
+  // either entity in "is X or Y better".
+  const tailOff = (s: string) =>
+    s.replace(/\s+((is|are|seems?|looks?|would be|'?s)\s+)?(better|best|worse|good|nicer|cheaper|stronger|faster|bigger)\b.*$/i, '').trim();
+  const headOff = (s: string) =>
+    s.replace(/^\s*(i (don'?t|do not) know (if|whether)?|i'?m not sure (if|whether)?|not sure (if|whether)?|should i (get|buy|pick|choose|go (for|with))|in (your|my) opinion|i (think|reckon|feel|believe)|personally|honestly|imo|imho|do you think|whether|if|between|is|are|does|do)\b\s*/i, '')
+     .replace(/^\s*(the|a|an|buying|getting|going (for|with)|maybe|perhaps)\s+/i, '')
+     .trim();
+  const left = headOff(tailOff(parts[0].split(/[,;:]/).pop()!.trim()));
+  const right = headOff(tailOff(parts[1].split(/[,;:]/)[0].trim()));
+  // Each side must look like a short ENTITY — not a question/verb clause — else
+  // a stray "or"/"and" ("how do volcanoes form or erupt") isn't a comparison.
+  const isEntity = (s: string) =>
+    s.length >= 2 && s.length <= 50 && s.split(/\s+/).length <= 5 &&
+    !/\b(or|vs|versus)\b/i.test(s) &&
+    !/^(how|why|what|when|where|who|whom|does|do|did|is|are|can|could|should|would|will)\b/i.test(s);
+  return isEntity(left) && isEntity(right) ? [left, right] : null;
 }
 
 const HOWWHY_RE = /^\s*(how|why)\b/i;

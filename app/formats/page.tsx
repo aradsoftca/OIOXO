@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Supported formats',
-  description: 'Every file format Xonvert can convert, compress, view, and edit — images, audio, video, documents, ebooks, archives, 3D, fonts, and subtitles.',
+  description: `Every file format ${BRAND} can convert, compress, view, and edit — images, audio, video, documents, ebooks, archives, 3D, fonts, and subtitles.`,
 };
 
 const GROUPS: { cat: string; colorVar: string; note: string; formats: string[] }[] = [
@@ -24,7 +25,7 @@ export default function FormatsPage() {
       <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Reference</div>
       <h1 className="text-[28px] font-bold tracking-tight">Supported formats</h1>
       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--color-fg-muted)]">
-        Xonvert works with hundreds of formats across these families — all processed in your browser.
+        {BRAND} works with hundreds of formats across these families — all processed in your browser.
         Head to the <Link href="/convert" className="text-[var(--brand-1)] hover:underline">converter</Link> to
         see exactly what a given file can become, or browse <Link href="/tools" className="text-[var(--brand-1)] hover:underline">all tools</Link>.
       </p>

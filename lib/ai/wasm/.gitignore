@@ -1,0 +1,4 @@
+# Rust build output — never commit/deploy (huge); rebuilt by wasm-pack.
+/target
+/pkg-node
+Cargo.lock

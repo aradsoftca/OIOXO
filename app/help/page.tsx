@@ -1,20 +1,21 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { TileIcon } from '@/components/tiles/TileIcon';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Help & FAQ',
-  description: 'Answers to common questions about Xonvert — pricing, privacy, file formats, Pro, and more.',
+  description: `Answers to common questions about ${BRAND} — pricing, privacy, file formats, Pro, and more.`,
 };
 
 const FAQ: { q: string; a: React.ReactNode }[] = [
   {
-    q: 'Is Xonvert free?',
+    q: `Is ${BRAND} free?`,
     a: <>Yes. Most tools are free to use. Some heavier categories (image, audio, video, PDF, convert) give you a free action per day, then a short wait for one more — or upgrade to <Link href="/pricing" className="text-[var(--brand-1)] hover:underline">Pro</Link> for unlimited use across everything.</>,
   },
   {
     q: 'Are my files uploaded to your servers?',
-    a: <>No. Xonvert processes your files <strong>entirely in your browser</strong> — they never leave your device. The only exception is the optional &ldquo;Pro Quality&rdquo; feature for heavy jobs, which you turn on explicitly; that file is sent over an encrypted connection, used once, and discarded.</>,
+    a: <>No. {BRAND} processes your files <strong>entirely in your browser</strong> — they never leave your device. The only exception is the optional &ldquo;Pro Quality&rdquo; feature for heavy jobs, which you turn on explicitly; that file is sent over an encrypted connection, used once, and discarded.</>,
   },
   {
     q: 'Do I need an account?',

@@ -21,6 +21,7 @@ import io
 import os
 import posixpath
 import stat
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -52,6 +53,33 @@ BASE_PATH = ""
 
 PROJECT = Path(__file__).resolve().parents[1]
 
+# Fresh per-deploy WASM key, minted by rotate_brain_key() and written to the
+# server env by write_remote_env() so any previously-leaked key dies each deploy.
+ROTATED_KEY = None
+
+
+def rotate_brain_key():
+    """Mint a new BRAIN_WASM_KEY + re-encrypt the WASM locally before upload, so a
+    leaked key only works until the next deploy. Best-effort: on any failure we
+    keep the existing encryption/key (the gate still works, just no rotation)."""
+    global ROTATED_KEY
+    print("\n========== ROTATE BRAIN KEY ==========")
+    try:
+        res = subprocess.run(
+            ["node", "lib/ai/wasm/encrypt.mjs", "--rotate"],
+            cwd=str(PROJECT), capture_output=True, text=True, timeout=120,
+        )
+        for line in (res.stdout or "").splitlines():
+            if line.startswith("ROTATED_BRAIN_WASM_KEY="):
+                ROTATED_KEY = line.split("=", 1)[1].strip()
+        if ROTATED_KEY:
+            print("      minted new key + re-encrypted wasm ✓ (uploads below)")
+        else:
+            print("      ! no key produced — keeping existing encryption")
+            print("      ", (res.stdout or "")[-200:], (res.stderr or "")[-200:])
+    except Exception as e:
+        print(f"      ! rotate skipped ({e}) — keeping existing encryption")
+
 # Patterns we never upload (cwd-relative). Order: directories first.
 EXCLUDES = {
     "node_modules",
@@ -60,6 +88,9 @@ EXCLUDES = {
     ".vercel",
     "out",
     "dist",
+    ".next-build", # zero-downtime side build dir (server-only)
+    "target",      # Rust/wasm build output (lib/ai/wasm/target, ~68M) — never ship
+    "pkg-node",    # wasm-pack node test build — never ship (browser uses pkg/)
     "tsconfig.tsbuildinfo",
     ".env",
     ".env.local",
@@ -334,6 +365,8 @@ def write_remote_env(sftp):
         "ICELAND_GPU_TOKEN": "",
     }
     merged = {**base, **load_deploy_secrets()}  # secrets win
+    if ROTATED_KEY:  # this deploy's fresh key wins over any stored one
+        merged["BRAIN_WASM_KEY"] = ROTATED_KEY
 
     present = [k for k in _REQUIRED_SECRETS if merged.get(k)]
     missing = [k for k in _REQUIRED_SECRETS if not merged.get(k)]
@@ -448,6 +481,8 @@ def main():
     preflight(ssh)
     ensure_db(ssh)
 
+    rotate_brain_key()  # re-encrypt with a fresh key BEFORE upload
+
     print("\n========== UPLOADING SOURCE ==========")
     mkdir_p(sftp, REMOTE_DIR)
     upload_tar(ssh, sftp, PROJECT, REMOTE_DIR)
@@ -475,18 +510,25 @@ def main():
     # Stop PM2 BEFORE wiping .next, then full clean rebuild. This avoids the
     # "Next serves stale prerendered chunks from in-memory cache" bug we hit
     # when basePath changed between builds.
-    run(ssh, f"pm2 stop {PM2_NAME} 2>/dev/null || true", label="pm2 stop (pre-build)")
-    run(ssh, f"rm -rf {REMOTE_DIR}/.next", label="wipe .next")
-    # OBFUSCATE=1 = worker-safe obfuscation (hex identifier renaming + compact,
-    # minify off). The stronger transforms (stringArray/selfDefending/domainLock)
-    # are disabled in next.config.mjs because they break this app's blob workers.
-    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} npm run build",
-                   t=900, label="next build (obfuscated, worker-safe)")
+    # ZERO-DOWNTIME BUILD: build into a SIDE dir (.next-build) while PM2 keeps
+    # serving the live .next. A failed build then changes NOTHING — the site
+    # stays up on the old build. Only on success do we swap + restart, so the
+    # only downtime is the PM2 restart itself (seconds), not the whole build.
+    # OBFUSCATE=1 = worker-safe obfuscation (hex renaming + compact, minify off;
+    # stringArray/selfDefending/domainLock stay off — they break blob workers).
+    run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean stale .next-build")
+    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} NEXT_DIST_DIR=.next-build npm run build",
+                   t=900, label="next build (side dir — live site stays up)")
     if rc != 0:
-        print("\n      ! build failed — aborting before PM2 start")
+        print("\n      ! build failed — site UNTOUCHED, still live on the old build")
+        run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean failed build")
         sys.exit(1)
 
-    print("\n========== PM2 ==========")
+    print("\n========== SWAP + PM2 ==========")
+    # Stop → atomically swap the fresh build in → restart. Fresh .next + fresh
+    # process avoids the stale-prerendered-chunk bug a build-in-place can cause.
+    run(ssh, f"cd {REMOTE_DIR} && pm2 stop {PM2_NAME} 2>/dev/null || true && rm -rf .next && mv .next-build .next",
+        label="swap in new build")
     # Use pm2 list (table) rather than jlist (JSON env dump) to keep
     # other tenants' secrets out of the deploy log.
     # Always re-register the process — covers fresh installs AND ensures

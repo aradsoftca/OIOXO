@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { MessageSquare, Send, Copy, Check, Loader2, ShieldCheck, Smartphone, Link2, Users, Smile, Paperclip, Download, AlertTriangle, RotateCcw } from 'lucide-react';
 import { makeRoomCode } from '@/lib/p2p/peer';
 import { joinGroup, type Group, type GroupState } from '@/lib/p2p/group';
+import { BRAND } from '@/lib/brand';
 
 type Kind = 'text' | 'media' | 'file';
 interface ChatMsg { id: number; mine: boolean; name: string; ts: number; kind: Kind; text?: string; url?: string; mime?: string; fileName?: string; size?: number }
@@ -109,10 +110,10 @@ export default function ChatApp() {
   const aiReply = async (prompt: string) => {
     const post = (text: string) => {
       const ts = Date.now();
-      groupRef.current?.send({ type: 'msg', text, name: 'Xonvert AI', ts });
-      addMsg({ mine: false, name: 'Xonvert AI', ts, kind: 'text', text });
+      groupRef.current?.send({ type: 'msg', text, name: `${BRAND} AI`, ts });
+      addMsg({ mine: false, name: `${BRAND} AI`, ts, kind: 'text', text });
     };
-    if (typeof navigator === 'undefined' || !('gpu' in navigator)) { post('⚠ Xonvert AI needs a WebGPU browser (Chrome/Edge).'); return; }
+    if (typeof navigator === 'undefined' || !('gpu' in navigator)) { post(`⚠ ${BRAND} AI needs a WebGPU browser (Chrome/Edge).`); return; }
     setAiBusy(true);
     try {
       if (!aiEngineRef.current) {
@@ -121,7 +122,7 @@ export default function ChatApp() {
       }
       const out = await aiEngineRef.current.chat.completions.create({
         messages: [
-          { role: 'system', content: 'You are Xonvert AI, a concise, friendly assistant in a group chat. Keep replies short and helpful. Never mention any underlying model.' },
+          { role: 'system', content: `You are ${BRAND} AI, a concise, friendly assistant in a group chat. Keep replies short and helpful. Never mention any underlying model.` },
           { role: 'user', content: prompt },
         ],
         temperature: 0.6, max_tokens: 200,
@@ -226,7 +227,7 @@ export default function ChatApp() {
 
           {aiBusy && (
             <div className="flex items-center gap-2 border-t border-black/[0.06] px-4 py-1.5 text-[12px] text-[var(--color-fg-muted)]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Xonvert AI is thinking…
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> {BRAND} AI is thinking…
             </div>
           )}
           <div className="flex items-end gap-1.5 border-t border-black/[0.06] p-3">

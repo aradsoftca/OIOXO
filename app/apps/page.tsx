@@ -3,10 +3,11 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { SectionTitle } from '@/components/layout/SectionTitle';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Apps — private, peer-to-peer & on-device tools',
-  description: 'Xonvert apps: send files, sync your clipboard, chat, share your screen, video call and run a private AI — all peer-to-peer or on-device, nothing stored on a server.',
+  description: `${BRAND} apps: send files, sync your clipboard, chat, share your screen, video call and run a private AI — all peer-to-peer or on-device, nothing stored on a server.`,
 };
 
 interface App {

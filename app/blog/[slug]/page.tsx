@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { POSTS, getPost } from '@/lib/blog/posts';
+import { BRAND } from '@/lib/brand';
 
 interface Props { params: Promise<{ slug: string }> }
 
@@ -17,7 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: post.title,
     description: post.excerpt,
-    openGraph: { title: `${post.title} · Xonvert`, description: post.excerpt, type: 'article' },
+    openGraph: { title: `${post.title} · ${BRAND}`, description: post.excerpt, type: 'article' },
   };
 }
 

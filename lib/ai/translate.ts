@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Xonvert AI — on-device translation, to help the weak 0.5B model with other
  * languages. Same shape as the AI engine itself (WebGPU fast path + WASM
@@ -25,17 +26,21 @@
  */
 
 // BCP-47 (2-letter) → ISO-639-3 token used by the Opus `en-mul` multi-model.
+// NOTE: these must be the tokens the opus-mt-en-mul model actually supports —
+// for some languages that's NOT the plain ISO-639-3 code (Persian is `pes`, the
+// Western-Farsi variant, not `fas`; Chinese is the script variant).
 const ISO3: Record<string, string> = {
   ar: 'ara', th: 'tha', fr: 'fra', es: 'spa', de: 'deu', it: 'ita', pt: 'por',
-  ru: 'rus', zh: 'zho', ja: 'jpn', ko: 'kor', hi: 'hin', tr: 'tur', nl: 'nld',
-  pl: 'pol', uk: 'ukr', fa: 'fas', he: 'heb', el: 'ell', vi: 'vie', id: 'ind',
-  sv: 'swe', cs: 'ces', ro: 'ron', hu: 'hun', fi: 'fin', da: 'dan', no: 'nor',
+  ru: 'rus', zh: 'cmn_Hans', ja: 'jpn', ko: 'kor', hi: 'hin', tr: 'tur', nl: 'nld',
+  pl: 'pol', uk: 'ukr', fa: 'pes', he: 'heb', el: 'ell', vi: 'vie', id: 'ind',
+  sv: 'swe', cs: 'ces', ro: 'ron', hu: 'hun', fi: 'fin', da: 'dan', no: 'nno',
 };
 
 // Unicode script ranges → a likely language, for detection without a model.
 // Approximate (Cyrillic≈ru, Han≈zh) but reliable enough to pick the out-model;
 // the browser detector is preferred when present.
 const SCRIPT: [RegExp, string][] = [
+  [/[پچژگکیۀ]/, 'fa'],         // Persian-specific letters (Arabic script) — check first
   [/[؀-ۿݐ-ݿ]/, 'ar'],
   [/[฀-๿]/, 'th'],
   [/[぀-ヿ]/, 'ja'],          // kana → Japanese (check before Han)
@@ -87,16 +92,35 @@ export async function detectLanguage(text: string): Promise<string | null> {
 // --- browser Translator API ------------------------------------------------
 
 async function browserTranslate(text: string, from: string, to: string): Promise<string | null> {
-  if (!hasBrowser('Translator')) return null;
+  const opts = { sourceLanguage: from, targetLanguage: to };
+  // The on-device translation API has shipped under several shapes across Chrome
+  // versions — try each so it engages wherever it exists, not only the newest.
   try {
-    const T = (self as any).Translator;
-    const opts = { sourceLanguage: from, targetLanguage: to };
-    const avail = await T.availability?.(opts);
-    if (!avail || avail === 'unavailable') return null;
-    const tr = await T.create(opts); // 'downloadable' → browser fetches its own pack
-    const out = await tr.translate(text);
-    return typeof out === 'string' && out.trim() ? out : null;
-  } catch { return null; }
+    // 1) Current global: Translator.availability() / Translator.create().
+    const T = typeof self !== 'undefined' ? (self as any).Translator : undefined;
+    if (T?.create) {
+      const avail = await T.availability?.(opts).catch(() => 'available');
+      if (avail !== 'unavailable') {
+        const tr = await T.create(opts);
+        const out = await tr.translate(text);
+        if (typeof out === 'string' && out.trim()) return out;
+      }
+    }
+  } catch { /* try next shape */ }
+  try {
+    // 2) Legacy origin-trial: self.translation.canTranslate / createTranslator,
+    //    also exposed as self.ai.translator on some builds.
+    const legacy = typeof self !== 'undefined' ? ((self as any).translation ?? (self as any).ai?.translator) : undefined;
+    if (legacy?.createTranslator) {
+      const can = await legacy.canTranslate?.(opts).catch(() => 'readily');
+      if (can && can !== 'no') {
+        const tr = await legacy.createTranslator(opts);
+        const out = await tr.translate(text);
+        if (typeof out === 'string' && out.trim()) return out;
+      }
+    }
+  } catch { /* fall through to Opus */ }
+  return null;
 }
 
 // --- Opus-MT (transformers.js) fallback ------------------------------------
@@ -146,12 +170,19 @@ async function opusFromEnglish(text: string, to: string): Promise<string | null>
 
 // --- public API ------------------------------------------------------------
 
-/** Translate `text` from→to (BCP-47). Browser API first, then Opus-MT. */
+/** Translate `text` from→to (BCP-47). Order: built-in API (private, 0 download)
+ *  → Bergamot (on-device, ~5MB wasm + light per-pair models) → Opus-MT (heavier,
+ *  broadest coverage, offline once cached). All on-device — no third party. */
 export async function translate(text: string, from: string, to: string): Promise<string | null> {
   const t = text.trim();
   if (!t || from === to) return null;
   const viaBrowser = await browserTranslate(t, from, to);
   if (viaBrowser) return viaBrowser;
+  // On-device Bergamot before the heavier Opus models: ~4× lighter for the
+  // languages it covers; Opus remains the fallback for the rest.
+  const { bergamotTranslate } = await import('./bergamot');
+  const viaBergamot = await bergamotTranslate(t, from, to).catch(() => null);
+  if (viaBergamot) return viaBergamot;
   if (to === 'en') return opusToEnglish(t, from);
   if (from === 'en') return opusFromEnglish(t, to);
   // Arbitrary pair: pivot through English so we only need en↔x models.

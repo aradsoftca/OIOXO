@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
+import { BRAND_DOMAIN } from '@/lib/brand';
 
-const SITE = 'https://xonvert.com';
+const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
 
 export default function robots(): MetadataRoute.Robots {

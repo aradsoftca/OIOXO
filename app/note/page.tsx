@@ -1,12 +1,13 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
 import NoteApp from './NoteApp';
+import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Encrypted Note — share a secret with a self-destructing link',
   description: 'Write a note, encrypt it in your browser, and share a one-time link. The key never leaves your device — our server only ever stores unreadable ciphertext.',
   openGraph: {
-    title: 'Xonvert Encrypted Note — zero-knowledge secret sharing',
+    title: `${BRAND} Encrypted Note — zero-knowledge secret sharing`,
     description: 'Client-side encrypted, self-destructing notes. The server can never read them.',
   },
 };

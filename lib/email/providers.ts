@@ -1,3 +1,4 @@
+import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
 /**
  * Transactional email senders — fetch-based, no SDK dependency.
  *
@@ -21,7 +22,7 @@ export interface EmailResult {
   error?: string;
 }
 
-export const EMAIL_FROM = process.env.EMAIL_FROM || 'Xonvert <noreply@xonvert.com>';
+export const EMAIL_FROM = process.env.EMAIL_FROM || `${BRAND} <noreply@${BRAND_DOMAIN}>`;
 
 async function sendViaResend(o: EmailOptions): Promise<EmailResult> {
   const key = process.env.RESEND_API_KEY;
@@ -45,7 +46,7 @@ async function sendViaBrevo(o: EmailOptions): Promise<EmailResult> {
   if (!key) return { success: false, provider: 'brevo', error: 'BREVO_API_KEY not set' };
   // Parse "Name <email>" → Brevo's structured sender.
   const m = EMAIL_FROM.match(/^\s*(.*?)\s*<(.+)>\s*$/);
-  const sender = m ? { name: m[1] || 'Xonvert', email: m[2] } : { name: 'Xonvert', email: EMAIL_FROM };
+  const sender = m ? { name: m[1] || `${BRAND}`, email: m[2] } : { name: `${BRAND}`, email: EMAIL_FROM };
   try {
     const res = await fetch('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',

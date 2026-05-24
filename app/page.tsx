@@ -6,28 +6,46 @@ import { Tile } from '@/components/tiles/Tile';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { CategoryGrid } from '@/components/home/CategoryGrid';
 import { TOOLS } from '@/lib/registry';
+import { IS_OIOXO } from '@/lib/brand';
 
 export default function HomePage() {
   return (
     <div className="space-y-12">
-      {/* Hero — Xonvert AI as the centrepiece. Clean centered wordmark, no icon. */}
+      {/* Hero — the brand AI as the centrepiece. Clean centered wordmark, no icon. */}
       <section className="flex flex-col gap-4">
         <div className="text-center">
           <h1 className="text-[32px] font-extrabold leading-[1.05] tracking-tight text-[var(--color-fg)] sm:text-[44px]">
-            Xonvert{' '}
-            <span
-              style={{
-                background: 'var(--brand-gradient)',
-                WebkitBackgroundClip: 'text',
-                backgroundClip: 'text',
-                color: 'transparent',
-              }}
-            >
-              AI
-            </span>
+            {IS_OIOXO ? (
+              <span
+                style={{
+                  background: 'var(--brand-gradient)',
+                  WebkitBackgroundClip: 'text',
+                  backgroundClip: 'text',
+                  color: 'transparent',
+                }}
+              >
+                oioxo
+              </span>
+            ) : (
+              <>
+                Xonvert{' '}
+                <span
+                  style={{
+                    background: 'var(--brand-gradient)',
+                    WebkitBackgroundClip: 'text',
+                    backgroundClip: 'text',
+                    color: 'transparent',
+                  }}
+                >
+                  AI
+                </span>
+              </>
+            )}
           </h1>
           <p className="mx-auto mt-2 text-[14px] font-medium text-balance text-[var(--color-fg-muted)] sm:whitespace-nowrap sm:text-[16px]">
-            Your online AI handyman — convert, edit, create &amp; find the right tool for any file.
+            {IS_OIOXO
+              ? 'One AI for everything — understands, searches, and gets it done, privately on your device.'
+              : 'Your online AI handyman — convert, edit, create & find the right tool for any file.'}
           </p>
         </div>
         <HomeAiHero />

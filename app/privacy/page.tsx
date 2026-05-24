@@ -1,16 +1,17 @@
 import type { Metadata } from 'next';
 import { LegalShell, H2, UL } from '@/components/legal/LegalShell';
+import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
-  description: 'How Xonvert handles your data. Your files are processed in your browser and never uploaded.',
+  description: `How ${BRAND} handles your data. Your files are processed in your browser and never uploaded.`,
 };
 
 export default function PrivacyPage() {
   return (
     <LegalShell title="Privacy Policy" updated="May 20, 2026">
       <p>
-        Xonvert (&ldquo;we&rdquo;, &ldquo;us&rdquo;) operates xonvert.com. This policy explains what we
+        {BRAND} (&ldquo;we&rdquo;, &ldquo;us&rdquo;) operates {BRAND_DOMAIN}. This policy explains what we
         collect and how we use it. The short version: <strong>your files are processed entirely in your
         own browser and are never uploaded to us.</strong>
       </p>

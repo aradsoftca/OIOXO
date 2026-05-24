@@ -17,6 +17,8 @@ export interface BuildOptions {
   files: CodeFile[];
   /** The command whose pass/fail is the oracle (default "npm test"). */
   testCmd?: string;
+  /** web-llm model match for the installed coder (defaults to Qwen2.5-Coder). */
+  match?: string[];
   /** Max generate→run cycles (default 5). */
   maxIters?: number;
   /** Live run log. */
@@ -47,7 +49,7 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     files: opts.files,
     testCmd: opts.testCmd,
     maxIters: opts.maxIters,
-    generate: makeCoderGenerate({ onProgress: opts.onProgress }),
+    generate: makeCoderGenerate(opts.match, { onProgress: opts.onProgress }),
     run,
     onStep: opts.onStep,
   });

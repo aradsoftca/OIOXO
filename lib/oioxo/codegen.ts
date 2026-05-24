@@ -67,12 +67,12 @@ export function parseEdits(reply: string): Edit[] {
   return edits;
 }
 
-/** A GenerateFn backed by the on-device coder. Loads/caches the model on first
- *  use; reports load progress via the optional callback. */
-export function makeCoderGenerate(opts: { onProgress?: (p: number) => void } = {}): GenerateFn {
+/** A GenerateFn backed by the on-device coder. `match` selects the installed
+ *  model (defaults to a Qwen2.5-Coder); loads/caches on first use. */
+export function makeCoderGenerate(match: string[] = CODER, opts: { onProgress?: (p: number) => void } = {}): GenerateFn {
   return async (ctx: GenContext): Promise<Edit[]> => {
     const reply = await chat(
-      CODER,
+      match,
       [
         { role: 'system', content: SYSTEM },
         { role: 'user', content: buildPrompt(ctx) },

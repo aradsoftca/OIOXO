@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { FolderOpen, File as FileIcon, Folder, Save, Sparkles, ArrowUp, Loader2, AlertTriangle, Check, Play, Terminal } from 'lucide-react';
-import { fsSupported, openFolder, readFileText, writeFileText, writeByPath, isTextFile, snapshotTree, type FileNode } from '@/lib/oioxo/fs';
+import { FolderOpen, File as FileIcon, Folder, Save, Sparkles, ArrowUp, Loader2, AlertTriangle, Check, Play, Terminal, Wrench } from 'lucide-react';
+import { fsSupported, openFolder, readFileText, writeFileText, writeByPath, isTextFile, snapshotTree, filesFromTree, type FileNode } from '@/lib/oioxo/fs';
+import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { SKILLS } from '@/lib/oioxo/skills';
 import { chatStream } from '@/lib/oioxo/runtime';
 import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib/oioxo/webcontainer';
@@ -30,6 +31,7 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
   const [dirty, setDirty] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [showRun, setShowRun] = React.useState(false);
+  const [showAgent, setShowAgent] = React.useState(false);
   const supported = fsSupported();
 
   async function pickFolder() {
@@ -129,6 +131,17 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
             >
               <Play className="h-3.5 w-3.5" /> Run
             </button>
+            <button
+              type="button"
+              onClick={() => setShowAgent((v) => !v)}
+              disabled={!tree}
+              className={[
+                'flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition disabled:opacity-30',
+                showAgent ? 'bg-[#E2B24A] text-[#232327]' : 'text-zinc-600 hover:bg-zinc-100',
+              ].join(' ')}
+            >
+              <Wrench className="h-3.5 w-3.5" /> Build / Fix
+            </button>
           </div>
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
@@ -146,6 +159,9 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
             <div className="grid flex-1 place-items-center text-sm text-zinc-400">Open a file to edit it.</div>
           )}
           {showRun && tree && <RunPanel tree={tree} onClose={() => setShowRun(false)} />}
+          {showAgent && tree && (
+            <AgentPanel tree={tree} root={rootHandle} match={match} onClose={() => setShowAgent(false)} />
+          )}
         </div>
       </main>
 
@@ -517,5 +533,106 @@ function CoderChat({
         </div>
       </form>
     </aside>
+  );
+}
+
+/** The execute→repair loop as a panel: describe a task, the on-device coder drafts,
+ *  the WebContainer runs the tests, errors feed back until green — then changed
+ *  files are written to disk. The "device proves it" surface. */
+function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: unknown; match: string[]; onClose: () => void }) {
+  const [task, setTask] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [progress, setProgress] = React.useState(0);
+  const [steps, setSteps] = React.useState<{ attempt: number; ok: boolean }[]>([]);
+  const [log, setLog] = React.useState('');
+  const [result, setResult] = React.useState<null | { ok: boolean; iters: number; changed: number; error?: string }>(null);
+  const logRef = React.useRef<HTMLPreElement>(null);
+  React.useEffect(() => { logRef.current?.scrollTo({ top: 1e9 }); }, [log]);
+
+  async function run() {
+    if (!task.trim() || busy) return;
+    setBusy(true); setSteps([]); setLog(''); setResult(null); setProgress(0);
+    try {
+      const files = await filesFromTree(tree);
+      const original = new Map(files.map((f) => [f.path, f.content]));
+      const res = await buildOrFix({
+        task: task.trim(),
+        files,
+        match,
+        onProgress: (p) => setProgress(p),
+        onStep: (s) => setSteps((prev) => [...prev, { attempt: s.attempt, ok: s.ok }]),
+        onData: (c) => setLog((prev) => (prev + c).slice(-8000)),
+      });
+      let changed = 0;
+      for (const f of res.files) {
+        if (original.get(f.path) !== f.content) {
+          try { await writeByPath(root, f.path, f.content); changed++; } catch { /* skip unwritable */ }
+        }
+      }
+      setResult({ ok: res.ok, iters: res.iters, changed });
+    } catch (e) {
+      setResult({ ok: false, iters: 0, changed: 0, error: String((e as Error)?.message || e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="shrink-0 border-t border-zinc-200 bg-zinc-50">
+      <div className="flex items-center justify-between px-3 py-1.5">
+        <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-600">
+          <Wrench className="h-3.5 w-3.5 text-[#E2B24A]" /> Agent — build or fix on-device
+        </span>
+        <button type="button" onClick={onClose} className="text-xs text-zinc-400 hover:text-zinc-600">close</button>
+      </div>
+      <div className="flex gap-2 px-3 pb-2">
+        <input
+          value={task}
+          onChange={(e) => setTask(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void run(); }}
+          placeholder="e.g. make the failing tests pass / fix the build error"
+          disabled={busy}
+          className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-[13px] focus:border-zinc-400 focus:outline-none disabled:opacity-60"
+        />
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={busy || !task.trim()}
+          className="flex items-center gap-1 rounded-lg bg-[#E2B24A] px-3 py-1.5 text-[13px] font-semibold text-[#232327] disabled:opacity-40"
+        >
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wrench className="h-4 w-4" />} Run
+        </button>
+      </div>
+      {busy && progress > 0 && progress < 1 && (
+        <div className="px-3 pb-1 text-[11px] text-zinc-500">loading coder… {Math.round(progress * 100)}%</div>
+      )}
+      {steps.length > 0 && (
+        <div className="flex flex-wrap gap-1 px-3 pb-2">
+          {steps.map((s, i) => (
+            <span
+              key={i}
+              className={['rounded px-1.5 py-0.5 text-[10px] font-medium', s.ok ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'].join(' ')}
+            >
+              try {s.attempt + 1} {s.ok ? '✓ pass' : '✗ fail'}
+            </span>
+          ))}
+        </div>
+      )}
+      {log && (
+        <pre ref={logRef} className="mx-3 mb-2 max-h-32 overflow-auto rounded-lg bg-zinc-900 p-2 font-mono text-[11px] leading-relaxed text-zinc-100">{log}</pre>
+      )}
+      {result && (
+        <div className={['mx-3 mb-2 flex items-center gap-2 rounded-lg px-3 py-2 text-[12px]', result.ok ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'].join(' ')}>
+          {result.ok ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+          <span>
+            {result.error
+              ? `Couldn't run: ${result.error}`
+              : result.ok
+                ? `Done — green after ${result.iters} ${result.iters === 1 ? 'try' : 'tries'}. Wrote ${result.changed} file${result.changed === 1 ? '' : 's'}.`
+                : `Couldn't get it green in ${result.iters} tries. Wrote ${result.changed} (best effort) — refine the task and retry.`}
+          </span>
+        </div>
+      )}
+    </div>
   );
 }

@@ -91,3 +91,20 @@ export async function snapshotTree(nodes: FileNode[]): Promise<Record<string, un
   }
   return tree;
 }
+
+/** Flatten the tree to {path, content}[] for the code agent (text files only).
+ *  The execute-repair loop works on this flat list. */
+export async function filesFromTree(nodes: FileNode[]): Promise<{ path: string; content: string }[]> {
+  const out: { path: string; content: string }[] = [];
+  async function walk(ns: FileNode[]): Promise<void> {
+    for (const n of ns) {
+      if (n.kind === 'dir') {
+        if (n.children) await walk(n.children);
+      } else if (isTextFile(n.name)) {
+        try { out.push({ path: n.path, content: await readFileText(n.handle) }); } catch { /* skip unreadable */ }
+      }
+    }
+  }
+  await walk(nodes);
+  return out;
+}

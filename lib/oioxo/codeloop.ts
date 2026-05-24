@@ -53,6 +53,24 @@ export interface LoopOptions {
   run: RunFn;
   /** Progress hook (UI: show each attempt's result). */
   onStep?: (s: { attempt: number; ok: boolean; errors: string }) => void;
+  /** P6: capture each attempt (context in, edits out, oracle verdict) so verified
+   *  red→green repairs become gold conductor training data. Off by default. */
+  record?: boolean;
+}
+
+/** One generate→run attempt, captured for conductor distillation (P6). The loop
+ *  is a self-labeling teacher: a step whose oracle flipped red→green is a proven
+ *  "this error + this code → this minimal fix" example, no human labels. */
+export interface StepRecord {
+  attempt: number;
+  /** The error the model was repairing (undefined on the first draft). */
+  error?: string;
+  /** Working set the generator saw THIS attempt (before applying its edits). */
+  filesBefore: CodeFile[];
+  /** Edits the model proposed this attempt. */
+  edits: Edit[];
+  /** Oracle verdict after applying the edits. */
+  ok: boolean;
 }
 
 export interface LoopResult {
@@ -62,6 +80,8 @@ export interface LoopResult {
   lastOutput: string;
   /** Per-attempt outcome, for the UI timeline. */
   history: { attempt: number; ok: boolean }[];
+  /** Full per-attempt capture when `record` is set (P6 training data). */
+  trajectory?: StepRecord[];
 }
 
 /** Apply full-file edits onto the working set (replace by path, or add new). */
@@ -83,25 +103,25 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   let files = [...opts.files];
   let last: RunResult = { ok: false, output: '', errors: '' };
   const history: { attempt: number; ok: boolean }[] = [];
+  const trajectory: StepRecord[] | undefined = opts.record ? [] : undefined;
 
   for (let attempt = 0; attempt < maxIters; attempt++) {
+    const filesBefore = files;
+    const error = attempt === 0 ? undefined : last.errors;
+    let edits: Edit[] = [];
     try {
-      const edits = await opts.generate({
-        task: opts.task,
-        files,
-        error: attempt === 0 ? undefined : last.errors,
-        attempt,
-      });
-      if (edits?.length) files = applyEdits(files, edits);
+      edits = (await opts.generate({ task: opts.task, files, error, attempt })) ?? [];
+      if (edits.length) files = applyEdits(files, edits);
       last = await opts.run(files, cmd);
     } catch (e) {
       last = { ok: false, output: String((e as Error)?.message || e), errors: String((e as Error)?.message || e) };
     }
     history.push({ attempt, ok: last.ok });
+    trajectory?.push({ attempt, error, filesBefore, edits, ok: last.ok });
     opts.onStep?.({ attempt, ok: last.ok, errors: last.errors });
-    if (last.ok) return { ok: true, files, iters: attempt + 1, lastOutput: last.output, history };
+    if (last.ok) return { ok: true, files, iters: attempt + 1, lastOutput: last.output, history, trajectory };
   }
-  return { ok: false, files, iters: maxIters, lastOutput: last.output, history };
+  return { ok: false, files, iters: maxIters, lastOutput: last.output, history, trajectory };
 }
 
 /**

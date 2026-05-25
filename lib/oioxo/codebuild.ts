@@ -62,6 +62,9 @@ export interface BuildOptions {
    *  'sql' runs the script on sql.js (SQL error = fail); default is Node/TypeScript
    *  per `mode`/`native`. */
   runtime?: 'node' | 'python' | 'sql';
+  /** Override the oracle entirely (e.g. the preview RUNTIME oracle for web/UI/games
+   *  — run the app, capture runtime errors + checks). Wins over mode/runtime. */
+  run?: RunFn;
 }
 
 /**
@@ -77,7 +80,11 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
   let extApis = '';
   const getExtApis = () => extApis;
 
-  if (opts.runtime === 'python') {
+  if (opts.run) {
+    // Caller-provided oracle (e.g. the preview RUNTIME oracle) — wins over mode.
+    run = opts.run;
+    testCmd = testCmd ?? 'run';
+  } else if (opts.runtime === 'python') {
     // Python oracle on Pyodide: run the entry; a traceback is the repair signal.
     run = makePythonRun(opts.onData);
     testCmd = 'python main.py';

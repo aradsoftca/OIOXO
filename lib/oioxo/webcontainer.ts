@@ -52,15 +52,28 @@ import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 const root = process.cwd();
 const TYPES = { '.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.gif':'image/gif','.ico':'image/x-icon','.wasm':'application/wasm','.map':'application/json' };
+// Injected into served HTML so the IDE's loop can CAPTURE runtime errors from the
+// actually-running app (window.onerror / unhandledrejection / console.error) and
+// run goal checks — the "device proves it" oracle for web/UI/games. Posts a single
+// 'probe' report to the parent after load.
+const PROBE = '<script>(function(){var E=[];function rec(m){E.push(String(m))}' +
+  "window.addEventListener('error',function(e){rec((e.message||'error')+(e.filename?(' @'+(e.filename.split('/').pop())+':'+e.lineno):''))});" +
+  "window.addEventListener('unhandledrejection',function(e){rec('unhandledrejection: '+((e.reason&&e.reason.message)||e.reason))});" +
+  'var ce=console.error;console.error=function(){rec("console.error: "+Array.prototype.map.call(arguments,String).join(" "));return ce.apply(console,arguments)};' +
+  'function run(){var checks=[];try{var fns=(window.__oioxoChecks||[]);for(var i=0;i<fns.length;i++){try{var r=fns[i]();if(r&&r.ok===false)checks.push("check failed: "+(r.name||i))}catch(err){checks.push("check threw: "+(err&&err.message||err))}}}catch(_){}' +
+  'try{parent.postMessage({__oioxo:"probe",errors:E.concat(checks)},"*")}catch(_){}}' +
+  "window.addEventListener('load',function(){setTimeout(run,700)});setTimeout(run,2000);})();</script>";
 http.createServer(async (req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]);
   if (p.endsWith('/')) p += 'index.html';
   try {
-    const buf = await readFile(join(root, p));
-    res.setHeader('content-type', TYPES[extname(p)] || 'application/octet-stream');
+    let buf = await readFile(join(root, p));
+    const type = TYPES[extname(p)] || 'application/octet-stream';
+    if (type === 'text/html') { let h = buf.toString('utf8'); h = h.includes('</head>') ? h.replace('</head>', PROBE + '</head>') : PROBE + h; buf = Buffer.from(h, 'utf8'); }
+    res.setHeader('content-type', type);
     res.end(buf);
   } catch {
-    try { const buf = await readFile(join(root, 'index.html')); res.setHeader('content-type','text/html'); res.end(buf); }
+    try { let h = (await readFile(join(root, 'index.html'))).toString('utf8'); h = h.includes('</head>') ? h.replace('</head>', PROBE + '</head>') : PROBE + h; res.setHeader('content-type','text/html'); res.end(h); }
     catch { res.statusCode = 404; res.end('not found'); }
   }
 }).listen(3111, () => console.log('preview ready on 3111'));

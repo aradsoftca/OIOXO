@@ -45,6 +45,18 @@ test('scaffold: template routing + coherent + valid package.json', async () => {
   }
 });
 
+// ---------- recipes (grounding) ----------
+test('recipes: match task types, null otherwise', async () => {
+  const { recipeFor } = await import('../lib/oioxo/recipes.ts');
+  assert.equal(recipeFor('build a pacman game')?.kind, 'canvas-game');
+  assert.equal(recipeFor('snake on canvas')?.kind, 'canvas-game');
+  assert.equal(recipeFor('a todo list app')?.kind, 'list-app');
+  assert.equal(recipeFor('a calculator')?.kind, 'calculator');
+  assert.equal(recipeFor('a signup form')?.kind, 'form');
+  assert.equal(recipeFor('some random thing'), null);
+  assert.ok((recipeFor('pacman')?.guidance || '').includes('MAZE'));
+});
+
 // ---------- agent ----------
 test('agent: parsePlan (JSON + list + degrade)', async () => {
   const { parsePlan } = await import('../lib/oioxo/agent.ts');

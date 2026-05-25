@@ -24,12 +24,15 @@ import {
 import { fsSupported, writeByPath } from '@/lib/oioxo/fs';
 import { runPython, pythonSupported } from '@/lib/oioxo/pyodide';
 import { runSql, sqlSupported } from '@/lib/oioxo/sqljs';
+import { makePreviewRun } from '@/lib/oioxo/preview-oracle';
+import type { RunFn } from '@/lib/oioxo/codeloop';
 import { saveSession, listSessions, loadSession, deleteSession, newSessionId, type Session } from '@/lib/oioxo/sessions';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
 import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
+import { recipeFor } from '@/lib/oioxo/recipes';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
 import { configureConductor } from '@/lib/oioxo/conductor-engine';
 import { getFrontier, setFrontier, frontierChat, PROVIDERS, type FrontierConfig, type Provider } from '@/lib/oioxo/frontier';
@@ -59,6 +62,16 @@ export default function NewProject({ match }: { match: string[] }) {
 
   const append = (s: string) => setLog((o) => (o + s).slice(-16000));
   const syncFiles = React.useCallback(async () => setFiles(await ws.current.files()), []);
+
+  // RUNTIME oracle for web/UI/games: the agent verifies by actually running the
+  // preview and catching runtime errors (OIOXO_CODE §4) — real signal where the
+  // type oracle has almost none. Built only for previewable projects.
+  const previewUrlRef = React.useRef<string | null>(null);
+  React.useEffect(() => { previewUrlRef.current = preview; }, [preview]);
+  const previewOracle = React.useMemo<RunFn | undefined>(
+    () => (info?.preview && supported ? makePreviewRun(() => previewUrlRef.current, (s) => setLog((o) => (o + s).slice(-16000))) : undefined),
+    [info?.preview, supported],
+  );
 
   /** Load a project (scaffolded or received) into the workspace, mount it, and
    *  bring the preview/oracle up. The single path every entry point goes through. */
@@ -501,6 +514,7 @@ export default function NewProject({ match }: { match: string[] }) {
           match={match}
           goal={goal}
           runtime={info?.runtime}
+          oracle={previewOracle}
           autoBuild={autoBuild}
           onChanged={async (changed) => {
             await syncFiles();
@@ -571,7 +585,7 @@ export interface AgentWorkspace {
  *  verifying each with the type oracle, and refreshing the preview as it goes.
  *  The visible plan + per-step status is the "frontier agent" surface. */
 export function AgentRun({
-  ws, match, goal, onChanged, onLog, runtime, autoBuild,
+  ws, match, goal, onChanged, onLog, runtime, oracle, autoBuild,
 }: {
   ws: AgentWorkspace;
   match: string[];
@@ -580,6 +594,8 @@ export function AgentRun({
   onLog: (s: string) => void;
   /** 'python'/'sql' verify by running on Pyodide / sql.js; default is the TS type oracle. */
   runtime?: 'node' | 'python' | 'sql';
+  /** RUNTIME oracle for previewable projects — run the app, catch runtime errors. */
+  oracle?: RunFn;
   /** Bumped by the parent right after a fresh scaffold → auto plan-and-build the
    *  goal (through the brain gate), so "ask for X" actually builds X. */
   autoBuild?: number;
@@ -616,7 +632,9 @@ export function AgentRun({
   async function run() {
     if (busy) return;
     if (!brainReady()) { pendingRun.current = true; setShowBrain(true); return; } // ask before downloading
-    const objective = task.trim() || `Build this out to completion: ${goal}`;
+    const rawGoal = task.trim() || goal;
+    const recipe = recipeFor(rawGoal); // ground the small model with the right structure
+    const objective = (task.trim() || `Build this out to completion: ${goal}`) + (recipe ? `\n\nGuidance:\n${recipe.guidance}` : '');
     setBusy(true); setPlan([]); setStates([]); setDone(null); setProgress(0); setHint(false);
     try {
       // Python/SQL verify by running on their WASM engine; everything else uses
@@ -641,6 +659,7 @@ export function AgentRun({
           task: framed, files, match, mode: 'typecheck', libFiles, record: true,
           candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
           coder: fc ? { kind: 'frontier', config: fc } : undefined, // BYOK writer
+          run: oracle, // RUNTIME oracle for web/UI/games (else typecheck/python/sql)
           runtime, onProgress: setProgress, onData: onLog,
         });
         return { files: res.files, ok: res.ok, iters: res.iters };
@@ -933,31 +952,31 @@ function BrainGate({
           <button type="button" onClick={onClose} className="rounded p-1 text-zinc-400 hover:bg-zinc-100"><X className="h-4 w-4" /></button>
         </div>
         <p className="mt-1 text-[12px] text-zinc-500">
-          Building “{goal.slice(0, 60) || 'your project'}” needs a model to plan and write the code. Choose how it runs —
-          this is asked once.
+          Building “{goal.slice(0, 60) || 'your project'}” needs a model to plan and write the code. It then runs on
+          your device, checks its own work, and fixes errors until it works. Asked once.
         </p>
 
         <button
           type="button"
-          onClick={onUseKey}
+          onClick={onUseDevice}
           className="mt-4 w-full rounded-xl border-2 border-[#E2B24A] bg-[#E2B24A]/10 p-3 text-left transition hover:bg-[#E2B24A]/20"
         >
-          <div className="flex items-center gap-1.5 text-[13px] font-bold text-[#7a5c12]"><KeyRound className="h-4 w-4" /> Use your own API key — recommended</div>
+          <div className="flex items-center gap-1.5 text-[13px] font-bold text-[#7a5c12]"><Sparkles className="h-4 w-4" /> Build on your device — private &amp; free</div>
           <div className="mt-0.5 text-[12px] text-zinc-600">
-            OpenAI, Claude, Gemini, Groq or OpenRouter. Frontier-grade planning + code — the right choice for real apps
-            and games. Stays in your browser.
+            A small model runs entirely in your browser; the loop runs + verifies + repairs the code until it works.
+            One-time download, then offline. Nothing is uploaded.
           </div>
         </button>
 
         <button
           type="button"
-          onClick={onUseDevice}
+          onClick={onUseKey}
           className="mt-2 w-full rounded-xl border border-zinc-200 p-3 text-left transition hover:border-zinc-300"
         >
-          <div className="text-[13px] font-bold text-zinc-800">Download the on-device model</div>
+          <div className="flex items-center gap-1.5 text-[13px] font-bold text-zinc-800"><KeyRound className="h-4 w-4" /> Or use your own API key — optional</div>
           <div className="mt-0.5 text-[12px] text-zinc-500">
-            Private and free, runs fully on your device — but it’s a small model (a one-time download). Good for snippets
-            and simple changes; it will struggle with full apps.
+            Plug in OpenAI / Claude / Gemini / Groq / OpenRouter to make the writer faster on big jobs. Same loop, your
+            key stays in the browser.
           </div>
         </button>
 

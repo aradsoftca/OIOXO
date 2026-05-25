@@ -10,7 +10,12 @@
  * the real peer; ShareReceiver is the pure assembler the receiver feeds.
  */
 import type { CodeFile } from './codeloop';
-import { connectPeer, makeRoomCode, type Peer, type PeerState } from '@/lib/p2p/peer';
+import { connectPeer, makeRoomCode, type Peer, type PeerState, type PeerHandlers } from '@/lib/p2p/peer';
+
+/** The transport, injectable so the co-editing layer can be verified end-to-end
+ *  with an in-memory loopback (the real connectPeer — WebRTC over /api/signal — is
+ *  already battle-tested by Send/clipboard/chat; what's new here is the edit sync). */
+export type ConnectFn = (role: 's' | 'r', room: string, h: PeerHandlers) => Peer;
 
 export interface ProjectMeta {
   name?: string;
@@ -87,6 +92,8 @@ export function sendProject(
     onProgress?: (sent: number, total: number) => void;
     onDone?: () => void;
     onRemoteEdit?: (path: string, content: string) => void;
+    /** Override the transport (tests inject a loopback). */
+    connect?: ConnectFn;
   } = {},
 ): SendHandle {
   const room = makeRoomCode();
@@ -106,7 +113,7 @@ export function sendProject(
     h.onDone?.();
   };
 
-  peer = connectPeer('s', room, {
+  peer = (h.connect ?? connectPeer)('s', room, {
     onState: (s) => { h.onState?.(s); if (s === 'connected') flush(); },
     onMessage: (m: ShareMsg) => { if (m?.kind === 'edit') h.onRemoteEdit?.(m.path, m.content); },
   });
@@ -133,12 +140,14 @@ export function receiveProject(
     onProgress?: (received: number, total: number) => void;
     onComplete?: (payload: SharePayload) => void;
     onRemoteEdit?: (path: string, content: string) => void;
+    /** Override the transport (tests inject a loopback). */
+    connect?: ConnectFn;
   } = {},
 ): ReceiveHandle {
   const rx = new ShareReceiver();
   const live = !!h.onRemoteEdit;
   let peer: Peer | null = null;
-  peer = connectPeer('r', room, {
+  peer = (h.connect ?? connectPeer)('r', room, {
     onState: h.onState,
     onMessage: (data: ShareMsg) => {
       if (data?.kind === 'edit') { h.onRemoteEdit?.(data.path, data.content); return; }

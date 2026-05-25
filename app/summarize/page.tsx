@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
 import SummarizeApp from './SummarizeApp';
-import { BRAND } from '@/lib/brand';
+import { BRAND, IS_OIOXO } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Private Summarizer & Translator — runs in your browser',
@@ -13,5 +13,13 @@ export const metadata: Metadata = {
 };
 
 export default function SummarizePage() {
+  // Our own AI surface — temporarily disabled on xonvert (kept on oioxo).
+  if (!IS_OIOXO) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <p className="text-muted-foreground text-center">This feature is temporarily disabled.</p>
+      </div>
+    );
+  }
   return <SummarizeApp />;
 }

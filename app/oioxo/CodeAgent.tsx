@@ -16,9 +16,12 @@ import { runSupported, mountTree, onServerReady, run, parseCommand } from '@/lib
 import { useSkill } from '@/lib/oioxo/useSkills';
 import SkillPanel from './SkillPanel';
 import CodeEditor from './CodeEditor';
+import NewProject from './NewProject';
+import { Rocket } from 'lucide-react';
 
 export default function CodeAgent() {
   const { installed } = useSkill('code');
+  const [surface, setSurface] = React.useState<'build' | 'folder'>('build');
   if (!installed) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -26,7 +29,34 @@ export default function CodeAgent() {
       </div>
     );
   }
-  return <CodeWorkspace modelId={installed} />;
+  const match = SKILLS.code.models.find((m) => m.id === installed)?.webllmMatch ?? ['Coder'];
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center gap-1 border-b border-zinc-200 px-2 py-1.5">
+        <button
+          type="button"
+          onClick={() => setSurface('build')}
+          className={[
+            'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-semibold transition',
+            surface === 'build' ? 'bg-[#E2B24A] text-[#232327]' : 'text-zinc-500 hover:bg-zinc-100',
+          ].join(' ')}
+        >
+          <Rocket className="h-3.5 w-3.5" /> Build a project
+        </button>
+        <button
+          type="button"
+          onClick={() => setSurface('folder')}
+          className={[
+            'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-semibold transition',
+            surface === 'folder' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100',
+          ].join(' ')}
+        >
+          <FolderOpen className="h-3.5 w-3.5" /> Open a folder
+        </button>
+      </div>
+      {surface === 'build' ? <NewProject match={match} /> : <CodeWorkspace modelId={installed} />}
+    </div>
+  );
 }
 
 function CodeWorkspace({ modelId }: { modelId: string }) {

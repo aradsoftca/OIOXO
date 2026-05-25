@@ -49,6 +49,9 @@ export interface BuildOptions {
   /** Verification-guided best-of-N per attempt (the conductor's RANK role, done by
    *  the oracle). >1 trades compute for correctness — a natural Pro "thorough" mode. */
   candidates?: number;
+  /** P6: capture each attempt so verified red→green repairs become conductor
+   *  training data (surfaced as LoopResult.trajectory). Off by default. */
+  record?: boolean;
 }
 
 /**
@@ -120,6 +123,7 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     testCmd,
     maxIters: opts.maxIters,
     candidates: opts.candidates,
+    record: opts.record,
     generate,
     run,
     onStep: opts.onStep,

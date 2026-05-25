@@ -614,7 +614,7 @@ export function AgentRun({
   const [progress, setProgress] = React.useState(0);
   const [plan, setPlan] = React.useState<PlanStep[]>([]);
   const [states, setStates] = React.useState<StepState[]>([]);
-  const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number; engineError?: string }>(null);
+  const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number; engineError?: string; noChanges?: boolean }>(null);
   const [hint, setHint] = React.useState(true);
   // Pro: "thorough" drafts several candidates per step and keeps the one the
   // oracle proves best (more compute → higher success). Free runs single-draft.
@@ -701,6 +701,7 @@ export function AgentRun({
       };
 
       const gen = runAgent({ goal: objective, files: await ws.files(), plan: planner, build, signal: ac.signal });
+      let anyFilesChanged = false;
       while (true) {
         const next = await gen.next();
         if (next.done) break;
@@ -719,10 +720,15 @@ export function AgentRun({
           const before = new Map((await ws.files()).map((f) => [f.path, f.content]));
           ws.applyAll(ev.files);
           const changed = ev.files.filter((f) => before.get(f.path) !== f.content);
+          if (changed.length) anyFilesChanged = true;
           await onChanged(changed);
         } else if (ev.type === 'done') {
-          setDone({ ok: ev.ok, completed: ev.completed, total: ev.total, engineError: ev.engineError });
+          // The model wrote NOTHING → not a real success, regardless of checks.
+          // (A tiny model — esp. the CPU one — often can't produce a full app.)
+          const noChanges = !anyFilesChanged && !ev.engineError;
+          setDone({ ok: ev.ok && anyFilesChanged, completed: ev.completed, total: ev.total, engineError: ev.engineError, noChanges });
           if (ev.engineError) onLog('\n■ the on-device model hit a GPU/memory error and stopped. Try a smaller model, close other heavy tabs, or plug in your own API key (it runs the same loop).\n');
+          else if (noChanges) onLog('\n■ the model didn’t write any code — it’s likely too small for this. Use “Your key” (frontier) or a stronger model.\n');
         }
       }
     } catch (e) {
@@ -767,6 +773,11 @@ export function AgentRun({
             <span>
               The on-device model hit a GPU/memory error and stopped — this is the runtime, not your project. Try again,
               close other heavy tabs, or <button type="button" onClick={() => setShowKey(true)} className="font-semibold underline">use your own API key</button> (same loop, no local GPU).
+            </span>
+          ) : done.noChanges ? (
+            <span>
+              The model didn’t write any code — the on-device model (especially on CPU) is likely too small for this.
+              <button type="button" onClick={() => setShowKey(true)} className="font-semibold underline"> Use your own API key</button> for full apps — same loop, frontier quality.
             </span>
           ) : done.total === 0 ? (
             'The agent could not run. Refine and try again.'

@@ -69,9 +69,13 @@ const PROBE = '<script>(function(){var E=[],CHK=null;function rec(m){E.push(Stri
   'var ce=console.error;console.error=function(){rec("console.error: "+Array.prototype.map.call(arguments,String).join(" "));return ce.apply(console,arguments)};' +
   // the IDE posts the goal checks in; eval each in the page (truthy = pass)
   "window.addEventListener('message',function(e){var d=e.data;if(d&&d.__oioxoSetChecks){CHK=d.__oioxoSetChecks}});" +
-  'function run(){var fails=[];if(CHK){for(var i=0;i<CHK.length;i++){var c=CHK[i];try{var ok=eval(c.src);if(!ok)fails.push("not yet: "+c.name)}catch(err){fails.push("check error ("+c.name+"): "+(err&&err.message||err))}}}' +
+  // Wait until the checks have ARRIVED before reporting — otherwise a slow device
+  // reports "no errors" before the checks were delivered = a false pass.
+  'var deadline=Date.now()+6000;' +
+  'function run(){if(CHK===null&&Date.now()<deadline){setTimeout(run,150);return;}' +
+  'var fails=[];var arr=CHK||[];for(var i=0;i<arr.length;i++){var c=arr[i];try{var ok=eval(c.src);if(!ok)fails.push("not yet: "+c.name)}catch(err){fails.push("check error ("+c.name+"): "+(err&&err.message||err))}}' +
   'try{parent.postMessage({__oioxo:"probe",errors:E.concat(fails)},"*")}catch(_){}}' +
-  "window.addEventListener('load',function(){setTimeout(run,1200)});setTimeout(run,2600);})();</script>";
+  "window.addEventListener('load',function(){setTimeout(run,900)});setTimeout(run,2600);})();</script>";
 http.createServer(async (req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]);
   if (p.endsWith('/')) p += 'index.html';

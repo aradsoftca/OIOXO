@@ -52,6 +52,7 @@ export default function NewProject({ match }: { match: string[] }) {
   const [previewKey, setPreviewKey] = React.useState(0); // bump to reload the iframe
   const [log, setLog] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
+  const [autoBuild, setAutoBuild] = React.useState(0); // bumped after a fresh scaffold → auto-build the goal
   const supported = runSupported();
   const logRef = React.useRef<HTMLPreElement>(null);
   React.useEffect(() => { logRef.current?.scrollTo({ top: 1e9 }); }, [log]);
@@ -126,6 +127,7 @@ export default function NewProject({ match }: { match: string[] }) {
     setPhase('starting'); setError(null); setLog(''); setPreview(null);
     try {
       await bringUp(scaffold(g));
+      setAutoBuild((n) => n + 1); // scaffold is just the start — now actually build the goal
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not start the project');
       setPhase('ready');
@@ -499,6 +501,7 @@ export default function NewProject({ match }: { match: string[] }) {
           match={match}
           goal={goal}
           runtime={info?.runtime}
+          autoBuild={autoBuild}
           onChanged={async (changed) => {
             await syncFiles();
             await refreshSandbox(changed);
@@ -568,7 +571,7 @@ export interface AgentWorkspace {
  *  verifying each with the type oracle, and refreshing the preview as it goes.
  *  The visible plan + per-step status is the "frontier agent" surface. */
 export function AgentRun({
-  ws, match, goal, onChanged, onLog, runtime,
+  ws, match, goal, onChanged, onLog, runtime, autoBuild,
 }: {
   ws: AgentWorkspace;
   match: string[];
@@ -577,6 +580,9 @@ export function AgentRun({
   onLog: (s: string) => void;
   /** 'python'/'sql' verify by running on Pyodide / sql.js; default is the TS type oracle. */
   runtime?: 'node' | 'python' | 'sql';
+  /** Bumped by the parent right after a fresh scaffold → auto plan-and-build the
+   *  goal (through the brain gate), so "ask for X" actually builds X. */
+  autoBuild?: number;
 }) {
   const [task, setTask] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -594,9 +600,22 @@ export function AgentRun({
   // BYOK: the user's own frontier key drives plan + build when set.
   const [frontier, setFrontierState] = React.useState<FrontierConfig | null>(() => getFrontier());
   const [showKey, setShowKey] = React.useState(false);
+  // Brain gate: don't silently download the on-device model — ask first, and
+  // recommend the user's own key (much better for real apps). Remembered once.
+  const coderReady = React.useRef<boolean>(typeof localStorage !== 'undefined' && localStorage.getItem('oioxo.coderReady') === '1');
+  const [showBrain, setShowBrain] = React.useState(false);
+  const pendingRun = React.useRef(false);
+  const brainReady = () => !!frontier || coderReady.current;
+
+  // Auto plan-and-build the goal right after a scaffold (gated on a ready brain).
+  React.useEffect(() => {
+    if (autoBuild && autoBuild > 0) void run();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoBuild]);
 
   async function run() {
     if (busy) return;
+    if (!brainReady()) { pendingRun.current = true; setShowBrain(true); return; } // ask before downloading
     const objective = task.trim() || `Build this out to completion: ${goal}`;
     setBusy(true); setPlan([]); setStates([]); setDone(null); setProgress(0); setHint(false);
     try {
@@ -722,7 +741,29 @@ export function AgentRun({
           {frontier ? frontier.provider : 'Your key'}
         </button>
       </div>
-      {showKey && <FrontierKeyModal current={frontier} onClose={() => setShowKey(false)} onSave={(c) => { setFrontier(c); setFrontierState(c); setShowKey(false); }} />}
+      {showKey && (
+        <FrontierKeyModal
+          current={frontier}
+          onClose={() => setShowKey(false)}
+          onSave={(c) => {
+            setFrontier(c); setFrontierState(c); setShowKey(false);
+            if (c && pendingRun.current) { pendingRun.current = false; setTimeout(() => void run(), 0); } // continue the build with the new key
+          }}
+        />
+      )}
+      {showBrain && (
+        <BrainGate
+          goal={goal}
+          onClose={() => { pendingRun.current = false; setShowBrain(false); }}
+          onUseKey={() => { setShowBrain(false); setShowKey(true); }}
+          onUseDevice={() => {
+            coderReady.current = true;
+            try { localStorage.setItem('oioxo.coderReady', '1'); } catch { /* */ }
+            setShowBrain(false);
+            if (pendingRun.current) { pendingRun.current = false; setTimeout(() => void run(), 0); }
+          }}
+        />
+      )}
       <form onSubmit={(e) => { e.preventDefault(); void run(); }} className="flex items-end gap-2 p-2 pt-1.5">
         <input
           value={task}
@@ -868,6 +909,61 @@ function FrontierKeyModal({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Shown before the first on-device build: don't silently download a model — ask,
+ *  and recommend the user's own key (a 0.6B on-device coder can't build, say, a
+ *  full game; a frontier key can). Remembered once chosen. */
+function BrainGate({
+  goal, onClose, onUseKey, onUseDevice,
+}: {
+  goal: string;
+  onClose: () => void;
+  onUseKey: () => void;
+  onUseDevice: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold text-zinc-900"><Sparkles className="h-4 w-4 text-[#7a5c12]" /> Pick a brain to build this</h3>
+          <button type="button" onClick={onClose} className="rounded p-1 text-zinc-400 hover:bg-zinc-100"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mt-1 text-[12px] text-zinc-500">
+          Building “{goal.slice(0, 60) || 'your project'}” needs a model to plan and write the code. Choose how it runs —
+          this is asked once.
+        </p>
+
+        <button
+          type="button"
+          onClick={onUseKey}
+          className="mt-4 w-full rounded-xl border-2 border-[#E2B24A] bg-[#E2B24A]/10 p-3 text-left transition hover:bg-[#E2B24A]/20"
+        >
+          <div className="flex items-center gap-1.5 text-[13px] font-bold text-[#7a5c12]"><KeyRound className="h-4 w-4" /> Use your own API key — recommended</div>
+          <div className="mt-0.5 text-[12px] text-zinc-600">
+            OpenAI, Claude, Gemini, Groq or OpenRouter. Frontier-grade planning + code — the right choice for real apps
+            and games. Stays in your browser.
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={onUseDevice}
+          className="mt-2 w-full rounded-xl border border-zinc-200 p-3 text-left transition hover:border-zinc-300"
+        >
+          <div className="text-[13px] font-bold text-zinc-800">Download the on-device model</div>
+          <div className="mt-0.5 text-[12px] text-zinc-500">
+            Private and free, runs fully on your device — but it’s a small model (a one-time download). Good for snippets
+            and simple changes; it will struggle with full apps.
+          </div>
+        </button>
+
+        <button type="button" onClick={onClose} className="mt-3 w-full text-center text-[12px] font-semibold text-zinc-400 hover:text-zinc-600">
+          Not now
+        </button>
       </div>
     </div>
   );

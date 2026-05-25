@@ -133,7 +133,9 @@ export default function OioxoShell() {
           />
         )}
 
-        {/* left rail: tool cubes (static on desktop, drawer on mobile) */}
+        {/* left rail: tool cubes (static on desktop, drawer on mobile). Hidden on
+            the Code tab — there the IDE provides its own file panel instead. */}
+        {tab !== 'code' && (
         <aside
           className={[
             'fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zinc-200 bg-white transition-transform duration-200',
@@ -227,6 +229,7 @@ export default function OioxoShell() {
             )}
           </div>
         </aside>
+        )}
 
         {/* center: active tab */}
         <main className="flex min-w-0 flex-1 flex-col">

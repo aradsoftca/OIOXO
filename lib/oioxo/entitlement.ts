@@ -31,6 +31,11 @@ export interface EntitlementClaims {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/** Coerce a Uint8Array to BufferSource for WebCrypto. Newer TS libs type byte
+ *  arrays as Uint8Array<ArrayBufferLike>, which the crypto.subtle overloads
+ *  reject (SharedArrayBuffer variance) even though it's always a plain buffer. */
+const bs = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
+
 function b64urlFromBytes(b: Uint8Array): string {
   let s = '';
   for (const x of b) s += String.fromCharCode(x);
@@ -91,7 +96,7 @@ export async function verifyEntitlement(
   const sigB64 = token.slice(dot + 1);
   let sig: Uint8Array;
   try { sig = bytesFromB64url(sigB64); } catch { return { ok: false, reason: 'malformed' }; }
-  const valid = await crypto.subtle.verify('HMAC', await hmacKey(secret), sig, enc.encode(payload)).catch(() => false);
+  const valid = await crypto.subtle.verify('HMAC', await hmacKey(secret), bs(sig), bs(enc.encode(payload))).catch(() => false);
   if (!valid) return { ok: false, reason: 'bad-signature' };
 
   let claims: EntitlementClaims;

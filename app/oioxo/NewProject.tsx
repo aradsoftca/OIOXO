@@ -15,7 +15,7 @@ import {
   Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
-import { scaffold, type Scaffold } from '@/lib/oioxo/scaffold';
+import { scaffold, templateLabel, type Scaffold } from '@/lib/oioxo/scaffold';
 import { MemoryWorkspace } from '@/lib/oioxo/workspace';
 import { treeFromFiles } from '@/lib/oioxo/tempfs';
 import {
@@ -65,14 +65,27 @@ export default function NewProject({ match }: { match: string[] }) {
 
     append('Setting up your project…\n');
     const tree = treeFromFiles(s.files) as Record<string, unknown>;
-    if (s.preview) (tree as any)[SERVE_FILE] = { file: { contents: STATIC_SERVER } };
+    // Static projects (web/game) get the built-in zero-install server for an
+    // instant preview; api/react start their own server via runCmd.
+    if (s.staticServe) (tree as any)[SERVE_FILE] = { file: { contents: STATIC_SERVER } };
     await mountTree(tree);
     await onServerReady((url) => { setPreview(url); append(`\n▶ preview ready\n`); });
-
     setPhase('ready');
-    if (s.preview) {
+
+    // Optional one-time setup (e.g. npm install for React/Vite).
+    if (s.setup) {
+      append('$ ' + s.setup + '\n');
+      const [sc, sargs] = parseCommand(s.setup);
+      const code = await run(sc, sargs, append);
+      if (code !== 0) { append(`\n✖ setup exited ${code}\n`); return; }
+    }
+
+    if (s.staticServe) {
       append('$ node ' + SERVE_FILE + '\n');
       void run('node', [SERVE_FILE], append); // long-lived; fires server-ready
+    } else if (s.preview) {
+      append('$ ' + s.runCmd + '\n');
+      void run(...parseCommand(s.runCmd), append); // own server (api/react) — long-lived
     } else {
       append('$ ' + s.runCmd + '\n');
       const [c, args] = parseCommand(s.runCmd);
@@ -258,7 +271,7 @@ export default function NewProject({ match }: { match: string[] }) {
       <aside className="flex max-h-40 shrink-0 flex-col border-b border-zinc-200 md:max-h-none md:w-52 md:border-b-0 md:border-r">
         <div className="flex items-center justify-between gap-2 p-2">
           <span className="flex items-center gap-1 truncate text-xs font-semibold text-zinc-500">
-            <Folder className="h-3.5 w-3.5" /> {info?.template === 'node' ? 'Node project' : 'Web project'}
+            <Folder className="h-3.5 w-3.5" /> {info ? templateLabel(info.template) : 'Project'}
           </span>
           <button type="button" onClick={reset} className="rounded p-1 text-zinc-400 hover:bg-zinc-100" title="New project">
             <RefreshCw className="h-3.5 w-3.5" />

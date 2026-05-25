@@ -14,6 +14,9 @@
 
 const enc = new TextEncoder();
 
+/** Coerce a Uint8Array to BufferSource for WebCrypto (see entitlement.ts). */
+const bs = (u: Uint8Array): BufferSource => u as unknown as BufferSource;
+
 function b64FromBytes(b: Uint8Array): string {
   let s = '';
   for (const x of b) s += String.fromCharCode(x);
@@ -35,7 +38,7 @@ export function randomKey(): Uint8Array {
 }
 
 async function aesKey(raw: Uint8Array, usage: KeyUsage[]): Promise<CryptoKey> {
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, usage);
+  return crypto.subtle.importKey('raw', bs(raw), { name: 'AES-GCM' }, false, usage);
 }
 
 export interface EncBlob {
@@ -50,7 +53,7 @@ export interface EncBlob {
 /** Encrypt an asset with a content key (AES-256-GCM). */
 export async function encryptAsset(plaintext: Uint8Array, key: Uint8Array, tag?: string): Promise<EncBlob> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await aesKey(key, ['encrypt']), plaintext);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bs(iv) }, await aesKey(key, ['encrypt']), bs(plaintext));
   return { iv: b64FromBytes(iv), ct: b64FromBytes(new Uint8Array(ct)), tag };
 }
 
@@ -58,9 +61,9 @@ export async function encryptAsset(plaintext: Uint8Array, key: Uint8Array, tag?:
  *  tag fails) — there is intentionally no fallback path. */
 export async function decryptAsset(blob: EncBlob, key: Uint8Array): Promise<Uint8Array> {
   const pt = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv: bytesFromB64(blob.iv) },
+    { name: 'AES-GCM', iv: bs(bytesFromB64(blob.iv)) },
     await aesKey(key, ['decrypt']),
-    bytesFromB64(blob.ct),
+    bs(bytesFromB64(blob.ct)),
   );
   return new Uint8Array(pt);
 }
@@ -71,7 +74,7 @@ export async function decryptAsset(blob: EncBlob, key: Uint8Array): Promise<Uint
  * per user → a leaked key identifies the account. `release` rotates all keys.
  */
 export async function deriveUserKey(master: Uint8Array, userId: string, release = 'v1'): Promise<Uint8Array> {
-  const base = await crypto.subtle.importKey('raw', master, 'HKDF', false, ['deriveBits']);
+  const base = await crypto.subtle.importKey('raw', bs(master), 'HKDF', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt: enc.encode(`oioxo:${release}`), info: enc.encode(`user:${userId}`) },
     base,
@@ -83,7 +86,7 @@ export async function deriveUserKey(master: Uint8Array, userId: string, release 
 /** A short, stable traceability marker for a user (HMAC(master, userId)) — stored
  *  with their per-user ciphertext so a leaked blob/key points back to the account. */
 export async function userTag(master: Uint8Array, userId: string): Promise<string> {
-  const k = await crypto.subtle.importKey('raw', master, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const k = await crypto.subtle.importKey('raw', bs(master), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', k, enc.encode(`user:${userId}`));
   return toHex(new Uint8Array(sig).slice(0, 8));
 }

@@ -24,6 +24,8 @@ import {
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
+import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
+import { makePlanner } from '@/lib/oioxo/planner';
 import CodeEditor from './CodeEditor';
 
 type Phase = 'idle' | 'starting' | 'ready';
@@ -208,7 +210,7 @@ export default function NewProject({ match }: { match: string[] }) {
             <div className="grid h-full place-items-center text-sm text-zinc-400">Pick a file to edit.</div>
           )}
         </div>
-        <BuildOut
+        <AgentRun
           ws={ws.current}
           match={match}
           goal={goal}
@@ -263,9 +265,13 @@ export default function NewProject({ match }: { match: string[] }) {
   );
 }
 
-/** The "build it out" agent strip: type what to add/fix, the on-device coder edits
- *  the project's files and verifies (type oracle), then the preview refreshes. */
-function BuildOut({
+type StepState = 'pending' | 'run' | 'ok' | 'fail';
+
+/** The agent strip: type a goal (or press → to build out the project goal), the
+ *  on-device coder PLANS the steps, then works them one by one — writing files,
+ *  verifying each with the type oracle, and refreshing the preview as it goes.
+ *  The visible plan + per-step status is the "frontier agent" surface. */
+function AgentRun({
   ws, match, goal, onChanged, onLog,
 }: {
   ws: MemoryWorkspace;
@@ -277,63 +283,91 @@ function BuildOut({
   const [task, setTask] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
-  const [steps, setSteps] = React.useState<{ attempt: number; ok: boolean }[]>([]);
-  const [done, setDone] = React.useState<null | { ok: boolean; iters: number; changed: number }>(null);
+  const [plan, setPlan] = React.useState<PlanStep[]>([]);
+  const [states, setStates] = React.useState<StepState[]>([]);
+  const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number }>(null);
   const [hint, setHint] = React.useState(true);
 
   async function run() {
-    const t = task.trim() || `Build this out: ${goal}`;
     if (busy) return;
-    setBusy(true); setSteps([]); setDone(null); setProgress(0); setHint(false);
+    const objective = task.trim() || `Build this out to completion: ${goal}`;
+    setBusy(true); setPlan([]); setStates([]); setDone(null); setProgress(0); setHint(false);
     try {
-      const before = await ws.files();
-      const orig = new Map(before.map((f) => [f.path, f.content]));
-      const libFiles = await loadTsLibs().catch(() => undefined); // type oracle (no install)
-      const res = await buildOrFix({
-        task: t,
-        files: before,
-        match,
-        mode: 'typecheck',
-        libFiles,
-        record: false,
-        onProgress: setProgress,
-        onStep: (s) => setSteps((p) => [...p, { attempt: s.attempt, ok: s.ok }]),
-        onData: onLog,
-      });
-      const changed = res.files.filter((f) => orig.get(f.path) !== f.content);
-      ws.applyAll(res.files);
-      await onChanged(changed);
-      setDone({ ok: res.ok, iters: res.iters, changed: changed.length });
+      const libFiles = await loadTsLibs().catch(() => undefined); // type oracle, no install
+      const planner = makePlanner(match, { onProgress: setProgress });
+      const build = async (stepTask: string, files: CodeFile[]) => {
+        const res = await buildOrFix({
+          task: stepTask, files, match, mode: 'typecheck', libFiles, record: true,
+          onProgress: setProgress, onData: onLog,
+        });
+        return { files: res.files, ok: res.ok, iters: res.iters };
+      };
+
+      const gen = runAgent({ goal: objective, files: await ws.files(), plan: planner, build });
+      while (true) {
+        const next = await gen.next();
+        if (next.done) break;
+        const ev = next.value;
+        if (ev.type === 'plan') {
+          setPlan(ev.steps);
+          setStates(ev.steps.map(() => 'pending'));
+          onLog(`\n▸ Plan (${ev.steps.length} steps):\n` + ev.steps.map((s, i) => `  ${i + 1}. ${s.title}`).join('\n') + '\n');
+        } else if (ev.type === 'step-start') {
+          setStates((s) => s.map((v, i) => (i === ev.index ? 'run' : v)));
+          onLog(`\n→ Step ${ev.index + 1}: ${ev.step.title}\n`);
+        } else if (ev.type === 'step-done') {
+          setStates((s) => s.map((v, i) => (i === ev.index ? (ev.ok ? 'ok' : 'fail') : v)));
+          onLog(`  ${ev.ok ? '✓ verified' : '✗ best effort'} (${ev.iters} ${ev.iters === 1 ? 'try' : 'tries'}, ${ev.changed.length} file${ev.changed.length === 1 ? '' : 's'})\n`);
+        } else if (ev.type === 'files') {
+          const before = new Map((await ws.files()).map((f) => [f.path, f.content]));
+          ws.applyAll(ev.files);
+          const changed = ev.files.filter((f) => before.get(f.path) !== f.content);
+          await onChanged(changed);
+        } else if (ev.type === 'done') {
+          setDone({ ok: ev.ok, completed: ev.completed, total: ev.total });
+        }
+      }
     } catch (e) {
       onLog(`\n✖ ${e instanceof Error ? e.message : 'agent failed'}\n`);
-      setDone({ ok: false, iters: 0, changed: 0 });
+      setDone({ ok: false, completed: 0, total: 0 });
     } finally {
-      setBusy(false); setTask('');
+      setBusy(false); setTask(''); setProgress(0);
     }
   }
 
+  const ICON: Record<StepState, React.ReactNode> = {
+    pending: <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-zinc-300" />,
+    run: <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#7a5c12]" />,
+    ok: <Check className="h-3.5 w-3.5 shrink-0 text-green-600" />,
+    fail: <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />,
+  };
+
   return (
     <div className="shrink-0 border-t border-zinc-200 bg-white">
-      {hint && (
+      {hint && plan.length === 0 && (
         <p className="px-3 pt-2 text-[11px] text-zinc-400">
-          The starter is running. Tell the agent what to add — it writes the files, verifies, and refreshes the preview.
+          Press → to build the whole project out, or describe a change. The agent plans the steps, writes the files,
+          verifies each, and refreshes the preview.
         </p>
       )}
-      {steps.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-3 pt-2">
-          {steps.map((s, i) => (
-            <span key={i} className={['rounded px-1.5 py-0.5 text-[10px] font-medium', s.ok ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'].join(' ')}>
-              try {s.attempt + 1} {s.ok ? '✓' : '✗'}
-            </span>
+      {plan.length > 0 && (
+        <ol className="max-h-32 space-y-0.5 overflow-auto px-3 pt-2">
+          {plan.map((s, i) => (
+            <li key={i} className="flex items-center gap-2 text-[12px]">
+              {ICON[states[i] ?? 'pending']}
+              <span className={states[i] === 'pending' ? 'text-zinc-400' : 'text-zinc-700'}>{s.title}</span>
+            </li>
           ))}
-        </div>
+        </ol>
       )}
       {done && (
         <div className={['mx-3 mt-2 flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12px]', done.ok ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'].join(' ')}>
           {done.ok ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
-          {done.ok
-            ? `Updated ${done.changed} file${done.changed === 1 ? '' : 's'}, verified in ${done.iters} ${done.iters === 1 ? 'try' : 'tries'}.`
-            : `Applied a best effort (${done.changed} file${done.changed === 1 ? '' : 's'}). Refine and try again.`}
+          {done.total === 0
+            ? 'The agent could not run. Refine and try again.'
+            : done.ok
+              ? `Done — all ${done.total} steps verified. Preview is live.`
+              : `Completed ${done.completed}/${done.total} steps (best effort on the rest). Refine and rerun.`}
         </div>
       )}
       <form onSubmit={(e) => { e.preventDefault(); void run(); }} className="flex items-end gap-2 p-2">
@@ -341,7 +375,7 @@ function BuildOut({
           value={task}
           onChange={(e) => setTask(e.target.value)}
           disabled={busy}
-          placeholder={`Add a feature, fix something, or press → to build out: "${goal.slice(0, 40)}"`}
+          placeholder={`Press → to build out "${goal.slice(0, 38)}", or describe a change`}
           className="flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-[#E2B24A] focus:outline-none disabled:opacity-60"
         />
         <button

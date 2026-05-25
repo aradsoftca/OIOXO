@@ -34,8 +34,16 @@ const APPS: { href: string; name: string; icon: string }[] = [
   { href: '/viewer', name: 'Viewer', icon: 'eye' },
 ];
 
+const TAB_IDS = new Set<Tab>(['ai', 'code', 'image', 'video']);
+
 export default function OioxoShell() {
-  const [tab, setTab] = React.useState<Tab>('ai');
+  // Deep-link the surface via ?tab= (e.g. the homepage "Build a project" CTA →
+  // /oioxo?tab=code). Read once on mount; falls back to the AI surface.
+  const [tab, setTab] = React.useState<Tab>(() => {
+    if (typeof window === 'undefined') return 'ai';
+    const t = new URLSearchParams(window.location.search).get('tab') as Tab | null;
+    return t && TAB_IDS.has(t) ? t : 'ai';
+  });
   const [query, setQuery] = React.useState('');
   const [railOpen, setRailOpen] = React.useState(false);
   const [openCats, setOpenCats] = React.useState<Set<Category>>(() => new Set([CAT_ORDER[0]]));

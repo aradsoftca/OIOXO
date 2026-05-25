@@ -7,6 +7,7 @@ import { TileIcon } from '@/components/tiles/TileIcon';
 import { CategoryGrid } from '@/components/home/CategoryGrid';
 import { TOOLS } from '@/lib/registry';
 import { IS_OIOXO } from '@/lib/brand';
+import ConvertAnythingTool from '@/tools/convert-anything/ui';
 
 export default function HomePage() {
   return (
@@ -28,28 +29,45 @@ export default function HomePage() {
               </span>
             ) : (
               <>
-                Xonvert{' '}
-                <span
-                  style={{
-                    background: 'var(--brand-gradient)',
-                    WebkitBackgroundClip: 'text',
-                    backgroundClip: 'text',
-                    color: 'transparent',
-                  }}
-                >
-                  AI
-                </span>
+                Every File. Every Tool. One Tap.
               </>
             )}
           </h1>
           <p className="mx-auto mt-2 text-[14px] font-medium text-balance text-[var(--color-fg-muted)] sm:whitespace-nowrap sm:text-[16px]">
             {IS_OIOXO
               ? 'One AI for everything — understands, searches, and gets it done, privately on your device.'
-              : 'Your online AI handyman — convert, edit, create & find the right tool for any file.'}
+              : '260+ formats • 400+ tools • Free, fast & private'}
           </p>
         </div>
-        <HomeAiHero />
+        {IS_OIOXO ? <HomeAiHero /> : <div className="mt-8 mx-auto w-full max-w-3xl"><ConvertAnythingTool /></div>}
       </section>
+
+      {/* oioxo flagship: the build-a-project surface (function-only copy) */}
+      {IS_OIOXO && (
+        <section>
+          <Tile size="L" color="oklch(20% 0.008 250)" href="/oioxo?tab=code">
+            <div className="flex items-start justify-between">
+              <TileIcon name="code-2" size={26} className="text-white/95" />
+              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80">
+                New
+              </span>
+            </div>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+                Build
+              </div>
+              <div className="mt-1 text-[22px] font-extrabold leading-tight tracking-tight text-white">
+                Describe an app — it builds, runs &amp; previews it
+              </div>
+              <div className="mt-1.5 max-w-2xl text-[13px] font-medium text-white/60">
+                Plans the steps, writes the files, checks its own work, and shows a live preview —
+                web, React, Node, Python or SQL. On your device. Open a folder or a GitHub repo, or
+                share a live project with someone. <span className="text-white/80">Start building →</span>
+              </div>
+            </div>
+          </Tile>
+        </section>
+      )}
 
       {/* Quick tiles — pinned tools + convert hub */}
       <section>

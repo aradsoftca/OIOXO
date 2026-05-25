@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'Reverse Text',
   blurb: 'Reverse a string, line, or paragraph — Unicode-safe.',
   category: 'text',
+  accepts: ['text/*'],
   tile: 'S',
   icon: 'flip-horizontal',
   compute: 'instant',

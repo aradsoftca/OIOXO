@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'Word Counter',
   blurb: 'Live word, character, line, paragraph, and reading-time counts.',
   category: 'text',
+  accepts: ['text/*'],
   tile: 'M',
   icon: 'tally-5',
   compute: 'instant',

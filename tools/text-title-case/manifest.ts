@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'Title Case',
   blurb: 'Capitalize the first letter of every word in a smart, modern way.',
   category: 'text',
+  accepts: ['text/*'],
   tile: 'S',
   icon: 'case-sensitive',
   compute: 'instant',

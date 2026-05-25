@@ -5,6 +5,7 @@ import { Copy, Download, Trash2, Upload, Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { FetchUrlBar } from '@/components/tool/FetchUrlBar';
+import { useStagedInput } from '@/lib/ai/handoff';
 
 export interface TextToolControl {
   id: string;
@@ -62,6 +63,12 @@ export function TextTool({
     Object.fromEntries(controls.map((c) => [c.id, c.defaultValue])),
   );
   const [copied, setCopied] = React.useState(false);
+
+  // If the user picked this tool from the homepage launcher (or the AI) with a
+  // file in hand, read it as text and drop it straight into the input.
+  useStagedInput((file) => {
+    file.text().then((t) => setInput(t)).catch(() => { /* not text */ });
+  });
 
   const output = React.useMemo(() => {
     try {

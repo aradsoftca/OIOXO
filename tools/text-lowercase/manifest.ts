@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'lowercase',
   blurb: 'Convert text to lowercase — fast and private.',
   category: 'text',
+  accepts: ['text/*'],
   tile: 'S',
   icon: 'arrow-down-to-line',
   compute: 'instant',

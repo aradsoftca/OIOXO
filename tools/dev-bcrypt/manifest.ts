@@ -3,7 +3,8 @@ export const manifest: ToolManifest = {
   id: 'dev-bcrypt',
   name: 'Bcrypt',
   blurb: 'Hash a password with bcrypt — or verify a stored hash.',
-  category: 'dev', tile: 'M', icon: 'lock', compute: 'instant',
+  category: 'dev',
+  accepts: ['text/*'], tile: 'M', icon: 'lock', compute: 'instant',
   keywords: ['bcrypt', 'password hash', 'verify', 'salt'], offline: true,
 };
 export default manifest;

@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'Base64',
   blurb: 'Encode and decode Base64 — UTF-8 safe, two-way.',
   category: 'dev',
+  accepts: ['text/*'],
   tile: 'M',
   icon: 'binary',
   compute: 'instant',

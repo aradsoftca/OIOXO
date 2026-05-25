@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'Lorem Ipsum',
   blurb: 'Generate placeholder text — words, sentences, or paragraphs.',
   category: 'dev',
+  accepts: ['text/*'],
   tile: 'S',
   icon: 'pilcrow',
   compute: 'instant',

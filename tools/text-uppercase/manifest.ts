@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'UPPERCASE',
   blurb: 'Convert any text to UPPERCASE — instant.',
   category: 'text',
+  accepts: ['text/*'],
   tile: 'S',
   icon: 'arrow-up-from-line',
   compute: 'instant',

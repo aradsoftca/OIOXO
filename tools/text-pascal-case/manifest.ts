@@ -3,7 +3,8 @@ export const manifest: ToolManifest = {
   id: 'text-pascal-case',
   name: 'PascalCase',
   blurb: 'Convert any text to PascalCase identifiers.',
-  category: 'text', tile: 'S', icon: 'type', compute: 'instant',
+  category: 'text',
+  accepts: ['text/*'], tile: 'S', icon: 'type', compute: 'instant',
   keywords: ['pascalcase', 'class name', 'identifier'], offline: true,
 };
 export default manifest;

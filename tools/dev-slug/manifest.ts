@@ -5,6 +5,7 @@ export const manifest: ToolManifest = {
   name: 'Slug Generator',
   blurb: 'Turn a title into a clean URL slug — Unicode-safe transliteration.',
   category: 'dev',
+  accepts: ['text/*'],
   tile: 'S',
   icon: 'link',
   compute: 'instant',

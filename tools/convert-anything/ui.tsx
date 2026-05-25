@@ -1,9 +1,15 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { Upload, Loader2, Download, Check, ArrowRight, FileText } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { detectFormat, targetsFor, convertFile, type Target, type ConvCategory } from '@/lib/convert/matrix';
+import { convertFile, type Target, type ConvCategory } from '@/lib/convert/matrix';
+import { actionsForFile } from '@/lib/files/actions';
+import type { ToolManifest } from '@/lib/registry/types';
+import { CATEGORIES } from '@/lib/registry/types';
+import { stageHandoff } from '@/lib/ai/handoff';
+import { TileIcon } from '@/components/tiles/TileIcon';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 
 const CAT_LABEL: Record<ConvCategory, string> = {
@@ -11,9 +17,11 @@ const CAT_LABEL: Record<ConvCategory, string> = {
 };
 
 export default function ConvertAnythingTool() {
+  const router = useRouter();
   const [file, setFile] = React.useState<File | null>(null);
   const [info, setInfo] = React.useState<{ ext: string; category: ConvCategory | null } | null>(null);
   const [targets, setTargets] = React.useState<Target[]>([]);
+  const [tools, setTools] = React.useState<ToolManifest[]>([]);
   const [active, setActive] = React.useState<Target | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
@@ -26,10 +34,11 @@ export default function ConvertAnythingTool() {
 
   const load = (f: File) => {
     setError(''); setResult(null); setActive(null);
-    const det = detectFormat(f);
-    const ts = targetsFor(det.ext);
-    setFile(f); setInfo(det); setTargets(ts);
-    if (!ts.length) setError(det.category ? `No in-browser conversions for .${det.ext} yet.` : `Unsupported file type: .${det.ext || '?'}`);
+    const a = actionsForFile(f);
+    setFile(f); setInfo({ ext: a.ext, category: a.category }); setTargets(a.convert); setTools(a.tools);
+    if (!a.convert.length && !a.tools.length) {
+      setError(`No in-browser actions for .${a.ext || '?'} yet.`);
+    }
   };
 
   const run = async (target: Target) => {
@@ -58,6 +67,12 @@ export default function ConvertAnythingTool() {
     }
   };
 
+  // Open the chosen tool with the dropped file already loaded.
+  const openTool = (t: ToolManifest) => {
+    if (file) stageHandoff(file);
+    router.push(`/tools/${t.id}`);
+  };
+
   const download = () => {
     if (!result) return;
     let url = result.url;
@@ -82,9 +97,9 @@ export default function ConvertAnythingTool() {
           </div>
           <div>
             <button type="button" onClick={() => inputRef.current?.click()} className="text-[18px] font-semibold tracking-tight text-[var(--color-fg)] hover:underline underline-offset-4">
-              Drop any file to convert it
+              Drop a file — see everything you can do with it
             </button>
-            <p className="mt-1 text-[13px] text-[var(--color-fg-muted)]">Images, audio, video, PDFs — we&apos;ll show every format you can convert to. Files never leave your device.</p>
+            <p className="mt-1 text-[13px] text-[var(--color-fg-muted)]">Convert it to any format, or open it in the right tool — edit, compress, extract. Files never leave your device.</p>
           </div>
           <input ref={inputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
         </div>
@@ -96,7 +111,7 @@ export default function ConvertAnythingTool() {
             <span className="text-[12px] font-semibold">{file.name}</span>
             {info?.category && <span className="bg-black/[0.06] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">{CAT_LABEL[info.category]}</span>}
             <span className="font-mono text-[10px] text-[var(--color-fg-muted)]">{(file.size / 1024).toFixed(0)} KB</span>
-            <button type="button" onClick={() => { setFile(null); setResult(null); setActive(null); }}
+            <button type="button" onClick={() => { setFile(null); setResult(null); setActive(null); setTargets([]); setTools([]); }}
               className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change file</button>
           </div>
 
@@ -153,6 +168,32 @@ export default function ConvertAnythingTool() {
                 className="mt-3 flex items-center gap-2 bg-[var(--color-cat-convert)] px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110">
                 {result.text != null ? <FileText className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />} Download
               </button>
+            </div>
+          )}
+
+          {tools.length > 0 && (
+            <div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+                Open in a tool <span className="text-[var(--color-fg-subtle)]">· {tools.length}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {tools.map((t) => {
+                  const color = `var(${CATEGORIES[t.category].colorVar})`;
+                  return (
+                    <button key={t.id} type="button" onClick={() => openTool(t)}
+                      className="group flex items-center gap-3 border border-black/[0.08] px-3 py-3 text-left transition hover:border-[color:var(--hover)] hover:bg-[var(--color-surface-2)]"
+                      style={{ ['--hover' as string]: color }}>
+                      <span className="grid h-8 w-8 shrink-0 place-items-center text-white" style={{ background: color }}>
+                        <TileIcon name={t.icon} size={16} strokeWidth={1.9} />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-[13px] font-semibold text-[var(--color-fg)]">{t.name}</span>
+                        <span className="block truncate text-[11px] text-[var(--color-fg-muted)]">{t.blurb}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </>

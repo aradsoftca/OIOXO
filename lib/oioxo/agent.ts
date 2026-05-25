@@ -53,6 +53,8 @@ export interface AgentOptions {
   /** Keep going to the next step even if one didn't fully verify. Default true —
    *  a frontier agent makes forward progress and revisits, it doesn't hard-stop. */
   continueOnFail?: boolean;
+  /** Cancel (the user's Stop) — checked before each step. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -79,6 +81,7 @@ export async function* runAgent(
 
   let completed = 0;
   for (let i = 0; i < steps.length; i++) {
+    if (opts.signal?.aborted) break; // user pressed Stop
     const step = steps[i];
     yield { type: 'step-start', index: i, step };
     const before = new Map(files.map((f) => [f.path, f.content]));

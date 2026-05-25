@@ -61,6 +61,17 @@ export interface LoopOptions {
   /** P6: capture each attempt (context in, edits out, oracle verdict) so verified
    *  red→green repairs become gold conductor training data. Off by default. */
   record?: boolean;
+  /** Cancel the loop (the user's Stop). Checked between candidates/attempts; the
+   *  loop ends gracefully and returns the best state so far. */
+  signal?: AbortSignal;
+  /** SEARCH-WHEN-STUCK (OIOXO_CODE §2 step 2): once repairs keep failing on the
+   *  same error, look it up on the web and fold the findings into the next repair
+   *  context — the small model resolves problems it doesn't know. */
+  search?: (query: string) => Promise<string>;
+  /** Start searching after this many failed attempts on the same error (default 2). */
+  searchAfter?: number;
+  /** Human narration of what the loop is doing (drives the "watch it think" view). */
+  onNote?: (s: string) => void;
 }
 
 /** One generate→run attempt, captured for conductor distillation (P6). The loop
@@ -118,16 +129,29 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   let last: RunResult = { ok: false, output: '', errors: '' };
   const history: { attempt: number; ok: boolean }[] = [];
   const trajectory: StepRecord[] | undefined = opts.record ? [] : undefined;
+  const searchAfter = opts.searchAfter ?? 2;
+  const searched = new Set<string>();
 
   for (let attempt = 0; attempt < maxIters; attempt++) {
+    if (opts.signal?.aborted) { opts.onNote?.('\n■ stopped\n'); break; }
     const filesBefore = files;
-    const error = attempt === 0 ? undefined : last.errors;
+    let error = attempt === 0 ? undefined : last.errors;
+    // Stuck on the same error? Search the web and fold the findings into the repair.
+    if (error && opts.search && attempt >= searchAfter) {
+      const key = error.slice(0, 120);
+      if (!searched.has(key)) {
+        searched.add(key);
+        const hint = await opts.search(error).catch(() => '');
+        if (hint) error = `${error}\n\n[Web research for this problem]\n${hint}`;
+      }
+    }
     // Draft up to nCand candidates from the SAME starting point; the oracle ranks
     // them and we keep the best. Stop early the instant one passes.
     let bestFiles = filesBefore;
     let bestEdits: Edit[] = [];
     let bestRes: RunResult | null = null;
     for (let k = 0; k < nCand; k++) {
+      if (opts.signal?.aborted) break;
       let cand = filesBefore;
       let edits: Edit[] = [];
       let res: RunResult;

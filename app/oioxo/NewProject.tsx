@@ -12,7 +12,7 @@
 import * as React from 'react';
 import {
   Sparkles, Loader2, Play, RefreshCw, File as FileIcon, Folder, Wrench,
-  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X, KeyRound, ExternalLink,
+  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X, KeyRound, ExternalLink, Square,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import { scaffold, templateLabel, type Scaffold } from '@/lib/oioxo/scaffold';
@@ -33,6 +33,7 @@ import { downloadFilesZip } from '@/lib/oioxo/zip';
 import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
 import { recipeFor } from '@/lib/oioxo/recipes';
+import { searchForError } from '@/lib/oioxo/code-search';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
 import { configureConductor } from '@/lib/oioxo/conductor-engine';
 import { getFrontier, setFrontier, frontierChat, PROVIDERS, type FrontierConfig, type Provider } from '@/lib/oioxo/frontier';
@@ -622,6 +623,8 @@ export function AgentRun({
   const [showBrain, setShowBrain] = React.useState(false);
   const pendingRun = React.useRef(false);
   const brainReady = () => !!frontier || coderReady.current;
+  // Stop: cancel an in-flight agent run.
+  const abortRef = React.useRef<AbortController | null>(null);
 
   // Auto plan-and-build the goal right after a scaffold (gated on a ready brain).
   React.useEffect(() => {
@@ -636,6 +639,7 @@ export function AgentRun({
     const recipe = recipeFor(rawGoal); // ground the small model with the right structure
     const objective = (task.trim() || `Build this out to completion: ${goal}`) + (recipe ? `\n\nGuidance:\n${recipe.guidance}` : '');
     setBusy(true); setPlan([]); setStates([]); setDone(null); setProgress(0); setHint(false);
+    const ac = new AbortController(); abortRef.current = ac;
     try {
       // Python/SQL verify by running on their WASM engine; everything else uses
       // the in-browser TS type oracle (no install).
@@ -660,12 +664,16 @@ export function AgentRun({
           candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
           coder: fc ? { kind: 'frontier', config: fc } : undefined, // BYOK writer
           run: oracle, // RUNTIME oracle for web/UI/games (else typecheck/python/sql)
-          runtime, onProgress: setProgress, onData: onLog,
+          runtime,
+          signal: ac.signal, // Stop
+          search: (q) => searchForError(q, onLog), // search-when-stuck
+          onNote: onLog,
+          onProgress: setProgress, onData: onLog,
         });
         return { files: res.files, ok: res.ok, iters: res.iters };
       };
 
-      const gen = runAgent({ goal: objective, files: await ws.files(), plan: planner, build });
+      const gen = runAgent({ goal: objective, files: await ws.files(), plan: planner, build, signal: ac.signal });
       while (true) {
         const next = await gen.next();
         if (next.done) break;
@@ -693,9 +701,11 @@ export function AgentRun({
       onLog(`\n✖ ${e instanceof Error ? e.message : 'agent failed'}\n`);
       setDone({ ok: false, completed: 0, total: 0 });
     } finally {
-      setBusy(false); setTask(''); setProgress(0);
+      setBusy(false); setTask(''); setProgress(0); abortRef.current = null;
     }
   }
+
+  function stop() { abortRef.current?.abort(); onLog('\n■ stopping…\n'); }
 
   const ICON: Record<StepState, React.ReactNode> = {
     pending: <span className="h-3.5 w-3.5 shrink-0 rounded-full border border-zinc-300" />,
@@ -791,14 +801,25 @@ export function AgentRun({
           placeholder={`Press → to build out "${goal.slice(0, 38)}", or describe a change`}
           className="flex-1 rounded-xl border border-zinc-300 bg-white px-3 py-2 text-[13px] focus:border-[#E2B24A] focus:outline-none disabled:opacity-60"
         />
-        <button
-          type="submit"
-          disabled={busy}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E2B24A] text-[#232327] transition hover:brightness-105 disabled:opacity-40"
-          aria-label="Build"
-        >
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
-        </button>
+        {busy ? (
+          <button
+            type="button"
+            onClick={stop}
+            className="flex h-9 shrink-0 items-center gap-1 rounded-xl bg-rose-600 px-3 text-[13px] font-semibold text-white transition hover:bg-rose-500"
+            aria-label="Stop"
+            title="Stop the agent"
+          >
+            <Square className="h-3.5 w-3.5 fill-current" /> Stop
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#E2B24A] text-[#232327] transition hover:brightness-105 disabled:opacity-40"
+            aria-label="Build"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </button>
+        )}
       </form>
       {busy && progress > 0 && progress < 1 && (
         <div className="px-3 pb-2 text-[11px] text-zinc-400">loading coder… {Math.round(progress * 100)}%</div>

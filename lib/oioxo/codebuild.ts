@@ -65,6 +65,12 @@ export interface BuildOptions {
   /** Override the oracle entirely (e.g. the preview RUNTIME oracle for web/UI/games
    *  — run the app, capture runtime errors + checks). Wins over mode/runtime. */
   run?: RunFn;
+  /** Cancel (the user's Stop). */
+  signal?: AbortSignal;
+  /** Search-when-stuck: look up persistent errors on the web, fold into the repair. */
+  search?: (query: string) => Promise<string>;
+  /** Human narration of what the agent is doing (the "watch it think" stream). */
+  onNote?: (s: string) => void;
 }
 
 /**
@@ -151,6 +157,9 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     maxIters: opts.maxIters,
     candidates: opts.candidates,
     record: opts.record,
+    signal: opts.signal,
+    search: opts.search,
+    onNote: opts.onNote,
     generate,
     run,
     onStep: opts.onStep,

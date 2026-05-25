@@ -57,6 +57,16 @@ test('recipes: match task types, null otherwise', async () => {
   assert.ok((recipeFor('pacman')?.guidance || '').includes('MAZE'));
 });
 
+// ---------- code-search (search-when-stuck query) ----------
+test('code-search: errorQuery distills a searchable query', async () => {
+  const { errorQuery } = await import('../lib/oioxo/code-search.ts');
+  const q = errorQuery("Uncaught ReferenceError: drawMaze is not defined @ game.js:42");
+  assert.ok(/ReferenceError/.test(q) && /drawMaze is not defined/.test(q));
+  assert.ok(!/game\.js:42/.test(q)); // path:line stripped
+  assert.ok(q.length <= 120);
+  assert.equal(errorQuery(''), '');
+});
+
 // ---------- agent ----------
 test('agent: parsePlan (JSON + list + degrade)', async () => {
   const { parsePlan } = await import('../lib/oioxo/agent.ts');

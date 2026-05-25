@@ -13,6 +13,7 @@ import { makeOllamaGenerate } from './bigcoder';
 import { isDesktop } from './native';
 import { makePythonRun } from './pyodide';
 import { makeSqlRun } from './sqljs';
+import { makeFrontierGenerate } from './frontier';
 
 export { runSupported };
 export type { CodeFile, LoopResult };
@@ -45,9 +46,12 @@ export interface BuildOptions {
   /** P5: run the real test command as an OS process in the oioxo desktop app
    *  (the strongest oracle). Ignored / throws in a plain browser. Overrides mode. */
   native?: boolean;
-  /** P5: drive the loop with a bigger LOCAL coder via Ollama instead of the small
-   *  WebGPU coder — same prompt + loop, still on the user's own machine. */
-  coder?: { kind: 'ollama'; model: string; base?: string };
+  /** Drive the loop with a bigger writer instead of the small WebGPU coder — same
+   *  grounded prompt + verified loop. 'ollama' = a local model server on the user's
+   *  machine; 'frontier' = the user's own frontier API key (BYOK, browser-direct). */
+  coder?:
+    | { kind: 'ollama'; model: string; base?: string }
+    | { kind: 'frontier'; config: import('./frontier').FrontierConfig };
   /** Verification-guided best-of-N per attempt (the conductor's RANK role, done by
    *  the oracle). >1 trades compute for correctness — a natural Pro "thorough" mode. */
   candidates?: number;
@@ -129,7 +133,9 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
   const generate: GenerateFn =
     opts.coder?.kind === 'ollama'
       ? makeOllamaGenerate(opts.coder.model, { base: opts.coder.base, getExtApis })
-      : makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis });
+      : opts.coder?.kind === 'frontier'
+        ? makeFrontierGenerate(opts.coder.config, { getExtApis })
+        : makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis });
 
   return runCodeLoop({
     task: opts.task,

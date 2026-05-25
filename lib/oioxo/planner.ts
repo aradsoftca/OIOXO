@@ -26,10 +26,11 @@ function filesDigest(files: CodeFile[], budget = 1800): string {
   return parts.join('\n');
 }
 
-/** Build a PlanFn backed by the on-device coder (web-llm `match`). */
+/** Build a PlanFn backed by the on-device coder (web-llm `match`) — or, when a
+ *  `chat` override is supplied (e.g. the user's frontier key), by that model. */
 export function makePlanner(
   match: string[],
-  opts?: { maxTokens?: number; onProgress?: (p: number) => void },
+  opts?: { maxTokens?: number; onProgress?: (p: number) => void; chat?: (system: string, user: string) => Promise<string> },
 ): PlanFn {
   const system =
     'You are a senior engineer planning a build inside oioxo. Given a goal and the ' +
@@ -42,8 +43,10 @@ export function makePlanner(
     const user =
       `Goal: ${goal}\n\nThe project already has these files (heads shown):\n${digest}\n\n` +
       'Plan the steps that build the goal out from here. Return the plan as a JSON array of step strings.';
-    // Routes to the specialized conductor when hosted+entitled, else the coder.
-    const acc = await runRole('plan', system, user, match, { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress });
+    // Frontier key (BYOK) → that model; else conductor-when-entitled, else coder.
+    const acc = opts?.chat
+      ? await opts.chat(system, user)
+      : await runRole('plan', system, user, match, { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress });
     return parsePlan(acc);
   };
 }

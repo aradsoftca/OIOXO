@@ -12,7 +12,7 @@
 import * as React from 'react';
 import {
   Sparkles, Loader2, Play, RefreshCw, File as FileIcon, Folder, Wrench,
-  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X,
+  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X, KeyRound, ExternalLink,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import { scaffold, templateLabel, type Scaffold } from '@/lib/oioxo/scaffold';
@@ -32,6 +32,7 @@ import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
 import { configureConductor } from '@/lib/oioxo/conductor-engine';
+import { getFrontier, setFrontier, frontierChat, PROVIDERS, type FrontierConfig, type Provider } from '@/lib/oioxo/frontier';
 import { sendProject, receiveProject, type SharePayload } from '@/lib/oioxo/share';
 import type { PeerState } from '@/lib/p2p/peer';
 import CodeEditor from './CodeEditor';
@@ -556,6 +557,9 @@ export function AgentRun({
   const [thorough, setThorough] = React.useState(false);
   // Gate the specialized conductor (when hosted) to Pro — see conductor-engine.
   React.useEffect(() => { configureConductor({ entitled: pro }); }, [pro]);
+  // BYOK: the user's own frontier key drives plan + build when set.
+  const [frontier, setFrontierState] = React.useState<FrontierConfig | null>(() => getFrontier());
+  const [showKey, setShowKey] = React.useState(false);
 
   async function run() {
     if (busy) return;
@@ -565,7 +569,11 @@ export function AgentRun({
       // Python/SQL verify by running on their WASM engine; everything else uses
       // the in-browser TS type oracle (no install).
       const libFiles = runtime === 'python' || runtime === 'sql' ? undefined : await loadTsLibs().catch(() => undefined);
-      const planner = makePlanner(match, { onProgress: setProgress });
+      const fc = frontier; // BYOK frontier key drives plan + build when set
+      const planner = makePlanner(match, {
+        onProgress: setProgress,
+        chat: fc ? (s, u) => frontierChat(fc, s, u, { maxTokens: 512 }) : undefined,
+      });
       const build = async (
         stepTask: string,
         files: CodeFile[],
@@ -579,6 +587,7 @@ export function AgentRun({
         const res = await buildOrFix({
           task: framed, files, match, mode: 'typecheck', libFiles, record: true,
           candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
+          coder: fc ? { kind: 'frontier', config: fc } : undefined, // BYOK writer
           runtime, onProgress: setProgress, onData: onLog,
         });
         return { files: res.files, ok: res.ok, iters: res.iters };
@@ -668,7 +677,18 @@ export function AgentRun({
             Thorough builds → Pro
           </a>
         )}
+        <button
+          type="button"
+          onClick={() => setShowKey(true)}
+          disabled={busy}
+          title={frontier ? `Using your ${frontier.provider} key (${frontier.model}). Click to change.` : 'Use your own frontier API key (OpenAI, Claude, Gemini…) — stays in your browser'}
+          className={['flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition', frontier ? 'bg-emerald-100 text-emerald-700' : 'text-zinc-500 hover:bg-zinc-100'].join(' ')}
+        >
+          <KeyRound className="h-3 w-3" />
+          {frontier ? frontier.provider : 'Your key'}
+        </button>
       </div>
+      {showKey && <FrontierKeyModal current={frontier} onClose={() => setShowKey(false)} onSave={(c) => { setFrontier(c); setFrontierState(c); setShowKey(false); }} />}
       <form onSubmit={(e) => { e.preventDefault(); void run(); }} className="flex items-end gap-2 p-2 pt-1.5">
         <input
           value={task}
@@ -732,6 +752,87 @@ function SharePopover({
           ) : (
             <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for someone to enter the code…</>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Bring-your-own frontier key: pick a provider, model and key (stored only in
+ *  this browser). When set, the agent plans + builds with that model instead of
+ *  the on-device coder — same verified loop, frontier-grade writer. */
+function FrontierKeyModal({
+  current, onClose, onSave,
+}: {
+  current: FrontierConfig | null;
+  onClose: () => void;
+  onSave: (c: FrontierConfig | null) => void;
+}) {
+  const [provider, setProvider] = React.useState<Provider>(current?.provider ?? 'openrouter');
+  const [model, setModel] = React.useState(current?.model ?? PROVIDERS.openrouter.defaultModel);
+  const [key, setKey] = React.useState(current?.key ?? '');
+  const [baseURL, setBaseURL] = React.useState(current?.baseURL ?? '');
+  const spec = provider === 'custom' ? null : PROVIDERS[provider];
+
+  function pickProvider(p: Provider) {
+    setProvider(p);
+    if (p !== 'custom') setModel(PROVIDERS[p].defaultModel);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold text-zinc-900"><KeyRound className="h-4 w-4" /> Use your own model</h3>
+          <button type="button" onClick={onClose} className="rounded p-1 text-zinc-400 hover:bg-zinc-100"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mt-1 text-[12px] text-zinc-500">
+          Plug in a frontier API key to drive the agent with it. The key stays in this browser and calls go straight
+          to the provider — oioxo never sees it.
+        </p>
+
+        <label className="mt-4 block text-[11px] font-semibold text-zinc-500">Provider</label>
+        <div className="mt-1 grid grid-cols-3 gap-1.5">
+          {(['openrouter', 'openai', 'anthropic', 'groq', 'google', 'custom'] as Provider[]).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => pickProvider(p)}
+              className={['rounded-lg border px-2 py-1.5 text-[11px] font-semibold transition', provider === p ? 'border-[#E2B24A] bg-[#E2B24A]/10 text-[#7a5c12]' : 'border-zinc-200 text-zinc-600 hover:border-zinc-300'].join(' ')}
+            >
+              {p === 'custom' ? 'Custom' : PROVIDERS[p].label.split(' ')[0]}
+            </button>
+          ))}
+        </div>
+
+        {provider === 'custom' && (
+          <input value={baseURL} onChange={(e) => setBaseURL(e.target.value)} placeholder="https://… (OpenAI-compatible base URL)" className="mt-2 w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-[13px] focus:border-[#E2B24A] focus:outline-none" />
+        )}
+
+        <label className="mt-3 block text-[11px] font-semibold text-zinc-500">Model</label>
+        <input value={model} onChange={(e) => setModel(e.target.value)} placeholder="model id" className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-1.5 font-mono text-[12px] focus:border-[#E2B24A] focus:outline-none" />
+
+        <label className="mt-3 flex items-center justify-between text-[11px] font-semibold text-zinc-500">
+          API key
+          {spec && <a href={spec.keysUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 font-semibold text-zinc-400 hover:text-zinc-600">get a key <ExternalLink className="h-3 w-3" /></a>}
+        </label>
+        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="sk-…" className="mt-1 w-full rounded-lg border border-zinc-300 px-3 py-1.5 font-mono text-[12px] focus:border-[#E2B24A] focus:outline-none" />
+
+        <div className="mt-4 flex items-center justify-between gap-2">
+          {current ? (
+            <button type="button" onClick={() => onSave(null)} className="text-[12px] font-semibold text-rose-600 hover:underline">Remove key</button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="rounded-lg px-3 py-1.5 text-[13px] font-semibold text-zinc-500 hover:bg-zinc-100">Cancel</button>
+            <button
+              type="button"
+              disabled={!key.trim() || !model.trim()}
+              onClick={() => onSave({ provider, model: model.trim(), key: key.trim(), baseURL: baseURL.trim() || undefined })}
+              className="rounded-lg bg-[#E2B24A] px-3 py-1.5 text-[13px] font-semibold text-[#232327] disabled:opacity-40"
+            >
+              Use this model
+            </button>
+          </div>
         </div>
       </div>
     </div>

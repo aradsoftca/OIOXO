@@ -11,10 +11,12 @@
  */
 import type { CodeFile } from './codeloop';
 
-export type Template = 'web' | 'react' | 'node' | 'api' | 'game';
+export type Template = 'web' | 'react' | 'node' | 'api' | 'game' | 'python';
 
 export interface Scaffold {
   template: Template;
+  /** Which on-device interpreter runs it: Node (WebContainer) or Python (Pyodide). */
+  runtime?: 'node' | 'python';
   /** Optional one-time setup run before `runCmd` (e.g. "npm install"). */
   setup?: string;
   /** The command that runs/serves it (drives preview or the oracle). */
@@ -32,6 +34,7 @@ export interface Scaffold {
  *  cues win. Defaults to the instant-preview static web template. */
 export function pickTemplate(goal: string): Template {
   const g = goal.toLowerCase();
+  if (/\b(python|py|pandas|numpy|matplotlib|flask|django|pytest|jupyter|\.py)\b/.test(g)) return 'python';
   if (/\b(react|jsx|component|hooks?|spa|single[- ]page|next\.?js|vite)\b/.test(g)) return 'react';
   if (/\b(game|canvas|sprite|snake|pong|tetris|platformer|physics|2d|animation loop)\b/.test(g)) return 'game';
   if (/\b(api|server|backend|endpoint|rest|graphql|webhook|microservice|express)\b/.test(g)) return 'api';
@@ -216,6 +219,23 @@ export default function App() {
   { path: 'README.md', content: `# ${name}\n\nA React + Vite app scaffolded by oioxo. The agent builds components in src/.\n` },
 ];
 
+const PYTHON = (name: string): CodeFile[] => [
+  {
+    path: 'main.py',
+    content: `"""${name} — entry. The agent builds it out from here; it runs on-device."""
+
+
+def main() -> None:
+    print("Hello from ${name}")
+
+
+if __name__ == "__main__":
+    main()
+`,
+  },
+  { path: 'README.md', content: `# ${name}\n\nA Python project scaffolded by oioxo. Runs on-device via Pyodide — no install. \`main.py\` is the entry.\n` },
+];
+
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'app';
 
 /** Build the starting project for a goal. `name` defaults to a slug of the goal. */
@@ -224,6 +244,8 @@ export function scaffold(goal: string, name?: string): Scaffold {
   const slug = slugify(name || goal);
   const title = name || goal.slice(0, 60);
   switch (template) {
+    case 'python':
+      return { template, runtime: 'python', runCmd: 'python main.py', preview: false, files: PYTHON(slug) };
     case 'node':
       return { template, runCmd: 'npm test', preview: false, files: NODE(slug) };
     case 'api':
@@ -240,5 +262,5 @@ export function scaffold(goal: string, name?: string): Scaffold {
 
 /** A human label for a template (UI). */
 export function templateLabel(t: Template): string {
-  return { web: 'Web app', react: 'React app', node: 'Node project', api: 'HTTP API', game: 'Canvas game' }[t];
+  return { web: 'Web app', react: 'React app', node: 'Node project', api: 'HTTP API', game: 'Canvas game', python: 'Python project' }[t];
 }

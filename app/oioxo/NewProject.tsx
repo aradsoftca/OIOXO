@@ -22,6 +22,7 @@ import {
   runSupported, mountTree, onServerReady, run, parseCommand, writeFiles, STATIC_SERVER,
 } from '@/lib/oioxo/webcontainer';
 import { fsSupported, writeByPath } from '@/lib/oioxo/fs';
+import { runPython, pythonSupported } from '@/lib/oioxo/pyodide';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
@@ -60,6 +61,17 @@ export default function NewProject({ match }: { match: string[] }) {
     ws.current = new MemoryWorkspace(s.files);
     await syncFiles();
     setActivePath(s.files.find((f) => /index\.html|readme/i.test(f.path))?.path ?? s.files[0]?.path ?? null);
+
+    // Python projects run on Pyodide (not WebContainer) — execute the entry and
+    // show its output; no install, no cross-origin isolation needed.
+    if (s.runtime === 'python') {
+      setPhase('ready');
+      if (!pythonSupported()) { append('This browser cannot run Python.\n'); return; }
+      append('Starting Python…\n');
+      const res = await runPython(s.files, 'main.py', append);
+      append(res.ok ? '\n[done]\n' : `\n[error]\n`);
+      return;
+    }
 
     if (!supported) { setPhase('ready'); return; } // no sandbox: still edit + build the files
 
@@ -109,6 +121,12 @@ export default function NewProject({ match }: { match: string[] }) {
 
   /** Push the workspace's current files into the live sandbox + refresh preview. */
   async function refreshSandbox(changed: CodeFile[]) {
+    if (info?.runtime === 'python') {
+      append('\n$ python main.py\n');
+      const res = await runPython(await ws.current.files(), 'main.py', append);
+      append(res.ok ? '\n[done]\n' : '\n[error]\n');
+      return;
+    }
     if (!supported) return;
     try {
       await writeFiles(changed);
@@ -346,6 +364,7 @@ export default function NewProject({ match }: { match: string[] }) {
           ws={ws.current}
           match={match}
           goal={goal}
+          runtime={info?.runtime}
           onChanged={async (changed) => { await syncFiles(); await refreshSandbox(changed); }}
           onLog={append}
         />
@@ -411,13 +430,15 @@ export interface AgentWorkspace {
  *  verifying each with the type oracle, and refreshing the preview as it goes.
  *  The visible plan + per-step status is the "frontier agent" surface. */
 export function AgentRun({
-  ws, match, goal, onChanged, onLog,
+  ws, match, goal, onChanged, onLog, runtime,
 }: {
   ws: AgentWorkspace;
   match: string[];
   goal: string;
   onChanged: (changed: CodeFile[]) => Promise<void>;
   onLog: (s: string) => void;
+  /** 'python' verifies via Pyodide (run main.py); default is the TS type oracle. */
+  runtime?: 'node' | 'python';
 }) {
   const [task, setTask] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -432,7 +453,9 @@ export function AgentRun({
     const objective = task.trim() || `Build this out to completion: ${goal}`;
     setBusy(true); setPlan([]); setStates([]); setDone(null); setProgress(0); setHint(false);
     try {
-      const libFiles = await loadTsLibs().catch(() => undefined); // type oracle, no install
+      // Python verifies by running the entry on Pyodide; everything else uses the
+      // in-browser TS type oracle (no install).
+      const libFiles = runtime === 'python' ? undefined : await loadTsLibs().catch(() => undefined);
       const planner = makePlanner(match, { onProgress: setProgress });
       const build = async (
         stepTask: string,
@@ -446,7 +469,7 @@ export function AgentRun({
           : stepTask;
         const res = await buildOrFix({
           task: framed, files, match, mode: 'typecheck', libFiles, record: true,
-          onProgress: setProgress, onData: onLog,
+          runtime, onProgress: setProgress, onData: onLog,
         });
         return { files: res.files, ok: res.ok, iters: res.iters };
       };

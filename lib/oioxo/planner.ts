@@ -5,8 +5,8 @@
  * the orchestration stays pure/testable and only this thin layer touches the
  * model runtime.
  */
-import { chatStream } from './runtime';
 import { parsePlan, type PlanFn } from './agent';
+import { runRole } from './conductor-engine';
 import type { CodeFile } from './codeloop';
 
 /** A compact digest of the current files (paths + a content head each), capped so
@@ -31,32 +31,19 @@ export function makePlanner(
   match: string[],
   opts?: { maxTokens?: number; onProgress?: (p: number) => void },
 ): PlanFn {
+  const system =
+    'You are a senior engineer planning a build inside oioxo. Given a goal and the ' +
+    'current files, output a SHORT ordered plan as a JSON array of 2–6 step strings. ' +
+    'Each step is ONE concrete, verifiable change that leaves the project runnable ' +
+    '(e.g. "Add the HTML structure for the timer", "Implement start/pause logic in script.js"). ' +
+    'Reply with the JSON array ONLY — no prose, no code fences.';
   return async (goal, files) => {
     const digest = filesDigest(files);
-    let acc = '';
-    for await (const delta of chatStream(
-      match,
-      [
-        {
-          role: 'system',
-          content:
-            'You are a senior engineer planning a build inside oioxo. Given a goal and the ' +
-            'current files, output a SHORT ordered plan as a JSON array of 2–6 step strings. ' +
-            'Each step is ONE concrete, verifiable change that leaves the project runnable ' +
-            '(e.g. "Add the HTML structure for the timer", "Implement start/pause logic in script.js"). ' +
-            'Reply with the JSON array ONLY — no prose, no code fences.',
-        },
-        {
-          role: 'user',
-          content:
-            `Goal: ${goal}\n\nThe project already has these files (heads shown):\n${digest}\n\n` +
-            'Plan the steps that build the goal out from here. Return the plan as a JSON array of step strings.',
-        },
-      ],
-      { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress },
-    )) {
-      acc += delta;
-    }
+    const user =
+      `Goal: ${goal}\n\nThe project already has these files (heads shown):\n${digest}\n\n` +
+      'Plan the steps that build the goal out from here. Return the plan as a JSON array of step strings.';
+    // Routes to the specialized conductor when hosted+entitled, else the coder.
+    const acc = await runRole('plan', system, user, match, { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress });
     return parsePlan(acc);
   };
 }

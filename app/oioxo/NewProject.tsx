@@ -461,7 +461,7 @@ export default function NewProject({ match }: { match: string[] }) {
         <div className="flex h-8 shrink-0 items-center justify-between border-b border-zinc-200 px-3 text-xs font-semibold text-zinc-500">
           <span className="flex items-center gap-1.5">
             {info?.preview ? <Play className="h-3.5 w-3.5" /> : <Wrench className="h-3.5 w-3.5" />}
-            {info?.preview ? 'Live preview' : 'Test output'}
+            {info?.preview ? 'Live preview' : info?.runtime === 'python' ? 'Output' : 'Test output'}
           </span>
           {preview && (
             <button type="button" onClick={() => setPreviewKey((k) => k + 1)} className="rounded p-1 text-zinc-400 hover:bg-zinc-200" title="Reload">

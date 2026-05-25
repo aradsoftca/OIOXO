@@ -187,7 +187,7 @@ def main():
     run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean stale .next-build")
     rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && OBFUSCATE=1 NEXT_BASE_PATH= NEXT_DIST_DIR=.next-build "
                         f"NEXT_PUBLIC_BRAND=oioxo NEXT_PUBLIC_BRAND_DOMAIN={PUBLIC_HOST} npm run build",
-                   t=1200, label="next build (side dir, brand=oioxo)")
+                   t=3000, label="next build (side dir, brand=oioxo)")  # CPU box + obfuscation > 20min
     if rc != 0:
         print("      ! build failed — oioxo instance unchanged"); run(ssh, f"rm -rf {REMOTE_DIR}/.next-build"); sys.exit(1)
 

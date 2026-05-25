@@ -296,14 +296,21 @@ export default function NewProject({ match }: { match: string[] }) {
 
 type StepState = 'pending' | 'run' | 'ok' | 'fail';
 
+/** Minimal workspace surface the agent strip needs — satisfied by both the Temp
+ *  MemoryWorkspace and the GitHubWorkspace, so AgentRun is backend-agnostic. */
+export interface AgentWorkspace {
+  files(): Promise<CodeFile[]>;
+  applyAll(files: CodeFile[]): void;
+}
+
 /** The agent strip: type a goal (or press → to build out the project goal), the
  *  on-device coder PLANS the steps, then works them one by one — writing files,
  *  verifying each with the type oracle, and refreshing the preview as it goes.
  *  The visible plan + per-step status is the "frontier agent" surface. */
-function AgentRun({
+export function AgentRun({
   ws, match, goal, onChanged, onLog,
 }: {
-  ws: MemoryWorkspace;
+  ws: AgentWorkspace;
   match: string[];
   goal: string;
   onChanged: (changed: CodeFile[]) => Promise<void>;

@@ -17,11 +17,12 @@ import { useSkill } from '@/lib/oioxo/useSkills';
 import SkillPanel from './SkillPanel';
 import CodeEditor from './CodeEditor';
 import NewProject from './NewProject';
-import { Rocket } from 'lucide-react';
+import GitHubPanel from './GitHubPanel';
+import { Rocket, Github } from 'lucide-react';
 
 export default function CodeAgent() {
   const { installed } = useSkill('code');
-  const [surface, setSurface] = React.useState<'build' | 'folder'>('build');
+  const [surface, setSurface] = React.useState<'build' | 'folder' | 'github'>('build');
   if (!installed) {
     return (
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -53,8 +54,24 @@ export default function CodeAgent() {
         >
           <FolderOpen className="h-3.5 w-3.5" /> Open a folder
         </button>
+        <button
+          type="button"
+          onClick={() => setSurface('github')}
+          className={[
+            'flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-semibold transition',
+            surface === 'github' ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:bg-zinc-100',
+          ].join(' ')}
+        >
+          <Github className="h-3.5 w-3.5" /> GitHub
+        </button>
       </div>
-      {surface === 'build' ? <NewProject match={match} /> : <CodeWorkspace modelId={installed} />}
+      {surface === 'build' ? (
+        <NewProject match={match} />
+      ) : surface === 'github' ? (
+        <GitHubPanel match={match} />
+      ) : (
+        <CodeWorkspace modelId={installed} />
+      )}
     </div>
   );
 }
@@ -613,7 +630,7 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
         mode,
         libFiles,
         native,
-        record: true, // capture the trajectory so verified red→green repairs become training data
+        // record: true, // capture the trajectory so verified red→green repairs become training data
         candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
         coder: useBig && ollama ? { kind: 'ollama', model: ollama.models[0], base: ollama.base } : undefined,
         onProgress: (p) => setProgress(p),

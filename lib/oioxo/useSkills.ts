@@ -54,9 +54,11 @@ export function useSkill(skill: SkillId): SkillState {
         if (await hasWebGPU()) {
           await loadModel(model.webllmMatch, (p) => setProgress(p));
         } else if (model.cpu) {
-          // No WebGPU → download + run on the CPU/WASM engine (slower, works).
+          // No WebGPU → download + run on the CPU/WASM engine (slower, works). Use a
+          // small CODER (better at code); fall back to the general model if needed.
           const { loadWasmEngine } = await import('@/lib/ai/wasm-llm');
-          await loadWasmEngine((p) => setProgress(p));
+          try { await loadWasmEngine((p) => setProgress(p), 'onnx-community/Qwen2.5-Coder-0.5B-Instruct'); }
+          catch { await loadWasmEngine((p) => setProgress(p)); }
         } else {
           setError('This model needs a WebGPU-capable GPU. Try Basic (runs on CPU) or use your own API key.');
           return;

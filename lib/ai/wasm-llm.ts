@@ -25,15 +25,16 @@ export interface WasmEngine {
 
 type ProgressCb = (pct: number) => void;
 
-let _enginePromise: Promise<WasmEngine> | null = null;
+const _engines: Record<string, Promise<WasmEngine>> = {};
 
-/** Load (once) and return the WASM chat engine. Re-entrant: shares one load. */
-export function loadWasmEngine(onProgress?: ProgressCb): Promise<WasmEngine> {
-  _enginePromise ??= build(onProgress);
-  return _enginePromise;
+/** Load (once per model) a WASM text-generation engine. Default model = the small
+ *  general chat; callers (e.g. the code skill) may pass a CODER id instead. */
+export function loadWasmEngine(onProgress?: ProgressCb, modelId: string = MODEL_ID): Promise<WasmEngine> {
+  _engines[modelId] ??= build(onProgress, modelId);
+  return _engines[modelId];
 }
 
-async function build(onProgress?: ProgressCb): Promise<WasmEngine> {
+async function build(onProgress?: ProgressCb, modelId: string = MODEL_ID): Promise<WasmEngine> {
   const lib: any = await import('@xenova/transformers');
   lib.env.allowLocalModels = false;
   lib.env.allowRemoteModels = true;
@@ -41,7 +42,7 @@ async function build(onProgress?: ProgressCb): Promise<WasmEngine> {
 
   // Average download progress across the model's files into a single 0..1 bar.
   const fileProg: Record<string, number> = {};
-  const pipe: any = await lib.pipeline('text-generation', MODEL_ID, {
+  const pipe: any = await lib.pipeline('text-generation', modelId, {
     quantized: true,
     progress_callback: (p: any) => {
       if (!onProgress || !p) return;

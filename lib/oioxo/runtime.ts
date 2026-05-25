@@ -91,10 +91,17 @@ async function dropEngine(match: string[]): Promise<void> {
   }
 }
 
+// On a weak/no-GPU device the WRITER runs on CPU/WASM. Use a small CODER (good at
+// emitting code) rather than the general chat model; fall back to the general one
+// if the coder can't load, so it never breaks.
+const CODER_WASM = 'onnx-community/Qwen2.5-Coder-0.5B-Instruct';
+
 /** The CPU/WASM engine running the same call shape — the fallback when WebGPU is
  *  absent or fails. Slower, but it works on any device. */
 async function wasmCreate(messages: ChatMsg[], opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number }, stream: boolean): Promise<any> {
-  const eng = await loadWasmEngine(opts.onProgress);
+  let eng;
+  try { eng = await loadWasmEngine(opts.onProgress, CODER_WASM); }
+  catch { eng = await loadWasmEngine(opts.onProgress); } // coder unavailable → general
   return eng.chat.completions.create({
     messages,
     temperature: opts.temperature ?? 0.3,

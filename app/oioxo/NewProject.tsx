@@ -30,6 +30,8 @@ import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
 import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
+import { useEntitlement } from '@/lib/oioxo/useEntitlement';
+import { configureConductor } from '@/lib/oioxo/conductor-engine';
 import { sendProject, receiveProject, type SharePayload } from '@/lib/oioxo/share';
 import type { PeerState } from '@/lib/p2p/peer';
 import CodeEditor from './CodeEditor';
@@ -548,6 +550,12 @@ export function AgentRun({
   const [states, setStates] = React.useState<StepState[]>([]);
   const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number }>(null);
   const [hint, setHint] = React.useState(true);
+  // Pro: "thorough" drafts several candidates per step and keeps the one the
+  // oracle proves best (more compute → higher success). Free runs single-draft.
+  const { tier, pro } = useEntitlement();
+  const [thorough, setThorough] = React.useState(false);
+  // Gate the specialized conductor (when hosted) to Pro — see conductor-engine.
+  React.useEffect(() => { configureConductor({ entitled: pro }); }, [pro]);
 
   async function run() {
     if (busy) return;
@@ -570,6 +578,7 @@ export function AgentRun({
           : stepTask;
         const res = await buildOrFix({
           task: framed, files, match, mode: 'typecheck', libFiles, record: true,
+          candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
           runtime, onProgress: setProgress, onData: onLog,
         });
         return { files: res.files, ok: res.ok, iters: res.iters };
@@ -642,7 +651,25 @@ export function AgentRun({
               : `Completed ${done.completed}/${done.total} steps (best effort on the rest). Refine and rerun.`}
         </div>
       )}
-      <form onSubmit={(e) => { e.preventDefault(); void run(); }} className="flex items-end gap-2 p-2">
+      <div className="flex items-center justify-end gap-2 px-3 pt-2">
+        <span
+          title={pro ? 'Pro — strongest models, thorough builds, the specialized conductor' : 'Free — full IDE on your device; upgrade for thorough builds + the strongest brain'}
+          className={['rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide', pro ? 'bg-[#E2B24A]/20 text-[#7a5c12]' : 'bg-zinc-200 text-zinc-500'].join(' ')}
+        >
+          {tier}
+        </span>
+        {pro ? (
+          <label title="Thorough: draft several candidates per step, keep the one the oracle proves best." className="flex items-center gap-1 text-[10px] font-semibold text-zinc-500">
+            <input type="checkbox" checked={thorough} disabled={busy} onChange={(e) => setThorough(e.target.checked)} className="accent-[#E2B24A]" />
+            Thorough
+          </label>
+        ) : (
+          <a href="/pricing" className="text-[10px] font-semibold text-[#7a5c12] hover:underline" title="Thorough builds + the strongest on-device brain">
+            Thorough builds → Pro
+          </a>
+        )}
+      </div>
+      <form onSubmit={(e) => { e.preventDefault(); void run(); }} className="flex items-end gap-2 p-2 pt-1.5">
         <input
           value={task}
           onChange={(e) => setTask(e.target.value)}

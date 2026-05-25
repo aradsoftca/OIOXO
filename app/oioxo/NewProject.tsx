@@ -23,6 +23,7 @@ import {
 } from '@/lib/oioxo/webcontainer';
 import { fsSupported, writeByPath } from '@/lib/oioxo/fs';
 import { runPython, pythonSupported } from '@/lib/oioxo/pyodide';
+import { saveSession, listSessions, loadSession, deleteSession, newSessionId, type Session } from '@/lib/oioxo/sessions';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
@@ -145,7 +146,40 @@ export default function NewProject({ match }: { match: string[] }) {
   function reset() {
     setPhase('idle'); setInfo(null); setFiles([]); setActivePath(null);
     setPreview(null); setLog(''); setError(null); setGoal('');
+    sessionId.current = '';
     ws.current = new MemoryWorkspace();
+  }
+
+  // --- sessions: persist the project so it survives a refresh / can be resumed ---
+  const sessionId = React.useRef<string>('');
+  React.useEffect(() => {
+    if (phase !== 'ready' || !info || !files.length) return;
+    if (!sessionId.current) sessionId.current = newSessionId();
+    const t = setTimeout(() => {
+      void saveSession({
+        id: sessionId.current,
+        name: (goal || info.template).slice(0, 60),
+        template: info.template, runtime: info.runtime, setup: info.setup,
+        runCmd: info.runCmd, preview: info.preview, staticServe: info.staticServe,
+        goal, files,
+      });
+    }, 800); // debounce rapid edits
+    return () => clearTimeout(t);
+  }, [files, info, goal, phase]);
+
+  /** Resume a saved session: restore its files + metadata and bring it up. */
+  async function resume(s: Session) {
+    setPhase('starting'); setError(null); setLog(''); setPreview(null); setGoal(s.goal);
+    sessionId.current = s.id;
+    try {
+      await bringUp({
+        template: s.template, runtime: s.runtime, setup: s.setup,
+        runCmd: s.runCmd, preview: s.preview, staticServe: s.staticServe, files: s.files,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'could not resume the project');
+      setPhase('ready');
+    }
   }
 
   const [saved, setSaved] = React.useState<'idle' | 'saving' | 'done'>('idle');
@@ -164,6 +198,10 @@ export default function NewProject({ match }: { match: string[] }) {
       setSaved('idle'); // user cancelled or denied
     }
   }
+
+  // --- recent sessions (shown on the idle screen) ---
+  const [recents, setRecents] = React.useState<Session[]>([]);
+  React.useEffect(() => { if (phase === 'idle') listSessions().then(setRecents).catch(() => {}); }, [phase]);
 
   // --- peer-to-peer sharing (browser-to-browser, no upload) ---
   const [share, setShare] = React.useState<null | { room: string; state: PeerState; sent: number; total: number }>(null);
@@ -249,6 +287,32 @@ export default function NewProject({ match }: { match: string[] }) {
               Live preview needs a Chromium browser (Chrome/Edge/Brave). You can still scaffold + build files here;
               the native app previews everywhere.
             </p>
+          )}
+
+          {/* resume a saved project */}
+          {recents.length > 0 && (
+            <div className="mt-6 border-t border-zinc-200 pt-4 text-left">
+              <p className="text-center text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Recent projects</p>
+              <ul className="mx-auto mt-2 max-w-sm space-y-1">
+                {recents.slice(0, 5).map((s) => (
+                  <li key={s.id} className="group flex items-center gap-2 rounded-lg border border-zinc-200 px-2.5 py-1.5 hover:border-[#E2B24A]">
+                    <button type="button" onClick={() => void resume(s)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                      <Folder className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                      <span className="truncate text-[13px] text-zinc-700">{s.name || templateLabel(s.template)}</span>
+                      <span className="ml-auto shrink-0 text-[10px] text-zinc-400">{templateLabel(s.template)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { void deleteSession(s.id).then(() => setRecents((r) => r.filter((x) => x.id !== s.id))); }}
+                      className="shrink-0 rounded p-0.5 text-zinc-300 opacity-0 transition hover:bg-zinc-100 hover:text-zinc-600 group-hover:opacity-100"
+                      title="Delete"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
 
           {/* receive a project someone shared with a code */}

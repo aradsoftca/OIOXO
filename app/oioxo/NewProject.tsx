@@ -23,6 +23,7 @@ import {
 } from '@/lib/oioxo/webcontainer';
 import { fsSupported, writeByPath } from '@/lib/oioxo/fs';
 import { runPython, pythonSupported } from '@/lib/oioxo/pyodide';
+import { runSql, sqlSupported } from '@/lib/oioxo/sqljs';
 import { saveSession, listSessions, loadSession, deleteSession, newSessionId, type Session } from '@/lib/oioxo/sessions';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
@@ -63,13 +64,21 @@ export default function NewProject({ match }: { match: string[] }) {
     await syncFiles();
     setActivePath(s.files.find((f) => /index\.html|readme/i.test(f.path))?.path ?? s.files[0]?.path ?? null);
 
-    // Python projects run on Pyodide (not WebContainer) — execute the entry and
-    // show its output; no install, no cross-origin isolation needed.
+    // Python / SQL projects run in WASM (Pyodide / sql.js), not WebContainer —
+    // execute the entry and show output; no install, no cross-origin isolation.
     if (s.runtime === 'python') {
       setPhase('ready');
       if (!pythonSupported()) { append('This browser cannot run Python.\n'); return; }
       append('Starting Python…\n');
       const res = await runPython(s.files, 'main.py', append);
+      append(res.ok ? '\n[done]\n' : `\n[error]\n`);
+      return;
+    }
+    if (s.runtime === 'sql') {
+      setPhase('ready');
+      if (!sqlSupported()) { append('This browser cannot run SQL.\n'); return; }
+      append('Starting SQLite…\n');
+      const res = await runSql(s.files, 'main.sql', append);
       append(res.ok ? '\n[done]\n' : `\n[error]\n`);
       return;
     }
@@ -125,6 +134,12 @@ export default function NewProject({ match }: { match: string[] }) {
     if (info?.runtime === 'python') {
       append('\n$ python main.py\n');
       const res = await runPython(await ws.current.files(), 'main.py', append);
+      append(res.ok ? '\n[done]\n' : '\n[error]\n');
+      return;
+    }
+    if (info?.runtime === 'sql') {
+      append('\n$ sqlite main.sql\n');
+      const res = await runSql(await ws.current.files(), 'main.sql', append);
       append(res.ok ? '\n[done]\n' : '\n[error]\n');
       return;
     }
@@ -461,7 +476,7 @@ export default function NewProject({ match }: { match: string[] }) {
         <div className="flex h-8 shrink-0 items-center justify-between border-b border-zinc-200 px-3 text-xs font-semibold text-zinc-500">
           <span className="flex items-center gap-1.5">
             {info?.preview ? <Play className="h-3.5 w-3.5" /> : <Wrench className="h-3.5 w-3.5" />}
-            {info?.preview ? 'Live preview' : info?.runtime === 'python' ? 'Output' : 'Test output'}
+            {info?.preview ? 'Live preview' : info?.runtime === 'python' || info?.runtime === 'sql' ? 'Output' : 'Test output'}
           </span>
           {preview && (
             <button type="button" onClick={() => setPreviewKey((k) => k + 1)} className="rounded p-1 text-zinc-400 hover:bg-zinc-200" title="Reload">
@@ -523,8 +538,8 @@ export function AgentRun({
   goal: string;
   onChanged: (changed: CodeFile[]) => Promise<void>;
   onLog: (s: string) => void;
-  /** 'python' verifies via Pyodide (run main.py); default is the TS type oracle. */
-  runtime?: 'node' | 'python';
+  /** 'python'/'sql' verify by running on Pyodide / sql.js; default is the TS type oracle. */
+  runtime?: 'node' | 'python' | 'sql';
 }) {
   const [task, setTask] = React.useState('');
   const [busy, setBusy] = React.useState(false);
@@ -539,9 +554,9 @@ export function AgentRun({
     const objective = task.trim() || `Build this out to completion: ${goal}`;
     setBusy(true); setPlan([]); setStates([]); setDone(null); setProgress(0); setHint(false);
     try {
-      // Python verifies by running the entry on Pyodide; everything else uses the
-      // in-browser TS type oracle (no install).
-      const libFiles = runtime === 'python' ? undefined : await loadTsLibs().catch(() => undefined);
+      // Python/SQL verify by running on their WASM engine; everything else uses
+      // the in-browser TS type oracle (no install).
+      const libFiles = runtime === 'python' || runtime === 'sql' ? undefined : await loadTsLibs().catch(() => undefined);
       const planner = makePlanner(match, { onProgress: setProgress });
       const build = async (
         stepTask: string,

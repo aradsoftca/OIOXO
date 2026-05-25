@@ -16,7 +16,7 @@ export interface Session {
   id: string;
   name: string;
   template: Template;
-  runtime?: 'node' | 'python';
+  runtime?: 'node' | 'python' | 'sql';
   setup?: string;
   runCmd: string;
   preview: boolean;

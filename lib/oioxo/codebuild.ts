@@ -12,6 +12,7 @@ import { makeNativeRun } from './nativerun';
 import { makeOllamaGenerate } from './bigcoder';
 import { isDesktop } from './native';
 import { makePythonRun } from './pyodide';
+import { makeSqlRun } from './sqljs';
 
 export { runSupported };
 export type { CodeFile, LoopResult };
@@ -53,9 +54,10 @@ export interface BuildOptions {
   /** P6: capture each attempt so verified red→green repairs become conductor
    *  training data (surfaced as LoopResult.trajectory). Off by default. */
   record?: boolean;
-  /** Interpreter for the oracle: 'python' runs the entry on Pyodide (a raised
-   *  traceback = fail); default is Node/TypeScript per `mode`/`native`. */
-  runtime?: 'node' | 'python';
+  /** Engine for the oracle: 'python' runs the entry on Pyodide (traceback = fail),
+   *  'sql' runs the script on sql.js (SQL error = fail); default is Node/TypeScript
+   *  per `mode`/`native`. */
+  runtime?: 'node' | 'python' | 'sql';
 }
 
 /**
@@ -75,6 +77,10 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     // Python oracle on Pyodide: run the entry; a traceback is the repair signal.
     run = makePythonRun(opts.onData);
     testCmd = 'python main.py';
+  } else if (opts.runtime === 'sql') {
+    // SQL oracle on sql.js: run the script; a SQL error is the repair signal.
+    run = makeSqlRun(opts.onData);
+    testCmd = 'sqlite main.sql';
   } else if (opts.native) {
     // P5 native tier: real OS process + real filesystem (desktop app only).
     if (!isDesktop()) throw new Error('Native execution requires the oioxo desktop app.');

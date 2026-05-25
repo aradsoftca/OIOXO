@@ -11,12 +11,13 @@
  */
 import type { CodeFile } from './codeloop';
 
-export type Template = 'web' | 'react' | 'node' | 'api' | 'game' | 'python';
+export type Template = 'web' | 'react' | 'node' | 'api' | 'game' | 'python' | 'sql';
 
 export interface Scaffold {
   template: Template;
-  /** Which on-device interpreter runs it: Node (WebContainer) or Python (Pyodide). */
-  runtime?: 'node' | 'python';
+  /** Which on-device engine runs it: Node (WebContainer), Python (Pyodide) or
+   *  SQL (sql.js / SQLite-WASM). */
+  runtime?: 'node' | 'python' | 'sql';
   /** Optional one-time setup run before `runCmd` (e.g. "npm install"). */
   setup?: string;
   /** The command that runs/serves it (drives preview or the oracle). */
@@ -34,6 +35,7 @@ export interface Scaffold {
  *  cues win. Defaults to the instant-preview static web template. */
 export function pickTemplate(goal: string): Template {
   const g = goal.toLowerCase();
+  if (/\b(sql|sqlite|database|schema|query|queries|\.sql|select .* from|joins?)\b/.test(g)) return 'sql';
   if (/\b(python|py|pandas|numpy|matplotlib|flask|django|pytest|jupyter|\.py)\b/.test(g)) return 'python';
   if (/\b(react|jsx|component|hooks?|spa|single[- ]page|next\.?js|vite)\b/.test(g)) return 'react';
   if (/\b(game|canvas|sprite|snake|pong|tetris|platformer|physics|2d|animation loop)\b/.test(g)) return 'game';
@@ -236,6 +238,26 @@ if __name__ == "__main__":
   { path: 'README.md', content: `# ${name}\n\nA Python project scaffolded by oioxo. Runs on-device via Pyodide — no install. \`main.py\` is the entry.\n` },
 ];
 
+const SQL = (name: string): CodeFile[] => [
+  {
+    path: 'main.sql',
+    content: `-- ${name} — runs on-device (SQLite via WASM). The agent builds the schema
+-- and queries out from here; SELECT results print as tables.
+
+CREATE TABLE items (
+  id    INTEGER PRIMARY KEY,
+  name  TEXT NOT NULL,
+  qty   INTEGER NOT NULL DEFAULT 0
+);
+
+INSERT INTO items (name, qty) VALUES ('apples', 12), ('bananas', 7), ('cherries', 30);
+
+SELECT name, qty FROM items ORDER BY qty DESC;
+`,
+  },
+  { path: 'README.md', content: `# ${name}\n\nA SQL project scaffolded by oioxo. Runs on-device via SQLite-WASM — no install. \`main.sql\` is the entry; SELECTs print as tables.\n` },
+];
+
 const slugify = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'app';
 
 /** Build the starting project for a goal. `name` defaults to a slug of the goal. */
@@ -246,6 +268,8 @@ export function scaffold(goal: string, name?: string): Scaffold {
   switch (template) {
     case 'python':
       return { template, runtime: 'python', runCmd: 'python main.py', preview: false, files: PYTHON(slug) };
+    case 'sql':
+      return { template, runtime: 'sql', runCmd: 'sqlite main.sql', preview: false, files: SQL(slug) };
     case 'node':
       return { template, runCmd: 'npm test', preview: false, files: NODE(slug) };
     case 'api':
@@ -262,5 +286,5 @@ export function scaffold(goal: string, name?: string): Scaffold {
 
 /** A human label for a template (UI). */
 export function templateLabel(t: Template): string {
-  return { web: 'Web app', react: 'React app', node: 'Node project', api: 'HTTP API', game: 'Canvas game', python: 'Python project' }[t];
+  return { web: 'Web app', react: 'React app', node: 'Node project', api: 'HTTP API', game: 'Canvas game', python: 'Python project', sql: 'SQL project' }[t];
 }

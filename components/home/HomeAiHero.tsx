@@ -1,6 +1,8 @@
+
 'use client';
 
 import dynamic from 'next/dynamic';
+import { IS_OIOXO } from '@/lib/brand';
 
 /**
  * Homepage AI hero. The AI component is loaded as its OWN chunk (ssr: false,
@@ -27,5 +29,6 @@ const AiApp = dynamic(() => import('@/app/ai/AiApp'), {
 });
 
 export function HomeAiHero() {
+  if (!IS_OIOXO) return null;
   return <AiApp embedded />;
 }

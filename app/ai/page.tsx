@@ -1,7 +1,7 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
+import { BRAND, IS_OIOXO } from '@/lib/brand';
 import AiApp from './AiApp';
-import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: `${BRAND} AI — your private all-in-one assistant`,
@@ -13,5 +13,12 @@ export const metadata: Metadata = {
 };
 
 export default function AiPage() {
+  if (!IS_OIOXO) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <p className="text-muted-foreground text-center">AI features are temporarily disabled.</p>
+      </div>
+    );
+  }
   return <AiApp />;
 }

@@ -3,11 +3,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { SectionTitle } from '@/components/layout/SectionTitle';
-import { BRAND } from '@/lib/brand';
+import { BRAND, IS_OIOXO } from '@/lib/brand';
 
 export const metadata: Metadata = {
   title: 'Apps — private, peer-to-peer & on-device tools',
-  description: `${BRAND} apps: send files, sync your clipboard, chat, share your screen, video call and run a private AI — all peer-to-peer or on-device, nothing stored on a server.`,
+  description: IS_OIOXO
+    ? `${BRAND} apps: send files, sync your clipboard, chat, share your screen, video call and run a private AI — all peer-to-peer or on-device, nothing stored on a server.`
+    : `${BRAND} apps: send files, sync your clipboard, chat, share your screen and video call — all peer-to-peer or on-device, nothing stored on a server.`,
 };
 
 interface App {
@@ -45,7 +47,7 @@ export default function AppsPage() {
       </header>
 
       <div className="grid grid-cols-1 gap-[2px] sm:grid-cols-2 lg:grid-cols-3">
-        {APPS.map((a) => (
+        {APPS.filter((a) => IS_OIOXO || a.href !== '/ai').map((a) => (
           <Link key={a.href} href={a.href}
             className="group flex flex-col gap-3 bg-[var(--color-surface-1)] p-5 transition hover:bg-[var(--color-surface-2)]">
             <div className="flex items-center justify-between">

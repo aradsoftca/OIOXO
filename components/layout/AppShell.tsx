@@ -8,6 +8,7 @@ import { TileIcon } from '@/components/tiles/TileIcon';
 import { CommandPalette } from './CommandPalette';
 import { DragMagicProvider } from './DragMagicProvider';
 import { ToolsBar } from './ToolsBar';
+import { AppsBar } from './AppsBar';
 import { HeaderAccount } from './HeaderAccount';
 import { GlobalProgress } from './GlobalProgress';
 import { NavProgress } from './NavProgress';
@@ -105,7 +106,11 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </header>
 
-        <ToolsBar />
+        {/* Apps row sits directly above the tools row; the two pin together. */}
+        <div className="sticky top-14 z-30 hidden md:block">
+          <AppsBar />
+          <ToolsBar />
+        </div>
 
         <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-10">{children}</main>
 

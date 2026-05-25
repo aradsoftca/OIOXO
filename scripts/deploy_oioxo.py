@@ -66,9 +66,17 @@ CADDY_OIOXO_BLOCK = f"""
 # oioxo — platform instance (auto-HTTPS via Let's Encrypt; isolated from xonvert)
 {PUBLIC_HOST} {{
     encode zstd gzip
-    reverse_proxy 127.0.0.1:{LOCAL_PORT} {{
-        header_up Host {{host}}
-        header_up X-Forwarded-Proto {{scheme}}
+    handle_path /models/* {{
+        root * /srv/oioxo-models
+        header Cache-Control "public, max-age=31536000, immutable"
+        header Access-Control-Allow-Origin *
+        file_server
+    }}
+    handle {{
+        reverse_proxy 127.0.0.1:{LOCAL_PORT} {{
+            header_up Host {{host}}
+            header_up X-Forwarded-Proto {{scheme}}
+        }}
     }}
 }}
 """.strip("\n")

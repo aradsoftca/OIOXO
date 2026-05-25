@@ -434,9 +434,18 @@ export function AgentRun({
     try {
       const libFiles = await loadTsLibs().catch(() => undefined); // type oracle, no install
       const planner = makePlanner(match, { onProgress: setProgress });
-      const build = async (stepTask: string, files: CodeFile[]) => {
+      const build = async (
+        stepTask: string,
+        files: CodeFile[],
+        ctx: { goal: string; index: number; total: number },
+      ) => {
+        // Frame the step with the overall goal + position so the coder keeps the
+        // whole project in view (and stays consistent with earlier steps).
+        const framed = ctx.total > 1
+          ? `${stepTask}\n\n(Step ${ctx.index + 1} of ${ctx.total} toward: "${ctx.goal}". Keep the project consistent and runnable; only change what this step needs.)`
+          : stepTask;
         const res = await buildOrFix({
-          task: stepTask, files, match, mode: 'typecheck', libFiles, record: true,
+          task: framed, files, match, mode: 'typecheck', libFiles, record: true,
           onProgress: setProgress, onData: onLog,
         });
         return { files: res.files, ok: res.ok, iters: res.iters };

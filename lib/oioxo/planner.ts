@@ -7,6 +7,24 @@
  */
 import { chatStream } from './runtime';
 import { parsePlan, type PlanFn } from './agent';
+import type { CodeFile } from './codeloop';
+
+/** A compact digest of the current files (paths + a content head each), capped so
+ *  the planner is GROUNDED in what already exists without blowing the context. */
+function filesDigest(files: CodeFile[], budget = 1800): string {
+  if (!files.length) return '(empty project)';
+  const per = Math.max(120, Math.floor(budget / files.length));
+  const parts: string[] = [];
+  let used = 0;
+  for (const f of files) {
+    const head = f.content.split('\n').slice(0, 12).join('\n').slice(0, per);
+    const block = `--- ${f.path} ---\n${head}`;
+    if (used + block.length > budget) { parts.push(`… (+${files.length - parts.length} more files)`); break; }
+    parts.push(block);
+    used += block.length;
+  }
+  return parts.join('\n');
+}
 
 /** Build a PlanFn backed by the on-device coder (web-llm `match`). */
 export function makePlanner(
@@ -14,7 +32,7 @@ export function makePlanner(
   opts?: { maxTokens?: number; onProgress?: (p: number) => void },
 ): PlanFn {
   return async (goal, files) => {
-    const fileList = files.length ? files.map((f) => f.path).join(', ') : '(empty project)';
+    const digest = filesDigest(files);
     let acc = '';
     for await (const delta of chatStream(
       match,
@@ -30,7 +48,9 @@ export function makePlanner(
         },
         {
           role: 'user',
-          content: `Goal: ${goal}\nCurrent files: ${fileList}\n\nReturn the plan as a JSON array of step strings.`,
+          content:
+            `Goal: ${goal}\n\nThe project already has these files (heads shown):\n${digest}\n\n` +
+            'Plan the steps that build the goal out from here. Return the plan as a JSON array of step strings.',
         },
       ],
       { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress },

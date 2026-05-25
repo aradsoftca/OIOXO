@@ -19,10 +19,21 @@ export interface PlanStep {
 
 /** Produce an ordered plan from the goal + current files. */
 export type PlanFn = (goal: string, files: CodeFile[]) => Promise<PlanStep[]>;
+
+/** Context handed to each build step so the coder keeps the big picture (a
+ *  frontier agent never loses sight of the goal or where it is in the plan). */
+export interface StepContext {
+  goal: string;
+  index: number;
+  total: number;
+  steps: PlanStep[];
+}
+
 /** Build/verify one step against the working files; returns the new files. */
 export type BuildStepFn = (
   task: string,
   files: CodeFile[],
+  ctx: StepContext,
 ) => Promise<{ files: CodeFile[]; ok: boolean; iters: number }>;
 
 export type AgentEvent =
@@ -75,7 +86,7 @@ export async function* runAgent(
     let iters = 0;
     let changed: string[] = [];
     try {
-      const res = await opts.build(step.task, files);
+      const res = await opts.build(step.task, files, { goal: opts.goal, index: i, total: steps.length, steps });
       files = res.files;
       ok = res.ok;
       iters = res.iters;

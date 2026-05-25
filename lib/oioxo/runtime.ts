@@ -6,12 +6,27 @@
  * on an exact id that may change between web-llm versions. Engines are cached
  * per id for the session; web-llm caches the weights to disk for next time.
  */
+import { loadWasmEngine } from '@/lib/ai/wasm-llm';
+
 let _webllm: any = null;
 const _engines: Record<string, any> = {};
 
 async function webllm(): Promise<any> {
   _webllm ??= await import('@mlc-ai/web-llm');
   return _webllm;
+}
+
+// Does this device have usable WebGPU? If not, we run the on-device model on the
+// CPU/WASM engine instead of failing — so the coder works on EVERY device, not
+// only GPU ones (the chat assistant already does this; the coder now matches).
+let _gpu: boolean | null = null;
+async function hasWebGPU(): Promise<boolean> {
+  if (_gpu !== null) return _gpu;
+  try {
+    const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } })?.gpu;
+    _gpu = !!gpu && !!(await gpu.requestAdapter());
+  } catch { _gpu = false; }
+  return _gpu;
 }
 
 /** The concrete prebuilt model id for a set of name substrings, or null. */
@@ -76,29 +91,40 @@ async function dropEngine(match: string[]): Promise<void> {
   }
 }
 
-/** One-shot chat against a skill model (loads/caches it first). Reports load
- *  progress, then returns the full reply text. Self-heals a transient WebGPU
- *  buffer/device-loss by reloading the engine once and retrying. */
+/** The CPU/WASM engine running the same call shape — the fallback when WebGPU is
+ *  absent or fails. Slower, but it works on any device. */
+async function wasmCreate(messages: ChatMsg[], opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number }, stream: boolean): Promise<any> {
+  const eng = await loadWasmEngine(opts.onProgress);
+  return eng.chat.completions.create({
+    messages,
+    temperature: opts.temperature ?? 0.3,
+    max_tokens: opts.maxTokens ?? 640,
+    stream,
+  });
+}
+
+/** One-shot chat against a skill model. WebGPU fast path; on no-WebGPU or a
+ *  transient engine death it reloads once, then falls back to CPU/WASM — so it
+ *  returns a result on every device instead of throwing an engine error. */
 export async function chat(
   match: string[],
   messages: ChatMsg[],
   opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number } = {},
 ): Promise<string> {
+  const viaWasm = async () => (await wasmCreate(messages, opts, false))?.choices?.[0]?.message?.content ?? '';
+  if (!(await hasWebGPU())) return viaWasm();
   const run = async () => {
     const { engine } = await loadModel(match, opts.onProgress);
-    const res = await engine.chat.completions.create({
-      messages,
-      temperature: opts.temperature ?? 0.3,
-      max_tokens: opts.maxTokens ?? 640,
-    });
+    const res = await engine.chat.completions.create({ messages, temperature: opts.temperature ?? 0.3, max_tokens: opts.maxTokens ?? 640 });
     return res?.choices?.[0]?.message?.content ?? '';
   };
   try {
     return await run();
   } catch (e) {
-    if (!isTransientEngineError(String((e as Error)?.message || e))) throw e;
-    await dropEngine(match);       // engine died — rebuild it fresh, retry ONCE
-    return await run();
+    if (isTransientEngineError(String((e as Error)?.message || e))) {
+      try { await dropEngine(match); return await run(); } catch { /* fall through to WASM */ }
+    }
+    return viaWasm(); // last resort: CPU
   }
 }
 
@@ -109,13 +135,20 @@ export async function* chatStream(
   messages: ChatMsg[],
   opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number } = {},
 ): AsyncGenerator<string> {
-  const { engine } = await loadModel(match, opts.onProgress);
-  const stream = await engine.chat.completions.create({
-    messages,
-    temperature: opts.temperature ?? 0.3,
-    max_tokens: opts.maxTokens ?? 640,
-    stream: true,
-  });
+  // Pick the stream source: WebGPU model, else (or on engine death) CPU/WASM.
+  const openStream = async (): Promise<any> => {
+    if (!(await hasWebGPU())) return wasmCreate(messages, opts, true);
+    try {
+      const { engine } = await loadModel(match, opts.onProgress);
+      return await engine.chat.completions.create({ messages, temperature: opts.temperature ?? 0.3, max_tokens: opts.maxTokens ?? 640, stream: true });
+    } catch (e) {
+      if (isTransientEngineError(String((e as Error)?.message || e))) {
+        try { await dropEngine(match); const { engine } = await loadModel(match, opts.onProgress); return await engine.chat.completions.create({ messages, temperature: opts.temperature ?? 0.3, max_tokens: opts.maxTokens ?? 640, stream: true }); } catch { /* fall to WASM */ }
+      }
+      return wasmCreate(messages, opts, true); // last resort: CPU
+    }
+  };
+  const stream = await openStream();
   for await (const chunk of stream) {
     const delta = chunk?.choices?.[0]?.delta?.content;
     if (delta) yield delta as string;

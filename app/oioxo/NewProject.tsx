@@ -147,6 +147,7 @@ export default function NewProject({ match }: { match: string[] }) {
     setPhase('idle'); setInfo(null); setFiles([]); setActivePath(null);
     setPreview(null); setLog(''); setError(null); setGoal('');
     sessionId.current = '';
+    shareRef.current?.cancel(); shareRef.current = null; liveRef.current = null; setLive(false); setShare(null);
     ws.current = new MemoryWorkspace();
   }
 
@@ -203,11 +204,22 @@ export default function NewProject({ match }: { match: string[] }) {
   const [recents, setRecents] = React.useState<Session[]>([]);
   React.useEffect(() => { if (phase === 'idle') listSessions().then(setRecents).catch(() => {}); }, [phase]);
 
-  // --- peer-to-peer sharing (browser-to-browser, no upload) ---
+  // --- peer-to-peer sharing + live co-editing (browser-to-browser, no upload) ---
   const [share, setShare] = React.useState<null | { room: string; state: PeerState; sent: number; total: number }>(null);
   const shareRef = React.useRef<{ room: string; cancel(): void } | null>(null);
   const [joinCode, setJoinCode] = React.useState('');
   const [joining, setJoining] = React.useState<null | { state: PeerState; received: number; total: number }>(null);
+  // The open live channel's edit-broadcaster (set while a share/receive session is
+  // active); editor changes are sent through it and remote edits applied below.
+  const liveRef = React.useRef<{ sendEdit(p: string, c: string): void } | null>(null);
+  const [live, setLive] = React.useState(false);
+
+  /** Apply a peer's edit to the workspace + editor + sandbox (last-write-wins). */
+  const applyRemoteEdit = React.useCallback((path: string, content: string) => {
+    void ws.current.write(path, content);
+    setFiles((cur) => (cur.some((f) => f.path === path) ? cur.map((f) => (f.path === path ? { ...f, content } : f)) : [...cur, { path, content }]));
+    void refreshSandbox([{ path, content }]);
+  }, []); // refreshSandbox/ws are stable refs
 
   function startShare() {
     if (share) return;
@@ -215,21 +227,25 @@ export default function NewProject({ match }: { match: string[] }) {
       meta: { name: goal.slice(0, 60), template: info?.template, goal, runCmd: info?.runCmd, preview: info?.preview },
       files,
     };
-    shareRef.current = sendProject(payload, {
-      onState: (state) => setShare((s) => (s ? { ...s, state } : s)),
+    const handle = sendProject(payload, {
+      onState: (state) => { setShare((s) => (s ? { ...s, state } : s)); setLive(state === 'connected'); },
       onProgress: (sent, total) => setShare((s) => (s ? { ...s, sent, total } : s)),
+      onRemoteEdit: applyRemoteEdit, // keep the channel live for co-editing
     });
-    setShare({ room: shareRef.current.room, state: 'connecting', sent: 0, total: files.length });
+    shareRef.current = handle;
+    liveRef.current = handle;
+    setShare({ room: handle.room, state: 'connecting', sent: 0, total: files.length });
   }
-  function stopShare() { shareRef.current?.cancel(); shareRef.current = null; setShare(null); }
+  function stopShare() { shareRef.current?.cancel(); shareRef.current = null; liveRef.current = null; setLive(false); setShare(null); }
 
   function join() {
     const code = joinCode.trim().toLowerCase();
     if (!code) return;
     setJoining({ state: 'connecting', received: 0, total: 0 });
-    receiveProject(code, {
-      onState: (state) => setJoining((j) => (j ? { ...j, state } : j)),
+    const handle = receiveProject(code, {
+      onState: (state) => { setJoining((j) => (j ? { ...j, state } : j)); setLive(state === 'connected'); },
       onProgress: (received, total) => setJoining((j) => (j ? { ...j, received, total } : j)),
+      onRemoteEdit: applyRemoteEdit, // stay live for co-editing after transfer
       onComplete: async (payload) => {
         setJoining(null);
         setPhase('starting'); setError(null); setLog('');
@@ -247,6 +263,7 @@ export default function NewProject({ match }: { match: string[] }) {
         }
       },
     });
+    liveRef.current = handle;
   }
 
   if (phase === 'idle') {
@@ -418,6 +435,7 @@ export default function NewProject({ match }: { match: string[] }) {
                 setFiles((cur) => cur.map((f) => (f.path === activePath ? { ...f, content: next } : f)));
                 void ws.current.write(activePath, next);
                 void refreshSandbox([{ path: activePath, content: next }]);
+                liveRef.current?.sendEdit(activePath, next); // co-edit: broadcast to peer
               }}
             />
           ) : (
@@ -429,7 +447,11 @@ export default function NewProject({ match }: { match: string[] }) {
           match={match}
           goal={goal}
           runtime={info?.runtime}
-          onChanged={async (changed) => { await syncFiles(); await refreshSandbox(changed); }}
+          onChanged={async (changed) => {
+            await syncFiles();
+            await refreshSandbox(changed);
+            for (const f of changed) liveRef.current?.sendEdit(f.path, f.content); // co-edit: share agent results
+          }}
           onLog={append}
         />
       </main>
@@ -661,7 +683,7 @@ function SharePopover({
         <div className="mt-3 flex items-center gap-2 text-[12px] text-zinc-500">
           {share.state === 'connected' ? (
             share.total && share.sent >= share.total
-              ? <><Check className="h-3.5 w-3.5 text-green-600" /> Sent {share.total} files — they have the project.</>
+              ? <><Check className="h-3.5 w-3.5 text-green-600" /> Sent {share.total} files — edits now sync both ways live.</>
               : <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Connected — sending {share.sent}/{share.total}…</>
           ) : share.state === 'failed' ? (
             <span className="text-amber-600">Connection failed — close and try sharing again.</span>

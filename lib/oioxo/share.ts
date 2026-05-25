@@ -28,7 +28,10 @@ export interface SharePayload {
 type ShareMsg =
   | { kind: 'manifest'; meta: ProjectMeta; count: number }
   | { kind: 'file'; path: string; content: string }
-  | { kind: 'done' };
+  | { kind: 'done' }
+  /** Live co-editing: after the initial transfer the channel stays open and each
+   *  side broadcasts file edits; the other applies them (last-write-wins). */
+  | { kind: 'edit'; path: string; content: string };
 
 /** The ordered messages that transmit a project (pure — drives sendProject). */
 export function projectMessages(payload: SharePayload): ShareMsg[] {
@@ -69,14 +72,22 @@ export class ShareReceiver {
 export interface SendHandle {
   /** The code to give the other person. */
   room: string;
+  /** Broadcast a local file edit to the peer (live co-editing). */
+  sendEdit(path: string, content: string): void;
   cancel(): void;
 }
 
 /** Offer a project for pickup. Returns the room code immediately; the files are
- *  pushed the moment a receiver connects. */
+ *  pushed the moment a receiver connects. Pass `onRemoteEdit` to keep the channel
+ *  open afterwards for live co-editing (use the returned `sendEdit`). */
 export function sendProject(
   payload: SharePayload,
-  h: { onState?: (s: PeerState) => void; onProgress?: (sent: number, total: number) => void; onDone?: () => void } = {},
+  h: {
+    onState?: (s: PeerState) => void;
+    onProgress?: (sent: number, total: number) => void;
+    onDone?: () => void;
+    onRemoteEdit?: (path: string, content: string) => void;
+  } = {},
 ): SendHandle {
   const room = makeRoomCode();
   const msgs = projectMessages(payload);
@@ -97,30 +108,48 @@ export function sendProject(
 
   peer = connectPeer('s', room, {
     onState: (s) => { h.onState?.(s); if (s === 'connected') flush(); },
+    onMessage: (m: ShareMsg) => { if (m?.kind === 'edit') h.onRemoteEdit?.(m.path, m.content); },
   });
 
-  return { room, cancel: () => peer?.close() };
+  return {
+    room,
+    sendEdit: (path, content) => peer?.send({ kind: 'edit', path, content } satisfies ShareMsg),
+    cancel: () => peer?.close(),
+  };
 }
 
-/** Pick up a project by code. Calls onComplete with the assembled payload. */
+export interface ReceiveHandle {
+  /** Broadcast a local file edit back to the sender (live co-editing). */
+  sendEdit(path: string, content: string): void;
+  cancel(): void;
+}
+
+/** Pick up a project by code. Calls onComplete with the assembled payload. Pass
+ *  `onRemoteEdit` to keep the channel open for live co-editing after transfer. */
 export function receiveProject(
   room: string,
   h: {
     onState?: (s: PeerState) => void;
     onProgress?: (received: number, total: number) => void;
     onComplete?: (payload: SharePayload) => void;
+    onRemoteEdit?: (path: string, content: string) => void;
   } = {},
-): { cancel(): void } {
+): ReceiveHandle {
   const rx = new ShareReceiver();
+  const live = !!h.onRemoteEdit;
   let peer: Peer | null = null;
   peer = connectPeer('r', room, {
     onState: h.onState,
     onMessage: (data: ShareMsg) => {
+      if (data?.kind === 'edit') { h.onRemoteEdit?.(data.path, data.content); return; }
       const done = rx.accept(data);
       const p = rx.progress();
       h.onProgress?.(p.received, p.total);
-      if (done) { h.onComplete?.(done); peer?.close(); }
+      if (done) { h.onComplete?.(done); if (!live) peer?.close(); } // stay open for co-editing
     },
   });
-  return { cancel: () => peer?.close() };
+  return {
+    sendEdit: (path, content) => peer?.send({ kind: 'edit', path, content } satisfies ShareMsg),
+    cancel: () => peer?.close(),
+  };
 }

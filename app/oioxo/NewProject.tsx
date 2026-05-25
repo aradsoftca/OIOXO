@@ -201,6 +201,24 @@ export default function NewProject({ match }: { match: string[] }) {
     }
   }
 
+  // --- manual file management (a real IDE lets you add/remove files, not just the agent) ---
+  const [newName, setNewName] = React.useState('');
+  async function addFile() {
+    const p = newName.trim().replace(/^\/+/, '');
+    if (!p || files.some((f) => f.path === p)) { setNewName(''); return; }
+    await ws.current.write(p, '');
+    await syncFiles();
+    setActivePath(p);
+    setNewName('');
+    void refreshSandbox([{ path: p, content: '' }]);
+    liveRef.current?.sendEdit(p, '');
+  }
+  async function removeFile(path: string) {
+    await ws.current.remove(path);
+    await syncFiles();
+    if (activePath === path) setActivePath((await ws.current.files())[0]?.path ?? null);
+  }
+
   const [saved, setSaved] = React.useState<'idle' | 'saving' | 'done'>('idle');
   /** Persist the whole Temp project into a real folder the user picks (write-through
    *  to disk — the project is no longer trapped in the tab). Chromium only. */
@@ -396,19 +414,35 @@ export default function NewProject({ match }: { match: string[] }) {
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
           {files.map((f) => (
-            <button
+            <div
               key={f.path}
-              type="button"
-              onClick={() => setActivePath(f.path)}
               className={[
-                'flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition',
+                'group flex w-full items-center gap-1.5 rounded px-2 py-1 text-[12px] transition',
                 activePath === f.path ? 'bg-zinc-100 font-medium text-zinc-900' : 'text-zinc-600 hover:bg-zinc-50',
               ].join(' ')}
             >
-              <FileIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-              <span className="truncate">{f.path}</span>
-            </button>
+              <button type="button" onClick={() => setActivePath(f.path)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+                <FileIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
+                <span className="truncate">{f.path}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => void removeFile(f.path)}
+                title="Delete file"
+                className="shrink-0 rounded p-0.5 text-zinc-300 opacity-0 transition hover:bg-zinc-200 hover:text-rose-600 group-hover:opacity-100"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
           ))}
+          <form onSubmit={(e) => { e.preventDefault(); void addFile(); }} className="mt-1 px-1">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="+ new file (path)"
+              className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-[11px] text-zinc-600 placeholder:text-zinc-400 hover:border-zinc-200 focus:border-[#E2B24A] focus:outline-none"
+            />
+          </form>
           <button
             type="button"
             onClick={() => void downloadFilesZip(files, (info?.template ?? 'oioxo') + '-project.zip')}

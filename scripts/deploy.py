@@ -518,11 +518,26 @@ def main():
     # stringArray/selfDefending/domainLock stay off — they break blob workers).
     run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean stale .next-build")
     rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} NEXT_DIST_DIR=.next-build npm run build",
-                   t=900, label="next build (side dir — live site stays up)")
+                   t=1800, label="next build (side dir — live site stays up)")
     if rc != 0:
-        print("\n      ! build failed — site UNTOUCHED, still live on the old build")
-        run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean failed build")
-        sys.exit(1)
+        # `next build` can finish writing a COMPLETE .next-build and then fail to
+        # exit its own process (lingering jest-workers / open handles), so run()
+        # hits its wall-clock cap (rc 124) even though the build itself succeeded.
+        # We just cleaned .next-build above, so any BUILD_ID present now was
+        # written by THIS build — if the final artifacts exist, treat it as done.
+        _, art, _ = run(
+            ssh,
+            f"test -f {REMOTE_DIR}/.next-build/BUILD_ID "
+            f"&& test -f {REMOTE_DIR}/.next-build/required-server-files.json "
+            f"&& test -f {REMOTE_DIR}/.next-build/routes-manifest.json "
+            f"&& echo BUILD_OK || echo BUILD_INCOMPLETE",
+            label="verify build artifacts (process did not exit cleanly)",
+        )
+        if "BUILD_OK" not in art:
+            print("\n      ! build failed — site UNTOUCHED, still live on the old build")
+            run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean failed build")
+            sys.exit(1)
+        print("      build artifacts complete despite non-zero exit — continuing")
 
     print("\n========== SWAP + PM2 ==========")
     # Stop → atomically swap the fresh build in → restart. Fresh .next + fresh

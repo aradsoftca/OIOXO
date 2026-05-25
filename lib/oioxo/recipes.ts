@@ -33,7 +33,7 @@ export interface Recipe {
 // do one at a time and the loop verifies it — instead of one impossible "build X".
 const STEPS: Record<string, string[]> = {
   'canvas-game': [
-    'In game.js, set up the canvas 2D context and a fixed-timestep requestAnimationFrame loop (update() then render(); clear the canvas each frame).',
+    'In the <script> inside index.html, set up the canvas 2D context and a fixed-timestep requestAnimationFrame loop (update() then render(); clear the canvas each frame).',
     'Define ALL game state in one object (the board/grid, entities, positions, score, status) and initialize it.',
     'In render(), draw the current state every frame — the board/background first, then each entity.',
     'Add keydown/keyup handlers that set an input state, and move the player in update() according to it (bounded by the rules/walls).',
@@ -89,7 +89,7 @@ const CANVAS_GAME = `This is a CANVAS GAME. Build it properly, not a placeholder
 - Implement the ACTUAL mechanics the user asked for (e.g. for Pac-Man: a tile MAZE
   grid, pellets to eat, the player moving on the grid by arrow keys, ghost entities
   that move, collision + score). A single shape is NOT acceptable.
-- No external libraries; vanilla JS in the existing files.`;
+- No external libraries; vanilla JS, all inside index.html (one file).`;
 
 const LIST_APP = `This is a LIST/CRUD app (todo-like):
 - Render items from an array of state; an input + button to add; each item removable.

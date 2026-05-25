@@ -683,7 +683,12 @@ export function AgentRun({
           : stepTask;
         const res = await buildOrFix({
           task: framed, files, match, mode: 'typecheck', libFiles, record: true,
-          candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
+          // Best-of-N (the loop drafts several, the ORACLE keeps the one that
+          // actually works). For the on-device small model this isn't a luxury —
+          // it's what makes a tiny model reliable, and it runs on the USER's own
+          // compute — so it gets a floor of 2 for everyone; Pro "thorough" buys
+          // more. A strong BYOK frontier writer doesn't need it (1).
+          candidates: fc ? 1 : (thorough && pro ? 4 : 2),
           coder: fc ? { kind: 'frontier', config: fc } : undefined, // BYOK writer
           run: oracle, // RUNTIME oracle for web/UI/games (else typecheck/python/sql)
           runtime,

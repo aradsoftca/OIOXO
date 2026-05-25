@@ -42,7 +42,7 @@ export function makePlanner(
     'sentence describing your approach, then output a SHORT ordered plan as a JSON ' +
     'array of 2–6 step strings. Each step is ONE concrete, verifiable change that ' +
     'leaves the project runnable (e.g. "Add the HTML structure for the timer", ' +
-    '"Implement start/pause logic in script.js"). After the sentence, the JSON array only.';
+    '"Implement start/pause logic in index.html"). After the sentence, the JSON array only.';
   return async (goal, files) => {
     const digest = filesDigest(files);
     const user =

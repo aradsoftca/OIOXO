@@ -44,6 +44,9 @@ export function pickTemplate(goal: string): Template {
   return 'web';
 }
 
+// ONE file on purpose: a tiny on-device model is far more reliable rewriting a
+// single index.html (the proven single-target path) than coordinating edits
+// across html+css+js. Inline everything; the agent fills this one file.
 const WEB = (title: string): CodeFile[] => [
   {
     path: 'index.html',
@@ -53,31 +56,27 @@ const WEB = (title: string): CodeFile[] => [
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${title}</title>
-  <link rel="stylesheet" href="style.css" />
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; }
+    body { margin: 0; display: grid; place-items: center; min-height: 100vh; background: #fff; color: #18181b; }
+    #app { padding: 2rem; text-align: center; }
+  </style>
 </head>
 <body>
-  <main id="app"></main>
-  <script src="script.js"></script>
+  <main id="app">Hello from ${title}</main>
+  <script>
+    // ${title} — the agent builds the whole app here, in this one file.
+  </script>
 </body>
 </html>
 `,
   },
-  {
-    path: 'style.css',
-    content: `:root { color-scheme: light; font-family: system-ui, sans-serif; }
-body { margin: 0; display: grid; place-items: center; min-height: 100vh; background: #fff; color: #18181b; }
-#app { padding: 2rem; }
-`,
-  },
-  {
-    path: 'script.js',
-    content: `// ${title} — entry. The agent builds the app out from here.
-document.getElementById('app').textContent = 'Hello from ${title}';
-`,
-  },
-  { path: 'README.md', content: `# ${title}\n\nA web app scaffolded by oioxo. The preview serves index.html.\n` },
+  { path: 'README.md', content: `# ${title}\n\nA web app scaffolded by oioxo. The preview serves index.html (HTML, CSS and JS all in one file).\n` },
 ];
 
+// One file, and NO placeholder gameplay — the old scaffold drew a bouncing circle,
+// so a model that failed to replace it left "a circle" on screen. A neutral
+// "building…" message makes an unfinished build obvious instead of misleading.
 const GAME = (title: string): CodeFile[] => [
   {
     path: 'index.html',
@@ -94,32 +93,20 @@ const GAME = (title: string): CodeFile[] => [
 </head>
 <body>
   <canvas id="game" width="480" height="320"></canvas>
-  <script src="game.js"></script>
+  <script>
+    // ${title} — a canvas game. The agent builds the full game loop here, in this one file.
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#9aa0aa';
+    ctx.font = '16px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Building your game…', canvas.width / 2, canvas.height / 2);
+  </script>
 </body>
 </html>
 `,
   },
-  {
-    path: 'game.js',
-    content: `// ${title} — a canvas game loop. The agent builds the gameplay out from here.
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-let t = 0;
-function frame() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#E2B24A';
-  const x = canvas.width / 2 + Math.cos(t) * 80;
-  const y = canvas.height / 2 + Math.sin(t) * 80;
-  ctx.beginPath();
-  ctx.arc(x, y, 12, 0, Math.PI * 2);
-  ctx.fill();
-  t += 0.03;
-  requestAnimationFrame(frame);
-}
-frame();
-`,
-  },
-  { path: 'README.md', content: `# ${title}\n\nA canvas game scaffolded by oioxo. Edit game.js; the preview reloads.\n` },
+  { path: 'README.md', content: `# ${title}\n\nA canvas game scaffolded by oioxo. Everything (HTML, styles, game loop) lives in index.html.\n` },
 ];
 
 const NODE = (name: string): CodeFile[] => [

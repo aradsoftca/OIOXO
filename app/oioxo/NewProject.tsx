@@ -34,6 +34,8 @@ import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
 import { recipeFor, type Check as GoalCheck } from '@/lib/oioxo/recipes';
 import { searchForError } from '@/lib/oioxo/code-search';
+import { fixExamplesFromTrajectory } from '@/lib/oioxo/conductor';
+import { addExamples, recallFixes } from '@/lib/oioxo/trajectory-store';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
 import { configureConductor } from '@/lib/oioxo/conductor-engine';
 import { getFrontier, setFrontier, frontierChat, PROVIDERS, type FrontierConfig, type Provider } from '@/lib/oioxo/frontier';
@@ -674,10 +676,16 @@ export function AgentRun({
           run: oracle, // RUNTIME oracle for web/UI/games (else typecheck/python/sql)
           runtime,
           signal: ac.signal, // Stop
-          search: (q) => searchForError(q, onLog), // search-when-stuck
+          search: (q) => searchForError(q, onLog), // search-when-stuck (web)
+          recall: (q) => recallFixes(q), // REMEMBER: reuse the device's own verified fixes
           onNote: onLog,
           onProgress: setProgress, onData: onLog,
         });
+        // REMEMBER: bank this step's verified red→green repairs for future recall.
+        if (res.trajectory?.length) {
+          const ex = fixExamplesFromTrajectory(framed, res.trajectory);
+          if (ex.length) void addExamples(ex).catch(() => {});
+        }
         return { files: res.files, ok: res.ok, iters: res.iters };
       };
 

@@ -68,6 +68,10 @@ export interface LoopOptions {
    *  same error, look it up on the web and fold the findings into the next repair
    *  context — the small model resolves problems it doesn't know. */
   search?: (query: string) => Promise<string>;
+  /** REMEMBER + reuse (OIOXO_CODE §2 step 6): recall the device's own verified
+   *  fixes for a similar error and fold them into the repair as few-shot. Cheap +
+   *  local; applied on every repair so the model compounds with use. */
+  recall?: (query: string) => Promise<string>;
   /** Start searching after this many failed attempts on the same error (default 2). */
   searchAfter?: number;
   /** Human narration of what the loop is doing (drives the "watch it think" view). */
@@ -136,6 +140,11 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
     if (opts.signal?.aborted) { opts.onNote?.('\n■ stopped\n'); break; }
     const filesBefore = files;
     let error = attempt === 0 ? undefined : last.errors;
+    // Recall the device's own verified fixes for a similar error (cheap, local).
+    if (error && opts.recall) {
+      const mem = await opts.recall(error).catch(() => '');
+      if (mem) error = `${error}\n\n[From your device's verified fixes]\n${mem}`;
+    }
     // Stuck on the same error? Search the web and fold the findings into the repair.
     if (error && opts.search && attempt >= searchAfter) {
       const key = error.slice(0, 120);

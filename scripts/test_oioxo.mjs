@@ -73,6 +73,17 @@ test('code-search: errorQuery distills a searchable query', async () => {
   assert.equal(errorQuery(''), '');
 });
 
+// ---------- remember (recall scoring) ----------
+test('trajectory: overlapScore ranks similar errors higher', async () => {
+  const { overlapScore } = await import('../lib/oioxo/trajectory-store.ts');
+  const a = 'ReferenceError drawMaze is not defined in game render';
+  const close = 'ReferenceError drawMaze is not defined when rendering';
+  const far = 'SyntaxError unexpected token in package json config';
+  assert.ok(overlapScore(a, close) > overlapScore(a, far));
+  assert.equal(overlapScore('', 'x'), 0);
+  assert.ok(overlapScore(a, a) > 0.9);
+});
+
 // ---------- agent ----------
 test('agent: parsePlan (JSON + list + degrade)', async () => {
   const { parsePlan } = await import('../lib/oioxo/agent.ts');

@@ -69,6 +69,8 @@ export interface BuildOptions {
   signal?: AbortSignal;
   /** Search-when-stuck: look up persistent errors on the web, fold into the repair. */
   search?: (query: string) => Promise<string>;
+  /** REMEMBER: recall the device's own verified fixes for a similar error. */
+  recall?: (query: string) => Promise<string>;
   /** Human narration of what the agent is doing (the "watch it think" stream). */
   onNote?: (s: string) => void;
 }
@@ -159,6 +161,7 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     record: opts.record,
     signal: opts.signal,
     search: opts.search,
+    recall: opts.recall,
     onNote: opts.onNote,
     generate,
     run,

@@ -176,7 +176,9 @@ export function ImageFilterTool({
       }
       if (token !== previewToken.current) return; // superseded by a newer edit
       paint(img);
-      setDims({ w: img.width, h: img.height });
+      // NOTE: don't set dims here — the preview is downscaled, so its size is
+      // not the export size. dims stays at the full-res value from load and is
+      // refreshed from the real output on download.
     } catch (err) {
       console.error(`${toolId} preview failed`, err);
     } finally {
@@ -200,6 +202,7 @@ export function ImageFilterTool({
       if (useWorker) {
         const r = await sessionRef.current!.exportImage(op!, buildParams(opts), format, quality, setExportProg);
         blob = r.blob; bytes = r.bytes;
+        setDims({ w: r.width, h: r.height });
       } else {
         const src = decodedMainRef.current!;
         setExportProg({ phase: 'Processing', ratio: 0.2 });
@@ -208,6 +211,7 @@ export function ImageFilterTool({
         setExportProg({ phase: 'Encoding', ratio: 0.6 });
         const r = await encode(out, format, { quality });
         blob = r.blob; bytes = r.bytes;
+        setDims({ w: out.width, h: out.height });
       }
       setOutputBytes(bytes);
       const url = URL.createObjectURL(blob);

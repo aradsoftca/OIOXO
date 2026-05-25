@@ -183,6 +183,23 @@ export function vignette(
   return out;
 }
 
+/**
+ * Gaussian blur via the canvas `filter` (GPU-accelerated in Chromium/Safari).
+ * Returns RGBA at the same dimensions. `blurPx` is the standard-deviation
+ * radius in pixels; 0 is a no-op passthrough copy.
+ */
+export function blur(src: ImageData, opts: { blurPx?: number }): ImageData {
+  const px = Math.max(0, opts.blurPx ?? 0);
+  if (px === 0) return new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);
+  const srcCanvas = makeCanvas(src.width, src.height);
+  get2d(srcCanvas).putImageData(src, 0, 0);
+  const out = makeCanvas(src.width, src.height);
+  const octx = get2d(out);
+  octx.filter = `blur(${px}px)`;
+  octx.drawImage(srcCanvas as CanvasImageSource, 0, 0);
+  return octx.getImageData(0, 0, src.width, src.height);
+}
+
 function makeCanvas(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
   if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(w, h);
   const c = document.createElement('canvas');

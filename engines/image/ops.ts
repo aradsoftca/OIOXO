@@ -30,6 +30,7 @@ export const OPS: Record<string, Op> = {
   // transforms
   flip:         (s, p) => transforms.flip(s, p as { horizontal?: boolean; vertical?: boolean }),
   rotate:       (s, p) => transforms.rotate(s, p as Parameters<typeof transforms.rotate>[1]),
+  blur:         (s, p) => transforms.blur(s, p as { blurPx?: number }),
   pixelate:     (s, p) => transforms.pixelate(s, p as { size: number }),
   vignette:     (s, p) => transforms.vignette(s, p as Parameters<typeof transforms.vignette>[1]),
   border:       (s, p) => transforms.border(s, p as Parameters<typeof transforms.border>[1]),

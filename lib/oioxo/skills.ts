@@ -25,6 +25,9 @@ export interface SkillModel {
   /** For webllm: substrings matched against the live prebuilt model list, so we
    *  never hard-depend on an exact id that may drift between versions. */
   webllmMatch?: string[];
+  /** Runs on CPU/WASM when the device has no WebGPU (slower, but works anywhere).
+   *  The runtime auto-falls back to the WASM engine; see runtime.chat. */
+  cpu?: boolean;
   note?: string;
 }
 
@@ -43,7 +46,7 @@ export const SKILLS: Record<SkillId, Skill> = {
     models: [
       { id: 'coder-1_5b', label: 'Light', size: '~1.1 GB', minTier: 'mid', runtime: 'webllm', webllmMatch: ['Qwen2.5-Coder-1.5B', 'Coder-1.5B'] },
       { id: 'coder-7b', label: 'Pro', size: '~4.5 GB', minTier: 'high', runtime: 'webllm', webllmMatch: ['Qwen2.5-Coder-7B', 'Coder-7B'], note: 'Strong GPU recommended.' },
-      { id: 'general-0_5b', label: 'Basic', size: '~0.3 GB', minTier: 'low', runtime: 'webllm', webllmMatch: ['Qwen2.5-0.5B-Instruct', '0.5B-Instruct'], note: 'General model — light coding help.' },
+      { id: 'general-0_5b', label: 'Basic', size: '~0.3 GB', minTier: 'low', runtime: 'webllm', webllmMatch: ['Qwen2.5-0.5B-Instruct', '0.5B-Instruct'], cpu: true, note: 'General model — light coding help. Runs on CPU if your device has no GPU (slower).' },
     ],
   },
   image: {
@@ -70,7 +73,10 @@ export const SKILLS: Record<SkillId, Skill> = {
  *  So we recommend the best coder the hardware supports instead of a fixed size.
  *  Returns null when nothing in-browser fits (e.g. no WebGPU → use the native app). */
 export function recommendModel(skill: SkillId, tier: Tier): SkillModel | null {
-  const fits = SKILLS[skill].models.filter((m) => m.runtime === 'webllm' && tierAtLeast(tier, m.minTier));
+  const models = SKILLS[skill].models;
+  // No WebGPU → recommend the CPU-capable model (runs on the WASM engine).
+  if (tier === 'none') return models.find((m) => m.runtime === 'webllm' && m.cpu) ?? null;
+  const fits = models.filter((m) => m.runtime === 'webllm' && tierAtLeast(tier, m.minTier));
   return fits.sort((a, b) => tierRank(b.minTier) - tierRank(a.minTier))[0] ?? null;
 }
 

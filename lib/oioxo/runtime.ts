@@ -20,7 +20,7 @@ async function webllm(): Promise<any> {
 // CPU/WASM engine instead of failing — so the coder works on EVERY device, not
 // only GPU ones (the chat assistant already does this; the coder now matches).
 let _gpu: boolean | null = null;
-async function hasWebGPU(): Promise<boolean> {
+export async function hasWebGPU(): Promise<boolean> {
   if (_gpu !== null) return _gpu;
   try {
     const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } })?.gpu;

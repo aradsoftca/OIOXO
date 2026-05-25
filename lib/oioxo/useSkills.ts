@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { detectHardware, type HardwareInfo } from './hardware';
 import { installedModelId, setInstalled, type SkillId, type SkillModel } from './skills';
-import { loadModel } from './runtime';
+import { loadModel, hasWebGPU } from './runtime';
 
 /** Detect device capability once on mount. */
 export function useHardware(): HardwareInfo | null {
@@ -27,6 +27,8 @@ export interface SkillState {
   progress: number | null;
   error: string | null;
   install: (model: SkillModel) => Promise<void>;
+  /** Enter the IDE with NO local download (Bring-Your-Own-Key path). */
+  enable: (model: SkillModel) => void;
 }
 
 /** Install/track a skill's model. Real download for webllm models; native ones
@@ -49,7 +51,16 @@ export function useSkill(skill: SkillId): SkillState {
       }
       setProgress(0);
       try {
-        await loadModel(model.webllmMatch, (p) => setProgress(p));
+        if (await hasWebGPU()) {
+          await loadModel(model.webllmMatch, (p) => setProgress(p));
+        } else if (model.cpu) {
+          // No WebGPU → download + run on the CPU/WASM engine (slower, works).
+          const { loadWasmEngine } = await import('@/lib/ai/wasm-llm');
+          await loadWasmEngine((p) => setProgress(p));
+        } else {
+          setError('This model needs a WebGPU-capable GPU. Try Basic (runs on CPU) or use your own API key.');
+          return;
+        }
         setInstalled(skill, model.id);
         setInst(model.id);
       } catch (e) {
@@ -61,5 +72,11 @@ export function useSkill(skill: SkillId): SkillState {
     [skill],
   );
 
-  return { installed, progress, error, install };
+  // BYOK: open the IDE immediately, no local model — the agent uses the user's key.
+  const enable = React.useCallback((model: SkillModel) => {
+    setInstalled(skill, model.id);
+    setInst(model.id);
+  }, [skill]);
+
+  return { installed, progress, error, install, enable };
 }

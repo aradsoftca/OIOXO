@@ -15,7 +15,7 @@ const ICON: Record<SkillId, React.ReactNode> = {
 export default function SkillPanel({ skillId }: { skillId: SkillId }) {
   const skill = SKILLS[skillId];
   const hw = useHardware();
-  const { installed, progress, error, install } = useSkill(skillId);
+  const { installed, progress, error, install, enable } = useSkill(skillId);
   const [installing, setInstalling] = React.useState<string | null>(null);
   // The best in-browser model this device can run — surfaced as "Recommended".
   const recommended = hw ? recommendModel(skillId, hw.tier) : null;
@@ -58,7 +58,9 @@ export default function SkillPanel({ skillId }: { skillId: SkillId }) {
         {skill.models.map((m) => {
           const isInstalled = installed === m.id;
           const native = m.runtime === 'native';
-          const runnable = !native && !!hw && hw.webgpu && tierAtLeast(hw.tier, m.minTier);
+          // WebGPU device → needs the right tier; no WebGPU → the CPU-capable model runs anyway.
+          const runnable = !native && !!hw && (hw.webgpu ? tierAtLeast(hw.tier, m.minTier) : !!m.cpu);
+          const onCpu = !!hw && !hw.webgpu && !!m.cpu; // running on the CPU/WASM path
           const busy = installing === m.id && progress != null;
           return (
             <div
@@ -133,9 +135,27 @@ export default function SkillPanel({ skillId }: { skillId: SkillId }) {
 
       {error && <p className="mt-3 text-sm text-rose-600">{error}</p>}
 
+      {/* Bring-your-own-key: enter the IDE with no local download (works on any device,
+          and is the fast path when there's no GPU). */}
+      {skillId === 'code' && (
+        <button
+          type="button"
+          onClick={() => enable(skill.models.find((m) => m.cpu) ?? skill.models[0])}
+          className="mt-4 flex w-full items-center justify-between gap-3 rounded-xl border-2 border-[#E2B24A] bg-[#E2B24A]/10 p-3 text-left transition hover:bg-[#E2B24A]/20"
+        >
+          <span>
+            <span className="block text-sm font-bold text-[#7a5c12]">Use your own API key — no download</span>
+            <span className="mt-0.5 block text-xs text-zinc-600">
+              OpenAI / Claude / Gemini / Groq / OpenRouter. Frontier quality, nothing runs locally — best if you have no GPU.
+            </span>
+          </span>
+          <span className="shrink-0 rounded-full bg-[#E2B24A] px-3.5 py-1.5 text-xs font-semibold text-[#232327]">Open IDE →</span>
+        </button>
+      )}
+
       <p className="mt-5 text-xs text-zinc-400">
         Models run on your device and are cached after the first download — private and offline-capable.
-        {hw && !hw.webgpu && ' Your browser has no WebGPU, so in-browser models are unavailable here — the native app covers all platforms.'}
+        {hw && !hw.webgpu && ' Your browser has no WebGPU, so the Basic model runs on CPU (slower) — or use your own API key above for full speed.'}
       </p>
     </section>
   );

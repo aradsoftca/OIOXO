@@ -30,23 +30,28 @@ function filesDigest(files: CodeFile[], budget = 1800): string {
  *  `chat` override is supplied (e.g. the user's frontier key), by that model. */
 export function makePlanner(
   match: string[],
-  opts?: { maxTokens?: number; onProgress?: (p: number) => void; chat?: (system: string, user: string) => Promise<string> },
+  opts?: {
+    maxTokens?: number;
+    onProgress?: (p: number) => void;
+    onToken?: (delta: string) => void;
+    chat?: (system: string, user: string) => Promise<string>;
+  },
 ): PlanFn {
   const system =
-    'You are a senior engineer planning a build inside oioxo. Given a goal and the ' +
-    'current files, output a SHORT ordered plan as a JSON array of 2–6 step strings. ' +
-    'Each step is ONE concrete, verifiable change that leaves the project runnable ' +
-    '(e.g. "Add the HTML structure for the timer", "Implement start/pause logic in script.js"). ' +
-    'Reply with the JSON array ONLY — no prose, no code fences.';
+    'You are a senior engineer planning a build inside oioxo. Begin with ONE short ' +
+    'sentence describing your approach, then output a SHORT ordered plan as a JSON ' +
+    'array of 2–6 step strings. Each step is ONE concrete, verifiable change that ' +
+    'leaves the project runnable (e.g. "Add the HTML structure for the timer", ' +
+    '"Implement start/pause logic in script.js"). After the sentence, the JSON array only.';
   return async (goal, files) => {
     const digest = filesDigest(files);
     const user =
       `Goal: ${goal}\n\nThe project already has these files (heads shown):\n${digest}\n\n` +
-      'Plan the steps that build the goal out from here. Return the plan as a JSON array of step strings.';
+      'Briefly state your approach, then return the plan as a JSON array of step strings.';
     // Frontier key (BYOK) → that model; else conductor-when-entitled, else coder.
     const acc = opts?.chat
       ? await opts.chat(system, user)
-      : await runRole('plan', system, user, match, { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress });
+      : await runRole('plan', system, user, match, { maxTokens: opts?.maxTokens ?? 360, onProgress: opts?.onProgress, onToken: opts?.onToken });
     return parsePlan(acc);
   };
 }

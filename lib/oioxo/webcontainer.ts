@@ -56,13 +56,22 @@ const TYPES = { '.html':'text/html','.js':'text/javascript','.mjs':'text/javascr
 // actually-running app (window.onerror / unhandledrejection / console.error) and
 // run goal checks — the "device proves it" oracle for web/UI/games. Posts a single
 // 'probe' report to the parent after load.
-const PROBE = '<script>(function(){var E=[];function rec(m){E.push(String(m))}' +
+const PROBE = '<script>(function(){var E=[],CHK=null;function rec(m){E.push(String(m))}' +
+  'window.__oioxoFrames=0;window.__oioxoListeners=[];window.__oioxoCanvasPainted=false;' +
+  // count animation frames (is a render loop actually running?)
+  'try{var raf=window.requestAnimationFrame;if(raf){window.requestAnimationFrame=function(cb){window.__oioxoFrames++;return raf.call(window,cb)}}}catch(_){}' +
+  // record which event types are ever listened for (interactivity)
+  'try{var ael=EventTarget.prototype.addEventListener;EventTarget.prototype.addEventListener=function(t){try{if(window.__oioxoListeners.indexOf(t)<0)window.__oioxoListeners.push(t)}catch(_){}return ael.apply(this,arguments)}}catch(_){}' +
+  // did the canvas actually paint (vs a blank/cleared frame)?
+  'try{var C=window.CanvasRenderingContext2D&&CanvasRenderingContext2D.prototype;if(C){["fill","stroke","fillRect","fillText","drawImage","strokeRect","strokeText","arc","ellipse","putImageData","lineTo"].forEach(function(m){var o=C[m];if(o)C[m]=function(){window.__oioxoCanvasPainted=true;return o.apply(this,arguments)}})}}catch(_){}' +
   "window.addEventListener('error',function(e){rec((e.message||'error')+(e.filename?(' @'+(e.filename.split('/').pop())+':'+e.lineno):''))});" +
   "window.addEventListener('unhandledrejection',function(e){rec('unhandledrejection: '+((e.reason&&e.reason.message)||e.reason))});" +
   'var ce=console.error;console.error=function(){rec("console.error: "+Array.prototype.map.call(arguments,String).join(" "));return ce.apply(console,arguments)};' +
-  'function run(){var checks=[];try{var fns=(window.__oioxoChecks||[]);for(var i=0;i<fns.length;i++){try{var r=fns[i]();if(r&&r.ok===false)checks.push("check failed: "+(r.name||i))}catch(err){checks.push("check threw: "+(err&&err.message||err))}}}catch(_){}' +
-  'try{parent.postMessage({__oioxo:"probe",errors:E.concat(checks)},"*")}catch(_){}}' +
-  "window.addEventListener('load',function(){setTimeout(run,700)});setTimeout(run,2000);})();</script>";
+  // the IDE posts the goal checks in; eval each in the page (truthy = pass)
+  "window.addEventListener('message',function(e){var d=e.data;if(d&&d.__oioxoSetChecks){CHK=d.__oioxoSetChecks}});" +
+  'function run(){var fails=[];if(CHK){for(var i=0;i<CHK.length;i++){var c=CHK[i];try{var ok=eval(c.src);if(!ok)fails.push("not yet: "+c.name)}catch(err){fails.push("check error ("+c.name+"): "+(err&&err.message||err))}}}' +
+  'try{parent.postMessage({__oioxo:"probe",errors:E.concat(fails)},"*")}catch(_){}}' +
+  "window.addEventListener('load',function(){setTimeout(run,1200)});setTimeout(run,2600);})();</script>";
 http.createServer(async (req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]);
   if (p.endsWith('/')) p += 'index.html';

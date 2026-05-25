@@ -32,7 +32,7 @@ import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
 import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
-import { recipeFor } from '@/lib/oioxo/recipes';
+import { recipeFor, type Check as GoalCheck } from '@/lib/oioxo/recipes';
 import { searchForError } from '@/lib/oioxo/code-search';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
 import { configureConductor } from '@/lib/oioxo/conductor-engine';
@@ -69,8 +69,14 @@ export default function NewProject({ match }: { match: string[] }) {
   // type oracle has almost none. Built only for previewable projects.
   const previewUrlRef = React.useRef<string | null>(null);
   React.useEffect(() => { previewUrlRef.current = preview; }, [preview]);
+  // Goal checks (behavioral acceptance) come from the recipe for the goal; the
+  // loop drives the build until they pass in the running preview.
+  const checksRef = React.useRef<GoalCheck[]>([]);
+  React.useEffect(() => { checksRef.current = recipeFor(goal)?.checks ?? []; }, [goal]);
   const previewOracle = React.useMemo<RunFn | undefined>(
-    () => (info?.preview && supported ? makePreviewRun(() => previewUrlRef.current, (s) => setLog((o) => (o + s).slice(-16000))) : undefined),
+    () => (info?.preview && supported
+      ? makePreviewRun(() => previewUrlRef.current, () => checksRef.current, (s) => setLog((o) => (o + s).slice(-16000)))
+      : undefined),
     [info?.preview, supported],
   );
 
@@ -645,8 +651,10 @@ export function AgentRun({
       // the in-browser TS type oracle (no install).
       const libFiles = runtime === 'python' || runtime === 'sql' ? undefined : await loadTsLibs().catch(() => undefined);
       const fc = frontier; // BYOK frontier key drives plan + build when set
+      onLog('\n🧠 thinking…\n');
       const planner = makePlanner(match, {
         onProgress: setProgress,
+        onToken: (d) => onLog(d), // stream the model's planning tokens → watch it think
         chat: fc ? (s, u) => frontierChat(fc, s, u, { maxTokens: 512 }) : undefined,
       });
       const build = async (

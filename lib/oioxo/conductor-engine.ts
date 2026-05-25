@@ -48,7 +48,7 @@ export async function runRole(
   system: string,
   user: string,
   coderMatch: string[],
-  opts?: { maxTokens?: number; onProgress?: (p: number) => void },
+  opts?: { maxTokens?: number; onProgress?: (p: number) => void; onToken?: (delta: string) => void },
 ): Promise<string> {
   const match = conductorModel() ?? coderMatch;
   let acc = '';
@@ -58,6 +58,7 @@ export async function runRole(
     { maxTokens: opts?.maxTokens ?? 320, onProgress: opts?.onProgress },
   )) {
     acc += delta;
+    opts?.onToken?.(delta); // stream tokens → "watch it think"
   }
   return acc;
 }

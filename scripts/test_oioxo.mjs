@@ -55,6 +55,12 @@ test('recipes: match task types, null otherwise', async () => {
   assert.equal(recipeFor('a signup form')?.kind, 'form');
   assert.equal(recipeFor('some random thing'), null);
   assert.ok((recipeFor('pacman')?.guidance || '').includes('MAZE'));
+  // behavioral checks (drive "is actually the thing", not just "runs")
+  const g = recipeFor('pacman game');
+  assert.ok(g.checks && g.checks.length >= 3, 'game has checks');
+  assert.ok(g.checks.some((c) => /keyboard/i.test(c.name)), 'game checks keyboard input');
+  assert.ok(g.checks.every((c) => typeof c.src === 'string' && c.src.length > 0));
+  assert.ok(recipeFor('a todo list').checks.some((c) => /input/i.test(c.name)));
 });
 
 // ---------- code-search (search-when-stuck query) ----------

@@ -12,9 +12,11 @@
  */
 import type { CodeFile, RunResult, RunFn } from './codeloop';
 import { writeFiles } from './webcontainer';
+import type { Check } from './recipes';
 
-/** Load the running preview in a hidden iframe and collect the probe report. */
-function probe(url: string, ms = 3000): Promise<string[]> {
+/** Load the running preview in a hidden iframe, send the goal checks in, and
+ *  collect the probe report (runtime errors + failed checks). */
+function probe(url: string, checks: Check[], ms = 4000): Promise<string[]> {
   return new Promise((resolve) => {
     if (typeof document === 'undefined') { resolve([]); return; }
     const errs: string[] = [];
@@ -25,6 +27,7 @@ function probe(url: string, ms = 3000): Promise<string[]> {
     const finish = () => {
       if (done) return; done = true;
       window.removeEventListener('message', onMsg);
+      clearInterval(sender);
       try { iframe.remove(); } catch { /* */ }
       resolve(errs);
     };
@@ -36,6 +39,11 @@ function probe(url: string, ms = 3000): Promise<string[]> {
       }
     };
     window.addEventListener('message', onMsg);
+    // Keep posting the checks to the probe (it may not be listening on the first
+    // tick); harmless once received. Stops when the report arrives or we time out.
+    const sendChecks = () => { try { iframe.contentWindow?.postMessage({ __oioxoSetChecks: checks }, '*'); } catch { /* */ } };
+    const sender = setInterval(sendChecks, 250);
+    iframe.addEventListener('load', sendChecks);
     iframe.src = url + (url.includes('?') ? '&' : '?') + '__oioxo_probe=' + Date.now(); // bust cache → latest files
     document.body.appendChild(iframe);
     setTimeout(finish, ms); // no report in time = treat as clean (don't block the loop)
@@ -48,14 +56,18 @@ function probe(url: string, ms = 3000): Promise<string[]> {
  * `getUrl` returns the current preview URL (null until the server is ready, in
  * which case we can't verify yet and pass — the loop falls back to not blocking).
  */
-export function makePreviewRun(getUrl: () => string | null, onData?: (s: string) => void): RunFn {
+export function makePreviewRun(
+  getUrl: () => string | null,
+  getChecks: () => Check[],
+  onData?: (s: string) => void,
+): RunFn {
   return async (files: CodeFile[]): Promise<RunResult> => {
     try { await writeFiles(files); } catch { /* container may not be mounted yet */ }
     const url = getUrl();
     if (!url) return { ok: true, output: 'preview not ready — runtime check skipped', errors: '' };
-    const errs = await probe(url);
+    const errs = await probe(url, getChecks());
     const ok = errs.length === 0;
-    onData?.(ok ? '\n✓ runs clean (no runtime errors)\n' : '\n�e runtime errors:\n' + errs.join('\n') + '\n');
-    return { ok, output: ok ? 'No runtime errors.' : errs.join('\n'), errors: ok ? '' : errs.join('\n') };
+    onData?.(ok ? '\n✓ runs clean — all checks pass\n' : '\n● not done yet:\n' + errs.map((e) => '  - ' + e).join('\n') + '\n');
+    return { ok, output: ok ? 'Runs; all checks pass.' : errs.join('\n'), errors: ok ? '' : errs.join('\n') };
   };
 }

@@ -8,12 +8,47 @@
  * Deterministic (we author them), so they don't depend on the model's recall.
  * Pure + Node-testable; matched by keywords in the goal.
  */
+/** A behavioral acceptance check, evaluated INSIDE the running preview. `src` is a
+ *  JS boolean expression (truthy = pass). These turn "it runs" into "it's actually
+ *  the thing asked for" — failures feed the repair loop until they pass. */
+export interface Check {
+  name: string;
+  src: string;
+}
+
 export interface Recipe {
   /** Why it matched (for logs). */
   kind: string;
   /** Guidance + structure handed to the planner and the coder. */
   guidance: string;
+  /** Behavioral checks the loop drives the build until they pass (verified live). */
+  checks?: Check[];
 }
+
+// Generic signals the probe records in the page (see STATIC_SERVER): how many
+// animation frames ran, which event types were ever listened for, whether the
+// canvas actually drew non-blank pixels. Enough to tell a real interactive build
+// from a static placeholder, without knowing the project's internals.
+const CHECKS: Record<string, Check[]> = {
+  'canvas-game': [
+    { name: 'a canvas is on the page', src: '!!document.querySelector("canvas")' },
+    { name: 'an animation loop is running', src: '(window.__oioxoFrames||0) > 3' },
+    { name: 'it responds to the keyboard', src: '(window.__oioxoListeners||[]).some(function(t){return /key/.test(t)})' },
+    { name: 'the canvas draws real content (not blank)', src: 'window.__oioxoCanvasPainted === true' },
+  ],
+  'list-app': [
+    { name: 'has a text input', src: '!!document.querySelector("input,textarea")' },
+    { name: 'has an add/submit control', src: '!!document.querySelector("button,[type=submit]")' },
+  ],
+  'form': [
+    { name: 'has form fields', src: 'document.querySelectorAll("input,select,textarea").length > 0' },
+    { name: 'has a submit control', src: '!!document.querySelector("button,[type=submit]")' },
+  ],
+  'calculator': [
+    { name: 'has buttons', src: 'document.querySelectorAll("button").length >= 5' },
+    { name: 'has a display', src: '!!document.querySelector("input,output,[data-display],.display,#display")' },
+  ],
+};
 
 const CANVAS_GAME = `This is a CANVAS GAME. Build it properly, not a placeholder:
 - One <canvas> + a fixed-timestep game loop via requestAnimationFrame (update(dt) then render()).
@@ -43,11 +78,11 @@ const CALC = `This is a CALCULATOR:
   (no eval of raw input — parse). Support keyboard input too.`;
 
 const TABLE: { test: RegExp; recipe: Recipe }[] = [
-  { test: /\b(game|canvas|snake|pong|tetris|pac-?man|platformer|arcade|sprite|shooter|breakout)\b/i, recipe: { kind: 'canvas-game', guidance: CANVAS_GAME } },
-  { test: /\b(todo|to-do|task list|checklist|notes app|shopping list|crud|list app)\b/i, recipe: { kind: 'list-app', guidance: LIST_APP } },
-  { test: /\b(form|sign[- ]?up|login|contact|survey|quiz)\b/i, recipe: { kind: 'form', guidance: FORM_APP } },
+  { test: /\b(game|canvas|snake|pong|tetris|pac-?man|platformer|arcade|sprite|shooter|breakout)\b/i, recipe: { kind: 'canvas-game', guidance: CANVAS_GAME, checks: CHECKS['canvas-game'] } },
+  { test: /\b(todo|to-do|task list|checklist|notes app|shopping list|crud|list app)\b/i, recipe: { kind: 'list-app', guidance: LIST_APP, checks: CHECKS['list-app'] } },
+  { test: /\b(form|sign[- ]?up|login|contact|survey|quiz)\b/i, recipe: { kind: 'form', guidance: FORM_APP, checks: CHECKS['form'] } },
   { test: /\b(dashboard|admin|analytics|chart|stats|report)\b/i, recipe: { kind: 'dashboard', guidance: DASHBOARD } },
-  { test: /\b(calculator|calc)\b/i, recipe: { kind: 'calculator', guidance: CALC } },
+  { test: /\b(calculator|calc)\b/i, recipe: { kind: 'calculator', guidance: CALC, checks: CHECKS['calculator'] } },
 ];
 
 /** The recipe whose keywords match the goal, or null. */

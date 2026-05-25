@@ -61,20 +61,45 @@ export interface ChatMsg {
   content: string;
 }
 
+/** A transient on-device engine failure (WebGPU buffer/device loss) — distinct
+ *  from a real error. Reloading the engine often clears it. */
+function isTransientEngineError(msg: string): boolean {
+  return /model not loaded|gpubuffer|mapasync|device.*lost|unmapped|reload\(/i.test(msg);
+}
+
+/** Drop a dead engine so the next load rebuilds it fresh (recover from GPU loss). */
+async function dropEngine(match: string[]): Promise<void> {
+  const id = await resolveModelId(match);
+  if (id && _engines[id]) {
+    try { await _engines[id].unload?.(); } catch { /* */ }
+    delete _engines[id];
+  }
+}
+
 /** One-shot chat against a skill model (loads/caches it first). Reports load
- *  progress, then returns the full reply text. */
+ *  progress, then returns the full reply text. Self-heals a transient WebGPU
+ *  buffer/device-loss by reloading the engine once and retrying. */
 export async function chat(
   match: string[],
   messages: ChatMsg[],
   opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number } = {},
 ): Promise<string> {
-  const { engine } = await loadModel(match, opts.onProgress);
-  const res = await engine.chat.completions.create({
-    messages,
-    temperature: opts.temperature ?? 0.3,
-    max_tokens: opts.maxTokens ?? 640,
-  });
-  return res?.choices?.[0]?.message?.content ?? '';
+  const run = async () => {
+    const { engine } = await loadModel(match, opts.onProgress);
+    const res = await engine.chat.completions.create({
+      messages,
+      temperature: opts.temperature ?? 0.3,
+      max_tokens: opts.maxTokens ?? 640,
+    });
+    return res?.choices?.[0]?.message?.content ?? '';
+  };
+  try {
+    return await run();
+  } catch (e) {
+    if (!isTransientEngineError(String((e as Error)?.message || e))) throw e;
+    await dropEngine(match);       // engine died — rebuild it fresh, retry ONCE
+    return await run();
+  }
 }
 
 /** Streaming chat — yields text deltas as the model generates, so the UI fills

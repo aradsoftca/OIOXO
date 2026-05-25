@@ -17,8 +17,9 @@ export interface ConductorConfig {
   /** web-llm model match for the specialized conductor, or null → use the coder. */
   model: string[] | null;
   /** OUR conductor served as ONNX via transformers.js (sidesteps web-llm/MLC):
-   *  { modelId, host }. Preferred when set + entitled. See conductor-wasm.ts. */
-  wasm?: { modelId: string; host?: string } | null;
+   *  { modelId, host, protected }. Preferred when set + entitled. See conductor-wasm.ts.
+   *  `protected` = AES-encrypted weights gated by /api/code-key (anti-copy). */
+  wasm?: { modelId: string; host?: string; protected?: boolean } | null;
   /** Whether the loader is allowed to use it (Pro entitlement). Gated by revenue. */
   entitled: boolean;
 }
@@ -37,7 +38,7 @@ export function conductorModel(): string[] | null {
 }
 
 /** Our ONNX/transformers.js conductor config, if entitled. */
-export function conductorWasm(): { modelId: string; host?: string } | null {
+export function conductorWasm(): { modelId: string; host?: string; protected?: boolean } | null {
   return _config.entitled ? _config.wasm ?? null : null;
 }
 

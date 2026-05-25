@@ -41,6 +41,12 @@ def ensure_oioxo_secrets():
         add.append(("OIOXO_ENTITLEMENT_SECRET", base64.urlsafe_b64encode(os.urandom(48)).decode().rstrip("=")))
     if "OIOXO_PRO_KEY" not in have:
         add.append(("OIOXO_PRO_KEY", base64.b64encode(os.urandom(32)).decode()))
+    if "OIOXO_CODE_KEY" not in have:
+        # Decrypts the on-device CODE model (conductor) weights — "permission as a
+        # key" (/api/code-key). Stable (the 496MB asset is too big to re-encrypt +
+        # re-upload every deploy); rotate per model RELEASE by re-running
+        # encrypt_model.mjs with a fresh key + re-uploading the .enc.
+        add.append(("OIOXO_CODE_KEY", base64.b64encode(os.urandom(32)).decode()))
     if add:
         with secrets_file.open("a", encoding="utf-8") as f:
             if existing and not existing.endswith("\n"):

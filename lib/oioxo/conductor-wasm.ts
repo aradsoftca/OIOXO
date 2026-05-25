@@ -17,6 +17,9 @@ export interface ConductorEngineCfg {
   host?: string;
   /** Quantized ONNX (smaller download). Default true. */
   quantized?: boolean;
+  /** Weights are AES-encrypted ("permission as a key") — fetch the key from
+   *  /api/code-key, decrypt, and prime the cache before loading. See protected-model. */
+  protected?: boolean;
 }
 
 let _enginePromise: Promise<any> | null = null;
@@ -28,6 +31,12 @@ function loadEngine(cfg: ConductorEngineCfg, onProgress?: (p: number) => void): 
   if (_enginePromise && key === _cfgKey) return _enginePromise;
   _cfgKey = key;
   _enginePromise = (async () => {
+    // Encrypted weights: get the key from our origin, decrypt, prime the cache —
+    // so the load below finds the plaintext bytes locally and never off the wire.
+    if (cfg.protected) {
+      const { loadProtectedModel } = await import('./protected-model');
+      await loadProtectedModel({ modelId: cfg.modelId, host: cfg.host || (typeof window !== 'undefined' ? window.location.origin : '') });
+    }
     const lib: any = await import('@xenova/transformers');
     lib.env.allowLocalModels = false;
     lib.env.allowRemoteModels = true;

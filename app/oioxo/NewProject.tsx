@@ -12,7 +12,7 @@
 import * as React from 'react';
 import {
   Sparkles, Loader2, Play, RefreshCw, File as FileIcon, Folder, Wrench,
-  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown,
+  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import { scaffold, type Scaffold } from '@/lib/oioxo/scaffold';
@@ -27,6 +27,8 @@ import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
 import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
+import { sendProject, receiveProject, type SharePayload } from '@/lib/oioxo/share';
+import type { PeerState } from '@/lib/p2p/peer';
 import CodeEditor from './CodeEditor';
 
 type Phase = 'idle' | 'starting' | 'ready';
@@ -51,36 +53,41 @@ export default function NewProject({ match }: { match: string[] }) {
   const append = (s: string) => setLog((o) => (o + s).slice(-16000));
   const syncFiles = React.useCallback(async () => setFiles(await ws.current.files()), []);
 
-  /** Scaffold the goal, mount it, and bring the preview/oracle up. */
+  /** Load a project (scaffolded or received) into the workspace, mount it, and
+   *  bring the preview/oracle up. The single path every entry point goes through. */
+  async function bringUp(s: Scaffold) {
+    setInfo(s);
+    ws.current = new MemoryWorkspace(s.files);
+    await syncFiles();
+    setActivePath(s.files.find((f) => /index\.html|readme/i.test(f.path))?.path ?? s.files[0]?.path ?? null);
+
+    if (!supported) { setPhase('ready'); return; } // no sandbox: still edit + build the files
+
+    append('Setting up your project…\n');
+    const tree = treeFromFiles(s.files) as Record<string, unknown>;
+    if (s.preview) (tree as any)[SERVE_FILE] = { file: { contents: STATIC_SERVER } };
+    await mountTree(tree);
+    await onServerReady((url) => { setPreview(url); append(`\n▶ preview ready\n`); });
+
+    setPhase('ready');
+    if (s.preview) {
+      append('$ node ' + SERVE_FILE + '\n');
+      void run('node', [SERVE_FILE], append); // long-lived; fires server-ready
+    } else {
+      append('$ ' + s.runCmd + '\n');
+      const [c, args] = parseCommand(s.runCmd);
+      const code = await run(c, args, append);
+      append(`\n[exit ${code}]\n`);
+    }
+  }
+
+  /** Scaffold the goal and bring it up. */
   async function start() {
     const g = goal.trim();
     if (!g || phase === 'starting') return;
     setPhase('starting'); setError(null); setLog(''); setPreview(null);
     try {
-      const s = scaffold(g);
-      setInfo(s);
-      ws.current = new MemoryWorkspace(s.files);
-      await syncFiles();
-      setActivePath(s.files[0]?.path ?? null);
-
-      if (!supported) { setPhase('ready'); return; } // no sandbox: still edit + build the files
-
-      append('Setting up your project…\n');
-      const tree = treeFromFiles(s.files) as Record<string, unknown>;
-      if (s.preview) (tree as any)[SERVE_FILE] = { file: { contents: STATIC_SERVER } };
-      await mountTree(tree);
-      await onServerReady((url) => { setPreview(url); append(`\n▶ preview ready\n`); });
-
-      setPhase('ready');
-      if (s.preview) {
-        append('$ node ' + SERVE_FILE + '\n');
-        void run('node', [SERVE_FILE], append); // long-lived; fires server-ready
-      } else {
-        append('$ ' + s.runCmd + '\n');
-        const [c, args] = parseCommand(s.runCmd);
-        const code = await run(c, args, append);
-        append(`\n[exit ${code}]\n`);
-      }
+      await bringUp(scaffold(g));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not start the project');
       setPhase('ready');
@@ -127,6 +134,52 @@ export default function NewProject({ match }: { match: string[] }) {
     }
   }
 
+  // --- peer-to-peer sharing (browser-to-browser, no upload) ---
+  const [share, setShare] = React.useState<null | { room: string; state: PeerState; sent: number; total: number }>(null);
+  const shareRef = React.useRef<{ room: string; cancel(): void } | null>(null);
+  const [joinCode, setJoinCode] = React.useState('');
+  const [joining, setJoining] = React.useState<null | { state: PeerState; received: number; total: number }>(null);
+
+  function startShare() {
+    if (share) return;
+    const payload: SharePayload = {
+      meta: { name: goal.slice(0, 60), template: info?.template, goal, runCmd: info?.runCmd, preview: info?.preview },
+      files,
+    };
+    shareRef.current = sendProject(payload, {
+      onState: (state) => setShare((s) => (s ? { ...s, state } : s)),
+      onProgress: (sent, total) => setShare((s) => (s ? { ...s, sent, total } : s)),
+    });
+    setShare({ room: shareRef.current.room, state: 'connecting', sent: 0, total: files.length });
+  }
+  function stopShare() { shareRef.current?.cancel(); shareRef.current = null; setShare(null); }
+
+  function join() {
+    const code = joinCode.trim().toLowerCase();
+    if (!code) return;
+    setJoining({ state: 'connecting', received: 0, total: 0 });
+    receiveProject(code, {
+      onState: (state) => setJoining((j) => (j ? { ...j, state } : j)),
+      onProgress: (received, total) => setJoining((j) => (j ? { ...j, received, total } : j)),
+      onComplete: async (payload) => {
+        setJoining(null);
+        setPhase('starting'); setError(null); setLog('');
+        try {
+          await bringUp({
+            template: (payload.meta.template as Scaffold['template']) ?? 'web',
+            runCmd: payload.meta.runCmd ?? 'npx --yes serve -l 3111 .',
+            preview: payload.meta.preview ?? true,
+            files: payload.files,
+          });
+          if (payload.meta.goal) setGoal(payload.meta.goal);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'could not open the shared project');
+          setPhase('ready');
+        }
+      },
+    });
+  }
+
   if (phase === 'idle') {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
@@ -166,6 +219,34 @@ export default function NewProject({ match }: { match: string[] }) {
               the native app previews everywhere.
             </p>
           )}
+
+          {/* receive a project someone shared with a code */}
+          <div className="mt-6 border-t border-zinc-200 pt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">Got a code?</p>
+            {joining ? (
+              <div className="mt-2 flex items-center justify-center gap-2 text-[12px] text-zinc-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {joining.state === 'connecting' && 'Connecting to peer…'}
+                {joining.state === 'connected' && (joining.total ? `Receiving ${joining.received}/${joining.total} files…` : 'Connected — receiving…')}
+                {joining.state === 'failed' && <span className="text-amber-600">Couldn’t connect. Check the code and that the sender is still open.</span>}
+                {(joining.state === 'failed') && (
+                  <button type="button" onClick={() => setJoining(null)} className="font-semibold text-zinc-500 hover:underline">cancel</button>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={(e) => { e.preventDefault(); join(); }} className="mx-auto mt-2 flex max-w-xs items-center gap-2">
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value)}
+                  placeholder="paste a share code"
+                  className="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-center text-sm tracking-widest focus:border-[#E2B24A] focus:outline-none"
+                />
+                <button type="submit" disabled={!joinCode.trim()} className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-40">
+                  Receive
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -216,8 +297,17 @@ export default function NewProject({ match }: { match: string[] }) {
               {saved === 'done' ? 'Saved to folder' : 'Save to folder…'}
             </button>
           )}
+          <button
+            type="button"
+            onClick={startShare}
+            className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] font-semibold text-zinc-500 hover:bg-zinc-50"
+          >
+            <Share2 className="h-3.5 w-3.5" /> Share live…
+          </button>
         </div>
       </aside>
+
+      {share && <SharePopover share={share} onClose={stopShare} />}
 
       {/* editor + agent */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -426,6 +516,51 @@ export function AgentRun({
       {busy && progress > 0 && progress < 1 && (
         <div className="px-3 pb-2 text-[11px] text-zinc-400">loading coder… {Math.round(progress * 100)}%</div>
       )}
+    </div>
+  );
+}
+
+/** The share-code popover: shows the code to hand to a peer + live transfer state.
+ *  The project streams browser-to-browser the moment they enter it — no upload. */
+function SharePopover({
+  share, onClose,
+}: {
+  share: { room: string; state: PeerState; sent: number; total: number };
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(share.room); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* */ }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="flex items-center gap-1.5 text-sm font-bold text-zinc-900"><Share2 className="h-4 w-4" /> Share this project</h3>
+          <button type="button" onClick={onClose} className="rounded p-1 text-zinc-400 hover:bg-zinc-100"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mt-1 text-[12px] text-zinc-500">
+          Give this code to someone (in oioxo → Build a project → “Got a code?”). The files transfer directly
+          between your browsers — nothing is uploaded.
+        </p>
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50 p-2">
+          <code className="flex-1 select-all text-center text-lg font-bold tracking-[0.3em] text-zinc-900">{share.room}</code>
+          <button type="button" onClick={copy} className="flex items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-zinc-700">
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+        <div className="mt-3 flex items-center gap-2 text-[12px] text-zinc-500">
+          {share.state === 'connected' ? (
+            share.total && share.sent >= share.total
+              ? <><Check className="h-3.5 w-3.5 text-green-600" /> Sent {share.total} files — they have the project.</>
+              : <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Connected — sending {share.sent}/{share.total}…</>
+          ) : share.state === 'failed' ? (
+            <span className="text-amber-600">Connection failed — close and try sharing again.</span>
+          ) : (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Waiting for someone to enter the code…</>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

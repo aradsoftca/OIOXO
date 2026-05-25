@@ -12,7 +12,7 @@
 import * as React from 'react';
 import {
   Sparkles, Loader2, Play, RefreshCw, File as FileIcon, Folder, Wrench,
-  Check, AlertTriangle, Download, ArrowUp, Rocket,
+  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import { scaffold, type Scaffold } from '@/lib/oioxo/scaffold';
@@ -21,6 +21,7 @@ import { treeFromFiles } from '@/lib/oioxo/tempfs';
 import {
   runSupported, mountTree, onServerReady, run, parseCommand, writeFiles, STATIC_SERVER,
 } from '@/lib/oioxo/webcontainer';
+import { fsSupported, writeByPath } from '@/lib/oioxo/fs';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
@@ -109,6 +110,23 @@ export default function NewProject({ match }: { match: string[] }) {
     ws.current = new MemoryWorkspace();
   }
 
+  const [saved, setSaved] = React.useState<'idle' | 'saving' | 'done'>('idle');
+  /** Persist the whole Temp project into a real folder the user picks (write-through
+   *  to disk — the project is no longer trapped in the tab). Chromium only. */
+  async function saveToFolder() {
+    const picker = (window as { showDirectoryPicker?: (o?: unknown) => Promise<unknown> }).showDirectoryPicker;
+    if (!picker) return;
+    setSaved('saving');
+    try {
+      const root = await picker({ mode: 'readwrite' });
+      for (const f of await ws.current.files()) await writeByPath(root, f.path, f.content);
+      setSaved('done');
+      setTimeout(() => setSaved('idle'), 2500);
+    } catch {
+      setSaved('idle'); // user cancelled or denied
+    }
+  }
+
   if (phase === 'idle') {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
@@ -185,8 +203,19 @@ export default function NewProject({ match }: { match: string[] }) {
             onClick={() => void downloadFilesZip(files, (info?.template ?? 'oioxo') + '-project.zip')}
             className="mt-2 flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] font-semibold text-zinc-500 hover:bg-zinc-50"
           >
-            <Download className="h-3.5 w-3.5" /> Download project
+            <Download className="h-3.5 w-3.5" /> Download .zip
           </button>
+          {fsSupported() && (
+            <button
+              type="button"
+              onClick={() => void saveToFolder()}
+              disabled={saved === 'saving'}
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] font-semibold text-zinc-500 hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {saved === 'saving' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : saved === 'done' ? <Check className="h-3.5 w-3.5 text-green-600" /> : <FolderDown className="h-3.5 w-3.5" />}
+              {saved === 'done' ? 'Saved to folder' : 'Save to folder…'}
+            </button>
+          )}
         </div>
       </aside>
 

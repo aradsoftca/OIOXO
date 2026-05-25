@@ -16,11 +16,14 @@ import type { Role } from './conductor';
 export interface ConductorConfig {
   /** web-llm model match for the specialized conductor, or null → use the coder. */
   model: string[] | null;
+  /** OUR conductor served as ONNX via transformers.js (sidesteps web-llm/MLC):
+   *  { modelId, host }. Preferred when set + entitled. See conductor-wasm.ts. */
+  wasm?: { modelId: string; host?: string } | null;
   /** Whether the loader is allowed to use it (Pro entitlement). Gated by revenue. */
   entitled: boolean;
 }
 
-let _config: ConductorConfig = { model: null, entitled: false };
+let _config: ConductorConfig = { model: null, wasm: null, entitled: false };
 
 /** Point the engine at a hosted conductor model (called once it's served + the
  *  user is entitled). Leaving it unset keeps the coder-fallback behavior. */
@@ -33,9 +36,14 @@ export function conductorModel(): string[] | null {
   return _config.entitled ? _config.model : null;
 }
 
-/** True when a specialized conductor is configured AND entitled. */
+/** Our ONNX/transformers.js conductor config, if entitled. */
+export function conductorWasm(): { modelId: string; host?: string } | null {
+  return _config.entitled ? _config.wasm ?? null : null;
+}
+
+/** True when a specialized conductor is configured AND entitled (either path). */
 export function conductorAvailable(): boolean {
-  return !!conductorModel();
+  return !!conductorModel() || !!conductorWasm();
 }
 
 /**
@@ -50,6 +58,15 @@ export async function runRole(
   coderMatch: string[],
   opts?: { maxTokens?: number; onProgress?: (p: number) => void; onToken?: (delta: string) => void },
 ): Promise<string> {
+  // Our ONNX conductor (transformers.js) when entitled+configured — the specialist.
+  const wasm = conductorWasm();
+  if (wasm) {
+    const { conductorChat } = await import('./conductor-wasm');
+    const text = await conductorChat(wasm, system, user, { maxTokens: opts?.maxTokens ?? 360, onProgress: opts?.onProgress });
+    opts?.onToken?.(text); // (non-streamed here; surfaced as one block)
+    return text;
+  }
+  // Else: web-llm conductor match if set, otherwise the coder (fallback).
   const match = conductorModel() ?? coderMatch;
   let acc = '';
   for await (const delta of chatStream(

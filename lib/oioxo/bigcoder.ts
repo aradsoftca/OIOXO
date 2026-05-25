@@ -76,6 +76,6 @@ export function makeOllamaGenerate(
     if (!r.ok) throw new Error(`Ollama ${r.status}`);
     const j: any = await r.json();
     const reply: string = j?.message?.content ?? '';
-    return parseEdits(reply);
+    return parseEdits(reply, ctx.files);
   };
 }

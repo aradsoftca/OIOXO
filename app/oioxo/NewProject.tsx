@@ -664,12 +664,13 @@ export function AgentRun({
       // the in-browser TS type oracle (no install).
       const libFiles = runtime === 'python' || runtime === 'sql' ? undefined : await loadTsLibs().catch(() => undefined);
       const fc = frontier; // BYOK frontier key drives plan + build when set
-      onLog('\n🧠 thinking…\n');
-      const planner = makePlanner(match, {
-        onProgress: setProgress,
-        onToken: (d) => onLog(d), // stream the model's planning tokens → watch it think
-        chat: fc ? (s, u) => frontierChat(fc, s, u, { maxTokens: 512 }) : undefined,
-      });
+      // Known task type → use the recipe's DECOMPOSED plan (small steps any model
+      // can do one-at-a-time) instead of asking a weak model to decompose. This is
+      // what lets the loop build real apps on any device. Else the model plans.
+      const recSteps = recipe?.steps;
+      const planner = recSteps?.length
+        ? (async () => { onLog(`\n🧠 plan (${recSteps.length} steps from the ${recipe!.kind} recipe)\n`); return recSteps.map((s) => ({ title: s.length > 64 ? s.slice(0, 63) + '…' : s, task: s })); })
+        : (() => { onLog('\n🧠 thinking…\n'); return makePlanner(match, { onProgress: setProgress, onToken: (d) => onLog(d), chat: fc ? (s, u) => frontierChat(fc, s, u, { maxTokens: 512 }) : undefined }); })();
       const build = async (
         stepTask: string,
         files: CodeFile[],

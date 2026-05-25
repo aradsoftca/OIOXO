@@ -44,36 +44,82 @@ export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extAp
   return `Task: ${ctx.task}\n\n${ext}${apis}${files}It FAILED with:\n${ctx.error}\n\nMake the minimal fix. Output only the changed file(s).`;
 }
 
+const LANG_EXT: Record<string, string> = {
+  html: 'html', htm: 'html', js: 'js', javascript: 'js', mjs: 'js', jsx: 'jsx',
+  ts: 'ts', typescript: 'ts', tsx: 'tsx', css: 'css', json: 'json', py: 'py',
+  python: 'py', sql: 'sql', md: 'md', markdown: 'md',
+};
+const DEFAULT_FILE: Record<string, string> = {
+  html: 'index.html', css: 'style.css', js: 'script.js', jsx: 'src/App.jsx',
+  ts: 'index.ts', tsx: 'src/App.tsx', py: 'main.py', sql: 'main.sql', json: 'data.json', md: 'README.md',
+};
+
+/** Map a language-only fence (```js / ```html) to the file it most likely targets,
+ *  using the existing project files (weak models rarely put the PATH on the fence —
+ *  so we infer it instead of throwing the code away). */
+function pathForLang(lang: string, project: { path: string }[]): string | null {
+  const ext = LANG_EXT[lang.toLowerCase()];
+  if (!ext) return null;
+  const cands = project.filter((f) => f.path.toLowerCase().endsWith('.' + ext));
+  if (cands.length === 1) return cands[0].path;
+  if (cands.length > 1) {
+    const pref = cands.find((f) => /(?:^|\/)(index|main|game|app|script)\.[a-z]+$/i.test(f.path));
+    return (pref ?? cands[0]).path;
+  }
+  return DEFAULT_FILE[ext] ?? null; // none yet → create the conventional file
+}
+
 /**
- * Parse a model reply into file edits. Accepts fenced blocks whose info line is a
- * path (```src/add.js), or a leading `// path:`/`# path:` header inside the
- * block. Ignores prose and language-only fences (```js with no path). Pure.
+ * Parse a model reply into file edits. Accepts (in order): a fenced block whose
+ * info line is a PATH (```src/add.js); a `// path:` / `# x.py` header inside the
+ * block; and — crucially for weak models — a LANGUAGE-only fence (```js, ```html)
+ * mapped to the project file it targets. As a last resort, an unfenced reply that
+ * looks like a whole file is mapped to the single relevant project file. Pure.
  */
-export function parseEdits(reply: string): Edit[] {
+export function parseEdits(reply: string, project: { path: string }[] = []): Edit[] {
   const edits: Edit[] = [];
   const seen = new Set<string>();
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
-  const looksPath = (s: string) => /[/.]/.test(s) && !/\s/.test(s) && /[a-z0-9]/i.test(s) && !/^(js|ts|tsx|jsx|json|py|html|css|sh|bash|txt)$/i.test(s);
+  const looksPath = (s: string) => /[/.]/.test(s) && !/\s/.test(s) && /[a-z0-9]/i.test(s) && !(s.toLowerCase() in LANG_EXT) && !/^(sh|bash|txt|shell|console|bnf)$/i.test(s);
   let m: RegExpExecArray | null;
+  let sawFence = false;
   while ((m = fence.exec(reply))) {
+    sawFence = true;
     let path = (m[1] || '').trim();
     let content = m[2];
     if (!looksPath(path)) {
-      // try a header comment on the first line: "// path: x" / "# x.py" / "// x.js"
       const head = content.split('\n')[0].trim();
       const hm = head.match(/^(?:\/\/|#|<!--)\s*(?:file:\s*|path:\s*)?([\w./-]+\.[\w]+)/i);
       if (hm && looksPath(hm[1])) {
         path = hm[1];
         content = content.split('\n').slice(1).join('\n');
       } else {
-        continue; // a language-only or prose block → skip
+        // language-only / blank fence → infer the target file from the project
+        const inferred = pathForLang(path || guessLang(content), project);
+        if (!inferred) continue;
+        path = inferred;
       }
     }
     if (seen.has(path)) continue;
     seen.add(path);
     edits.push({ path, content: content.replace(/\n+$/, '\n') });
   }
+  // No fences at all but the reply is clearly a whole file → map to the one
+  // relevant project file (weak models sometimes skip fences entirely).
+  if (!sawFence && /<!doctype|<html|function |const |class |def |=>|import /i.test(reply) && reply.trim().length > 40) {
+    const path = pathForLang(guessLang(reply), project);
+    if (path) edits.push({ path, content: reply.trim().replace(/\n+$/, '\n') });
+  }
   return edits;
+}
+
+/** Best-effort language guess from content (for fences with no info string). */
+function guessLang(s: string): string {
+  if (/<!doctype|<html|<body|<canvas/i.test(s)) return 'html';
+  if (/^\s*[.#@]?[\w-]+\s*\{[^}]*:[^}]*\}/m.test(s) && !/function|=>/.test(s)) return 'css';
+  if (/\bdef \w+\(|^\s*import \w+$|print\(/m.test(s)) return 'py';
+  if (/\b(SELECT|CREATE TABLE|INSERT INTO)\b/i.test(s)) return 'sql';
+  return 'js';
 }
 
 /** A GenerateFn backed by the on-device coder. `match` selects the installed
@@ -94,6 +140,6 @@ export function makeCoderGenerate(
       ],
       { onProgress: opts.onProgress, maxTokens: 1400, temperature: ctx.attempt === 0 ? 0.3 : 0.2 },
     );
-    return parseEdits(reply);
+    return parseEdits(reply, ctx.files);
   };
 }

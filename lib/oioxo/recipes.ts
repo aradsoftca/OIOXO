@@ -23,7 +23,38 @@ export interface Recipe {
   guidance: string;
   /** Behavioral checks the loop drives the build until they pass (verified live). */
   checks?: Check[];
+  /** A concrete, DECOMPOSED plan for this task type — small steps a weak model
+   *  can each do (we don't rely on the model to decompose; that's the loop thesis
+   *  for any device). Used directly as the agent's plan when present. */
+  steps?: string[];
 }
+
+// Authored step plans: each step is small + verifiable, so even a 0.5B coder can
+// do one at a time and the loop verifies it — instead of one impossible "build X".
+const STEPS: Record<string, string[]> = {
+  'canvas-game': [
+    'In game.js, set up the canvas 2D context and a fixed-timestep requestAnimationFrame loop (update() then render(); clear the canvas each frame).',
+    'Define ALL game state in one object (the board/grid, entities, positions, score, status) and initialize it.',
+    'In render(), draw the current state every frame — the board/background first, then each entity.',
+    'Add keydown/keyup handlers that set an input state, and move the player in update() according to it (bounded by the rules/walls).',
+    'Implement the actual mechanic the goal asks for — collisions, eating/scoring, and win/lose — and show the score on screen.',
+  ],
+  'list-app': [
+    'Build the HTML: a labelled text input, an "add" button, and an empty <ul> list container.',
+    'Keep items in a state array; render the list from it; wire the add button (and Enter key) to append and re-render.',
+    'Add a remove control per item that updates state + re-renders; persist the array to localStorage and load it on start.',
+  ],
+  'form': [
+    'Build the form HTML with labelled fields and a submit button.',
+    'On submit, preventDefault and validate each field; show inline error messages.',
+    'On valid submit, show a clear success state (and reset/keep values as appropriate).',
+  ],
+  'calculator': [
+    'Build the HTML: a display element and a grid of digit + operator + equals/clear buttons.',
+    'Keep the expression/operands in state; wire each button to update it and refresh the display.',
+    'Implement safe evaluation (parse, do not eval raw input) for equals; handle clear and keyboard input.',
+  ],
+};
 
 // Generic signals the probe records in the page (see STATIC_SERVER): how many
 // animation frames ran, which event types were ever listened for, whether the
@@ -78,11 +109,11 @@ const CALC = `This is a CALCULATOR:
   (no eval of raw input — parse). Support keyboard input too.`;
 
 const TABLE: { test: RegExp; recipe: Recipe }[] = [
-  { test: /\b(game|canvas|snake|pong|tetris|pac-?man|platformer|arcade|sprite|shooter|breakout)\b/i, recipe: { kind: 'canvas-game', guidance: CANVAS_GAME, checks: CHECKS['canvas-game'] } },
-  { test: /\b(todo|to-do|task list|checklist|notes app|shopping list|crud|list app)\b/i, recipe: { kind: 'list-app', guidance: LIST_APP, checks: CHECKS['list-app'] } },
-  { test: /\b(form|sign[- ]?up|login|contact|survey|quiz)\b/i, recipe: { kind: 'form', guidance: FORM_APP, checks: CHECKS['form'] } },
+  { test: /\b(game|canvas|snake|pong|tetris|pac-?man|platformer|arcade|sprite|shooter|breakout)\b/i, recipe: { kind: 'canvas-game', guidance: CANVAS_GAME, checks: CHECKS['canvas-game'], steps: STEPS['canvas-game'] } },
+  { test: /\b(todo|to-do|task list|checklist|notes app|shopping list|crud|list app)\b/i, recipe: { kind: 'list-app', guidance: LIST_APP, checks: CHECKS['list-app'], steps: STEPS['list-app'] } },
+  { test: /\b(form|sign[- ]?up|login|contact|survey|quiz)\b/i, recipe: { kind: 'form', guidance: FORM_APP, checks: CHECKS['form'], steps: STEPS['form'] } },
   { test: /\b(dashboard|admin|analytics|chart|stats|report)\b/i, recipe: { kind: 'dashboard', guidance: DASHBOARD } },
-  { test: /\b(calculator|calc)\b/i, recipe: { kind: 'calculator', guidance: CALC, checks: CHECKS['calculator'] } },
+  { test: /\b(calculator|calc)\b/i, recipe: { kind: 'calculator', guidance: CALC, checks: CHECKS['calculator'], steps: STEPS['calculator'] } },
 ];
 
 /** The recipe whose keywords match the goal, or null. */

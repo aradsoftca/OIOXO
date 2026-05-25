@@ -141,6 +141,6 @@ export function makeFrontierGenerate(c: FrontierConfig, opts: { getExtApis?: () 
       temperature: ctx.attempt === 0 ? 0.3 : 0.2,
       fetch: opts.fetch,
     });
-    return parseEdits(reply);
+    return parseEdits(reply, ctx.files);
   };
 }

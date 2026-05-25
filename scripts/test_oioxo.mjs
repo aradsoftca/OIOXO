@@ -45,6 +45,26 @@ test('scaffold: template routing + coherent + valid package.json', async () => {
   }
 });
 
+// ---------- codegen parseEdits (robust for weak models) ----------
+test('codegen: parseEdits captures path-fences, language-fences, and unfenced code', async () => {
+  const { parseEdits } = await import('../lib/oioxo/codegen.ts');
+  const proj = [{ path: 'index.html' }, { path: 'game.js' }];
+  // path fence (explicit)
+  assert.deepEqual(parseEdits('```game.js\nconst x=1\n```', proj).map((e) => e.path), ['game.js']);
+  // LANGUAGE fence → mapped to the project's .js file (the key fix)
+  const j = parseEdits('Here you go:\n```javascript\nconst y=2\n```', proj);
+  assert.equal(j.length, 1); assert.equal(j[0].path, 'game.js'); assert.ok(j[0].content.includes('const y=2'));
+  // html language fence → index.html
+  assert.equal(parseEdits('```html\n<canvas></canvas>\n```', proj)[0].path, 'index.html');
+  // language fence with no matching file → conventional default
+  assert.equal(parseEdits('```css\nbody{}\n```', [])[0].path, 'style.css');
+  // unfenced whole-file reply → mapped by content
+  const u = parseEdits('<!doctype html><html><body><canvas></canvas></body></html>', proj);
+  assert.equal(u.length, 1); assert.equal(u[0].path, 'index.html');
+  // pure prose → nothing
+  assert.equal(parseEdits('I think you should add a canvas and a loop.', proj).length, 0);
+});
+
 // ---------- recipes (grounding) ----------
 test('recipes: match task types, null otherwise', async () => {
   const { recipeFor } = await import('../lib/oioxo/recipes.ts');

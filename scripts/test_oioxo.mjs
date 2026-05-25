@@ -73,6 +73,17 @@ test('code-search: errorQuery distills a searchable query', async () => {
   assert.equal(errorQuery(''), '');
 });
 
+// ---------- engine-error classifier ----------
+test('codeloop: isEngineError flags infra failures, not code errors', async () => {
+  const { isEngineError } = await import('../lib/oioxo/codeloop.ts');
+  assert.ok(isEngineError('Model not loaded before trying to complete ChatCompletionRequest'));
+  assert.ok(isEngineError("Failed to execute 'mapAsync' on 'GPUBuffer': Buffer was unmapped"));
+  assert.ok(isEngineError('WebGPU device was lost'));
+  assert.equal(isEngineError("TS2322: Type 'string' is not assignable to type 'number'"), false);
+  assert.equal(isEngineError('ReferenceError: drawMaze is not defined'), false);
+  assert.equal(isEngineError(''), false);
+});
+
 // ---------- remember (recall scoring) ----------
 test('trajectory: overlapScore ranks similar errors higher', async () => {
   const { overlapScore } = await import('../lib/oioxo/trajectory-store.ts');

@@ -29,19 +29,21 @@ export interface StepContext {
   steps: PlanStep[];
 }
 
-/** Build/verify one step against the working files; returns the new files. */
+/** Build/verify one step against the working files; returns the new files.
+ *  `engineError` signals the on-device model itself failed (GPU/load) — the agent
+ *  stops rather than grinding through more steps that can't produce code. */
 export type BuildStepFn = (
   task: string,
   files: CodeFile[],
   ctx: StepContext,
-) => Promise<{ files: CodeFile[]; ok: boolean; iters: number }>;
+) => Promise<{ files: CodeFile[]; ok: boolean; iters: number; engineError?: string }>;
 
 export type AgentEvent =
   | { type: 'plan'; steps: PlanStep[] }
   | { type: 'step-start'; index: number; step: PlanStep }
   | { type: 'step-done'; index: number; ok: boolean; iters: number; changed: string[] }
   | { type: 'files'; files: CodeFile[] }
-  | { type: 'done'; ok: boolean; completed: number; total: number };
+  | { type: 'done'; ok: boolean; completed: number; total: number; engineError?: string };
 
 export interface AgentOptions {
   goal: string;
@@ -80,6 +82,7 @@ export async function* runAgent(
   yield { type: 'plan', steps };
 
   let completed = 0;
+  let engineError: string | undefined;
   for (let i = 0; i < steps.length; i++) {
     if (opts.signal?.aborted) break; // user pressed Stop
     const step = steps[i];
@@ -94,17 +97,19 @@ export async function* runAgent(
       ok = res.ok;
       iters = res.iters;
       changed = files.filter((f) => before.get(f.path) !== f.content).map((f) => f.path);
+      if (res.engineError) engineError = res.engineError;
     } catch {
       ok = false;
     }
     if (ok) completed++;
     yield { type: 'step-done', index: i, ok, iters, changed };
     yield { type: 'files', files };
+    if (engineError) break;            // the model died — stop, don't grind on
     if (!ok && !continueOnFail) break;
   }
 
-  const allOk = completed === steps.length;
-  yield { type: 'done', ok: allOk, completed, total: steps.length };
+  const allOk = completed === steps.length && !engineError;
+  yield { type: 'done', ok: allOk, completed, total: steps.length, engineError };
   return { files, ok: allOk };
 }
 

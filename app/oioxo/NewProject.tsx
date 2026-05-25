@@ -614,14 +614,25 @@ export function AgentRun({
   const [progress, setProgress] = React.useState(0);
   const [plan, setPlan] = React.useState<PlanStep[]>([]);
   const [states, setStates] = React.useState<StepState[]>([]);
-  const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number }>(null);
+  const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number; engineError?: string }>(null);
   const [hint, setHint] = React.useState(true);
   // Pro: "thorough" drafts several candidates per step and keeps the one the
   // oracle proves best (more compute → higher success). Free runs single-draft.
   const { tier, pro } = useEntitlement();
   const [thorough, setThorough] = React.useState(false);
-  // Gate the specialized conductor (when hosted) to Pro — see conductor-engine.
-  React.useEffect(() => { configureConductor({ entitled: pro }); }, [pro]);
+  // oioxo conductor (beta): our own fine-tuned model, served on-device via ONNX.
+  // Opt-in while it's a bootstrap (v0); when on, plan/fix route to it (else coder).
+  const [useConductor, setUseConductor] = React.useState<boolean>(
+    () => typeof localStorage !== 'undefined' && localStorage.getItem('oioxo.useConductor') === '1',
+  );
+  React.useEffect(() => {
+    configureConductor({
+      entitled: useConductor,
+      wasm: useConductor
+        ? { modelId: 'models/oioxo-conductor', host: typeof window !== 'undefined' ? window.location.origin : undefined }
+        : null,
+    });
+  }, [useConductor]);
   // BYOK: the user's own frontier key drives plan + build when set.
   const [frontier, setFrontierState] = React.useState<FrontierConfig | null>(() => getFrontier());
   const [showKey, setShowKey] = React.useState(false);
@@ -686,7 +697,7 @@ export function AgentRun({
           const ex = fixExamplesFromTrajectory(framed, res.trajectory);
           if (ex.length) void addExamples(ex).catch(() => {});
         }
-        return { files: res.files, ok: res.ok, iters: res.iters };
+        return { files: res.files, ok: res.ok, iters: res.iters, engineError: res.engineError };
       };
 
       const gen = runAgent({ goal: objective, files: await ws.files(), plan: planner, build, signal: ac.signal });
@@ -710,7 +721,8 @@ export function AgentRun({
           const changed = ev.files.filter((f) => before.get(f.path) !== f.content);
           await onChanged(changed);
         } else if (ev.type === 'done') {
-          setDone({ ok: ev.ok, completed: ev.completed, total: ev.total });
+          setDone({ ok: ev.ok, completed: ev.completed, total: ev.total, engineError: ev.engineError });
+          if (ev.engineError) onLog('\n■ the on-device model hit a GPU/memory error and stopped. Try a smaller model, close other heavy tabs, or plug in your own API key (it runs the same loop).\n');
         }
       }
     } catch (e) {
@@ -749,13 +761,20 @@ export function AgentRun({
         </ol>
       )}
       {done && (
-        <div className={['mx-3 mt-2 flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12px]', done.ok ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'].join(' ')}>
-          {done.ok ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
-          {done.total === 0
-            ? 'The agent could not run. Refine and try again.'
-            : done.ok
-              ? `Done — all ${done.total} steps verified. Preview is live.`
-              : `Completed ${done.completed}/${done.total} steps (best effort on the rest). Refine and rerun.`}
+        <div className={['mx-3 mt-2 flex items-start gap-2 rounded-lg px-3 py-1.5 text-[12px]', done.engineError ? 'bg-rose-50 text-rose-800' : done.ok ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'].join(' ')}>
+          {done.ok && !done.engineError ? <Check className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+          {done.engineError ? (
+            <span>
+              The on-device model hit a GPU/memory error and stopped — this is the runtime, not your project. Try again,
+              close other heavy tabs, or <button type="button" onClick={() => setShowKey(true)} className="font-semibold underline">use your own API key</button> (same loop, no local GPU).
+            </span>
+          ) : done.total === 0 ? (
+            'The agent could not run. Refine and try again.'
+          ) : done.ok ? (
+            `Done — all ${done.total} steps verified. Preview is live.`
+          ) : (
+            `Completed ${done.completed}/${done.total} steps (best effort on the rest). Refine and rerun.`
+          )}
         </div>
       )}
       <div className="flex items-center justify-end gap-2 px-3 pt-2">
@@ -784,6 +803,16 @@ export function AgentRun({
         >
           <KeyRound className="h-3 w-3" />
           {frontier ? frontier.provider : 'Your key'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { const v = !useConductor; setUseConductor(v); try { localStorage.setItem('oioxo.useConductor', v ? '1' : '0'); } catch { /* */ } }}
+          disabled={busy}
+          title="Use the oioxo conductor — our own fine-tuned model, running on your device (beta). Off = the general coder."
+          className={['flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold transition', useConductor ? 'bg-[#E2B24A]/25 text-[#7a5c12]' : 'text-zinc-500 hover:bg-zinc-100'].join(' ')}
+        >
+          <Sparkles className="h-3 w-3" />
+          oioxo brain{useConductor ? '' : ' ·off'}
         </button>
       </div>
       {showKey && (

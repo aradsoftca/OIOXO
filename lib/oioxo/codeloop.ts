@@ -102,6 +102,17 @@ export interface LoopResult {
   history: { attempt: number; ok: boolean }[];
   /** Full per-attempt capture when `record` is set (P6 training data). */
   trajectory?: StepRecord[];
+  /** Set when the run aborted because the on-device MODEL/engine failed (GPU/load
+   *  error) rather than a code problem — the caller surfaces it + stops, instead of
+   *  pointlessly "repairing" + web-searching an infra failure. */
+  engineError?: string;
+}
+
+/** Is this an on-device model/engine/GPU failure (not a code error)? Such errors
+ *  must abort the loop — repairing or web-searching them is futile + embarrassing. */
+export function isEngineError(s: string | undefined): boolean {
+  if (!s) return false;
+  return /\b(model not loaded|mapasync|gpubuffer|webgpu|out of memory|outofmemory|device.*lost|mlcengine|\.reload\(|shader|createbuffer|failed to (load|create|initiali[sz]e|fetch).{0,40}(model|shard|wasm|engine)|insufficient (memory|gpu))\b/i.test(s);
 }
 
 /** Apply full-file edits onto the working set (replace by path, or add new). */
@@ -135,11 +146,15 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   const trajectory: StepRecord[] | undefined = opts.record ? [] : undefined;
   const searchAfter = opts.searchAfter ?? 2;
   const searched = new Set<string>();
+  let engineError: string | undefined;
 
   for (let attempt = 0; attempt < maxIters; attempt++) {
     if (opts.signal?.aborted) { opts.onNote?.('\n■ stopped\n'); break; }
     const filesBefore = files;
     let error = attempt === 0 ? undefined : last.errors;
+    // An engine/GPU failure is not a code problem — don't recall, don't search,
+    // don't keep retrying; abort so the caller can surface it clearly.
+    if (isEngineError(error)) { engineError = error; opts.onNote?.('\n■ on-device model error — stopping\n'); break; }
     // Recall the device's own verified fixes for a similar error (cheap, local).
     if (error && opts.recall) {
       const mem = await opts.recall(error).catch(() => '');
@@ -171,9 +186,11 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
       } catch (e) {
         res = { ok: false, output: String((e as Error)?.message || e), errors: String((e as Error)?.message || e) };
       }
+      if (isEngineError(res.errors)) { engineError = res.errors; break; } // model died → stop now
       if (better(res, bestRes)) { bestRes = res; bestFiles = cand; bestEdits = edits; }
       if (res.ok) break;
     }
+    if (engineError) { opts.onNote?.('\n■ on-device model error — stopping\n'); break; }
     files = bestFiles;
     last = bestRes ?? last;
     history.push({ attempt, ok: last.ok });
@@ -181,7 +198,7 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
     opts.onStep?.({ attempt, ok: last.ok, errors: last.errors });
     if (last.ok) return { ok: true, files, iters: attempt + 1, lastOutput: last.output, history, trajectory };
   }
-  return { ok: false, files, iters: maxIters, lastOutput: last.output, history, trajectory };
+  return { ok: false, files, iters: history.length || maxIters, lastOutput: last.output, history, trajectory, engineError };
 }
 
 /**

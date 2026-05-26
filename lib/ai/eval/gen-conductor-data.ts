@@ -92,6 +92,7 @@ function capabilityBrief(): string {
     `SAFETY: refuse genuinely harmful/illegal requests gracefully with a brief reason + a safe alternative; never comply. Hedge honestly when unsure — no fake confidence.`,
     `TROUBLESHOOTING LOOP: for a problem, ask ONE diagnostic question if needed, research, give clear numbered steps (+ a how-to video when useful). When the user reports an OUTCOME (turnRole "outcome": tried it, still broken, new symptom), rule out the first cause, form a new hypothesis, re-research with everything known so far, and give the next steps. If it stays unresolved after a couple of honest attempts, recommend a professional/local service and offer to find the nearest one. Keep a running mental case: problem, what's tried, what's ruled out.`,
     `RESEARCH/COMPATIBILITY: for "will X work with Y" or "which is better", research each thing and REASON over the facts (fit conditions, the axes that matter), then answer with the condition or a recommendation + reasons.`,
+    `ASSESS-ANY-CONDITION (feasibility): for "can I do X given my situation" — you hold NO facts; you research the real REQUIREMENTS/criteria, MATCH them to what the user stated (met/unmet/unknown), and instead of guessing, name the ONE deciding factor they didn't mention and ask for it, then give the verdict. Works for tech specs, travel, eligibility, fit, anything.`,
   ].join('\n');
 }
 
@@ -127,6 +128,11 @@ const SITUATION_TYPES = [
   'a COMPATIBILITY question ("will this GPU work with that motherboard", "does X fit Y") → research the specs of BOTH, reason about whether they fit, and answer with the condition ("yes, as long as…")',
   'a "which is better / what should I buy" research question across 2-3 options → gather each, compare on the axes that matter, and recommend with concrete reasons',
   'a multi-turn research dive where each user turn refines the question ("…what about price?", "…and for gaming?") and the assistant re-researches with the running context',
+  // ── ASSESS-ANY-CONDITION: feasibility = research the REQUIREMENTS, match the user's situation ──
+  'a FEASIBILITY "can I do X" question where the user states their situation/specs ("can I run GTA 6 with 32GB RAM and a Ryzen 7?", "can I edit 4K video on this laptop?") → research the ACTUAL requirements, compare to what they stated (met / unmet / unknown), and instead of guessing, name the ONE deciding factor they did not mention (e.g. the GPU) and ask for it',
+  'a NON-tech feasibility question ("can I travel there on my passport", "do I qualify for a mortgage at a 700 credit score", "will a king bed fit a 3x3m room", "can I adopt a dog in an apartment") → research the real criteria, match the stated situation, give the verdict plus any missing-but-decisive info',
+  'a feasibility FOLLOW-UP where the user supplies the missing deciding factor (turnRole parameter or outcome) → now give the definitive verdict with the reason',
+  'a "what do I need to / what are the requirements for X" question → research and lay out the concrete requirements clearly (the data the user must check against their own situation)',
 ];
 
 const ROLES = ['new-goal', 'parameter', 'append-step', 'correction', 'confirmation', 'question', 'chitchat', 'outcome'];
@@ -184,15 +190,21 @@ function validTurn(t: any): boolean {
 async function main() {
   if (!KEY) { console.error('set GEMINI_API_KEY'); process.exit(2); }
   const N = process.env.N ? Number(process.env.N) : 30;
+  // FOCUS=<keyword> restricts to matching situation types (e.g. FOCUS=feasibility for a
+  // targeted supplement to OUT=<file>, generated concurrently with the main run).
+  const TYPES = process.env.FOCUS
+    ? SITUATION_TYPES.filter((s) => s.toLowerCase().includes(process.env.FOCUS!.toLowerCase()))
+    : SITUATION_TYPES;
+  if (!TYPES.length) { console.error('FOCUS matched no situation types'); process.exit(2); }
   const outDir = path.join(process.cwd(), 'lib/ai/eval/out');
   fs.mkdirSync(outDir, { recursive: true });
-  const outFile = path.join(outDir, 'conductor-data.jsonl');
+  const outFile = path.join(outDir, process.env.OUT || 'conductor-data.jsonl');
   // APPEND=1 accumulates across runs (scale toward ~2000 without losing earlier rows).
   const ws = fs.createWriteStream(outFile, { flags: process.env.APPEND ? 'a' : 'w' });
   console.log(`conductor data · model ${MODEL} · N=${N} dialogues`);
   let dialogs = 0, rows = 0, rejected = 0;
   for (let i = 0; i < N; i++) {
-    const situation = SITUATION_TYPES[i % SITUATION_TYPES.length];
+    const situation = TYPES[i % TYPES.length];
     const raw = await gemini(buildPrompt(situation)).catch(() => '');
     let parsed: any;
     try { parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? raw); } catch { rejected++; console.log(`[${i + 1}/${N}] reject(parse)`); continue; }

@@ -19,3 +19,22 @@ certs/
 scripts/qwen3-q4.gguf
 scripts/__pycache__/
 __pycache__/
+
+# ── MOAT / SECRETS — never commit (the "how we do it" is the IP) ──
+# Distilled training data + judged eval reports = the data-engine output.
+lib/ai/eval/out/
+# Local scratch, base-model copies, run logs.
+_*.log
+_*.mjs
+_msmarco_base/
+/models/
+# Reranker training data (regenerated on demand; the labels are the moat).
+**/rerank-data.jsonl
+# Plaintext model weights (dev/Node only — only the .enc ships) + the master key.
+_models_plain/
+_ai_secret.txt
+# NOTE: deploy MUST exclude _models_plain/ and _ai_secret.txt (never serve plaintext).
+
+# self-hosted Monaco (copied from node_modules at build; not committed)
+/public/monaco/
+_hf_token.txt

@@ -8,13 +8,17 @@
  */
 import * as React from 'react';
 import {
-  Github, Loader2, KeyRound, File as FileIcon, GitCommit, Check, AlertTriangle, LogOut, ExternalLink,
+  Github, Loader2, KeyRound, GitCommit, Check, AlertTriangle, LogOut, ExternalLink,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import {
   getToken, setToken, parseRepoRef, openGitHubWorkspace, type GitHubWorkspace,
 } from '@/lib/oioxo/github';
 import CodeEditor from './CodeEditor';
+import EditorTabs from './EditorTabs';
+import FileTree from './FileTree';
+import ProblemsPanel from './ProblemsPanel';
+import { useProjectDiagnostics } from './useDiagnostics';
 import { AgentRun } from './NewProject';
 
 export default function GitHubPanel({ match }: { match: string[] }) {
@@ -25,6 +29,8 @@ export default function GitHubPanel({ match }: { match: string[] }) {
   const [repoLabel, setRepoLabel] = React.useState('');
   const [files, setFiles] = React.useState<CodeFile[]>([]);
   const [activePath, setActivePath] = React.useState<string | null>(null);
+  const [openPaths, setOpenPaths] = React.useState<string[]>([]);
+  const [reveal, setReveal] = React.useState<{ line: number; column: number; key: number } | undefined>(undefined);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(0);
@@ -33,13 +39,33 @@ export default function GitHubPanel({ match }: { match: string[] }) {
   const [log, setLog] = React.useState('');
   const append = (s: string) => setLog((o) => (o + s).slice(-12000));
 
+  // Tabs + live Problems (same self-hosted type oracle as the Build surface).
+  const openFile = React.useCallback((path: string | null) => {
+    if (!path) { setActivePath(null); return; }
+    setOpenPaths((o) => (o.includes(path) ? o : [...o, path]));
+    setActivePath(path);
+  }, []);
+  const closeTab = React.useCallback((path: string) => {
+    setOpenPaths((o) => {
+      const next = o.filter((p) => p !== path);
+      setActivePath((cur) => (cur === path ? next[next.length - 1] ?? null : cur));
+      return next;
+    });
+  }, []);
+  const diag = useProjectDiagnostics(files, true);
+  const errorPaths = React.useMemo(() => new Set(diag.byFile.keys()), [diag]);
+  const jumpToProblem = React.useCallback((file: string, line: number, column: number) => {
+    openFile(file.replace(/^\.?\//, ''));
+    setReveal({ line, column, key: Date.now() });
+  }, [openFile]);
+
   function saveToken() {
     const t = tokenInput.trim();
     if (!t) return;
     setToken(t); setTok(t); setTokenInput('');
   }
   function signOut() {
-    setToken(null); setTok(null); setWs(null); setFiles([]); setActivePath(null); setRepoLabel('');
+    setToken(null); setTok(null); setWs(null); setFiles([]); setActivePath(null); setOpenPaths([]); setRepoLabel('');
   }
 
   async function open() {
@@ -52,7 +78,9 @@ export default function GitHubPanel({ match }: { match: string[] }) {
       setRepoLabel(`${ref.owner}/${ref.repo}@${w.branch}`);
       const fs = await w.files();
       setFiles(fs);
-      setActivePath(fs.find((f) => /readme/i.test(f.path))?.path ?? fs[0]?.path ?? null);
+      const first = fs.find((f) => /readme/i.test(f.path))?.path ?? fs[0]?.path ?? null;
+      setOpenPaths(first ? [first] : []);
+      setActivePath(first);
       setPending(0);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not open the repo');
@@ -168,23 +196,16 @@ export default function GitHubPanel({ match }: { match: string[] }) {
           <button type="button" onClick={() => setWs(null)} className="shrink-0 rounded px-1 text-[11px] text-zinc-400 hover:bg-zinc-100" title="Open another repo">↻</button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
-          {files.map((f) => (
-            <button
-              key={f.path}
-              type="button"
-              onClick={() => setActivePath(f.path)}
-              className={['flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] transition', activePath === f.path ? 'bg-zinc-100 font-medium text-zinc-900' : 'text-zinc-600 hover:bg-zinc-50'].join(' ')}
-            >
-              <FileIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-              <span className="truncate">{f.path}</span>
-            </button>
-          ))}
+          <FileTree files={files} active={activePath} errorPaths={errorPaths} onOpen={openFile} />
         </div>
       </aside>
 
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {openPaths.length > 0 && (
+          <EditorTabs open={openPaths} active={activePath} errorPaths={errorPaths} onSelect={(p) => setActivePath(p)} onClose={closeTab} />
+        )}
         <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3">
-          <span className="truncate text-xs text-zinc-500">{activePath ?? 'Select a file'}</span>
+          <span className="truncate text-xs text-zinc-500">{repoLabel || 'Select a file'}</span>
           <div className="flex items-center gap-2">
             {pushed && <span className="flex items-center gap-1 text-[11px] font-semibold text-green-600"><Check className="h-3.5 w-3.5" /> pushed {pushed}</span>}
             <button
@@ -209,6 +230,11 @@ export default function GitHubPanel({ match }: { match: string[] }) {
             <CodeEditor
               value={files.find((f) => f.path === activePath)?.content ?? ''}
               filename={activePath.split('/').pop() ?? activePath}
+              path={activePath}
+              projectFiles={files}
+              diagnostics={diag.byFile.get(activePath.replace(/\\/g, '/'))}
+              revealAt={reveal}
+              onSave={() => void commitPush()}
               onChange={(next) => {
                 setFiles((cur) => cur.map((f) => (f.path === activePath ? { ...f, content: next } : f)));
                 void ws.write(activePath, next).then(() => setPending(ws.pending().length));
@@ -218,6 +244,7 @@ export default function GitHubPanel({ match }: { match: string[] }) {
             <div className="grid h-full place-items-center text-sm text-zinc-400">Pick a file to edit.</div>
           )}
         </div>
+        <ProblemsPanel problems={diag.all} running={diag.running} onJump={jumpToProblem} />
         <AgentRun
           ws={ws}
           match={match}

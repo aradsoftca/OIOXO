@@ -203,6 +203,7 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
             <CodeEditor
               value={active.content}
               filename={active.node.name}
+              onSave={() => void save()}
               onChange={(next) => {
                 setActive((cur) => (cur ? { ...cur, content: next } : cur));
                 setDirty(true);

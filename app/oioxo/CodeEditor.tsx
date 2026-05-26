@@ -1,15 +1,29 @@
 'use client';
 /**
- * oioxo Code — the editor surface. Monaco (the engine behind VS Code) for a
- * pro-grade editing feel: syntax highlighting, multi-cursor, the lot. Lazy-loaded
- * client-only. If Monaco can't load (e.g. fully offline and the CDN is
- * unreachable), it falls back to a plain textarea so editing still works — the
- * offline-first promise holds.
+ * oioxo Code — the editor surface. Monaco (the engine behind VS Code), **self-hosted
+ * from our own origin** (`/monaco/vs`, copied by scripts/copy-monaco.mjs) — never a
+ * CDN, so it mounts fast, works offline, and keeps the host-nothing promise. If the
+ * assets are somehow unreachable it still degrades to a plain textarea so editing
+ * never dies.
+ *
+ * It also renders DIAGNOSTICS as native squiggles: pass `diagnostics` for the open
+ * file (from lib/oioxo/typecheck) and they show as error/warning markers, click-to-
+ * line via the Problems panel that uses the same data.
  */
 import * as React from 'react';
 import dynamic from 'next/dynamic';
+import { loader, type Monaco, type OnMount } from '@monaco-editor/react';
+import type { CodeFile } from '@/lib/oioxo/codeloop';
 
-const Monaco = dynamic(() => import('@monaco-editor/react').then((m) => m.Editor), {
+const TS_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+const fileUri = (monaco: Monaco, path: string) => monaco.Uri.parse('file:///' + path.replace(/^\/+/, ''));
+
+// Point Monaco's AMD loader at our self-hosted copy (set once, before first load).
+if (typeof window !== 'undefined') {
+  loader.config({ paths: { vs: `${window.location.origin}/monaco/vs` } });
+}
+
+const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.Editor), {
   ssr: false,
   loading: () => <div className="grid h-full flex-1 place-items-center text-sm text-zinc-400">Loading editor…</div>,
 });
@@ -27,30 +41,112 @@ function langFor(name?: string): string {
   return LANG[ext] ?? 'plaintext';
 }
 
+/** One diagnostic for the currently open file (a subset of typecheck.TypeDiag). */
+export interface EditorDiag {
+  line: number;
+  column: number;
+  endLine?: number;
+  endColumn?: number;
+  message: string;
+  severity: 'error' | 'warning' | 'info';
+}
+
 export default function CodeEditor({
   value,
   onChange,
   filename,
+  diagnostics,
+  onSave,
+  revealAt,
+  path,
+  projectFiles,
 }: {
   value: string;
   onChange: (next: string) => void;
   filename?: string;
+  /** Diagnostics for THIS file → rendered as Monaco markers (squiggles). */
+  diagnostics?: EditorDiag[];
+  /** Cmd/Ctrl+S inside the editor. */
+  onSave?: () => void;
+  /** Bump `key` to scroll to + focus a line/column (Problems-panel jump). */
+  revealAt?: { line: number; column: number; key: number };
+  /** Full project path of the open file — gives it a `file:///` model URI so
+   *  cross-file IntelliSense (completions/hover/go-to-def) can resolve imports. */
+  path?: string;
+  /** Every project file — registered as sibling Monaco models so the TS worker
+   *  sees the whole project (not just the open file). Enables cross-file IntelliSense. */
+  projectFiles?: CodeFile[];
 }) {
-  const [ready, setReady] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
+  const monacoRef = React.useRef<Monaco | null>(null);
+  const editorRef = React.useRef<Parameters<OnMount>[0] | null>(null);
+  const onSaveRef = React.useRef(onSave);
+  onSaveRef.current = onSave;
 
-  // If Monaco never mounts (offline / CDN blocked), degrade to a textarea.
+  // Degrade to a textarea only if Monaco truly never mounts (now fast + local, so a
+  // short timeout is fine — the CDN-era 8s dead pane was the bug we're fixing).
   React.useEffect(() => {
-    if (ready) return;
-    const t = setTimeout(() => setReady((r) => (r ? r : (setFailed(true), false))), 8000);
+    if (editorRef.current) return;
+    const t = setTimeout(() => { if (!editorRef.current) setFailed(true); }, 4000);
     return () => clearTimeout(t);
-  }, [ready]);
+  }, []);
+
+  // Push diagnostics → markers whenever they (or the model) change.
+  const applyMarkers = React.useCallback(() => {
+    const monaco = monacoRef.current;
+    const editor = editorRef.current;
+    const model = editor?.getModel();
+    if (!monaco || !model) return;
+    const sev = monaco.MarkerSeverity;
+    monaco.editor.setModelMarkers(model, 'oioxo', (diagnostics ?? []).map((d) => ({
+      startLineNumber: d.line, startColumn: d.column,
+      endLineNumber: d.endLine ?? d.line, endColumn: d.endColumn ?? d.column + 1,
+      message: d.message,
+      severity: d.severity === 'error' ? sev.Error : d.severity === 'warning' ? sev.Warning : sev.Info,
+    })));
+  }, [diagnostics]);
+  React.useEffect(() => { applyMarkers(); }, [applyMarkers]);
+
+  // Cross-file IntelliSense: mirror every project file into a Monaco `file:///`
+  // model so the TS worker resolves imports across files (completions, hover,
+  // go-to-def). Never let this break the editor — it's a pure enhancement.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!monaco || !projectFiles) return;
+    try {
+      const active = editorRef.current?.getModel();
+      const wanted = new Set<string>();
+      for (const f of projectFiles) {
+        if (!TS_RE.test(f.path)) continue;
+        const uri = fileUri(monaco, f.path);
+        wanted.add(uri.toString());
+        const existing = monaco.editor.getModel(uri);
+        if (!existing) monaco.editor.createModel(f.content, langFor(f.path), uri);
+        else if (existing !== active && existing.getValue() !== f.content) existing.setValue(f.content);
+      }
+      // dispose sibling models for files that went away (never the open one)
+      for (const m of monaco.editor.getModels()) {
+        if (m.uri.scheme === 'file' && m !== active && !wanted.has(m.uri.toString())) m.dispose();
+      }
+    } catch { /* IntelliSense is best-effort — editing must never break */ }
+  }, [projectFiles, mounted]);
+
+  // Jump to a line/column when the Problems panel asks (revealAt.key bumps).
+  React.useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !revealAt) return;
+    editor.revealLineInCenter(revealAt.line);
+    editor.setPosition({ lineNumber: revealAt.line, column: revealAt.column });
+    editor.focus();
+  }, [revealAt?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (failed) {
     return (
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') { e.preventDefault(); onSaveRef.current?.(); } }}
         spellCheck={false}
         className="min-h-0 flex-1 resize-none bg-white p-3 font-mono text-[13px] leading-relaxed text-zinc-800 focus:outline-none"
       />
@@ -59,11 +155,40 @@ export default function CodeEditor({
 
   return (
     <div className="min-h-0 flex-1">
-      <Monaco
+      <Editor
         language={langFor(filename)}
+        path={path ? 'file:///' + path.replace(/^\/+/, '') : undefined}
+        keepCurrentModel
         value={value}
         onChange={(v) => onChange(v ?? '')}
-        onMount={() => setReady(true)}
+        beforeMount={(monaco) => {
+          monacoRef.current = monaco;
+          // Our project-wide oracle (lib/oioxo/typecheck) owns diagnostics. Turn OFF
+          // Monaco's built-in single-file TS/JS validation so it can't show false
+          // "cannot find module './x'" errors for multi-file projects — completions
+          // and hover stay on; only the (isolated, wrong) squiggles go off.
+          const t = monaco.languages.typescript;
+          const off = { noSemanticValidation: true, noSyntaxValidation: true };
+          t.typescriptDefaults.setDiagnosticsOptions(off);
+          t.javascriptDefaults.setDiagnosticsOptions(off);
+          // Compiler options so cross-file completions/imports resolve sensibly.
+          const opts = {
+            target: t.ScriptTarget.ES2020,
+            module: t.ModuleKind.ESNext,
+            moduleResolution: t.ModuleResolutionKind.NodeJs,
+            jsx: t.JsxEmit.ReactJSX,
+            allowJs: true, esModuleInterop: true, allowNonTsExtensions: true,
+          };
+          t.typescriptDefaults.setCompilerOptions(opts);
+          t.javascriptDefaults.setCompilerOptions(opts);
+        }}
+        onMount={(editor, monaco) => {
+          editorRef.current = editor;
+          monacoRef.current = monaco;
+          editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => onSaveRef.current?.());
+          applyMarkers();
+          setMounted(true);
+        }}
         theme="light"
         height="100%"
         options={{

@@ -11,8 +11,8 @@
  */
 import * as React from 'react';
 import {
-  Sparkles, Loader2, Play, RefreshCw, File as FileIcon, Folder, Wrench,
-  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X, KeyRound, ExternalLink, Square,
+  Sparkles, Loader2, Play, RefreshCw, Folder, Wrench,
+  Check, AlertTriangle, Download, ArrowUp, Rocket, FolderDown, Share2, Copy, X, KeyRound, ExternalLink, Square, History, RotateCcw, Clock,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import { scaffold, templateLabel, type Scaffold } from '@/lib/oioxo/scaffold';
@@ -24,24 +24,39 @@ import {
 import { fsSupported, writeByPath } from '@/lib/oioxo/fs';
 import { runPython, pythonSupported } from '@/lib/oioxo/pyodide';
 import { runSql, sqlSupported } from '@/lib/oioxo/sqljs';
-import { makePreviewRun } from '@/lib/oioxo/preview-oracle';
+import { makePreviewRun, makeStaticPreviewRun } from '@/lib/oioxo/preview-oracle';
+import { buildStaticPreview } from '@/lib/oioxo/preview';
 import type { RunFn } from '@/lib/oioxo/codeloop';
 import { saveSession, listSessions, loadSession, deleteSession, newSessionId, type Session } from '@/lib/oioxo/sessions';
+import { recordSnapshot, loadHistory, type Snapshot } from '@/lib/oioxo/history';
 import { buildOrFix } from '@/lib/oioxo/codebuild';
 import { loadTsLibs } from '@/lib/oioxo/tslibs';
 import { downloadFilesZip } from '@/lib/oioxo/zip';
 import { runAgent, type PlanStep } from '@/lib/oioxo/agent';
 import { makePlanner } from '@/lib/oioxo/planner';
-import { recipeFor, type Check as GoalCheck } from '@/lib/oioxo/recipes';
+import { recipeFor } from '@/lib/oioxo/recipes';
+import { deriveChecks, type Check as GoalCheck } from '@/lib/oioxo/checks';
+import { planProject, isLargeProject } from '@/lib/oioxo/plan-project';
+import { preparePublish } from '@/lib/oioxo/publish';
+import { loopProfile, type CodeSource } from '@/lib/oioxo/escalate';
+import { hasWebGPU } from '@/lib/oioxo/runtime';
 import { searchForError } from '@/lib/oioxo/code-search';
 import { fixExamplesFromTrajectory } from '@/lib/oioxo/conductor';
 import { addExamples, recallFixes } from '@/lib/oioxo/trajectory-store';
 import { useEntitlement } from '@/lib/oioxo/useEntitlement';
+import { useCodeMeter, formatRemaining } from '@/components/usage/use-code-meter';
 import { configureConductor } from '@/lib/oioxo/conductor-engine';
 import { getFrontier, setFrontier, frontierChat, PROVIDERS, type FrontierConfig, type Provider } from '@/lib/oioxo/frontier';
 import { sendProject, receiveProject, type SharePayload } from '@/lib/oioxo/share';
+import { BrickShare } from './BrickShare';
 import type { PeerState } from '@/lib/p2p/peer';
 import CodeEditor from './CodeEditor';
+import EditorTabs from './EditorTabs';
+import FileTree from './FileTree';
+import ProblemsPanel from './ProblemsPanel';
+import DiffModal from './DiffModal';
+import CommandPalette, { type PaletteCommand } from './CommandPalette';
+import { useProjectDiagnostics } from './useDiagnostics';
 
 type Phase = 'idle' | 'starting' | 'ready';
 
@@ -54,8 +69,17 @@ export default function NewProject({ match }: { match: string[] }) {
   const [info, setInfo] = React.useState<Scaffold | null>(null);
   const [files, setFiles] = React.useState<CodeFile[]>([]);
   const [activePath, setActivePath] = React.useState<string | null>(null);
+  // Open editor tabs (VS Code-style) + a jump target for Problems-panel clicks.
+  const [openPaths, setOpenPaths] = React.useState<string[]>([]);
+  const [reveal, setReveal] = React.useState<{ line: number; column: number; key: number } | undefined>(undefined);
   const [preview, setPreview] = React.useState<string | null>(null);
+  // Server-free preview doc for STATIC projects (web/game): rendered via iframe
+  // srcdoc — no WebContainer, instant, works on any browser (even no Chromium).
+  const [staticDoc, setStaticDoc] = React.useState<string | null>(null);
   const [previewKey, setPreviewKey] = React.useState(0); // bump to reload the iframe
+  // Project history (time-travel) — the timeline + popover state.
+  const [versions, setVersions] = React.useState<Snapshot[] | null>(null);
+  const [diffSnap, setDiffSnap] = React.useState<Snapshot | null>(null);
   const [log, setLog] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [autoBuild, setAutoBuild] = React.useState(0); // bumped after a fresh scaffold → auto-build the goal
@@ -66,20 +90,49 @@ export default function NewProject({ match }: { match: string[] }) {
   const append = (s: string) => setLog((o) => (o + s).slice(-16000));
   const syncFiles = React.useCallback(async () => setFiles(await ws.current.files()), []);
 
+  // Open a file in a tab (and focus it); closing a tab falls back to a neighbour.
+  const openFile = React.useCallback((path: string | null) => {
+    if (!path) { setActivePath(null); return; }
+    setOpenPaths((o) => (o.includes(path) ? o : [...o, path]));
+    setActivePath(path);
+  }, []);
+  const closeTab = React.useCallback((path: string) => {
+    setOpenPaths((o) => {
+      const next = o.filter((p) => p !== path);
+      setActivePath((cur) => (cur === path ? next[next.length - 1] ?? null : cur));
+      return next;
+    });
+  }, []);
+
+  // Live PROBLEMS: type-check the project on a debounce (skip python/sql). Squiggles
+  // in the editor + a Problems panel — the engine the agent already verifies with.
+  const diag = useProjectDiagnostics(files, info?.runtime !== 'python' && info?.runtime !== 'sql');
+  const errorPaths = React.useMemo(() => new Set(diag.byFile.keys()), [diag]);
+  const jumpToProblem = React.useCallback((file: string, line: number, column: number) => {
+    openFile(file.replace(/^\.?\//, ''));
+    setReveal({ line, column, key: Date.now() });
+  }, [openFile]);
+
   // RUNTIME oracle for web/UI/games: the agent verifies by actually running the
   // preview and catching runtime errors (OIOXO_CODE §4) — real signal where the
   // type oracle has almost none. Built only for previewable projects.
   const previewUrlRef = React.useRef<string | null>(null);
   React.useEffect(() => { previewUrlRef.current = preview; }, [preview]);
-  // Goal checks (behavioral acceptance) come from the recipe for the goal; the
-  // loop drives the build until they pass in the running preview.
+  // Goal checks (behavioral acceptance) derived from the goal — for ANY task, not
+  // just recipe kinds (lever 3: checks-before-code). Authored recipe checks take
+  // precedence; deriveChecks adds general feature checks so the loop drives the
+  // build until it's actually the thing asked for, not just "doesn't crash".
   const checksRef = React.useRef<GoalCheck[]>([]);
-  React.useEffect(() => { checksRef.current = recipeFor(goal)?.checks ?? []; }, [goal]);
+  React.useEffect(() => { checksRef.current = deriveChecks(goal); }, [goal]);
   const previewOracle = React.useMemo<RunFn | undefined>(
-    () => (info?.preview && supported
-      ? makePreviewRun(() => previewUrlRef.current, () => checksRef.current, (s) => setLog((o) => (o + s).slice(-16000)))
-      : undefined),
-    [info?.preview, supported],
+    () => (info?.staticServe
+      // Static → the server-free oracle: verify via srcdoc, NO WebContainer (works
+      // on any device/browser). Server projects (react/api) → WebContainer oracle.
+      ? makeStaticPreviewRun(() => checksRef.current, (s) => setLog((o) => (o + s).slice(-16000)))
+      : info?.preview && supported
+        ? makePreviewRun(() => previewUrlRef.current, () => checksRef.current, (s) => setLog((o) => (o + s).slice(-16000)))
+        : undefined),
+    [info?.preview, info?.staticServe, supported],
   );
 
   /** Load a project (scaffolded or received) into the workspace, mount it, and
@@ -88,7 +141,9 @@ export default function NewProject({ match }: { match: string[] }) {
     setInfo(s);
     ws.current = new MemoryWorkspace(s.files);
     await syncFiles();
-    setActivePath(s.files.find((f) => /index\.html|readme/i.test(f.path))?.path ?? s.files[0]?.path ?? null);
+    const firstPath = s.files.find((f) => /index\.html|readme/i.test(f.path))?.path ?? s.files[0]?.path ?? null;
+    setOpenPaths(firstPath ? [firstPath] : []);
+    setActivePath(firstPath);
 
     // Python / SQL projects run in WASM (Pyodide / sql.js), not WebContainer —
     // execute the entry and show output; no install, no cross-origin isolation.
@@ -106,6 +161,16 @@ export default function NewProject({ match }: { match: string[] }) {
       append('Starting SQLite…\n');
       const res = await runSql(s.files, 'main.sql', append);
       append(res.ok ? '\n[done]\n' : `\n[error]\n`);
+      return;
+    }
+
+    // STATIC projects (web/game): render server-free via srcdoc — instant, no
+    // WebContainer boot, works on ANY device/browser. The agent verifies with the
+    // matching server-free oracle. (This is the weak-device "see results" path.)
+    if (s.staticServe) {
+      setStaticDoc(buildStaticPreview(s.files));
+      setPhase('ready');
+      append('\n▶ preview ready (instant, no server)\n');
       return;
     }
 
@@ -146,7 +211,7 @@ export default function NewProject({ match }: { match: string[] }) {
   async function start() {
     const g = goal.trim();
     if (!g || phase === 'starting') return;
-    setPhase('starting'); setError(null); setLog(''); setPreview(null);
+    setPhase('starting'); setError(null); setLog(''); setPreview(null); setStaticDoc(null);
     try {
       await bringUp(scaffold(g));
       setAutoBuild((n) => n + 1); // scaffold is just the start — now actually build the goal
@@ -170,6 +235,12 @@ export default function NewProject({ match }: { match: string[] }) {
       append(res.ok ? '\n[done]\n' : '\n[error]\n');
       return;
     }
+    // Static project → rebuild the srcdoc from the current files (instant, no WC).
+    if (info?.staticServe) {
+      setStaticDoc(buildStaticPreview(await ws.current.files()));
+      setPreviewKey((k) => k + 1);
+      return;
+    }
     if (!supported) return;
     try {
       await writeFiles(changed);
@@ -185,9 +256,26 @@ export default function NewProject({ match }: { match: string[] }) {
     }
   }
 
+  /** Open the project's saved timeline (time-travel). */
+  async function openVersions() {
+    setVersions((await loadHistory(sessionId.current)).slice().reverse()); // newest first
+  }
+  /** Roll the whole project back to a saved snapshot — never lose a working version. */
+  async function restoreVersion(snap: Snapshot) {
+    ws.current = new MemoryWorkspace(snap.files.map((f) => ({ ...f })));
+    await syncFiles();
+    openFile(snap.files[0]?.path ?? null);
+    if (info?.staticServe) { setStaticDoc(buildStaticPreview(snap.files)); setPreviewKey((k) => k + 1); }
+    else await refreshSandbox(snap.files);
+    void recordSnapshot(sessionId.current, 'manual', `restored "${snap.label}"`, snap.files);
+    setVersions(null);
+    append(`\n↶ restored ${snap.reason === 'green' ? 'a working version' : 'a version'}: ${snap.label}\n`);
+  }
+
   function reset() {
     setPhase('idle'); setInfo(null); setFiles([]); setActivePath(null);
-    setPreview(null); setLog(''); setError(null); setGoal('');
+    setPreview(null); setStaticDoc(null); setLog(''); setError(null); setGoal(''); setVersions(null);
+    setOpenPaths([]); setReveal(undefined);
     sessionId.current = '';
     shareRef.current?.cancel(); shareRef.current = null; liveRef.current = null; setLive(false); setShare(null);
     ws.current = new MemoryWorkspace();
@@ -206,13 +294,16 @@ export default function NewProject({ match }: { match: string[] }) {
         runCmd: info.runCmd, preview: info.preview, staticServe: info.staticServe,
         goal, files,
       });
+      // Timeline (history.ts): a deduped snapshot of this state so work is never
+      // lost and any working version can be rolled back to later.
+      void recordSnapshot(sessionId.current, 'edit', goal || info.template, files);
     }, 800); // debounce rapid edits
     return () => clearTimeout(t);
   }, [files, info, goal, phase]);
 
   /** Resume a saved session: restore its files + metadata and bring it up. */
   async function resume(s: Session) {
-    setPhase('starting'); setError(null); setLog(''); setPreview(null); setGoal(s.goal);
+    setPhase('starting'); setError(null); setLog(''); setPreview(null); setStaticDoc(null); setGoal(s.goal);
     sessionId.current = s.id;
     try {
       await bringUp({
@@ -232,7 +323,7 @@ export default function NewProject({ match }: { match: string[] }) {
     if (!p || files.some((f) => f.path === p)) { setNewName(''); return; }
     await ws.current.write(p, '');
     await syncFiles();
-    setActivePath(p);
+    openFile(p);
     setNewName('');
     void refreshSandbox([{ path: p, content: '' }]);
     liveRef.current?.sendEdit(p, '');
@@ -240,7 +331,7 @@ export default function NewProject({ match }: { match: string[] }) {
   async function removeFile(path: string) {
     await ws.current.remove(path);
     await syncFiles();
-    if (activePath === path) setActivePath((await ws.current.files())[0]?.path ?? null);
+    closeTab(path);
   }
 
   const [saved, setSaved] = React.useState<'idle' | 'saving' | 'done'>('idle');
@@ -424,8 +515,24 @@ export default function NewProject({ match }: { match: string[] }) {
     );
   }
 
+  // Command palette (Cmd/Ctrl+K or Cmd/Ctrl+P): quick-open files + project actions.
+  const paletteCommands: PaletteCommand[] = [
+    ...files.map((f) => ({ id: `file:${f.path}`, group: 'Open', label: f.path, run: () => openFile(f.path) })),
+    { id: 'new-file', group: 'Action', label: 'New file…', run: () => {
+      const p = window.prompt('New file path')?.trim().replace(/^\/+/, '');
+      if (p && !files.some((f) => f.path === p)) void ws.current.write(p, '').then(syncFiles).then(() => openFile(p));
+    } },
+    ...(info?.preview ? [{ id: 'reload-preview', group: 'Action', label: 'Reload preview', run: () => setPreviewKey((k) => k + 1) }] : []),
+    { id: 'download-zip', group: 'Action', label: 'Download .zip', run: () => void downloadFilesZip(files, (info?.template ?? 'oioxo') + '-project.zip') },
+    ...(fsSupported() ? [{ id: 'save-folder', group: 'Action', label: 'Save to folder…', run: () => void saveToFolder() }] : []),
+    { id: 'share', group: 'Action', label: 'Share live…', run: startShare },
+    { id: 'versions', group: 'Action', label: 'Versions…', run: () => void openVersions() },
+    { id: 'new-project', group: 'Action', label: 'New project', run: reset },
+  ];
+
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+      <CommandPalette commands={paletteCommands} />
       {/* file tree */}
       <aside className="flex max-h-40 shrink-0 flex-col border-b border-zinc-200 md:max-h-none md:w-52 md:border-b-0 md:border-r">
         <div className="flex items-center justify-between gap-2 p-2">
@@ -437,28 +544,13 @@ export default function NewProject({ match }: { match: string[] }) {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
-          {files.map((f) => (
-            <div
-              key={f.path}
-              className={[
-                'group flex w-full items-center gap-1.5 rounded px-2 py-1 text-[12px] transition',
-                activePath === f.path ? 'bg-zinc-100 font-medium text-zinc-900' : 'text-zinc-600 hover:bg-zinc-50',
-              ].join(' ')}
-            >
-              <button type="button" onClick={() => setActivePath(f.path)} className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
-                <FileIcon className="h-3.5 w-3.5 shrink-0 text-zinc-400" />
-                <span className="truncate">{f.path}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => void removeFile(f.path)}
-                title="Delete file"
-                className="shrink-0 rounded p-0.5 text-zinc-300 opacity-0 transition hover:bg-zinc-200 hover:text-rose-600 group-hover:opacity-100"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          ))}
+          <FileTree
+            files={files}
+            active={activePath}
+            errorPaths={errorPaths}
+            onOpen={(p) => openFile(p)}
+            onDelete={(p) => void removeFile(p)}
+          />
           <form onSubmit={(e) => { e.preventDefault(); void addFile(); }} className="mt-1 px-1">
             <input
               value={newName}
@@ -474,6 +566,24 @@ export default function NewProject({ match }: { match: string[] }) {
           >
             <Download className="h-3.5 w-3.5" /> Download .zip
           </button>
+          {files.some((f) => /\.html$/i.test(f.path)) && !files.some((f) => f.path === 'package.json') && (
+            <button
+              type="button"
+              // Publish (roadmap #4): fold the static site into ONE self-contained
+              // .html (CSS/JS inlined) you can open or share anywhere — host nothing.
+              onClick={() => {
+                const art = preparePublish(files, 'bundle');
+                if (!art.html) return;
+                const url = URL.createObjectURL(new Blob([art.html], { type: 'text/html' }));
+                const a = document.createElement('a');
+                a.href = url; a.download = (info?.template ?? 'site') + '.html'; a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}
+              className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] font-semibold text-zinc-500 hover:bg-zinc-50"
+            >
+              <Download className="h-3.5 w-3.5" /> Download as one .html
+            </button>
+          )}
           {fsSupported() && (
             <button
               type="button"
@@ -492,21 +602,85 @@ export default function NewProject({ match }: { match: string[] }) {
           >
             <Share2 className="h-3.5 w-3.5" /> Share live…
           </button>
+          {/* Pool the verified-brick corpus device-to-device (re-proven on import). */}
+          <BrickShare />
+          <button
+            type="button"
+            onClick={() => void openVersions()}
+            className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[11px] font-semibold text-zinc-500 hover:bg-zinc-50"
+          >
+            <History className="h-3.5 w-3.5" /> Versions…
+          </button>
         </div>
       </aside>
 
+      {versions && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={() => setVersions(null)}>
+          <div className="flex max-h-[70vh] w-full max-w-md flex-col rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-1.5 text-sm font-bold text-zinc-900"><History className="h-4 w-4" /> Versions — roll back any time</h3>
+              <button type="button" onClick={() => setVersions(null)} className="text-zinc-400 hover:text-zinc-700"><X className="h-4 w-4" /></button>
+            </div>
+            {versions.length === 0 ? (
+              <p className="text-[12px] text-zinc-500">No saved versions yet — they’re captured automatically as you build (and every time it verifies green).</p>
+            ) : (
+              <ul className="flex-1 space-y-1 overflow-auto">
+                {versions.map((v) => (
+                  <li key={v.id} className="flex items-center gap-2 rounded-lg border border-zinc-100 px-2.5 py-1.5 text-[12px] hover:bg-zinc-50">
+                    <span className={['rounded px-1.5 py-0.5 text-[10px] font-bold', v.reason === 'green' ? 'bg-green-100 text-green-700' : v.reason === 'scaffold' ? 'bg-blue-100 text-blue-700' : v.reason === 'manual' ? 'bg-amber-100 text-amber-700' : 'bg-zinc-100 text-zinc-500'].join(' ')}>
+                      {v.reason === 'green' ? '✓ working' : v.reason}
+                    </span>
+                    <span className="flex-1 truncate text-zinc-700" title={v.label}>{v.label}</span>
+                    <span className="text-[10px] text-zinc-400">{new Date(v.ts).toLocaleTimeString()}</span>
+                    <button type="button" onClick={() => setDiffSnap(v)} className="flex items-center gap-1 rounded border border-zinc-300 px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-100" title="See what changed since this version">
+                      Diff
+                    </button>
+                    <button type="button" onClick={() => void restoreVersion(v)} className="flex items-center gap-1 rounded bg-zinc-900 px-2 py-1 text-[11px] font-semibold text-white hover:bg-zinc-700">
+                      <RotateCcw className="h-3 w-3" /> Restore
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
       {share && <SharePopover share={share} onClose={stopShare} />}
+
+      {diffSnap && (
+        <DiffModal
+          title={`Changes since “${diffSnap.label}” · ${new Date(diffSnap.ts).toLocaleString()}`}
+          oldFiles={diffSnap.files}
+          newFiles={files}
+          onClose={() => setDiffSnap(null)}
+          onRevert={() => { void restoreVersion(diffSnap); setDiffSnap(null); }}
+        />
+      )}
 
       {/* editor + agent */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex h-9 shrink-0 items-center border-b border-zinc-200 px-3 text-xs text-zinc-500">
-          {activePath ?? 'Select a file'}
-        </div>
+        {openPaths.length > 0 ? (
+          <EditorTabs
+            open={openPaths}
+            active={activePath}
+            errorPaths={errorPaths}
+            onSelect={(p) => setActivePath(p)}
+            onClose={closeTab}
+          />
+        ) : (
+          <div className="flex h-9 shrink-0 items-center border-b border-zinc-200 px-3 text-xs text-zinc-500">Select a file</div>
+        )}
         <div className="min-h-0 flex-1">
           {activePath ? (
             <CodeEditor
               value={files.find((f) => f.path === activePath)?.content ?? ''}
               filename={activePath.split('/').pop() ?? activePath}
+              path={activePath}
+              projectFiles={files}
+              diagnostics={diag.byFile.get(activePath.replace(/\\/g, '/'))}
+              revealAt={reveal}
+              onSave={() => void saveToFolder()}
               onChange={(next) => {
                 setFiles((cur) => cur.map((f) => (f.path === activePath ? { ...f, content: next } : f)));
                 void ws.current.write(activePath, next);
@@ -518,12 +692,14 @@ export default function NewProject({ match }: { match: string[] }) {
             <div className="grid h-full place-items-center text-sm text-zinc-400">Pick a file to edit.</div>
           )}
         </div>
+        <ProblemsPanel problems={diag.all} running={diag.running} onJump={jumpToProblem} />
         <AgentRun
           ws={ws.current}
           match={match}
           goal={goal}
           runtime={info?.runtime}
           oracle={previewOracle}
+          checkNames={() => checksRef.current.map((c) => c.name)}
           autoBuild={autoBuild}
           onChanged={async (changed) => {
             await syncFiles();
@@ -552,7 +728,15 @@ export default function NewProject({ match }: { match: string[] }) {
             <AlertTriangle className="h-4 w-4 shrink-0" /> {error}
           </div>
         )}
-        {info?.preview && preview ? (
+        {info?.staticServe && staticDoc ? (
+          <iframe
+            key={previewKey}
+            title="preview"
+            srcDoc={staticDoc}
+            className="min-h-0 flex-1 bg-white"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-modals allow-popups"
+          />
+        ) : info?.preview && preview ? (
           <iframe
             key={previewKey}
             title="preview"
@@ -594,7 +778,7 @@ export interface AgentWorkspace {
  *  verifying each with the type oracle, and refreshing the preview as it goes.
  *  The visible plan + per-step status is the "frontier agent" surface. */
 export function AgentRun({
-  ws, match, goal, onChanged, onLog, runtime, oracle, autoBuild,
+  ws, match, goal, onChanged, onLog, runtime, oracle, checkNames, autoBuild,
 }: {
   ws: AgentWorkspace;
   match: string[];
@@ -605,6 +789,8 @@ export function AgentRun({
   runtime?: 'node' | 'python' | 'sql';
   /** RUNTIME oracle for previewable projects — run the app, catch runtime errors. */
   oracle?: RunFn;
+  /** Names of the behavioral checks the oracle runs — for regression safety (Gem 6b). */
+  checkNames?: () => string[];
   /** Bumped by the parent right after a fresh scaffold → auto plan-and-build the
    *  goal (through the brain gate), so "ask for X" actually builds X. */
   autoBuild?: number;
@@ -612,6 +798,8 @@ export function AgentRun({
   const [task, setTask] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
+  // Live code as the model writes it (so the user always sees what's happening).
+  const [live, setLive] = React.useState<{ path?: string; text: string } | null>(null);
   const [plan, setPlan] = React.useState<PlanStep[]>([]);
   const [states, setStates] = React.useState<StepState[]>([]);
   const [done, setDone] = React.useState<null | { ok: boolean; completed: number; total: number; engineError?: string; noChanges?: boolean }>(null);
@@ -619,6 +807,9 @@ export function AgentRun({
   // Pro: "thorough" drafts several candidates per step and keeps the one the
   // oracle proves best (more compute → higher success). Free runs single-draft.
   const { tier, pro } = useEntitlement();
+  // Online permission: free users are metered (1 free → 30s reward → paywall);
+  // Pro/Business pass unlimited (server-side). Every AI build passes through this.
+  const { begin, end, remaining, gate } = useCodeMeter();
   const [thorough, setThorough] = React.useState(false);
   // oioxo conductor (beta): our own fine-tuned model, served on-device via ONNX.
   // Opt-in while it's a bootstrap (v0); when on, plan/fix route to it (else coder).
@@ -653,6 +844,7 @@ export function AgentRun({
 
   async function run() {
     if (busy) return;
+    if (!(await begin())) return; // time meter: free daily AI allowance (activated = unlimited)
     if (!brainReady()) { pendingRun.current = true; setShowBrain(true); return; } // ask before downloading
     const rawGoal = task.trim() || goal;
     const recipe = recipeFor(rawGoal); // ground the small model with the right structure
@@ -664,13 +856,26 @@ export function AgentRun({
       // the in-browser TS type oracle (no install).
       const libFiles = runtime === 'python' || runtime === 'sql' ? undefined : await loadTsLibs().catch(() => undefined);
       const fc = frontier; // BYOK frontier key drives plan + build when set
+      // ANY-DEVICE profile: a no-WebGPU device can't carry the loop on the slow
+      // WASM model in a few iterations — so give it MANY cheap-patch iterations +
+      // lean on bricks. A GPU device runs leaner; a frontier key leanest.
+      const gpu = await hasWebGPU().catch(() => false);
+      const source: CodeSource = fc ? 'frontier' : gpu ? 'webgpu' : 'wasm';
+      const prof = loopProfile({ hardware: gpu ? 'high' : 'none' }, source);
+      if (!gpu && !fc) onLog('\n· no GPU detected — using the resilient profile (more passes, reuse verified blocks)\n');
       // Known task type → use the recipe's DECOMPOSED plan (small steps any model
       // can do one-at-a-time) instead of asking a weak model to decompose. This is
       // what lets the loop build real apps on any device. Else the model plans.
       const recSteps = recipe?.steps;
+      // Long-horizon planner (roadmap #2): for a large goal with no recipe, compose
+      // a dependency-ordered plan from the capability graph (verified bricks) rather
+      // than asking a weak model to decompose a whole app. Recipes still win.
+      const proj = !recSteps?.length && isLargeProject(rawGoal) ? planProject(rawGoal) : null;
       const planner = recSteps?.length
         ? (async () => { onLog(`\n🧠 plan (${recSteps.length} steps from the ${recipe!.kind} recipe)\n`); return recSteps.map((s) => ({ title: s.length > 64 ? s.slice(0, 63) + '…' : s, task: s })); })
-        : (() => { onLog('\n🧠 thinking…\n'); return makePlanner(match, { onProgress: setProgress, onToken: (d) => onLog(d), chat: fc ? (s, u) => frontierChat(fc, s, u, { maxTokens: 512 }) : undefined }); })();
+        : proj?.steps.length
+          ? (async () => { onLog(`\n🧠 plan (${proj.steps.length} steps, composed from verified blocks${proj.glue.length ? `; ${proj.glue.length} to write` : ''})\n`); return proj.steps; })
+          : (() => { onLog('\n🧠 thinking…\n'); return makePlanner(match, { onProgress: setProgress, onToken: (d) => onLog(d), chat: fc ? (s, u) => frontierChat(fc, s, u, { maxTokens: 512 }) : undefined }); })();
       const build = async (
         stepTask: string,
         files: CodeFile[],
@@ -683,21 +888,30 @@ export function AgentRun({
           : stepTask;
         const res = await buildOrFix({
           task: framed, files, match, mode: 'typecheck', libFiles, record: true,
+          // Device-sized loop budget (weak/no-GPU → more cheap-patch passes).
+          maxIters: prof.maxIters, maxCandidates: prof.maxCandidates,
           // Best-of-N (the loop drafts several, the ORACLE keeps the one that
           // actually works). For the on-device small model this isn't a luxury —
           // it's what makes a tiny model reliable, and it runs on the USER's own
           // compute — so it gets a floor of 2 for everyone; Pro "thorough" buys
           // more. A strong BYOK frontier writer doesn't need it (1).
-          candidates: fc ? 1 : (thorough && pro ? 4 : 2),
+          candidates: fc ? 1 : (thorough && pro ? Math.max(prof.candidates, 4) : prof.candidates),
           coder: fc ? { kind: 'frontier', config: fc } : undefined, // BYOK writer
           run: oracle, // RUNTIME oracle for web/UI/games (else typecheck/python/sql)
           runtime,
+          // Regression safety (Gem 6b): never let fixing one step silently break a
+          // behavioral check that already passed.
+          getCheckNames: checkNames,
           signal: ac.signal, // Stop
           search: (q) => searchForError(q, onLog), // search-when-stuck (web)
           recall: (q) => recallFixes(q), // REMEMBER: reuse the device's own verified fixes
           onNote: onLog,
           onProgress: setProgress, onData: onLog,
+          // VISIBILITY: stream the code as the model writes it, so the user always
+          // sees motion (which file, the code filling in) — never a frozen spinner.
+          onToken: (info) => setLive({ path: info.path, text: info.full }),
         });
+        setLive(null);
         // REMEMBER: bank this step's verified red→green repairs for future recall.
         if (res.trajectory?.length) {
           const ex = fixExamplesFromTrajectory(framed, res.trajectory);
@@ -741,7 +955,8 @@ export function AgentRun({
       onLog(`\n✖ ${e instanceof Error ? e.message : 'agent failed'}\n`);
       setDone({ ok: false, completed: 0, total: 0 });
     } finally {
-      setBusy(false); setTask(''); setProgress(0); abortRef.current = null;
+      void end(); // report the active AI time used this run to the meter
+      setBusy(false); setTask(''); setProgress(0); setLive(null); abortRef.current = null;
     }
   }
 
@@ -756,6 +971,13 @@ export function AgentRun({
 
   return (
     <div className="shrink-0 border-t border-zinc-200 bg-white">
+      {gate}
+      {remaining !== null && (
+        <div className="flex items-center justify-end gap-1.5 px-3 pt-1.5 text-[10px] font-medium text-zinc-400">
+          <Clock className="h-3 w-3" />
+          {formatRemaining(remaining)}
+        </div>
+      )}
       {hint && plan.length === 0 && (
         <p className="px-3 pt-2 text-[11px] text-zinc-400">
           Press → to build the whole project out, or describe a change. The agent plans the steps, writes the files,
@@ -771,6 +993,16 @@ export function AgentRun({
             </li>
           ))}
         </ol>
+      )}
+      {/* LIVE: the code as the model writes it — so you always see what's happening,
+          even on a slow device (never a frozen spinner). */}
+      {live && (
+        <div className="mx-3 mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-[#7a5c12]">
+            <Loader2 className="h-3 w-3 animate-spin" /> writing {live.path ?? 'code'}… ({live.text.length} chars)
+          </div>
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] leading-snug text-zinc-600">{live.text.slice(-1400)}</pre>
+        </div>
       )}
       {done && (
         <div className={['mx-3 mt-2 flex items-start gap-2 rounded-lg px-3 py-1.5 text-[12px]', done.engineError ? 'bg-rose-50 text-rose-800' : done.ok ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'].join(' ')}>

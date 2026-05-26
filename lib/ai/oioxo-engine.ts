@@ -572,6 +572,47 @@ async function imagesForPlan(plan: AnswerPlan, text: string): Promise<ImageHit[]
   return findImages(imageSubjectOf(plan.concept, text), 4).catch(() => []);
 }
 
+/**
+ * THE NO-DUMB GATE — the system invariant: no answer-path reply ships if it's
+ * visibly dumb. Catches the failure shapes that make an AI look broken: empty/too
+ * short, degenerate repetition, disambiguation/encyclopedic dumps ("X may refer
+ * to…"), a list of source titles, or leaked scaffolding ("according to the
+ * notes"). Sense/factual correctness is the reranker+verifier's job; THIS catches
+ * the visibly-wrong output so we can fall back gracefully instead of shipping it.
+ * Returns true when the reply must NOT be shown as-is.
+ */
+const DUMB_PATTERNS =
+  /\b(may (also )?refer to|is a disambiguation|see also wiki|according to the (notes?|sources?|information|text)|as an ai( language)?( model)?|i (don'?t|do not) have (enough|access|the ability)|i (cannot|can'?t) (answer|access|browse)|the (notes?|sources?) (do not|don'?t|lack)|here are (some|the) (results|sources|links))\b/i;
+export function isDumbAnswer(reply: string): boolean {
+  const r = (reply || '').replace(/\s+/g, ' ').trim();
+  if (r.length < 15) return true;
+  if (/^[#*\-•>`|]|```/.test(r)) return false; // structured (recipe/code/list) is intentional
+  if (DUMB_PATTERNS.test(r)) return true;
+  const w = r.toLowerCase().split(/\s+/);
+  if (w.length >= 8) {
+    const grams = w.slice(0, -2).map((_, i) => w.slice(i, i + 3).join(' '));
+    if (new Set(grams).size < grams.length * 0.62) return true; // degenerate 3-gram repetition
+  }
+  if (w.length >= 6) {
+    const c: Record<string, number> = {};
+    for (const x of w) if (x.length > 2) c[x] = (c[x] || 0) + 1;
+    if (Math.max(0, ...Object.values(c)) / w.length > 0.35) return true; // one word dominates
+  }
+  // a pile of source-title cruft (pipes / " - Site" / domains) rather than prose
+  if ((r.match(/\s[|]\s|\s[-–—]\s[A-Z]|\.(com|org|net|io)\b/g) || []).length >= 3) return true;
+  return false;
+}
+
+/** The honest, graceful reply when the gate vetoes — better than a dumb answer. */
+function gracefulFallback(concept: string): OioxoReply {
+  const c = (concept || '').trim();
+  return {
+    text: c && c.length <= 40
+      ? `I couldn't pin down a reliable answer about ${c} just now. Could you add a detail or rephrase it? I'd rather get it right than guess.`
+      : "I couldn't pin down a reliable answer to that just now — could you rephrase or add a detail? I'd rather get it right than guess.",
+  };
+}
+
 /** Never open an answer mid-sentence. When gathered text starts with punctuation
  *  or lowercase (a clipped fragment like ", the Middle East…"), cut to the first
  *  real sentence start. Purely structural — no content rules. */
@@ -1179,7 +1220,13 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
       if (app) return { text: `I can open **${app.name}** for that — ${app.blurb}`, app };
     }
 
-    return withAdviceDisclaimer(await answerFlow(qText, route.query || qText, fileCat), qText);
+    // THE NO-DUMB GATE (system invariant): a search answer ships only if it isn't
+    // visibly dumb; otherwise fall back to an honest clarify rather than embarrass.
+    const ans = await answerFlow(qText, route.query || qText, fileCat);
+    if (ans.text && !ans.tool && !ans.app && !ans.openCode && !ans.game && isDumbAnswer(ans.text)) {
+      return gracefulFallback(comprehendAnswer(qText).concept);
+    }
+    return withAdviceDisclaimer(ans, qText);
   } catch {
     return { text: 'Something went wrong handling that — please try again.' };
   }

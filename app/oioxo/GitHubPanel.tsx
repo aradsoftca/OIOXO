@@ -8,7 +8,7 @@
  */
 import * as React from 'react';
 import {
-  Github, Loader2, KeyRound, GitCommit, Check, AlertTriangle, LogOut, ExternalLink,
+  Github, Loader2, KeyRound, GitCommit, Check, AlertTriangle, LogOut, ExternalLink, Terminal,
 } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 import {
@@ -20,6 +20,7 @@ import FileTree from './FileTree';
 import ProblemsPanel from './ProblemsPanel';
 import EditorSettingsButton from './EditorSettings';
 import OutlinePanel from './OutlinePanel';
+import TerminalPanel from './TerminalPanel';
 import { extractOutline } from '@/lib/oioxo/outline';
 import { useProjectDiagnostics } from './useDiagnostics';
 import { AgentRun } from './NewProject';
@@ -34,6 +35,7 @@ export default function GitHubPanel({ match }: { match: string[] }) {
   const [activePath, setActivePath] = React.useState<string | null>(null);
   const [openPaths, setOpenPaths] = React.useState<string[]>([]);
   const [reveal, setReveal] = React.useState<{ line: number; column: number; key: number } | undefined>(undefined);
+  const [showTerminal, setShowTerminal] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(0);
@@ -232,6 +234,14 @@ export default function GitHubPanel({ match }: { match: string[] }) {
             {pushed && <span className="flex items-center gap-1 text-[11px] font-semibold text-green-600"><Check className="h-3.5 w-3.5" /> pushed {pushed}</span>}
             <button
               type="button"
+              onClick={() => setShowTerminal((v) => !v)}
+              className={['flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition', showTerminal ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-100'].join(' ')}
+              title="Run commands in an in-browser sandbox"
+            >
+              <Terminal className="h-3.5 w-3.5" /> Terminal
+            </button>
+            <button
+              type="button"
               onClick={() => void commitPush()}
               disabled={pushing || pending === 0}
               className="flex items-center gap-1 rounded-lg bg-zinc-900 px-2.5 py-1 text-[11px] font-semibold text-white transition hover:bg-zinc-700 disabled:opacity-30"
@@ -267,6 +277,7 @@ export default function GitHubPanel({ match }: { match: string[] }) {
           )}
         </div>
         <ProblemsPanel problems={diag.all} running={diag.running} onJump={jumpToProblem} />
+        {showTerminal && <TerminalPanel files={files} onClose={() => setShowTerminal(false)} />}
         <AgentRun
           ws={ws}
           match={match}

@@ -182,8 +182,13 @@ All P0 + P1 from this audit are now implemented.
   stay open, dirty dots, close), reusing `EditorTabs` (+ `dirtyPaths`).
 - ✅ **Image viewer** — `ImageView.tsx`; folder mode reads image files from disk as a
   blob URL and shows them on a checkerboard (real, since folder mode has FS handles).
-- ⏳ Still open P2: integrated terminal on every surface, drag-to-move + create-folder,
-  whole-project diagnostics in folder mode.
+- ✅ **Integrated terminal** — `TerminalPanel.tsx` (WebContainer-backed, files-based:
+  mount → run npm/build/start → live preview, syncs edits via writeFiles). Added to
+  the GitHub surface (folder mode already has `RunPanel`; Build has its run/preview
+  pane), so every surface can run commands in-browser.
+- ⏳ Still open P2 (minor): drag-to-move in the tree (rename already does moves),
+  create-folder, whole-project diagnostics in folder mode, interactive terminal input
+  in Build (it already runs + previews via the agent/preview pane).
 
 ## Recommended build order (feel-per-effort)
 1. **Self-host Monaco + workers** (kills the "nothing happens" bug, offline, no 3rd

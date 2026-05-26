@@ -18,6 +18,8 @@ import SkillPanel from './SkillPanel';
 import CodeEditor from './CodeEditor';
 import NewProject from './NewProject';
 import GitHubPanel from './GitHubPanel';
+import EditorTabs from './EditorTabs';
+import ImageView from './ImageView';
 import { Rocket, Github } from 'lucide-react';
 
 export default function CodeAgent() {
@@ -81,12 +83,20 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
   const [rootName, setRootName] = React.useState<string | null>(null);
   const [rootHandle, setRootHandle] = React.useState<unknown>(null);
   const [tree, setTree] = React.useState<FileNode[] | null>(null);
-  const [active, setActive] = React.useState<{ node: FileNode; content: string } | null>(null);
-  const [dirty, setDirty] = React.useState(false);
+  // Open files as TABS (VS Code-style) so switching doesn't lose your place.
+  type Tab = { path: string; node: FileNode; content: string; dirty: boolean; imageUrl?: string };
+  const [tabs, setTabs] = React.useState<Tab[]>([]);
+  const [activePath, setActivePath] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [showRun, setShowRun] = React.useState(false);
   const [showAgent, setShowAgent] = React.useState(false);
   const supported = fsSupported();
+  const active = tabs.find((t) => t.path === activePath) ?? null;
+  const dirtyPaths = React.useMemo(() => new Set(tabs.filter((t) => t.dirty).map((t) => t.path)), [tabs]);
+  const IMG_RE = /\.(svg|png|jpe?g|gif|webp|avif|ico|bmp)$/i;
+
+  // Revoke any image object-URLs when the workspace unmounts.
+  React.useEffect(() => () => { tabs.forEach((t) => t.imageUrl && URL.revokeObjectURL(t.imageUrl)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function pickFolder() {
     try {
@@ -95,7 +105,7 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
         setRootName(res.name);
         setRootHandle(res.root);
         setTree(res.tree);
-        setActive(null);
+        setTabs([]); setActivePath(null);
       }
     } catch {
       /* user cancelled */
@@ -103,22 +113,41 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
   }
 
   async function openFile(node: FileNode) {
-    if (!isTextFile(node.name)) {
-      setActive({ node, content: '/* binary or unsupported file */' });
-      setDirty(false);
-      return;
-    }
-    const content = await readFileText(node.handle);
-    setActive({ node, content });
-    setDirty(false);
+    if (tabs.some((t) => t.path === node.path)) { setActivePath(node.path); return; }
+    let content = ''; let imageUrl: string | undefined;
+    try {
+      if (IMG_RE.test(node.name)) {
+        const file = await (node.handle as unknown as { getFile(): Promise<File> }).getFile();
+        imageUrl = URL.createObjectURL(file);
+      } else if (isTextFile(node.name)) {
+        content = await readFileText(node.handle);
+      } else {
+        content = '/* binary or unsupported file */';
+      }
+    } catch { content = '/* could not read this file */'; }
+    setTabs((t) => [...t, { path: node.path, node, content, dirty: false, imageUrl }]);
+    setActivePath(node.path);
   }
 
+  function closeTab(path: string) {
+    setTabs((t) => {
+      const closing = t.find((x) => x.path === path);
+      if (closing?.imageUrl) URL.revokeObjectURL(closing.imageUrl);
+      const next = t.filter((x) => x.path !== path);
+      setActivePath((cur) => (cur === path ? next[next.length - 1]?.path ?? null : cur));
+      return next;
+    });
+  }
+
+  const updateActive = (content: string) =>
+    setTabs((t) => t.map((x) => (x.path === activePath ? { ...x, content, dirty: true } : x)));
+
   async function save() {
-    if (!active || !dirty) return;
+    if (!active || !active.dirty) return;
     setSaving(true);
     try {
       await writeFileText(active.node.handle, active.content);
-      setDirty(false);
+      setTabs((t) => t.map((x) => (x.path === activePath ? { ...x, dirty: false } : x)));
     } finally {
       setSaving(false);
     }
@@ -152,7 +181,7 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
           {tree ? (
-            <Tree nodes={tree} onOpen={openFile} activePath={active?.node.path} depth={0} />
+            <Tree nodes={tree} onOpen={openFile} activePath={activePath ?? undefined} depth={0} />
           ) : (
             <p className="px-2 py-4 text-xs text-zinc-400">Open a folder to start editing.</p>
           )}
@@ -161,15 +190,15 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
 
       {/* editor */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex h-9 shrink-0 items-center justify-between border-b border-zinc-200 px-3">
-          <span className="truncate text-xs text-zinc-500">
-            {active ? active.node.path : 'Select a file'} {dirty && <span className="text-amber-500">•</span>}
-          </span>
+        {tabs.length > 0 && (
+          <EditorTabs open={tabs.map((t) => t.path)} active={activePath} dirtyPaths={dirtyPaths} onSelect={setActivePath} onClose={closeTab} />
+        )}
+        <div className="flex h-9 shrink-0 items-center justify-end border-b border-zinc-200 px-3">
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={save}
-              disabled={!dirty || saving}
+              disabled={!active?.dirty || saving}
               className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-100 disabled:opacity-30"
             >
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} Save
@@ -200,15 +229,17 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
           {active ? (
-            <CodeEditor
-              value={active.content}
-              filename={active.node.name}
-              onSave={() => void save()}
-              onChange={(next) => {
-                setActive((cur) => (cur ? { ...cur, content: next } : cur));
-                setDirty(true);
-              }}
-            />
+            active.imageUrl ? (
+              <ImageView src={active.imageUrl} name={active.node.name} />
+            ) : (
+              <CodeEditor
+                value={active.content}
+                filename={active.node.name}
+                path={active.path}
+                onSave={() => void save()}
+                onChange={updateActive}
+              />
+            )
           ) : (
             <div className="grid flex-1 place-items-center text-sm text-zinc-400">Open a file to edit it.</div>
           )}
@@ -224,15 +255,8 @@ function CodeWorkspace({ modelId }: { modelId: string }) {
         match={match}
         root={rootHandle}
         fileName={active?.node.name}
-        fileContent={active?.content}
-        onApply={
-          active
-            ? (code) => {
-                setActive((cur) => (cur ? { ...cur, content: code } : cur));
-                setDirty(true);
-              }
-            : undefined
-        }
+        fileContent={active?.imageUrl ? undefined : active?.content}
+        onApply={active && !active.imageUrl ? (code) => updateActive(code) : undefined}
       />
     </div>
   );

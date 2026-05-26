@@ -178,8 +178,12 @@ All P0 + P1 from this audit are now implemented.
   in sync). (Rename also covers "move" — change the path's folder.)
 - ✅ **Outline view** — `lib/oioxo/outline.ts` (pure, language-aware symbol extractor,
   unit-tested) + `OutlinePanel.tsx` (collapsible, jump-to-line) on Build + GitHub.
-- ⏳ Still open P2: integrated terminal on every surface, image/binary viewer, full
-  tabs in folder mode, drag-to-move + create-folder.
+- ✅ **Full tabs in folder mode** — `CodeWorkspace` refactored to multi-tab (open files
+  stay open, dirty dots, close), reusing `EditorTabs` (+ `dirtyPaths`).
+- ✅ **Image viewer** — `ImageView.tsx`; folder mode reads image files from disk as a
+  blob URL and shows them on a checkerboard (real, since folder mode has FS handles).
+- ⏳ Still open P2: integrated terminal on every surface, drag-to-move + create-folder,
+  whole-project diagnostics in folder mode.
 
 ## Recommended build order (feel-per-effort)
 1. **Self-host Monaco + workers** (kills the "nothing happens" bug, offline, no 3rd

@@ -8,17 +8,26 @@
  * remains the richer path; this is the dependable core the platform UI runs on.
  */
 import { classifyIntent } from './intent';
+import { routeToTool } from './router';
+import { rewriteFollowup } from './followup';
+import { matchAppSemantic } from './app-match';
+import { matchGame, gameIntro, gameMenu, type GameKind } from './games';
 import { candidatesFor, fallbackDecision } from './agent';
 import { answerQuestion, cleanQuery, type SearchSource } from './search';
 import { matchApp } from './apps';
-import { summarize, writeArticle, answerFromNotes, compareFromNotes, converseReply } from '../oioxo/writer';
+import { summarize, writeArticle, converseReply } from '../oioxo/writer';
 import { facetQueries, gatherForQueries, gatherComparison } from './research';
-import { analyzeQuestion, isGrounded, type Evidence } from './reason';
-import { buildBrief, briefToNotes, briefToDigest, briefHasContent } from './brief';
+import { analyzeQuestion, type Evidence } from './reason';
+import { readAnswer } from './reader';
+import { consensusAnswer } from './consensus';
+import { gatherOnDevice, enrichTopWikipedia, wikipediaBestArticles } from './sources';
+import { tryCompute } from './compute';
+import { rerank, scorePassages } from './rerank';
+import { buildBrief, briefToDigest, briefHasContent } from './brief';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
-import { detectAnswerType, type AnswerType } from './extract';
+import { detectAnswerType, looksInstructional, type AnswerType } from './extract';
 import { richAnswer } from './web-read';
 import { toEnglish, fromEnglish } from './translate';
 import { getCached, putCached } from './search-cache';
@@ -99,6 +108,8 @@ export interface OioxoReply {
   app?: { name: string; href: string; blurb: string };
   /** Code task → prompt the user to open the Coding workspace (+ download coder). */
   openCode?: boolean;
+  /** Play an interactive game in chat (deterministic on-device engine, not the LLM). */
+  game?: { kind: GameKind };
   /** Visual row — for image requests AND as related imagery under answers. */
   images?: ImageHit[];
   /** Relevant videos to embed (how-to / explain) — we read their words, cite, link. */
@@ -114,7 +125,124 @@ export interface OioxoReply {
 const HELLO =
   "Hi — I'm oioxo. I can convert and edit files, create things, and answer questions, all on your device. What do you need?";
 
-export type RouteKind = 'chat' | 'code' | 'image' | 'summary' | 'article' | 'app' | 'tool' | 'answer';
+// META / SELF / PRODUCT questions — the user is asking ABOUT the assistant or the
+// service (who it is, what it can do, price, privacy, formats), NOT about the world.
+// These must NEVER be web-searched ("is this free" → a SERP about the word "free" is a
+// disaster); answer from who/what we are. General families (subject = us), anchored so
+// real-world look-alikes ("how much to fly to Paris", "is it safe to eat raw eggs")
+// still go to normal search.
+const META_IDENTITY =
+  /^\s*(who are you|what are you|what'?s your name|your name\b|tell me about yourself|introduce yourself|are you (a |an )?(chat ?gpt|gpt|ai|an ai|a bot|a robot|human|real|sentient|conscious|alive|claude|gemini|siri|alexa|google|openai))/i;
+const META_CAPABILITY =
+  /^\s*(what can you (do|help)|what do you do\b|what are your (capabilities|features|skills)|how (do|can) you help|what (kind of )?(things|stuff) can you)/i;
+const META_PRICING =
+  /^\s*(is (this|it|oioxo|the app|this app|this tool|this site)\s+(free|paid)\b|is (this|it) free to use\b|free to use\b|do i (have to|need to) pay\b|is there a (fee|subscription|paywall|free (version|tier|plan))\b|what'?s the (price|cost|pricing)\b|how much (is|does) (this|it|oioxo)( cost)?( to use)?\s*\??$|how much to use\b|cost to use\b)/i;
+const META_PRIVACY =
+  /\b((is|are) my (data|files?)\s+(safe|secure|private)|my (data|files?)\s+(safe|secure|private|stored)\b|do you (store|save|keep|upload|sell|share) my\b|where (are|is) my (files?|data)\b|where do (my|the) files? go\b|(do you|does (it|this)) work offline\b|works? offline\b|need(s)? internet\b|require[s]? internet\b|is (this|it) private\s*\??$)/i;
+const META_FORMATS =
+  /\b(what (file )?(formats?|types?|file ?types?) (can|do) you\b|which (formats?|files?) (can|do) you\b|what can you convert\b)/i;
+const META_HELP =
+  /^\s*(help|i (need|want|could use) (some )?help|can you help( me)?( out)?|what (can|should) i do( here| now)?|what now|how (does|do i use) this( work)?|where do i start)\s*[?.!]*$/i;
+function metaSelfReply(text: string): OioxoReply | null {
+  const t = text.trim();
+  if (META_HELP.test(t)) {
+    return { text: "Happy to help! I can convert and edit files (images, audio, video, PDFs, text), generate things, answer questions, and run handy apps — all on your device. What are you trying to do?" };
+  }
+  if (META_PRICING.test(t)) {
+    return { text: "oioxo is free to use for everyday tasks. There's an optional upgrade for heavier or faster work, but you can do a lot without paying anything." };
+  }
+  if (META_PRIVACY.test(t)) {
+    return { text: "Your files stay on your device — oioxo does the work locally and doesn't upload them to any server, so your data stays private. Many tools work offline, too." };
+  }
+  if (META_FORMATS.test(t)) {
+    return { text: "I handle a wide range — images (JPG, PNG, WebP, GIF, HEIC…), audio (MP3, WAV, M4A…), video (MP4, WebM…), documents (PDF, Word, and more) and text. Send your file and tell me what you'd like it converted to." };
+  }
+  if (META_CAPABILITY.test(t)) {
+    return { text: "Quite a lot — all on your device: I convert and edit files (images, audio, video, PDFs, text), generate things like QR codes, passwords and posters, answer questions using live web search with sources, and run handy apps like file-sharing and chat. What are you working on?" };
+  }
+  if (META_IDENTITY.test(t)) {
+    return { text: "I'm oioxo — a private assistant that runs on your device, so your files stay with you. I can convert and edit files, create things, and answer questions with live search. (I'm my own assistant, not ChatGPT or another company's.)" };
+  }
+  return null;
+}
+function isMetaSelf(text: string): boolean {
+  return metaSelfReply(text) != null;
+}
+
+// TRANSFORM-the-user's-text commands ("translate this", "summarize this",
+// "proofread this") with NO content attached. The user wants us to ACT on something
+// they haven't given yet — web-searching the concept ("summarize this" → an article
+// ABOUT summarization) is the disaster. Recognize the missing input and ASK for it
+// (the agentic "ask one thing" floor). Only fires with no file and no actual content.
+const TRANSFORM_VERB =
+  /^\s*(translate|summari[sz]e|proofread|rewrite|paraphrase|reword|rephrase|simplify|condense|fix (my |the )?(grammar|spelling|punctuation|wording))\b/i;
+const TRANSFORM_DEICTIC =
+  /\b(this|that|it|the following|my (text|essay|paragraph|message|writing|email|letter|grammar|spelling|note|sentence|paragraphs))\b/i;
+function transformInputAsk(text: string, hasFile: boolean): OioxoReply | null {
+  if (hasFile) return null;                 // a file IS the input
+  const t = text.trim();
+  if (!TRANSFORM_VERB.test(t)) return null;
+  // Real content present (a "verb: <text>" block or a long body) → let it through.
+  const afterColon = t.split(/:(.+)/s)[1]?.trim() ?? '';
+  if (afterColon.length > 40 || t.length > 120) return null;
+  const bare = t.split(/\s+/).length <= 3;
+  if (!bare && !TRANSFORM_DEICTIC.test(t)) return null; // named an object → not "this"
+  const verb = /translate/i.test(t) ? 'translate'
+    : /summari[sz]e|condense/i.test(t) ? 'summarize'
+    : /proofread|grammar|spelling|punctuation/i.test(t) ? 'proofread'
+    : /simplif/i.test(t) ? 'simplify' : 'rewrite';
+  const langHint = verb === 'translate' ? " (and the language, if it isn't in your message)" : '';
+  return { text: `Sure — paste the text you'd like me to ${verb}${langHint}, or attach a file, and I'll do it right away.` };
+}
+
+// TIME / DATE "now" — answer from the device clock, never web-search ("what time
+// is it" → a NIST phone-number page is a disaster). A location ("in tokyo") makes it
+// a timezone/geo question → leave it for the geo path, not the local clock.
+const ASK_TIME = /\b(what(?:'?s| is) the time\b|what time is it\b|current time\b|time (right )?now\b|the time now\b)/i;
+const ASK_DATE = /\b(what(?:'?s| is)( the| today'?s)? date\b|what day is it\b|what'?s the day\b|today'?s date\b|current date\b|what'?s the date\b)/i;
+const TIME_HAS_LOCATION = /\bin\s+[a-z][a-z ]+\??$/i;
+function timeNowReply(text: string): OioxoReply | null {
+  const t = text.trim();
+  if (TIME_HAS_LOCATION.test(t)) return null; // "what time is it in tokyo" → geo/timezone
+  const now = new Date();
+  if (ASK_TIME.test(t)) {
+    return { text: `It's ${now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} where you are right now.` };
+  }
+  if (ASK_DATE.test(t)) {
+    return { text: `Today is ${now.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.` };
+  }
+  return null;
+}
+
+// SOCIAL turns — affirmations, closings, and FRUSTRATION AT the assistant. Must be
+// acknowledged warmly, NEVER web-searched ("yes" → a Wikipedia page on the word "yes";
+// "you're useless" → an SEO page about useless things). Anchored to standalone short
+// turns so a real request ("yes convert this") is untouched.
+const FRUSTRATION =
+  /\b(you(?:'?re| are)? (useless|stupid|dumb|wrong|bad|terrible|awful|broken|no help|not help(ing|ful))|this is (useless|stupid|dumb|pointless|garbage|terrible|a waste|trash)|you (don'?t|do not|never) (understand|get it|get me|listen|help)|(that'?s|that is) (wrong|not what i (asked|meant|wanted)|not right|useless)|wrong answer|not helpful|makes no sense)\b/i;
+// The WHOLE message is just social/filler tokens (so "ok cool thanks", "great that
+// helped", "yeah nice" all match) — but a topic word ("great WALL of china") breaks it.
+const AFFIRM_CLOSE =
+  /^(\s*(y(es|eah|ep|up|a)|no(pe)?|ok(ay)?|kk?|sure|cool|nice|great|good|fine|alright|perfect|awesome|got|gotcha|understood|makes|sense|sounds|will|do|bye|goodbye|see|ya|cya|you|good ?night|night|later|gtg|nvm|never|mind|that|that'?s|helped|helpful|all|it|thanks?|thank|thx|ty|cheers|man|mate|buddy|so|much|though|then|appreciate|appreciated|np|problem|no)[\s,!.]*)+$/i;
+function socialReply(text: string): OioxoReply | null {
+  const t = text.trim();
+  if (FRUSTRATION.test(t)) {
+    return { text: "Sorry — that wasn't helpful. Tell me what you're trying to do and I'll take a different approach." };
+  }
+  if (AFFIRM_CLOSE.test(t)) {
+    if (/\b(bye|goodbye|see ya|cya|see you|good ?night|later|gtg)\b/i.test(t)) return { text: 'Take care! 👋' };
+    if (/\b(that helped|that('?s)? (great|helpful))\b/i.test(t)) return { text: "Glad that helped! Anything else?" };
+    if (/\b(thanks?|thank you|ty|cheers)\b/i.test(t)) return { text: "You're welcome — anything else I can help with?" };
+    if (/^\s*(no(pe)?|no thanks?|nothing|nvm|never ?mind|that('?s)? (all|it))\b/i.test(t)) return { text: "No problem — I'm here whenever you need me." };
+    return { text: 'Got it 👍 — what would you like to do next?' };
+  }
+  return null;
+}
+function isSocial(text: string): boolean {
+  return socialReply(text) != null;
+}
+
+export type RouteKind = 'chat' | 'code' | 'image' | 'summary' | 'article' | 'app' | 'tool' | 'answer' | 'game';
 
 /** A coding task (pasted code, or "review/refactor/fix … code/function/bug"),
  *  which belongs in the Coding workspace, not an inline chat answer. General. */
@@ -134,6 +262,57 @@ export interface Route {
   toolId?: string;
   query?: string; // answer
   src?: string; // summary/article source text
+  gameKind?: GameKind; // game: launch this board in chat
+  gameMenu?: boolean;  // game: they want to play but didn't name one → show the menu
+}
+
+/** The running conversation topic — the SUBJECT of the most recent user turn —
+ *  so a follow-up ("where was he born?", "what about its population?") can be
+ *  resolved against it. Uses the comprehension layer's concept (the same subject
+ *  the answer path searches on), falling back to a cleaned query. Null when there's
+ *  no prior turn. Floor-level topic tracking; a trained intent head sharpens it. */
+function lastTopicOf(history?: Turn[]): string | null {
+  const lastUser = [...(history ?? [])].reverse().find((t) => t.role === 'user' && t.text.trim());
+  if (!lastUser) return null;
+  const concept = comprehendAnswer(lastUser.text).concept?.trim();
+  if (concept && concept.length >= 2) return concept;
+  const q = cleanQuery(lastUser.text)?.trim();
+  return q && q.length >= 2 ? q : null;
+}
+
+/**
+ * ENCODER-REFINED routing — the trained-encoder path the pure regex/lexical
+ * `decideRoute` can't reach. `decideRoute` stays the deterministic floor (no
+ * model, Node-testable, the eval target); this lets the SEMANTIC tool router
+ * (`routeToTool` — the lexical+embedding hybrid the WebLLM app already uses)
+ * RECOVER a tool the keyword/regex layer missed on a paraphrase: "make my photo
+ * smaller" has no tool-NAME token, so `fallbackToolOk` rejects it and decideRoute
+ * falls to 'answer' — but the encoder sees the MEANING (≈ resize/compress).
+ *
+ * MONOTONIC by construction: only fires when decideRoute found NO tool (kind
+ * 'answer'), and only when the hybrid router is itself `confident` (its own
+ * semantic-veto already folds in). It never overrides chat/code/image/summary/app
+ * or a tool decideRoute already resolved → it can only ADD correct tool routings.
+ * The arad-trained tool-routing reranker slots in behind `routeToTool` later, with
+ * zero caller changes. `router` is injectable for deterministic Node tests.
+ */
+export async function refineRouteWithEncoder(
+  text: string,
+  fileCat: FileCat,
+  base: Route,
+  router: typeof routeToTool = routeToTool,
+): Promise<Route> {
+  if (base.kind !== 'answer') return base; // only the no-tool boundary can improve
+  // An explain/how-to question stays an answer — don't let a confident embedding
+  // match re-hijack "what is a qr code" into the QR tool (same rule as fallbackToolOk).
+  if (!fileCat && looksInformational(text)) return base;
+  let routing: Awaited<ReturnType<typeof routeToTool>>;
+  try { routing = await router(text, fileCat); } catch { return base; }
+  if (!routing.semantic) return base;      // embeddings cold → no signal beyond lexical
+  if (routing.confidence === 'confident' && routing.top) {
+    return { kind: 'tool', toolId: routing.top.doc.id };
+  }
+  return base;
 }
 
 /**
@@ -146,8 +325,18 @@ export function decideRoute(message: string, fileCat: FileCat = null): Route {
   const hasFile = fileCat != null;
   if (!text) return { kind: 'chat' };
   if (classifyIntent(text, { hasFile }) === 'chitchat') return { kind: 'chat' };
+  // A question ABOUT the assistant ("what can you do", "are you chatgpt") or a social
+  // turn ("yes", "thanks", "you're useless") is a talk turn, not a web search —
+  // handled by talkReply's metaSelfReply / socialReply.
+  if (!hasFile && (isMetaSelf(text) || isSocial(text))) return { kind: 'chat' };
 
   if (isCodeTask(text)) return { kind: 'code' };
+
+  // GAME: "let's play chess / connect four / tic-tac-toe" → launch an interactive
+  // board (a deterministic engine plays the opponent). Matched before tools so
+  // "play chess" isn't hijacked; matchGame ignores questions ABOUT a game.
+  const gm = matchGame(text);
+  if (gm) return 'menu' in gm ? { kind: 'game', gameMenu: true } : { kind: 'game', gameKind: gm.kind };
 
   // Exact tool-name request wins over image-intent ("pdf to images" is a TOOL,
   // not an image search) and the weak-confidence fall-through.
@@ -176,6 +365,19 @@ export function decideRoute(message: string, fileCat: FileCat = null): Route {
 }
 
 /**
+ * An INFORMATIONAL / how-to QUESTION — the user wants it EXPLAINED, not DONE.
+ * "what is a qr code", "how do I remove a background", "explain base64" must be
+ * ANSWERED even though a keyword matches a tool's name; only a bare imperative
+ * ("make a qr code", "compress this") or an attached file is a real tool request.
+ * General linguistic rule (interrogative/explanatory opener), not a per-tool patch.
+ */
+const INFO_QUESTION =
+  /^\s*(what(\s|'|’|s\b)|how (do|does|to|can|could|would|should|might)\b|why\b|when\b|who\b|where\b|which\b|whose\b|explain\b|define\b|describe\b|tell me\b|teach me\b|tutorial\b|guide to\b|difference between\b|can you (explain|tell|describe)\b|is (it|there|a|an)\b)/i;
+export function looksInformational(text: string): boolean {
+  return INFO_QUESTION.test(text.trim());
+}
+
+/**
  * Guard the WEAK tool route (a tool chosen by keyword retrieval, not an exact
  * name match). Without an attached file, only trust it when the query actually
  * mentions part of the tool's NAME — otherwise an incidental keyword hijacks a
@@ -184,6 +386,9 @@ export function decideRoute(message: string, fileCat: FileCat = null): Route {
  */
 function fallbackToolOk(text: string, toolId: string, hasFile: boolean): boolean {
   if (hasFile) return true; // a file + a plausible tool is a real edit request
+  // An explain/how-to question wants an ANSWER, never a tool launch — even when a
+  // tool name token matches ("what is base64" ≠ run the Base64 tool).
+  if (looksInformational(text)) return false;
   const tool = getTool(toolId);
   if (!tool) return false;
   const q = new Set(norm(text).split(' ').filter((w) => w.length > 2));
@@ -319,6 +524,19 @@ function tidyAnswer(s: string): string {
   return t;
 }
 
+/** The first `n` clean sentences of a text (the encyclopedic lead = the answer). */
+function firstSentences(text: string, n = 3): string {
+  const ss = (text.replace(/\s+/g, ' ').match(/[^.!?]+[.!?]+/g) ?? [text]).map((s) => s.trim()).filter((s) => s.length > 15);
+  return ss.slice(0, n).join(' ').trim();
+}
+/** Strip Wikipedia's phonetic/pronunciation parentheticals ("(/ˈkænbrə/ ⓘ …)"). */
+function stripPhonetics(s: string): string {
+  return s
+    .replace(/\s*\(\s*\/[^)]*\/[^)]*\)/g, '')
+    .replace(/\s*\([^()]*[ˈˌːⓘ][^()]*\)/g, '')
+    .replace(/\s{2,}/g, ' ').replace(/\s+([,.;:])/g, '$1').trim();
+}
+
 /** Store a learned answer in the device's knowledge base for instant recall on a
  *  future equivalent question. Best-effort; no-op off-device (Node/SSR). */
 async function rememberAnswer(text: string, answer: string, related?: string[]): Promise<void> {
@@ -365,26 +583,74 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
     return { text: tidyAnswer(recalled.answer), images, related: cleanRelated(recalled.related) };
   }
 
+  // ENCYCLOPEDIC LEAD (explain/define/fact): Wikipedia search reliably finds the
+  // right article from a natural question ("why is the sky blue" → Diffuse sky
+  // radiation; "capital of australia" → Canberra), and an article's LEAD paragraph
+  // is the definition/explanation/value. We fetch the top 2 articles, score each
+  // lead against the question with the reranker, and if one is confidently relevant
+  // we answer from it — cited, authoritative, and bypassing the noisy general web
+  // gather (also faster). Falls through if no confident article.
+  // Only for ENCYCLOPEDIC questions, where a Wikipedia lead IS the answer. SKIP
+  // current/specific-VALUE questions (cost, net worth, dating, calories, latest)
+  // — those answers live in the live web, not a stable article lead (the battery
+  // showed the lead path regressing quantity/people otherwise).
+  const valueOrCurrent = /\b(how much|how many|cost|costs?|price[ds]?|worth|net worth|salary|calorie|dating|married|girlfriend|boyfriend|latest|newest|current(ly)?|today|this year|20\d\d|release date|when (did|will|is|was)|who is .* (dating|married))\b/i;
+  if ((plan.shape === 'explain' || plan.shape === 'define' || plan.shape === 'fact') && !valueOrCurrent.test(text)) {
+    try {
+      // Fetch SEVERAL candidates (the best article may be #3 — "capital of
+      // australia" ranks ACT #1 but Canberra #3) and let the reranker pick the
+      // article whose LEAD best answers the question.
+      const arts = await wikipediaBestArticles(text, 4);
+      if (arts.length) {
+        const leads = arts.map((a) => firstSentences(a.text, 3));
+        const scores = (await scorePassages(text, leads)) ?? leads.map(() => 0);
+        let bestI = 0;
+        scores.forEach((s, i) => { if (s > scores[bestI]) bestI = i; });
+        if (scores[bestI] > 0 && leads[bestI].length > 60) {
+          // Lead with the best article's opening (reranker-picked). Dropped the
+          // 65MB distilbert-QA value-span step — owned, smaller, zero HF; a span
+          // head folds into the reranker later if precise-value extraction needs it.
+          const out = tidyAnswer(stripPhonetics(leads[bestI]));
+          const images = await imagesForPlan(plan, text);
+          void rememberAnswer(text, out, undefined);
+          return { text: out, images, sources: [arts[bestI].source] };
+        }
+      }
+    } catch { /* fall through to the general gather */ }
+  }
+
   // LEARN(structured): the expert page already holds the answer — extract it.
+  // VALIDATE it's really instructions, not a nav/link menu the extractor latched
+  // onto ("fix python error" → a language sidebar). If it's junk, fall through to
+  // the general gather+reader below instead of returning the menu.
   if (plan.gather === 'structured') {
     const rich = await richAnswer(query, plan.shape as AnswerType).catch(() => null);
-    if (rich?.answer) {
+    if (rich?.answer && (plan.shape === 'code' || looksInstructional(rich.answer))) {
       const images = plan.shape === 'code' ? [] : await findImages(text, 4).catch(() => []);
       const videos = await videosP;
       void rememberAnswer(text, rich.answer, rich.related);
       return { text: rich.answer, images, videos: videos.length ? videos : undefined, related: cleanRelated(rich.related), sources: rich.sources };
     }
-    // no structured content found → fall through to gathered synthesis
+    // no usable structured content → fall through to gathered synthesis
   }
 
   // LEARN(per-entity | facets): a comparison reads BOTH options AND head-to-head
   // sources broadly so the answer can weigh them; everything else decomposes into
   // facet queries. Either way we gather from MANY sources, not one snippet.
   let related: string[] | undefined;
-  let evidence: Evidence[] = await (plan.gather === 'per-entity' && plan.topics.length >= 2
-    ? gatherComparison(plan.topics, text)
-    : gatherForQueries(facetQueries(text))
-  ).catch(() => [] as Evidence[]);
+  // GATHER — on the USER'S device first: Wikipedia (CORS-direct, origin=*) for
+  // facts + Reddit (JSONP, no CORS) for real opinions/comparisons. No proxy, no
+  // server of ours. Reddit comments carry their upvotes as `votes` for the reader.
+  let evidence: Evidence[] = await gatherOnDevice(text, plan).catch(() => [] as Evidence[]);
+  // Supplement with the broad web read ONLY if the on-device sources were thin —
+  // keeps answers multi-source without leaning on the open-web reader gateway.
+  if (evidence.length < 3) {
+    const more = await (plan.gather === 'per-entity' && plan.topics.length >= 2
+      ? gatherComparison(plan.topics, text)
+      : gatherForQueries(facetQueries(text))
+    ).catch(() => [] as Evidence[]);
+    evidence = [...evidence, ...more];
+  }
   // Drop navigational/marketing listings ("compare prices … and more") so both
   // the synthesis and any digest read real information, not a sales blurb.
   const informative = evidence.map((e) => ({ ...e, text: cleanPassage(e.text) })).filter((e) => e.text);
@@ -408,6 +674,17 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
     if (vt && vt.text) evidence.push({ topic: text, text: vt.text, source: vt.source });
   }
 
+  // RERANK: the trained cross-encoder reorders passages by ANSWER-BEARING
+  // relevance — pushing the passage that actually answers the question to the top
+  // (fixes the topical-but-not-answering selection the battery exposed). Graceful:
+  // keeps the gathered order if the model isn't available. Keep the best ~10.
+  try { evidence = (await rerank(text, evidence, (e) => e.text)).slice(0, 10); } catch { /* keep order */ }
+
+  // PAGE-BODY READ (reranker-gated): the reranker put the right pages on top, but
+  // their snippets can be thin. For the top Wikipedia pages, read the real body so
+  // the reader extracts the actual explanation/definition, not a fragment.
+  try { evidence = await enrichTopWikipedia(evidence, 3); } catch { /* keep snippets */ }
+
   // ANALYZE: read the gathered passages AGAINST the question and keep only what
   // bears on it — ranked, deduped, grouped per side for a comparison. This is the
   // "read all, then decide what matters" brain that turns a dump into a brief.
@@ -418,25 +695,35 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
   const vids = videos.length ? videos : undefined;
 
   if (briefHasContent(brief)) {
-    const notes = briefToNotes(brief);
-    // ORGANIZE: the model weaves the brief — recommend (weigh) vs. answer (rewrite).
-    let answer = '';
-    try {
-      answer = plan.organize === 'recommend' ? await compareFromNotes(text, notes) : await answerFromNotes(text, notes);
-    } catch {
-      /* model unavailable */
-    }
-    // A recommendation weaves several sources — guard against drift/invention.
-    if (answer && plan.organize === 'recommend' && !isGrounded(answer, evidence, text)) answer = '';
-    if (answer) {
-      const clean = tidyAnswer(answer);
+    // CROSS-CHECK FIRST — the research move a one-pass model can't make: cluster
+    // every gathered source against every other, and when ≥2 INDEPENDENT domains
+    // AGREE on the lead claim, answer with the consensus-fused brief (cited,
+    // complete, cross-checked, current). Gated on agreement≥2 so it only fires
+    // where it's strictly better than a single extracted passage — never
+    // regressing the single-source / structured-shape cases the reader handles.
+    let consensus: Awaited<ReturnType<typeof consensusAnswer>> = null;
+    try { consensus = await consensusAnswer(text, plan, evidence); } catch { /* model cold */ }
+    if (consensus?.text && consensus.agreement >= 2) {
+      const clean = tidyAnswer(consensus.text);
       const images = await imagesForPlan(plan, text);
       void rememberAnswer(text, clean, related);
       return { text: clean, images, videos: vids, related: cleanRelated(related), sources: brief.sources };
     }
-    // The tiny writer couldn't compose — but we DID collect, read, and analyze
-    // real sources. Present the BRIEF as a clean, organized answer (a comparison
-    // grouped by side), NEVER a single parroted listing. Honest, multi-source.
+
+    // ORGANIZE — the READER: the encoder points at the real sentences that
+    // answer the question and assembles them by shape. It never paraphrases, so
+    // names/numbers stay exact and the answer can't hallucinate (the generative
+    // writer corrupted facts — see the gemini benchmark). Cold encoder → null.
+    let read: Awaited<ReturnType<typeof readAnswer>> = null;
+    try { read = await readAnswer(text, plan, evidence); } catch { /* encoder cold/unavailable */ }
+    if (read?.text) {
+      const clean = tidyAnswer(read.text);
+      const images = await imagesForPlan(plan, text);
+      void rememberAnswer(text, clean, related);
+      return { text: clean, images, videos: vids, related: cleanRelated(related), sources: brief.sources };
+    }
+    // Fallback: the deterministic digest — still extractive and multi-source,
+    // never a paraphrase. Used only when the encoder isn't available.
     const digest = briefToDigest(brief);
     if (digest) {
       const images = await imagesForPlan(plan, text);
@@ -536,9 +823,43 @@ export function safetyReferral(text: string): OioxoReply | null {
   return null;
 }
 
+/**
+ * SOFT advice disclaimer (the "dark layer"). The hard `safetyReferral` REFUSES
+ * personal medical/crisis; this is for questions we DO answer but that touch
+ * legal / medical / financial / safety matters — we add ONE brief, FRIENDLY
+ * reminder that the answer is general info from public sources, may not fit the
+ * reader's situation, and a qualified professional should be consulted. Done
+ * DETERMINISTICALLY in the engine (not trusted to a 135M model) so it appears
+ * every time → real liability cover. Returns the footer to append, or null.
+ */
+function adviceDisclaimer(query: string): string | null {
+  const q = query.toLowerCase();
+  let who: string | null = null;
+  if (/\b(legal|law|lawsuit|sue[ds]?|my rights|contract|copyright|patent|trademark|tenant|landlord|eviction|divorce|custody|inheritance|will\b|visa|immigration|attorney|lawyer)\b/.test(q)) who = 'lawyer';
+  else if (/\b(invest(ing|ment|ments)?|stocks?|crypto|bitcoin|tax(es|able)?|loan|mortgage|retirement|401k|ira\b|pension|debt|bankruptcy|insurance|portfolio|financial)\b/.test(q)) who = 'licensed financial advisor';
+  else if (/\b(symptoms?|disease|medication|medicine|dosage|dose|supplements?|treatment|diagnos\w+|side effects?|disorder|illness|infection|prescri\w+)\b/.test(q)) who = 'doctor or pharmacist';
+  else if (/\b(electrical|wiring|gas leak|carbon monoxide|toxic|poison\w*|hazard\w*|asbestos|structural)\b/.test(q)) who = 'qualified professional';
+  if (!who) return null;
+  return `\n\n_Just a heads-up — this is general information from public sources and may not fit your exact situation, so please check with a ${who} before acting on it._`;
+}
+
+/** Append the soft advice disclaimer to an answer reply when the topic warrants
+ *  it. Only touches prose answers (not tool/app/code cards or empty replies). */
+function withAdviceDisclaimer(reply: OioxoReply, query: string): OioxoReply {
+  if (!reply.text || reply.tool || reply.app || reply.openCode) return reply;
+  const disc = adviceDisclaimer(query);
+  return disc ? { ...reply, text: reply.text + disc } : reply;
+}
+
 /** A short, persona "talk" turn — warm and natural, no search. The writer gives
  *  it voice (writer8's persona training); funReply is the deterministic floor. */
 async function talkReply(text: string, history?: Turn[]): Promise<OioxoReply> {
+  // A self/identity/capability question or a social turn gets a correct, on-brand
+  // answer — never the tiny writer guessing or a web search.
+  const meta = metaSelfReply(text);
+  if (meta) return meta;
+  const social = socialReply(text);
+  if (social) return social;
   const convo = (history ?? []).slice(-4).map((t) => `${t.role === 'user' ? 'User' : 'oioxo'}: ${t.text}`).join('\n');
   try {
     const r = await converseReply(text, convo || undefined);
@@ -558,6 +879,37 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
   try {
     const safe = safetyReferral(text);
     if (safe) return safe;
+
+    // COMPUTE: arithmetic / percent / unit-rate → answer EXACTLY on-device, never
+    // web-search it (the battery caught "15% of 240" → news headlines).
+    const computed = tryCompute(text);
+    if (computed) return { text: computed };
+
+    // TIME / DATE "now" → from the device clock, never a web search.
+    if (!fileCat) {
+      const timeR = timeNowReply(text);
+      if (timeR) return timeR;
+    }
+
+    // CREATIVE: an original poem/story/song is the one thing extraction can't fake
+    // — be honest and hand off rather than stitch one from search snippets.
+    if (/\b(write|compose|create|draft|make me)\b[^.]{0,30}\b(poem|haiku|story|short story|song|lyrics|rap|limerick|joke)\b/i.test(text)) {
+      return { text: "That's a creative write — I'm strong at finding real facts and running tools, but for an original poem or story I'd rather hand off to a dedicated writing model than stitch one together from search results." };
+    }
+
+    // TRANSFORM with no input ("translate this", "summarize this") → ask for the text
+    // instead of web-searching the concept (the agentic "ask one thing" floor).
+    const transformAsk = transformInputAsk(text, fileCat != null);
+    if (transformAsk) return transformAsk;
+
+    // SELF / SOCIAL turns ("what can you do", "is this free", "i need help", "yes",
+    // "thanks", "you're useless") — answer from who we are / acknowledge warmly, BEFORE
+    // the move policy can mistake them for a need to web-search ("i need help" → don't
+    // "look up help in your area"). No file in hand.
+    if (!fileCat) {
+      const selfOrSocial = metaSelfReply(text) ?? socialReply(text);
+      if (selfOrSocial) return selfOrSocial;
+    }
 
     // GEO: a maps question ("how far is X from Y", "where is X") — understand the
     // intent, geocode on our own server, COMPUTE on-device (haversine), state it
@@ -582,13 +934,28 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
         // offer being fulfilled, not a cold result dump.
         const preface = offerPreface(mv.topic, opts.locale);
         reply.text = reply.text ? `${preface}\n\n${reply.text}` : preface;
-        return reply;
+        return withAdviceDisclaimer(reply, mv.topic);
       }
     }
 
-    const route = decideRoute(text, fileCat);
+    // MULTI-TURN: keep a 2–3 question thread on-topic. Resolve a follow-up
+    // ("where was he born?", "what about its population?") into a standalone query
+    // using the running topic, so the answer path doesn't lose the subject. Guarded
+    // (rewriteFollowup only fires on pronoun/bare continuations; self-contained
+    // questions pass through unchanged). The ORIGINAL text is kept for persona/talk;
+    // the resolved query drives routing + answering.
+    const qText = (!fileCat && rewriteFollowup(text, lastTopicOf(opts.history))) || text;
+
+    // Pure deterministic route, then let the semantic encoder RECOVER a tool the
+    // regex/lexical floor missed on a paraphrase (monotonic — see refineRouteWithEncoder).
+    const route = await refineRouteWithEncoder(qText, fileCat, decideRoute(qText, fileCat));
 
     if (route.kind === 'chat') return await talkReply(text, opts.history);
+
+    if (route.kind === 'game') {
+      if (route.gameMenu || !route.gameKind) return { text: gameMenu() };
+      return { text: gameIntro(route.gameKind), game: { kind: route.gameKind } };
+    }
 
     if (route.kind === 'code') {
       return {
@@ -630,7 +997,19 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
       if (tool) return { text: `I can do that with **${tool.name}** — ${tool.blurb}.`, tool };
     }
 
-    return await answerFlow(text, route.query || text, fileCat);
+    // SEMANTIC APP fallback — the regex `matchApp` only catches set phrasings, so a
+    // paraphrased app request ("let me show a friend what's on my screen" → Screen
+    // Share, "I want to talk to someone face to face" → Video Call) falls through to
+    // search. The encoder matches it by MEANING against the flagship apps. Gated:
+    // only when nothing else routed (kind 'answer') and the match is confident, so
+    // it can only ADD app launches, never hijack a real question. (Browser-only;
+    // returns null when embeddings are cold → graceful.)
+    if (!fileCat && route.kind === 'answer') {
+      const app = await matchAppSemantic(qText).catch(() => null);
+      if (app) return { text: `I can open **${app.name}** for that — ${app.blurb}`, app };
+    }
+
+    return withAdviceDisclaimer(await answerFlow(qText, route.query || qText, fileCat), qText);
   } catch {
     return { text: 'Something went wrong handling that — please try again.' };
   }

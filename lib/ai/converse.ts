@@ -32,13 +32,19 @@ export interface ConverseCtx {
 }
 
 const isQuestion = (t: string) =>
-  /\?\s*$/.test(t) || /^\s*(who|what|why|how|when|where|which|whom|whose|is|are|was|were|does|do|did|can|could|should|would|will|has|have)\b/i.test(t);
+  /\?\s*$/.test(t) ||
+  /^\s*(who|what|why|how|when|where|which|whom|whose|is|are|was|were|does|do|did|can|could|should|would|will|has|have)\b/i.test(t) ||
+  // embedded info-seeking — "… where do I start", "… how do I begin", "how to …"
+  /\b(how|where|what|which)\s+(do|should|can|could|would|to)\s+(i|you)?\b/i.test(t) ||
+  /\b(where\s+(do|to)\s+i?\s*start|where\s+to\s+begin|how\s+to\b|tips?\s+(for|on)\b|advice\s+(for|on)\b|help\s+me\b)/i.test(t);
 
 // Structural cue: a RESOURCE need — needing a THING, not aspiring to DO something.
 // "i need <noun>" (not "i need TO <verb>"), "looking for …", "how do i
 // get/afford/find …". An aspiration ("i want to go back to school") is NOT this —
 // it's a goal to encourage (talk). The noun is whatever follows, not a list.
-const NEED_RE = /\b(i need(?!\s+to\b)|i'?m looking for|looking for|how (do|can) i (get|find|afford|pay for|buy)|where (do|can) i (get|find|buy))\b/i;
+// "i need help <doing X>" is a TASK request (route to the tool/answer), not a
+// resource to look up locally — so exclude "to" (aspiration) and "help" (assistance).
+const NEED_RE = /\b(i need(?!\s+(to|help)\b)|i'?m looking for|looking for|how (do|can) i (get|find|afford|pay for|buy)|where (do|can) i (get|find|buy))\b/i;
 
 // A short personal/emotional statement or ASPIRATION (no question, no resource
 // need) — the "talk" turn (encourage, relate, no search).

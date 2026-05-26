@@ -31,8 +31,10 @@ export interface IntentCtx {
 // Short continuations that only make sense against a previous answer.
 const FOLLOWUP_RE = /^\s*(tell me more|more( details| info| about (it|that|this))?|go on|continue|and\??|and then\??|so\??|why( is that| though)?|how come|how so|really\??|what else|anything else|say more|explain( that| it| more)?|elaborate|expand( on (it|that))?|keep going|next)\s*[?.!]*\s*$/i;
 
-// Greetings, persona, social niceties — never a tool request or a web lookup.
-const CHITCHAT_RE = /^\s*(hi|hii+|hey+|hello|yo|sup|howdy|greetings|good (morning|afternoon|evening)|thanks?|thank you|thx|ty|cheers|ok|okay|cool|nice|great|lol|haha|bye|goodbye|see ya)\b|(\b(who|what) are you\b|\byour name\b|\bwho made you\b|\bhow are you\b|\bare you (a )?(real|human|ai|robot|bot)\b|\bdo you (like|love|feel|think|believe)\b|\btell me a (joke|story|poem)\b|\bsing\b)/i;
+// Greetings/thanks may lead a longer turn; but bare affirmations (ok/cool/nice/great/
+// lol/bye) are chitchat only when STANDALONE — else "great wall of china", "nice guy
+// meaning", "cool facts about X" get mis-tagged and answered with a greeting.
+const CHITCHAT_RE = /^\s*((hi|hii+|hey+|hello|yo|sup|howdy|greetings|good (morning|afternoon|evening)|thanks?|thank you|thx|ty|cheers)\b|((ok|okay|cool|nice|great|lol|haha|hehe|bye|goodbye|see ya|yay|woohoo|sweet|awesome|perfect)[\s,!.…]*)+$)|(\b(who|what) are you\b|\byour name\b|\bwho made you\b|\bhow are you\b|\bare you (a )?(real|human|ai|robot|bot)\b|\bdo you (like|love|feel|think|believe)\b|\btell me a (joke|story|poem)\b|\bsing\b)/i;
 
 // "make/draw a picture OF/ABOUT <subject>" — a request for a real depiction we
 // cannot produce. Excludes the abstract/generative art and graphic tools we DO

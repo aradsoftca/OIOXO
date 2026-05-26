@@ -87,6 +87,9 @@ function capabilityBrief(): string {
     `ANSWER/RESEARCH: gather many live sources, cross-check, answer with citations; read video transcripts; show images.`,
     `MULTIMODAL: OCR a sent image's text, search image similarity — then ANALYZE + decide at the moment (no pre-baked knowledge).`,
     `WE CANNOT (offer the paired alternative instead): ${CANNOT.map((c) => `${c.ask} → ${c.alternative}`).join('; ')}.`,
+    `OUTPUT STYLE: honor format/length/tone the user asks for (one word, yes/no, a table, N bullets, steps, ELI5, formal, a language).`,
+    `MEMORY: when the user states a lasting preference or fact about themselves, remember it and apply it later.`,
+    `SAFETY: refuse genuinely harmful/illegal requests gracefully with a brief reason + a safe alternative; never comply. Hedge honestly when unsure — no fake confidence.`,
   ].join('\n');
 }
 
@@ -105,6 +108,16 @@ const SITUATION_TYPES = [
   'a mix: a task in progress, then an off-topic question, then back to the task',
   'a vague goal the assistant must shape into a concrete chain conversationally',
   'a research/answer turn that then leads into a WRITE step (e.g. "now write it up")',
+  // ── MATURE modern-AI behaviors (resolve before the final train) ──
+  'a request with an explicit OUTPUT-FORMAT directive (answer in one word / yes-no only / a table / N bullet points / step-by-step / a set length or tone like ELI5)',
+  'a HARMFUL or unsafe request (making a weapon, hacking a person, illegal harm, hateful content) → refuse gracefully, briefly say why, offer a safe alternative — never comply',
+  'the user states a lasting PREFERENCE ("I am vegetarian", "always reply in Spanish", "call me Alex") → acknowledge warmly and note it to remember for later',
+  'a later turn that should USE a preference the user stated earlier in the SAME conversation',
+  'a genuinely AMBIGUOUS request where the assistant asks exactly ONE good clarifying question (not several, not a guess)',
+  'a question whose answer is uncertain or cannot be verified → answer honestly with appropriate hedging ("I’m not certain…", "as of now…"), never fake confidence',
+  'a finished task where the assistant proactively SUGGESTS a sensible, optional next step',
+  'the user points out the assistant was WRONG → acknowledge it plainly and correct course, no defensiveness',
+  'a politely-phrased request in another language (or mixed language) — understand and serve it, replying in the user’s language',
 ];
 
 const ROLES = ['new-goal', 'parameter', 'append-step', 'correction', 'confirmation', 'question', 'chitchat'];
@@ -127,8 +140,10 @@ ${capabilityBrief()}
 SITUATION TYPE: ${situation}
 
 Return STRICT JSON only:
-{"turns":[{"user":"<what the user types>","hasFile":false,"fileType":null,"turnRole":"<one of: ${ROLES.join(', ')}>","goal":"<plain-language objective so far>","chain":[{"step":"<a capability/action>","can":true,"alternative":"<only when can:false>"}],"params":{},"mediaNeed":"none","ask":"<one thing to ask if blocked, else empty>","reply":"<the assistant's natural reply>"}]}
-2-4 turns. fileType is one of image/pdf/audio/video/text or null. mediaNeed is none/image-search/ocr.`;
+{"turns":[{"user":"<what the user types>","hasFile":false,"fileType":null,"turnRole":"<one of: ${ROLES.join(', ')}>","goal":"<plain-language objective so far>","chain":[{"step":"<a capability/action>","can":true,"alternative":"<only when can:false>"}],"params":{},"mediaNeed":"none","style":{"format":"prose","length":"default","tone":"default","lang":null},"remember":"","ask":"<one thing to ask if blocked, else empty>","reply":"<the assistant's natural reply, honoring style + refusing harm gracefully + hedging when unsure>"}]}
+2-4 turns. fileType is image/pdf/audio/video/text or null. mediaNeed is none/image-search/ocr.
+style.format: prose|bullets|table|one-word|yes-no|steps|json · length: default|tldr|short|detailed · tone: default|formal|casual|eli5 · lang: a language name when the user wants another language, else null. Set ONLY what the user asked for; defaults otherwise.
+remember: a lasting user preference/fact to store (e.g. "vegetarian", "prefers Spanish", "name is Alex"), else empty string.`;
 }
 
 async function gemini(prompt: string): Promise<string> {
@@ -179,7 +194,7 @@ async function main() {
     for (const t of turns) {
       ws.write(JSON.stringify({
         input: { message: t.user, hasFile: !!t.hasFile, fileType: t.fileType ?? null, history: [...history] },
-        label: { turnRole: t.turnRole, goal: t.goal ?? '', chain: t.chain, params: t.params ?? {}, mediaNeed: t.mediaNeed ?? 'none', ask: t.ask ?? '', reply: t.reply },
+        label: { turnRole: t.turnRole, goal: t.goal ?? '', chain: t.chain, params: t.params ?? {}, mediaNeed: t.mediaNeed ?? 'none', style: t.style ?? { format: 'prose', length: 'default', tone: 'default', lang: null }, remember: t.remember ?? '', ask: t.ask ?? '', reply: t.reply },
       }) + '\n');
       rows++;
       history.push({ role: 'user', text: t.user }, { role: 'assistant', text: t.reply });

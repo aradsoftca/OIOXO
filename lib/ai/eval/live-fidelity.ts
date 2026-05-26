@@ -62,6 +62,14 @@ const CASES: Case[] = [
   // help → offer assistance, never web
   { q: 'help', cls: 'help', kind: 'answer', right: ['convert', 'edit', 'trying to do'], wrong: ['bollywood', '2010 film'] },
   { q: 'i need help', cls: 'help', kind: 'answer', right: ['convert', 'edit', 'trying to do'], wrong: ['look up', 'in your area', 'refer to'] },
+  // unit/measure conversion → computed, never web-searched
+  { q: 'convert 5 km to miles', cls: 'convert', kind: 'answer', right: ['3.1', 'miles'], wrong: ['conversion factor', 'wikipedia'] },
+  { q: '100 fahrenheit to celsius', cls: 'convert', kind: 'answer', right: ['37', '°c'], wrong: ['formula', 'in order to convert'] },
+  { q: 'how many ml in a cup', cls: 'convert', kind: 'answer', right: ['236', 'ml'], wrong: ['drinking cups may'] },
+  // word definition → dictionary, never an offensive/irrelevant web snippet
+  { q: 'what does ubiquitous mean', cls: 'define', kind: 'answer', right: ['everywhere', 'omnipresent', 'ubiquitous'], wrong: ['bbc', 'stereotype', 'acronym'] },
+  // symbol/emoji-only → clarify/ack, never web-search
+  { q: '?', cls: 'nocontent', kind: 'answer', right: ['ask', 'help', 'what you need'], wrong: ['punctuation', 'interrogation point'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

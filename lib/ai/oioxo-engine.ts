@@ -242,6 +242,42 @@ function isSocial(text: string): boolean {
   return socialReply(text) != null;
 }
 
+// WORD DEFINITION — "define X", "what does X mean", "meaning of X" for a SINGLE word
+// → a real dictionary, not the open web (which gave an offensive slang snippet for
+// "ubiquitous"). Deliberately NOT "what is X" (that's a concept → the encyclopedic
+// lead handles it better). Single-word only; falls through otherwise.
+const DEFINE_WORD =
+  /^\s*(?:define|definition of|meaning of|what(?:'?s| is) the meaning of|what does)\s+(?:the\s+word\s+)?["']?([a-z][a-z-]{1,30})["']?\s*(?:mean|means)?\s*[?.!]*$/i;
+async function defineWord(text: string): Promise<OioxoReply | null> {
+  const m = text.trim().match(DEFINE_WORD);
+  if (!m) return null;
+  const word = m[1].toLowerCase();
+  try {
+    const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+    if (!r.ok) return null;
+    const data: any = await r.json();
+    const meaning = (Array.isArray(data) ? data[0] : null)?.meanings?.[0];
+    const def = meaning?.definitions?.[0]?.definition;
+    if (!def) return null;
+    const pos = meaning?.partOfSpeech ? ` (${meaning.partOfSpeech})` : '';
+    const ex = meaning?.definitions?.[0]?.example;
+    const w = word.charAt(0).toUpperCase() + word.slice(1);
+    return { text: `**${w}**${pos}: ${def}${ex ? `\n\n*e.g. "${ex}"*` : ''}` };
+  } catch {
+    return null; // offline / not found → normal flow
+  }
+}
+
+// NO-CONTENT input — only punctuation / symbols / emoji ("?", "...", "👍"). Never
+// web-search it ("?" → a Wikipedia page on the question mark); acknowledge or ask.
+const POSITIVE_EMOJI = /[\u{1F44D}\u{1F600}-\u{1F64F}\u{2764}\u{1F389}\u{1F44F}\u{1F525}\u{1F60D}]/u;
+function noContentReply(text: string): OioxoReply | null {
+  const t = text.trim();
+  if (!t || /[a-z0-9]/i.test(t)) return null; // empty (HELLO upstream) or has real content
+  if (POSITIVE_EMOJI.test(t)) return { text: "Glad you're happy! 😄 Anything else I can help with?" };
+  return { text: 'Did you want to ask something? I can convert files, answer questions, and run tools — just tell me what you need.' };
+}
+
 export type RouteKind = 'chat' | 'code' | 'image' | 'summary' | 'article' | 'app' | 'tool' | 'answer' | 'game';
 
 /** A coding task (pasted code, or "review/refactor/fix … code/function/bug"),
@@ -877,6 +913,12 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
   if (!text) return { text: HELLO };
   const fileCat = opts.fileCat ?? null;
   try {
+    // Symbol/emoji-only input ("?", "👍") → acknowledge, never web-search.
+    if (!fileCat) {
+      const nc = noContentReply(text);
+      if (nc) return nc;
+    }
+
     const safe = safetyReferral(text);
     if (safe) return safe;
 
@@ -909,6 +951,9 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
     if (!fileCat) {
       const selfOrSocial = metaSelfReply(text) ?? socialReply(text);
       if (selfOrSocial) return selfOrSocial;
+      // Single-word definition → dictionary, not the open web.
+      const def = await defineWord(text);
+      if (def) return def;
     }
 
     // GEO: a maps question ("how far is X from Y", "where is X") — understand the

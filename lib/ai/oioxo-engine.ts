@@ -1251,7 +1251,17 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
 
     // THE NO-DUMB GATE (system invariant): a search answer ships only if it isn't
     // visibly dumb; otherwise fall back to an honest clarify rather than embarrass.
-    const ans = await answerFlow(qText, route.query || qText, fileCat);
+    // NEVER-BLOCK (speed): a search answer must return fast or yield honestly — a
+    // frozen 30s+ reply is worse than an honest one. Cap the whole answer flow; on
+    // timeout, the graceful fallback. Most good answers land in 1–4s; this only
+    // bites a stalled gather (esp. on a weak device / slow network).
+    const TIMED_OUT = Symbol('timeout');
+    const raced = await Promise.race([
+      answerFlow(qText, route.query || qText, fileCat),
+      new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), 15000)),
+    ]);
+    if (raced === TIMED_OUT) return gracefulFallback(comprehendAnswer(qText).concept);
+    const ans = raced;
     const isProse = !!ans.text && !ans.tool && !ans.app && !ans.openCode && !ans.game;
     if (isProse && isDumbAnswer(ans.text)) {
       return gracefulFallback(comprehendAnswer(qText).concept);

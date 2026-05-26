@@ -68,6 +68,43 @@ function convert(value: number, from: string, to: string): string | null {
   return null;
 }
 
+// ── CALENDARS — convert today (or a given date) into any regional calendar, all
+// from built-in Intl (no library, offline). "today's date in the persian calendar",
+// "convert 2024-01-01 to hijri", "what year is it in the hebrew calendar". ──
+const CALS: Record<string, string> = {
+  persian: 'persian', jalali: 'persian', iranian: 'persian', shamsi: 'persian', 'solar hijri': 'persian',
+  islamic: 'islamic', hijri: 'islamic', muslim: 'islamic', arabic: 'islamic',
+  hebrew: 'hebrew', jewish: 'hebrew',
+  chinese: 'chinese', buddhist: 'buddhist', thai: 'buddhist',
+  japanese: 'japanese', indian: 'indian', hindu: 'indian', saka: 'indian',
+  coptic: 'coptic', ethiopian: 'ethiopic', gregorian: 'gregory', western: 'gregory',
+};
+function tryCalendar(text: string): string | null {
+  const t = text.toLowerCase();
+  // content questions that merely mention a culture are NOT calendar conversions
+  if (/\b(new year|holiday|festival|food|history|zodiac|horoscope|sign|recipe|war|culture)\b/.test(t)) return null;
+  if (!/\bcalendar\b/.test(t) && !/\bconvert\b/.test(t) && !/\b(date|today)\b/.test(t)) return null;
+  let cal: string | null = null, name = '';
+  for (const k of Object.keys(CALS)) if (new RegExp(`\\b${k}\\b`).test(t)) { cal = CALS[k]; name = k; break; }
+  if (!cal) return null;
+  let d: Date | null = null;
+  const iso = t.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  if (iso) d = new Date(`${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}T12:00:00`);
+  else {
+    const md = text.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2},?\s+\d{4}\b/i)
+      || text.match(/\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{4}\b/i);
+    if (md) { const p = Date.parse(md[0]); if (!isNaN(p)) d = new Date(p); }
+  }
+  const when = d ?? new Date();
+  try {
+    const out = new Intl.DateTimeFormat('en-u-ca-' + cal, { dateStyle: 'long' }).format(when);
+    const label = name[0].toUpperCase() + name.slice(1);
+    return d ? `That date in the ${label} calendar is **${out}**.` : `Today in the ${label} calendar is **${out}**.`;
+  } catch {
+    return null;
+  }
+}
+
 function tryUnitConvert(t: string): string | null {
   // "N U1 to/in/into U2" / "convert N U1 to U2" / "N U1 = U2"
   let m = t.match(/(-?\d+(?:\.\d+)?)\s*([a-z][a-z ]*?)\s+(?:to|in|into|=)\s+([a-z][a-z ]*?)\s*[.?!]?$/);
@@ -208,6 +245,10 @@ export function tryCompute(text: string): string | null {
     const yr = +m[1], now = new Date().getFullYear();
     if (yr >= 1000 && yr <= now) return `Someone born in ${yr} is **${now - yr}** (or about to turn ${now - yr}) this year.`;
   }
+
+  // calendar: "today's date in the persian calendar", "convert 2024-01-01 to hijri"
+  const cal = tryCalendar(text);
+  if (cal) return cal;
 
   // unit / measure conversion: "5 km to miles", "100 f to c", "how many ml in a cup"
   const conv = tryUnitConvert(t);

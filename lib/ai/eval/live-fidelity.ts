@@ -93,6 +93,10 @@ const CASES: Case[] = [
   { q: 'can you draw a cat', cls: 'route', kind: 'answer', right: ["can't create", 'find real photos', 'edit'], wrong: ['online business', 'steve gadlin'] },
   { q: 'make me a website', cls: 'route', kind: 'code', wrong: [] },
   { q: "what's the weather", cls: 'route', kind: 'answer', right: ['which city', 'place'], wrong: ['state of the earth', 'atmosphere'] },
+  // multi-calendar (built-in Intl) — convert today/dates into regional calendars
+  { q: "what's today's date in the persian calendar", cls: 'calendar', kind: 'answer', right: ['persian', 'calendar'], wrong: ['wikipedia', 'solar hijri calendar is'] },
+  { q: 'today in the hijri calendar', cls: 'calendar', kind: 'answer', right: ['hijri', 'ah'], wrong: ['islamic calendar is a lunar'] },
+  { q: 'when is chinese new year', cls: 'calendar-ctrl', kind: 'answer', right: ['january', 'february', 'new moon'], wrong: ['today in the'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

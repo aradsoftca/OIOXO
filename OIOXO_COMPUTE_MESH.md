@@ -116,12 +116,17 @@ is injected (prod: a `makePeerCoder` per helper).
    `makePeerCoder` per fabric helper, remote-oracle per verify helper, RTCPeerConnection
    for `connectPeerLocal`, WebRTC-binary / LAN-HTTP for weight chunks, IndexedDB for the
    device key, the `/api/usage/code` route calling `reconcileReceipts`.
-9. **UX** — provider "Lend this device" toggle; consumer "Paired · earning · 3 devices"
-   banner.
+9. ✅ **Session multiplex + UX** — `mesh-session.ts` (one channel carries generate +
+   verify + receipt + hello; consumer GenerateFn/RunFn, provider serves + mints; loopback
+   Node-tested) + `app/oioxo/MeshPanel.tsx` ("Use a device" / "Lend this device",
+   serverless QR/paste pairing, "Paired · using N devices · jobs credited" banner;
+   decoupled via props, typechecks clean).
 
-**Status:** stages 1–7 are complete pure cores, 69/69 Node tests green (incl. real
-ECDSA). Everything that remains (stage 8–9) is browser/server binding + UI, which can't
-live in the Node suite.
+**Status:** stages 1–7 + the session multiplex are pure cores, 72/72 Node tests green
+(incl. real ECDSA). Stage 8–9 binding (local-peer, device-key-store, mesh-wire,
+MeshPanel) typechecks clean but needs on-device verification. DEFERRED (by decision,
+last): the backend — a DeviceKey table (accounts-only earning), a key-registration
+endpoint, and extending `/api/usage/code` `report` to call `reconcileReceipts`.
 
 ## Pro fit
 

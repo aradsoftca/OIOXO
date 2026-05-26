@@ -1460,6 +1460,65 @@ test('mesh-wire: registers helpers, routes pool calls, churns on remove', async 
   assert.equal(mc.stats().generators, 1);
 });
 
+// ---------- mesh session: generate + verify + receipt over ONE channel (stage 9) ----------
+test('mesh-session: one channel multiplexes generate, verify, receipt, hello (loopback)', async () => {
+  const { meshSession } = await import('../lib/oioxo/mesh-session.ts');
+  const { makeReceiptIssuer } = await import('../lib/oioxo/mesh-receipt.ts');
+  const { CreditLedger } = await import('../lib/oioxo/compute-credit.ts');
+
+  const sign = (c) => 'sig:' + c;
+  const verify = (c, s) => s === 'sig:' + c;
+  const hash = (s) => 'h' + s.length;
+
+  // wire two sessions back-to-back: each one's send → the other's handleMessage
+  let A, B;
+  const banked = [];
+  let peerProfile = null;
+  // A = the consumer (codes here); B = the provider (MacBook lending compute)
+  A = meshSession((m) => queueMicrotask(() => B.handleMessage(m)), {
+    onReceipt: (r) => banked.push(r),
+    onPeerProfile: (p) => { peerProfile = p; },
+    timeoutMs: 1000,
+  });
+  B = meshSession((m) => queueMicrotask(() => A.handleMessage(m)), {
+    localGenerate: async () => [{ path: 'a.ts', content: 'F'.repeat(240) }],
+    localRun: async (f) => ({ ok: f.some((x) => x.content.includes('F')), output: 'ran', errors: '' }),
+    issueReceipt: makeReceiptIssuer({ deviceId: 'mac', sign, hash }).issue,
+    profile: { id: 'mac', caps: ['generate', 'verify'], tier: 'high', label: 'MacBook' },
+    timeoutMs: 1000,
+  });
+
+  // B announces its capabilities → A registers the helper
+  B.announce();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(peerProfile?.id, 'mac');
+  assert.deepEqual(peerProfile.caps, ['generate', 'verify']);
+
+  // A borrows generation from B → gets edits AND banks a receipt
+  const edits = await A.generate({ task: 't', files: [{ path: 'a.ts', content: 'x' }], attempt: 0 });
+  assert.ok(edits[0].content.startsWith('F'));
+  assert.equal(banked.length, 1);
+  assert.equal(banked[0].deviceId, 'mac');
+
+  // A borrows verification from B over the SAME channel
+  const res = await A.run([{ path: 'a.ts', content: 'has F' }], 'npm test');
+  assert.equal(res.ok, true);
+  assert.equal(res.output, 'ran');
+
+  // the banked receipt is real credit
+  const led = new CreditLedger(undefined, { now: () => banked[0].issuedAt + 1 });
+  assert.equal((await led.redeem(banked[0], verify)).reason, 'granted');
+});
+
+test('mesh-session: a peer with no local engine fails cleanly, never hangs', async () => {
+  const { meshSession } = await import('../lib/oioxo/mesh-session.ts');
+  let A, B;
+  A = meshSession((m) => queueMicrotask(() => B.handleMessage(m)), { timeoutMs: 500 });
+  B = meshSession((m) => queueMicrotask(() => A.handleMessage(m)), {}); // provider with NO engines
+  assert.deepEqual(await A.generate({ task: 't', files: [], attempt: 0 }), [], 'no generator → empty');
+  assert.equal((await A.run([], 'x')).errors, 'no local runner', 'no oracle → clean error');
+});
+
 // ---------- run ----------
 const t0 = Date.now();
 for (const [name, fn] of tests) {

@@ -18,6 +18,7 @@ import CodeEditor from './CodeEditor';
 import EditorTabs from './EditorTabs';
 import FileTree from './FileTree';
 import ProblemsPanel from './ProblemsPanel';
+import EditorSettingsButton from './EditorSettings';
 import { useProjectDiagnostics } from './useDiagnostics';
 import { AgentRun } from './NewProject';
 
@@ -58,6 +59,18 @@ export default function GitHubPanel({ match }: { match: string[] }) {
     openFile(file.replace(/^\.?\//, ''));
     setReveal({ line, column, key: Date.now() });
   }, [openFile]);
+  async function renameFile(oldPath: string) {
+    if (!ws) return;
+    const next = window.prompt('Rename file', oldPath)?.trim().replace(/^\/+/, '');
+    if (!next || next === oldPath || files.some((f) => f.path === next)) return;
+    const content = (await ws.read(oldPath)) ?? '';
+    await ws.write(next, content);
+    await ws.remove(oldPath);
+    setFiles(await ws.files());
+    setOpenPaths((o) => o.map((p) => (p === oldPath ? next : p)));
+    setActivePath((cur) => (cur === oldPath ? next : cur));
+    setPending(ws.pending().length);
+  }
 
   function saveToken() {
     const t = tokenInput.trim();
@@ -193,10 +206,13 @@ export default function GitHubPanel({ match }: { match: string[] }) {
           <span className="flex items-center gap-1 truncate text-xs font-semibold text-zinc-600" title={repoLabel}>
             <Github className="h-3.5 w-3.5 shrink-0" /> {repoLabel}
           </span>
-          <button type="button" onClick={() => setWs(null)} className="shrink-0 rounded px-1 text-[11px] text-zinc-400 hover:bg-zinc-100" title="Open another repo">↻</button>
+          <div className="flex shrink-0 items-center">
+            <EditorSettingsButton />
+            <button type="button" onClick={() => setWs(null)} className="rounded px-1 text-[11px] text-zinc-400 hover:bg-zinc-100" title="Open another repo">↻</button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
-          <FileTree files={files} active={activePath} errorPaths={errorPaths} onOpen={openFile} />
+          <FileTree files={files} active={activePath} errorPaths={errorPaths} onOpen={openFile} onRename={(p) => void renameFile(p)} />
         </div>
       </aside>
 

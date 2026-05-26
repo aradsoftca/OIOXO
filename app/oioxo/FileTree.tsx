@@ -6,7 +6,7 @@
  * parent owns selection, delete, and the per-file error dots.
  */
 import * as React from 'react';
-import { File as FileIcon, Folder, FolderOpen, ChevronRight, X } from 'lucide-react';
+import { File as FileIcon, Folder, FolderOpen, ChevronRight, X, Pencil } from 'lucide-react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
 
 interface Node {
@@ -41,25 +41,26 @@ export function buildTree(files: CodeFile[]): Node[] {
 }
 
 export default function FileTree({
-  files, active, errorPaths, onOpen, onDelete,
+  files, active, errorPaths, onOpen, onDelete, onRename,
 }: {
   files: CodeFile[];
   active: string | null;
   errorPaths?: Set<string>;
   onOpen: (path: string) => void;
   onDelete?: (path: string) => void;
+  onRename?: (path: string) => void;
 }) {
   const tree = React.useMemo(() => buildTree(files), [files]);
   return <ul className="select-none">{tree.map((n) => (
-    <TreeNode key={n.path} node={n} depth={0} active={active} errorPaths={errorPaths} onOpen={onOpen} onDelete={onDelete} />
+    <TreeNode key={n.path} node={n} depth={0} active={active} errorPaths={errorPaths} onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
   ))}</ul>;
 }
 
 function TreeNode({
-  node, depth, active, errorPaths, onOpen, onDelete,
+  node, depth, active, errorPaths, onOpen, onDelete, onRename,
 }: {
   node: Node; depth: number; active: string | null; errorPaths?: Set<string>;
-  onOpen: (path: string) => void; onDelete?: (path: string) => void;
+  onOpen: (path: string) => void; onDelete?: (path: string) => void; onRename?: (path: string) => void;
 }) {
   const [open, setOpen] = React.useState(depth < 1);
   const pad = { paddingLeft: depth * 12 + 8 };
@@ -77,7 +78,7 @@ function TreeNode({
           <span className="truncate">{node.name}</span>
         </button>
         {open && node.children.map((c) => (
-          <TreeNode key={c.path} node={c} depth={depth + 1} active={active} errorPaths={errorPaths} onOpen={onOpen} onDelete={onDelete} />
+          <TreeNode key={c.path} node={c} depth={depth + 1} active={active} errorPaths={errorPaths} onOpen={onOpen} onDelete={onDelete} onRename={onRename} />
         ))}
       </li>
     );
@@ -98,6 +99,16 @@ function TreeNode({
         <span className="truncate">{node.name}</span>
         {hasErr && <span className="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" />}
       </button>
+      {onRename && (
+        <button
+          type="button"
+          onClick={() => onRename(node.path)}
+          title="Rename file"
+          className="shrink-0 rounded p-0.5 text-zinc-300 opacity-0 transition hover:bg-zinc-200 hover:text-zinc-700 group-hover:opacity-100"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      )}
       {onDelete && (
         <button
           type="button"

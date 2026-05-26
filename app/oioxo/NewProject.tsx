@@ -56,6 +56,7 @@ import FileTree from './FileTree';
 import ProblemsPanel from './ProblemsPanel';
 import DiffModal from './DiffModal';
 import CommandPalette, { type PaletteCommand } from './CommandPalette';
+import EditorSettingsButton from './EditorSettings';
 import { useProjectDiagnostics } from './useDiagnostics';
 
 type Phase = 'idle' | 'starting' | 'ready';
@@ -333,6 +334,18 @@ export default function NewProject({ match }: { match: string[] }) {
     await syncFiles();
     closeTab(path);
   }
+  async function renameFile(oldPath: string) {
+    const next = window.prompt('Rename file', oldPath)?.trim().replace(/^\/+/, '');
+    if (!next || next === oldPath || files.some((f) => f.path === next)) return;
+    const content = (await ws.current.read(oldPath)) ?? '';
+    await ws.current.write(next, content);
+    await ws.current.remove(oldPath);
+    await syncFiles();
+    setOpenPaths((o) => o.map((p) => (p === oldPath ? next : p)));
+    setActivePath((cur) => (cur === oldPath ? next : cur));
+    void refreshSandbox([{ path: next, content }]);
+    liveRef.current?.sendEdit(next, content);
+  }
 
   const [saved, setSaved] = React.useState<'idle' | 'saving' | 'done'>('idle');
   /** Persist the whole Temp project into a real folder the user picks (write-through
@@ -539,9 +552,12 @@ export default function NewProject({ match }: { match: string[] }) {
           <span className="flex items-center gap-1 truncate text-xs font-semibold text-zinc-500">
             <Folder className="h-3.5 w-3.5" /> {info ? templateLabel(info.template) : 'Project'}
           </span>
-          <button type="button" onClick={reset} className="rounded p-1 text-zinc-400 hover:bg-zinc-100" title="New project">
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center">
+            <EditorSettingsButton />
+            <button type="button" onClick={reset} className="rounded p-1 text-zinc-400 hover:bg-zinc-100" title="New project">
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
           <FileTree
@@ -550,6 +566,7 @@ export default function NewProject({ match }: { match: string[] }) {
             errorPaths={errorPaths}
             onOpen={(p) => openFile(p)}
             onDelete={(p) => void removeFile(p)}
+            onRename={(p) => void renameFile(p)}
           />
           <form onSubmit={(e) => { e.preventDefault(); void addFile(); }} className="mt-1 px-1">
             <input

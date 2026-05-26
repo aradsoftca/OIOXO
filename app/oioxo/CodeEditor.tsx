@@ -14,6 +14,7 @@ import * as React from 'react';
 import dynamic from 'next/dynamic';
 import { loader, type Monaco, type OnMount } from '@monaco-editor/react';
 import type { CodeFile } from '@/lib/oioxo/codeloop';
+import { useEditorSettings } from './EditorSettings';
 
 const TS_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const fileUri = (monaco: Monaco, path: string) => monaco.Uri.parse('file:///' + path.replace(/^\/+/, ''));
@@ -78,6 +79,7 @@ export default function CodeEditor({
   projectFiles?: CodeFile[];
 }) {
   const [failed, setFailed] = React.useState(false);
+  const [settings] = useEditorSettings();
   const monacoRef = React.useRef<Monaco | null>(null);
   const editorRef = React.useRef<Parameters<OnMount>[0] | null>(null);
   const onSaveRef = React.useRef(onSave);
@@ -181,6 +183,20 @@ export default function CodeEditor({
           };
           t.typescriptDefaults.setCompilerOptions(opts);
           t.javascriptDefaults.setCompilerOptions(opts);
+          // Brand dark theme (gold-on-near-black) to match the rest of oioxo.
+          monaco.editor.defineTheme('oioxo-dark', {
+            base: 'vs-dark', inherit: true, rules: [],
+            colors: {
+              'editor.background': '#1b1b1f',
+              'editor.foreground': '#e6e3dc',
+              'editorLineNumber.foreground': '#5a5a64',
+              'editorCursor.foreground': '#E2B24A',
+              'editor.selectionBackground': '#E2B24A33',
+              'editor.lineHighlightBackground': '#26262c',
+              'editorWidget.background': '#1b1b1f',
+              'editorIndentGuide.background1': '#2c2c33',
+            },
+          });
         }}
         onMount={(editor, monaco) => {
           editorRef.current = editor;
@@ -189,15 +205,15 @@ export default function CodeEditor({
           applyMarkers();
           setMounted(true);
         }}
-        theme="light"
+        theme={settings.theme}
         height="100%"
         options={{
-          minimap: { enabled: false },
-          fontSize: 13,
+          minimap: { enabled: settings.minimap },
+          fontSize: settings.fontSize,
           scrollBeyondLastLine: false,
           automaticLayout: true,
-          tabSize: 2,
-          wordWrap: 'on',
+          tabSize: settings.tabSize,
+          wordWrap: settings.wordWrap ? 'on' : 'off',
           smoothScrolling: true,
           padding: { top: 10 },
           renderLineHighlight: 'line',

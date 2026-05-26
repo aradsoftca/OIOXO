@@ -22,9 +22,12 @@
  * Run: N=... GEMINI_API_KEY=... npx tsx lib/ai/eval/gen-conductor-data.ts
  * Output (gitignored moat): lib/ai/eval/out/conductor-data.jsonl
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { TOOLS } from '@/lib/registry';
 
 const KEY = process.env.GEMINI_API_KEY;
+const MODEL = process.env.GEN_MODEL || 'gemini-2.5-flash';
 
 // ── The running agent state, carried turn to turn (BRAIN_PLAN §3.5) ───────────
 export type TurnRole =
@@ -102,36 +105,85 @@ const SITUATION_TYPES = [
   'a research/answer turn that then leads into a WRITE step (e.g. "now write it up")',
 ];
 
-const SYSTEM = `You are generating TRAINING DATA for a small on-device assistant's planning brain.
-Given our exact capabilities, invent ONE realistic multi-turn dialogue of the requested
-situation type. Vary domain, phrasing, length, and user style widely (typos, run-ons,
-different languages occasionally). For EVERY user turn, output the label the brain must
-produce: the turn's role, the FULL updated goal state (goal + ordered chain with real
-capabilities, each marked can/can't with the nearest alternative when can't, plus any
-extracted params and the one pending item), any clarifying ask, and the natural, warm,
-honest reply. Plan ONLY within the stated capabilities; mark out-of-scope steps can:false
-with a true alternative. Never invent a tool we don't have. Output STRICT JSON.`;
+const ROLES = ['new-goal', 'parameter', 'append-step', 'correction', 'confirmation', 'question', 'chitchat'];
+
+const SYSTEM = `You are generating TRAINING DATA for a small on-device assistant's PLANNING brain.
+Invent ONE realistic multi-turn dialogue of the requested situation type. Vary domain,
+phrasing, length and user style widely (casual, typos, run-ons; occasionally another
+language). For EVERY user turn, output the label the brain must produce: the turn's ROLE
+relative to the running goal, the updated goal + ordered chain (each step marked can/can't
+— a can:false step MUST include the nearest thing we CAN do as "alternative"), extracted
+params, media need, one clarifying ask if blocked, and a warm, honest reply. Plan ONLY
+within the stated capabilities. Never invent a tool we don't have.`;
+
+function buildPrompt(situation: string): string {
+  return `${SYSTEM}
+
+OUR CAPABILITIES:
+${capabilityBrief()}
+
+SITUATION TYPE: ${situation}
+
+Return STRICT JSON only:
+{"turns":[{"user":"<what the user types>","hasFile":false,"fileType":null,"turnRole":"<one of: ${ROLES.join(', ')}>","goal":"<plain-language objective so far>","chain":[{"step":"<a capability/action>","can":true,"alternative":"<only when can:false>"}],"params":{},"mediaNeed":"none","ask":"<one thing to ask if blocked, else empty>","reply":"<the assistant's natural reply>"}]}
+2-4 turns. fileType is one of image/pdf/audio/video/text or null. mediaNeed is none/image-search/ocr.`;
+}
 
 async function gemini(prompt: string): Promise<string> {
   const r = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${KEY}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.9, maxOutputTokens: 4000, responseMimeType: 'application/json' } }) },
+        generationConfig: { temperature: 0.95, maxOutputTokens: 4000, responseMimeType: 'application/json',
+          ...(MODEL.includes('flash') ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) },
   );
   if (!r.ok) return '';
   return ((await r.json())?.candidates?.[0]?.content?.parts?.map((x: any) => x.text).join('') ?? '').trim();
 }
 
-// TODO(next): for n iterations, pick a situation type, ask the teacher for a dialogue
-// + per-turn labels grounded in capabilityBrief(), VALIDATE every chain.capability is a
-// real tool/app/write-form or a CANNOT entry, then emit one JSONL row PER TURN
-// (input=history+goalStateIn, label=TurnLabel). A validator (like gen-rerank-data's)
-// rejects hallucinated tools so only executable trajectories train the conductor.
+/** A turn is usable only if it is well-formed AND honest: a step we can't do must name
+ *  a real alternative (the can't-do→offer behavior we want the conductor to learn). */
+function validTurn(t: any): boolean {
+  if (!t || typeof t.user !== 'string' || !t.user.trim()) return false;
+  if (!ROLES.includes(t.turnRole)) return false;
+  if (typeof t.reply !== 'string' || !t.reply.trim()) return false;
+  if (!Array.isArray(t.chain)) return false;
+  for (const c of t.chain) {
+    if (!c || typeof c.step !== 'string' || typeof c.can !== 'boolean') return false;
+    if (c.can === false && (typeof c.alternative !== 'string' || !c.alternative.trim())) return false;
+  }
+  return true;
+}
+
 async function main() {
   if (!KEY) { console.error('set GEMINI_API_KEY'); process.exit(2); }
-  console.log('capability inventory:\n' + capabilityBrief());
-  console.log(`\nsituation types: ${SITUATION_TYPES.length} · tool categories: ${CATEGORIES.length} · tools: ${TOOLS.length}`);
-  console.log('\n(scaffold) trajectory generation + per-turn labeling + validator: next commit.');
+  const N = process.env.N ? Number(process.env.N) : 30;
+  const outDir = path.join(process.cwd(), 'lib/ai/eval/out');
+  fs.mkdirSync(outDir, { recursive: true });
+  const outFile = path.join(outDir, 'conductor-data.jsonl');
+  const ws = fs.createWriteStream(outFile, { flags: 'w' });
+  console.log(`conductor data · model ${MODEL} · N=${N} dialogues`);
+  let dialogs = 0, rows = 0, rejected = 0;
+  for (let i = 0; i < N; i++) {
+    const situation = SITUATION_TYPES[i % SITUATION_TYPES.length];
+    const raw = await gemini(buildPrompt(situation)).catch(() => '');
+    let parsed: any;
+    try { parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? raw); } catch { rejected++; console.log(`[${i + 1}/${N}] reject(parse)`); continue; }
+    const turns = parsed?.turns;
+    if (!Array.isArray(turns) || !turns.length || !turns.every(validTurn)) { rejected++; console.log(`[${i + 1}/${N}] reject(shape) · ${situation.slice(0, 32)}`); continue; }
+    dialogs++;
+    const history: { role: string; text: string }[] = [];
+    for (const t of turns) {
+      ws.write(JSON.stringify({
+        input: { message: t.user, hasFile: !!t.hasFile, fileType: t.fileType ?? null, history: [...history] },
+        label: { turnRole: t.turnRole, goal: t.goal ?? '', chain: t.chain, params: t.params ?? {}, mediaNeed: t.mediaNeed ?? 'none', ask: t.ask ?? '', reply: t.reply },
+      }) + '\n');
+      rows++;
+      history.push({ role: 'user', text: t.user }, { role: 'assistant', text: t.reply });
+    }
+    console.log(`[${i + 1}/${N}] ${turns.length} turns · ${situation.slice(0, 36)}`);
+  }
+  ws.end();
+  console.log(`\ndialogs ${dialogs}/${N} (rejected ${rejected}) → ${rows} per-turn rows → ${outFile}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

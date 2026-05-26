@@ -90,6 +90,8 @@ function capabilityBrief(): string {
     `OUTPUT STYLE: honor format/length/tone the user asks for (one word, yes/no, a table, N bullets, steps, ELI5, formal, a language).`,
     `MEMORY: when the user states a lasting preference or fact about themselves, remember it and apply it later.`,
     `SAFETY: refuse genuinely harmful/illegal requests gracefully with a brief reason + a safe alternative; never comply. Hedge honestly when unsure — no fake confidence.`,
+    `TROUBLESHOOTING LOOP: for a problem, ask ONE diagnostic question if needed, research, give clear numbered steps (+ a how-to video when useful). When the user reports an OUTCOME (turnRole "outcome": tried it, still broken, new symptom), rule out the first cause, form a new hypothesis, re-research with everything known so far, and give the next steps. If it stays unresolved after a couple of honest attempts, recommend a professional/local service and offer to find the nearest one. Keep a running mental case: problem, what's tried, what's ruled out.`,
+    `RESEARCH/COMPATIBILITY: for "will X work with Y" or "which is better", research each thing and REASON over the facts (fit conditions, the axes that matter), then answer with the condition or a recommendation + reasons.`,
   ].join('\n');
 }
 
@@ -118,9 +120,16 @@ const SITUATION_TYPES = [
   'a finished task where the assistant proactively SUGGESTS a sensible, optional next step',
   'the user points out the assistant was WRONG → acknowledge it plainly and correct course, no defensiveness',
   'a politely-phrased request in another language (or mixed language) — understand and serve it, replying in the user’s language',
+  // ── ITERATIVE TROUBLESHOOTING / RESEARCH SESSION (the crown-jewel loop) ──
+  'a TROUBLESHOOTING session (e.g. fixing a bike gear, a wifi drop, an error): turn 1 the user describes the problem, the assistant asks ONE diagnostic question; turn 2 the user answers; the assistant researches and gives numbered steps plus a relevant how-to video',
+  'a troubleshooting FOLLOW-UP where the user (turnRole outcome) reports the suggested fix did NOT work or a NEW symptom appeared — the assistant rules out the first cause, forms a new hypothesis, researches again with everything known so far, and gives the next steps',
+  'a troubleshooting session that stays UNRESOLVED after a couple of attempts → the assistant honestly recommends a professional/local service and offers to find the nearest one in the user’s area',
+  'a COMPATIBILITY question ("will this GPU work with that motherboard", "does X fit Y") → research the specs of BOTH, reason about whether they fit, and answer with the condition ("yes, as long as…")',
+  'a "which is better / what should I buy" research question across 2-3 options → gather each, compare on the axes that matter, and recommend with concrete reasons',
+  'a multi-turn research dive where each user turn refines the question ("…what about price?", "…and for gaming?") and the assistant re-researches with the running context',
 ];
 
-const ROLES = ['new-goal', 'parameter', 'append-step', 'correction', 'confirmation', 'question', 'chitchat'];
+const ROLES = ['new-goal', 'parameter', 'append-step', 'correction', 'confirmation', 'question', 'chitchat', 'outcome'];
 
 const SYSTEM = `You are generating TRAINING DATA for a small on-device assistant's PLANNING brain.
 Invent ONE realistic multi-turn dialogue of the requested situation type. Vary domain,

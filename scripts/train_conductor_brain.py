@@ -56,10 +56,24 @@ def build_user(inp):
     return "\n".join(lines)
 
 
-rows = [json.loads(l) for l in open(DATA, encoding="utf-8") if l.strip()]
+# Resilient load: skip any malformed line (a stray teacher reply with an embedded
+# line-break shouldn't crash the run or corrupt the set).
+rows, skipped = [], 0
+for l in open(DATA, encoding="utf-8"):
+    l = l.strip()
+    if not l:
+        continue
+    try:
+        r = json.loads(l)
+        if isinstance(r, dict) and "input" in r and "label" in r:
+            rows.append(r)
+        else:
+            skipped += 1
+    except Exception:
+        skipped += 1
 random.seed(0)
 random.shuffle(rows)
-print(f"loaded {len(rows)} conductor turns")
+print(f"loaded {len(rows)} conductor turns (skipped {skipped} malformed)")
 
 tok = AutoTokenizer.from_pretrained(MODEL)
 if tok.pad_token is None:

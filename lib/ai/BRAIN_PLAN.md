@@ -282,6 +282,37 @@ output; replaces the word-overlap grounding check.
 
 ---
 
+## 5.5 SPEED — fast + accurate on the weakest device (the differentiator)
+
+MEASURED: the whole deterministic floor is **microseconds** (math 6.5µs, harm 0.8µs,
+routing 120–790µs) — instant on ANY device. The ONLY slow things are (a) ML inference
+and (b) network search. So speed is an *architecture* problem: make the slow tiers RARE
+and OPTIONAL. "Answer at the speed of certainty" — a cost-ordered cascade, each tier
+answers definitively or passes down:
+
+| Tier | Cost | Handles |
+|---|---|---|
+| 0 deterministic floor | ~µs | math/units/calendar/date/define/spelling/currency/meta/social/harm/format/tool-routing |
+| 0.5 instant-knowledge pack | ~µs local lookup | the most common Q→A, **shipped** (~few hundred KB) → answered offline, no net/ML |
+| 0.5 device cache | ~ms | anything answered before — semantic recall; **second time is free**, grows with use |
+| 1 reflex router | ~20ms tiny encoder | intent/shape/route the regex floor missed |
+| 2 search | network, async, streamed | genuine open questions — start speculatively, render partial |
+| 3 the 360M conductor/writer | slow | ONLY genuinely hard planning/synthesis — RARE |
+
+PRINCIPLES:
+1. **Floor-first, model-as-escalation** — the 360M never runs on routine turns; >90% of
+   turns answer in µs–ms with no model. (Flips the usual "the model decides everything".)
+2. **Ship the common answers + cache the rest** — common Qs instant offline; the device
+   gets faster the more it's used.
+3. **Device-adaptive degradation, gated** — weak device → skip the cross-encoder + 360M,
+   use lexical+bi-encoder+extractive (the cold-fallbacks); the NO-DUMB gate (§6) keeps it
+   accurate-or-honest, never garbage. Fast and safe both.
+4. **Never block** — deterministic answers stream immediately; search has a timeout →
+   honest fallback, never a hang.
+
+Accuracy/speed stop being a tradeoff: answer from the cheapest tier that's *confident*;
+escalate only on uncertainty; a weak device just escalates less often.
+
 ## 6. Reliability contract (unchanged, applies to every trained piece)
 
 A deterministic floor always produces a usable result with **no model**. The trained

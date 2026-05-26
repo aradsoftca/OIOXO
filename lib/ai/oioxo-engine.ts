@@ -993,6 +993,25 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
       return { text: "That's a creative write — I'm strong at finding real facts and running tools, but for an original poem or story I'd rather hand off to a dedicated writing model than stitch one together from search results." };
     }
 
+    // ORIGINAL VISUAL ART we can't generate ("draw a cat", "paint a sunset") — be
+    // honest, offer image SEARCH / editing instead (article/"me" required so "draw
+    // conclusions" / "draw blood" don't match).
+    if (!fileCat && (/\b(draw|paint|sketch|illustrate|doodle)\s+(me\s+|a\s+|an\s+|the\s+|some\s+)/i.test(text)
+      || /\b(generate|create|make)\s+(me\s+)?(a|an)?\s*(image|picture|drawing|illustration|painting|artwork)\s+(of|about|showing)/i.test(text))) {
+      return { text: "I can't create original drawings, but I can find real photos of it, or edit an image you upload — want me to search for some?" };
+    }
+
+    // BUILD a software project → the Coding workspace, not a web search.
+    if (!fileCat && /\b(make|build|create|develop|code|write)\s+(me\s+)?(a|an|my)?\s*(website|web ?app|web ?page|web ?site|landing page|application|program|script|chrome extension|browser extension|mobile app|game)\b/i.test(text)) {
+      return { text: "I can help you build that in the Coding workspace — open it (and grab a coder model sized to your device) and I'll scaffold and edit the project with you.", openCode: true };
+    }
+
+    // WEATHER with no place → ask for the location instead of web-searching "weather".
+    if (!fileCat && /^\s*((?:what(?:'?s| is)|how(?:'?s| is))\s+(?:the\s+)?weather(?:\s+(?:today|tomorrow|now|like|right now|outside))?|weather\s+(?:today|tomorrow|now|forecast|right now)|is it (?:going to |gonna )?(?:rain|snow))\s*[?.!]*$/i.test(text)
+      && !/\bin\s+[a-z]/i.test(text)) {
+      return { text: 'Happy to check the weather — which city or place should I look up?' };
+    }
+
     // TRANSFORM with no input ("translate this", "summarize this") → ask for the text
     // instead of web-searching the concept (the agentic "ask one thing" floor).
     const transformAsk = transformInputAsk(text, fileCat != null);

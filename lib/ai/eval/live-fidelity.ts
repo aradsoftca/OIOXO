@@ -89,6 +89,10 @@ const CASES: Case[] = [
   { q: 'whats 100 divided by 7', cls: 'math', kind: 'answer', right: ['14.28'], wrong: ['nasdaq'] },
   { q: 'whats 20% off of 80', cls: 'math', kind: 'answer', right: ['64', 'save'], wrong: ['promo code', 'coupon'] },
   { q: 'count from 1 to 5', cls: 'math', kind: 'answer', right: ['1, 2, 3, 4, 5'], wrong: ['nursery', 'caught a'] },
+  // honest routing: art we can't make / build → code / weather → ask
+  { q: 'can you draw a cat', cls: 'route', kind: 'answer', right: ["can't create", 'find real photos', 'edit'], wrong: ['online business', 'steve gadlin'] },
+  { q: 'make me a website', cls: 'route', kind: 'code', wrong: [] },
+  { q: "what's the weather", cls: 'route', kind: 'answer', right: ['which city', 'place'], wrong: ['state of the earth', 'atmosphere'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

@@ -20,8 +20,11 @@ const TS_RE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
 const fileUri = (monaco: Monaco, path: string) => monaco.Uri.parse('file:///' + path.replace(/^\/+/, ''));
 
 // Point Monaco's AMD loader at our self-hosted copy (set once, before first load).
+// Honor a deploy basePath (NEXT_PUBLIC_BASE_PATH) so /monaco/vs resolves correctly
+// whether the app is served at root or under a subpath.
 if (typeof window !== 'undefined') {
-  loader.config({ paths: { vs: `${window.location.origin}/monaco/vs` } });
+  const base = process.env.NEXT_PUBLIC_BASE_PATH || '';
+  loader.config({ paths: { vs: `${window.location.origin}${base}/monaco/vs` } });
 }
 
 const Editor = dynamic(() => import('@monaco-editor/react').then((m) => m.Editor), {

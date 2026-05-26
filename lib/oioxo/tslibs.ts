@@ -15,8 +15,10 @@ export function loadTsLibs(): Promise<Map<string, string>> {
     const ts: any = (await import('typescript')).default ?? (await import('typescript'));
     const vfs: any = await import('@typescript/vfs');
     // Redirect vfs's CDN fetch to our self-hosted copy: it builds canonical CDN URLs
-    // and we serve the same file names from /monaco/ts-libs/ on our own origin.
-    const fetcher = (url: string) => fetch(`/monaco/ts-libs/${url.split('/').pop()}`);
+    // and we serve the same file names from /monaco/ts-libs/ on our own origin
+    // (honoring a deploy basePath).
+    const base = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BASE_PATH) || '';
+    const fetcher = (url: string) => fetch(`${base}/monaco/ts-libs/${url.split('/').pop()}`);
     // `true` → cache the fetched libs in localStorage for instant reuse.
     return vfs.createDefaultMapFromCDN({ target: ts.ScriptTarget.ES2020 }, ts.version, true, ts, undefined, fetcher);
   })();

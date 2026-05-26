@@ -34,6 +34,7 @@ import { getCached, putCached } from './search-cache';
 import { capturePreference, remember, recallLanguage, recallName } from './user-memory';
 import { detectFormat, renderFormat } from './format';
 import { tryCheck } from './check-ops';
+import { planTurn } from './conductor';
 import { findImages } from './image-search';
 import { funReply } from '../ai-magic';
 import { getTool, TOOLS } from '../registry';
@@ -1165,6 +1166,17 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
         const g = await answerGeo(gi).catch(() => null);
         if (g) return { text: g.text, map: { points: g.points, line: g.line } };
       }
+    }
+
+    // THE TRAINED CONDUCTOR (when deployed) plans the turn. MONOTONIC + fail-safe:
+    // null when cold/not-hosted → the deterministic floor below runs unchanged
+    // (reliability contract). Today we apply its capture + a self-contained reply;
+    // full plan-driven chain execution + diagnostic loops are tuned against the live
+    // v2 model. Runs AFTER the instant fast-paths (speed: floor-first), before routing.
+    const plan = await planTurn(text, opts.history ?? [], fileCat != null, fileCat).catch(() => null);
+    if (plan) {
+      if (plan.remember) remember('fact', plan.remember);
+      if (plan.turnRole === 'chitchat' && plan.reply.trim()) return { text: plan.reply };
     }
 
     // CONVERSATION MOVE (no file in hand — a file means a tool op, not chat).

@@ -57,8 +57,16 @@ export function buildConductorUser(message: string, history: Turn[] = [], hasFil
   return lines.join('\n');
 }
 
+// Inert until the trained conductor is actually deployed — no load attempt, zero
+// cost (the engine still calls planTurn every turn; it returns null instantly).
+// Deploy flips this: enableConductor(true) or localStorage 'oioxo.conductor'='1'.
+let _enabled = isBrowser && typeof localStorage !== 'undefined' && localStorage.getItem('oioxo.conductor') === '1';
+export function enableConductor(on = true): void { _enabled = on; }
+export function conductorEnabled(): boolean { return _enabled; }
+
 let _gen: Promise<{ gen: any } | null> | null = null;
 async function load(): Promise<{ gen: any } | null> {
+  if (!_enabled) return null;
   _gen ??= (async () => {
     try {
       const lib: any = await import('@xenova/transformers');

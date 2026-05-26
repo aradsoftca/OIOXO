@@ -917,6 +917,30 @@ function withAdviceDisclaimer(reply: OioxoReply, query: string): OioxoReply {
   return disc ? { ...reply, text: reply.text + disc } : reply;
 }
 
+/** Extractive summary of the user's OWN supplied text — the deterministic floor so
+ *  "summarize this: <text>" NEVER web-searches the user's words. Ranks sentences by
+ *  content-word frequency (length-normalized), returns the top few in original order. */
+function extractiveSummary(src: string, n = 3): string | null {
+  const clean = (src || '').replace(/\s+/g, ' ').trim();
+  const sents = (clean.match(/[^.!?]+[.!?]+/g) ?? []).map((s) => s.trim()).filter((s) => s.length > 20);
+  if (sents.length === 0) return null;
+  if (sents.length <= n) return clean;
+  const STOP = new Set('the a an and or but of to in on at for with is are was were be been it this that as by from has have had its their his her they them we you i he she'.split(' '));
+  const freq: Record<string, number> = {};
+  for (const w of clean.toLowerCase().match(/[a-z]+/g) ?? []) if (w.length > 2 && !STOP.has(w)) freq[w] = (freq[w] || 0) + 1;
+  const score = (s: string) => {
+    const ws = s.toLowerCase().match(/[a-z]+/g) ?? [];
+    return ws.reduce((a, w) => a + (freq[w] || 0), 0) / Math.sqrt(Math.max(1, ws.length));
+  };
+  return sents
+    .map((s, i) => ({ s, i, sc: score(s) }))
+    .sort((a, b) => b.sc - a.sc)
+    .slice(0, n)
+    .sort((a, b) => a.i - b.i)
+    .map((x) => x.s)
+    .join(' ');
+}
+
 /** A short, persona "talk" turn — warm and natural, no search. The writer gives
  *  it voice (writer8's persona training); funReply is the deterministic floor. */
 async function talkReply(text: string, history?: Turn[]): Promise<OioxoReply> {
@@ -1058,12 +1082,16 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
     }
 
     if (route.kind === 'summary' || route.kind === 'article') {
+      const src = route.src ?? text;
       try {
-        const out = route.kind === 'article' ? await writeArticle(route.src ?? text) : await summarize(route.src ?? text);
+        const out = route.kind === 'article' ? await writeArticle(src) : await summarize(src);
         if (out) return { text: out };
       } catch {
-        /* fall through to an answer */
+        /* model unavailable → extractive floor below */
       }
+      // FLOOR: summarize the user's OWN text extractively — never web-search their words.
+      const ex = extractiveSummary(src);
+      if (ex) return { text: ex };
     }
 
     if (route.kind === 'app' && route.app) {

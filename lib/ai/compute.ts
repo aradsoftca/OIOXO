@@ -14,7 +14,7 @@ const tidy = (n: number) => (Number.isInteger(n) ? String(n) : String(+n.toFixed
 // ── UNIT CONVERSION — deterministic, never web-searched ("5 km to miles", "100 f
 // to c", "how many ml in a cup"). Factor = how many BASE units one of this unit is
 // (length→m, mass→g, volume→ml). Unknown units → null, so prose falls through. ──
-type Dim = 'length' | 'mass' | 'volume';
+type Dim = 'length' | 'mass' | 'volume' | 'time';
 const U: Record<string, [Dim, number]> = {};
 const addU = (dim: Dim, f: number, ...names: string[]) => names.forEach((n) => (U[n] = [dim, f]));
 addU('length', 0.001, 'mm', 'millimeter', 'millimeters', 'millimetre', 'millimetres');
@@ -41,6 +41,12 @@ addU('volume', 29.5735, 'floz', 'fluid ounce', 'fluid ounces');
 addU('volume', 473.176, 'pint', 'pints', 'pt');
 addU('volume', 946.353, 'quart', 'quarts', 'qt');
 addU('volume', 3785.41, 'gallon', 'gallons', 'gal');
+addU('time', 1, 'second', 'seconds', 'sec', 'secs');
+addU('time', 60, 'minute', 'minutes', 'min', 'mins');
+addU('time', 3600, 'hour', 'hours', 'hr', 'hrs');
+addU('time', 86400, 'day', 'days');
+addU('time', 604800, 'week', 'weeks');
+addU('time', 31536000, 'year', 'years', 'yr', 'yrs');
 const TEMP: Record<string, string> = {
   f: 'F', fahrenheit: 'F', c: 'C', celsius: 'C', centigrade: 'C', k: 'K', kelvin: 'K',
 };

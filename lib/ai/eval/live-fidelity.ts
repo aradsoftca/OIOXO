@@ -74,6 +74,10 @@ const CASES: Case[] = [
   { q: 'how do you spell restaurant', cls: 'spell', kind: 'answer', right: ['spelled', 'r-e-s-t'], wrong: ['italian restaurants', 'steps'] },
   // currency → live FX rate, never web junk
   { q: '100 usd to eur', cls: 'currency', kind: 'answer', right: ['usd', 'eur', 'rate'], wrong: ['minimum wage', 'dark red'] },
+  // time units → computed
+  { q: 'how many seconds in a year', cls: 'convert', kind: 'answer', right: ['31536000', 'seconds'], wrong: ['5 seconds of summer', 'album'] },
+  // summarize the user's OWN text → never web-search their words
+  { q: 'summarize this: The French Revolution was a period of radical political and societal change in France that began with the Estates General of 1789 and ended in 1799. It suppressed feudalism. It deeply influenced liberal democracy worldwide.', cls: 'summarize', kind: 'answer', right: ['revolution', 'france', '1789'], wrong: ['tilburg', 'societal change in the past', 'european university'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

@@ -167,9 +167,19 @@ Replit, v0). Grounded in the current code, not aspiration.
   + Revert all), reached from the Versions list (agent edits are auto-snapshotted), so
   it needed NO change to the agent apply loop.
 
-All P0 + P1 from this audit are now implemented. Next depth = P2 (settings/dark theme,
-file rename/move, terminal everywhere, outline, image viewer) + applying full tabs to
-folder mode.
+All P0 + P1 from this audit are now implemented.
+
+## P2 progress
+- ✅ **Editor settings + oioxo Dark theme** — `EditorSettings.tsx` (persisted, synced
+  prefs: theme / font size / tab size / word wrap / minimap; gear popover). `CodeEditor`
+  reads them via `useEditorSettings` and defines a brand `oioxo-dark` Monaco theme
+  (gold-on-near-black) — the editor is no longer forced light. Gear in Build + GitHub.
+- ✅ **File rename** — pencil action in `FileTree`, wired on Build + GitHub (keeps tabs
+  in sync). (Rename also covers "move" — change the path's folder.)
+- ✅ **Outline view** — `lib/oioxo/outline.ts` (pure, language-aware symbol extractor,
+  unit-tested) + `OutlinePanel.tsx` (collapsible, jump-to-line) on Build + GitHub.
+- ⏳ Still open P2: integrated terminal on every surface, image/binary viewer, full
+  tabs in folder mode, drag-to-move + create-folder.
 
 ## Recommended build order (feel-per-effort)
 1. **Self-host Monaco + workers** (kills the "nothing happens" bug, offline, no 3rd

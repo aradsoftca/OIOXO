@@ -57,6 +57,8 @@ import ProblemsPanel from './ProblemsPanel';
 import DiffModal from './DiffModal';
 import CommandPalette, { type PaletteCommand } from './CommandPalette';
 import EditorSettingsButton from './EditorSettings';
+import OutlinePanel from './OutlinePanel';
+import { extractOutline } from '@/lib/oioxo/outline';
 import { useProjectDiagnostics } from './useDiagnostics';
 
 type Phase = 'idle' | 'starting' | 'ready';
@@ -113,6 +115,11 @@ export default function NewProject({ match }: { match: string[] }) {
     openFile(file.replace(/^\.?\//, ''));
     setReveal({ line, column, key: Date.now() });
   }, [openFile]);
+  // Outline of the active file (symbols → jump-to-line).
+  const outline = React.useMemo(
+    () => (activePath ? extractOutline(activePath, files.find((f) => f.path === activePath)?.content ?? '') : []),
+    [activePath, files],
+  );
 
   // RUNTIME oracle for web/UI/games: the agent verifies by actually running the
   // preview and catching runtime errors (OIOXO_CODE §4) — real signal where the
@@ -568,6 +575,7 @@ export default function NewProject({ match }: { match: string[] }) {
             onDelete={(p) => void removeFile(p)}
             onRename={(p) => void renameFile(p)}
           />
+          <OutlinePanel items={outline} onJump={(line) => { setReveal({ line, column: 1, key: Date.now() }); }} />
           <form onSubmit={(e) => { e.preventDefault(); void addFile(); }} className="mt-1 px-1">
             <input
               value={newName}

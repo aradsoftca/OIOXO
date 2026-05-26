@@ -63,6 +63,659 @@ test('codegen: parseEdits captures path-fences, language-fences, and unfenced co
   assert.equal(u.length, 1); assert.equal(u[0].path, 'index.html');
   // pure prose → nothing
   assert.equal(parseEdits('I think you should add a canvas and a loop.', proj).length, 0);
+  // REGRESSION (found by live 0.5B-coder): a single-target REPAIR answered in prose
+  // must NOT overwrite the file with that prose. No fence + not code-shaped → no edit.
+  const prose = parseEdits('SEARCH/REPLACE: Replace `ms` with `1000` in the debounce function definition.', proj, 'game.js');
+  assert.equal(prose.length, 0, 'prose repair reply must not become the file');
+  // but a real fenced code reply in single-target mode is still accepted
+  const real = parseEdits('```\nconst x = 1;\n```', proj, 'game.js');
+  assert.equal(real.length, 1); assert.equal(real[0].path, 'game.js'); assert.ok(real[0].content.includes('const x = 1;'));
+  // unfenced but clearly code (has braces/arrow) → accepted in single-target mode
+  assert.equal(parseEdits('export const f = () => { return 2; };', proj, 'game.js').length, 1);
+  // REGRESSION (live "i see nothing"): a messy fence info line "typescript // index.html"
+  // must map to index.html with the fence STRIPPED — never leak "```typescript" into the file.
+  const messy = parseEdits('```typescript // index.html\n<!doctype html><html><body><canvas></canvas></body></html>\n```', proj);
+  assert.equal(messy.length, 1); assert.equal(messy[0].path, 'index.html');
+  assert.ok(!messy[0].content.includes('```') && !/typescript \/\/ index\.html/.test(messy[0].content), 'fence + label stripped');
+  assert.ok(messy[0].content.includes('<canvas>'));
+  // an INCOMPLETE fence (cut-off stream, no closing ```) must still strip the leading fence
+  const cut = parseEdits('```html\n<!doctype html><html><body><h1>hi</h1></body></html>', [{ path: 'index.html' }]);
+  assert.ok(cut.length === 1 && !cut[0].content.startsWith('```') && cut[0].content.includes('<h1>'));
+  // single-target: a fenced reply with a stray leading fence → content has no backticks
+  const st = parseEdits('```html\n<div>x</div>\n```', proj, 'index.html');
+  assert.ok(!st[0].content.includes('```') && st[0].content.includes('<div>x</div>'));
+});
+
+// ---------- patch (diff-not-rewrite, the weak-device magic) ----------
+test('patch: parsePatches reads single + multi-file search/replace blocks', async () => {
+  const { parsePatches } = await import('../lib/oioxo/patch.ts');
+  // single, path-less → uses default
+  const one = parsePatches('<<<<<<< SEARCH\nconst x = 1\n=======\nconst x = 2\n>>>>>>> REPLACE', 'a.js');
+  assert.equal(one.length, 1);
+  assert.equal(one[0].path, 'a.js');
+  assert.equal(one[0].search.trim(), 'const x = 1');
+  assert.equal(one[0].replace.trim(), 'const x = 2');
+  // multi-file with *** path markers
+  const multi = parsePatches(
+    '*** src/a.js\n<<<<<<< SEARCH\na\n=======\nA\n>>>>>>> REPLACE\n*** src/b.js\n<<<<<<< SEARCH\nb\n=======\nB\n>>>>>>> REPLACE',
+  );
+  assert.deepEqual(multi.map((h) => h.path), ['src/a.js', 'src/b.js']);
+  // tolerant marker lengths / casing + prose around it
+  assert.equal(parsePatches('sure:\n<<<< search\nfoo\n====\nbar\n>>>> replace\nok').length, 1);
+});
+
+test('patch: applyHunks tolerance ladder (exact, indentation drift, blank drift, refusal)', async () => {
+  const { applyHunks } = await import('../lib/oioxo/patch.ts');
+  const file = 'function f() {\n    return 1;\n}\n';
+  // exact
+  assert.ok(applyHunks(file, [{ search: '    return 1;', replace: '    return 2;' }]).content.includes('return 2;'));
+  // indentation drift in SEARCH (model wrote no indent) still matches via per-line trim
+  const drift = applyHunks(file, [{ search: 'return 1;', replace: '    return 42;' }]);
+  assert.equal(drift.applied, 1); assert.ok(drift.content.includes('return 42;'));
+  // blank-line drift inside the block (loose match)
+  const blanks = applyHunks('a\nb\nc\n', [{ search: 'a\n\nb\n\nc', replace: 'X\nY\nZ' }]);
+  assert.equal(blanks.applied, 1); assert.ok(blanks.content.startsWith('X\nY\nZ'));
+  // a search that isn't there → REFUSED, file untouched (never corrupt on a guess)
+  const miss = applyHunks(file, [{ search: 'return 999;', replace: 'boom' }]);
+  assert.equal(miss.failed, 1); assert.equal(miss.content, file);
+  // empty SEARCH = whole/new file
+  assert.equal(applyHunks('old', [{ search: '', replace: 'brand new' }]).content, 'brand new');
+});
+
+test('patch: applyPatchReply → full-file edits, only for changed files', async () => {
+  const { applyPatchReply, estimateTokens } = await import('../lib/oioxo/patch.ts');
+  const files = [
+    { path: 'a.js', content: 'const n = "5";\nexport default n;\n' },
+    { path: 'b.js', content: 'export const ok = true;\n' },
+  ];
+  const reply = '*** a.js\n<<<<<<< SEARCH\nconst n = "5";\n=======\nconst n = 5;\n>>>>>>> REPLACE';
+  const r = applyPatchReply(reply, files);
+  assert.equal(r.applied, 1); assert.equal(r.failed, 0);
+  assert.deepEqual(r.edits.map((e) => e.path), ['a.js']); // b.js unchanged → not emitted
+  assert.ok(r.edits[0].content.includes('const n = 5;'));
+  // the whole point: the model's reply is far cheaper than reprinting the file
+  assert.ok(estimateTokens(reply) > 0);
+  // no recognizable patch → empty (caller falls back to whole-file)
+  assert.equal(applyPatchReply('just some prose, no edits', files).edits.length, 0);
+});
+
+// ---------- bricks (verified-brick corpus, the weak-device magic) ----------
+test('bricks: every seed brick passes the type oracle (verified by construction)', async () => {
+  const { buildBrickSeed, SEED_BRICKS } = await import('../lib/oioxo/bricks.ts');
+  const r = await buildBrickSeed();
+  assert.equal(r.rejected.length, 0, 'rejected: ' + JSON.stringify(r.rejected));
+  assert.equal(r.bricks.length, SEED_BRICKS.length);
+  assert.ok(SEED_BRICKS.every((b) => b.verified && b.code.trim().length > 0));
+});
+
+test('bricks: matchBricks retrieves the right unit + no false positive on off-topic', async () => {
+  const { matchBricks } = await import('../lib/oioxo/bricks.ts');
+  const top = (q) => { const h = matchBricks(q); return h[0] ? h[0].kind + ':' + h[0].title.split(' —')[0] : null; };
+  assert.ok(/debounce/i.test(top('add a debounce helper for the search box') || ''));
+  assert.ok(/stack/i.test(top('I need a typed stack data structure') || ''));
+  assert.ok(/intersects/i.test(top('detect collision between two rectangles') || ''));
+  assert.ok(/fetchJson/i.test(top('fetch json from an api') || ''));
+  assert.equal(matchBricks('write a poem about the sea').length, 0); // unrelated → no noise
+  assert.equal(matchBricks('').length, 0);
+});
+
+test('bricks: harvest a green build into a tagged, verified brick (+ dedupe id)', async () => {
+  const { brickFromVerifiedBuild, harvestTags, brickId } = await import('../lib/oioxo/bricks.ts');
+  const files = [
+    { path: 'README.md', content: '# docs' },
+    { path: 'src/slugify.ts', content: 'export const slugify = (s: string) => s.toLowerCase().replace(/\\s+/g, "-");\n' },
+    { path: 'src/slugify.test.ts', content: 'test("x", () => {});' },
+  ];
+  const b = brickFromVerifiedBuild('build a slugify utility for blog titles', files);
+  assert.equal(b.lang, 'ts'); assert.equal(b.origin, 'trajectory'); assert.equal(b.verified, true);
+  assert.ok(b.code.includes('slugify')); // picked the source, not the README or test
+  assert.ok(b.tags.includes('slugify') && b.tags.includes('blog')); // goal + filename, no stopwords
+  assert.ok(!b.tags.includes('for') && !b.tags.includes('build'));
+  assert.equal(brickId(b.code, b.kind), b.id); // stable content-hash id (dedupe)
+  // no usable code file → null
+  assert.equal(brickFromVerifiedBuild('docs only', [{ path: 'a.md', content: '# x' }]), null);
+});
+
+test('bricks: renderBricksForPrompt yields a compact reuse block', async () => {
+  const { matchBricks, renderBricksForPrompt } = await import('../lib/oioxo/bricks.ts');
+  const txt = renderBricksForPrompt(matchBricks('debounce the input'));
+  assert.ok(/reuse or adapt/i.test(txt));
+  assert.ok(/```ts/.test(txt) && /debounce/.test(txt));
+  assert.equal(renderBricksForPrompt([]), '');
+});
+
+// ---------- brick sharing (P2P corpus pooling, trust-nothing gate) ----------
+test('brick-share: brickMessages + BrickShareReceiver round-trip', async () => {
+  const { brickMessages, BrickShareReceiver } = await import('../lib/oioxo/brick-share.ts');
+  const { SEED_BRICKS } = await import('../lib/oioxo/bricks.ts');
+  const sample = SEED_BRICKS.slice(0, 3);
+  const rx = new BrickShareReceiver();
+  let got = null;
+  for (const m of brickMessages(sample)) { const r = rx.accept(m); if (r) got = r; }
+  assert.equal(got.length, 3);
+  assert.deepEqual(got.map((b) => b.title), sample.map((b) => b.title));
+  assert.deepEqual(rx.progress(), { received: 3, total: 3 });
+});
+
+test('brick-share: revalidateForImport TRUSTS NOTHING — re-proves locally', async () => {
+  const { revalidateForImport } = await import('../lib/oioxo/bricks.ts');
+  const incoming = [
+    // honest, type-correct → accepted (and re-proven, not trusted on its flag)
+    { id: 'spoofed', title: 'add two', kind: 'util', tags: ['add'], lang: 'ts', origin: 'seed', verified: true,
+      code: 'export const add = (a: number, b: number): number => a + b;\n' },
+    // a LYING brick: claims verified but has a type error → our oracle rejects it
+    { id: 'evil', title: 'malware', kind: 'util', tags: ['x'], lang: 'ts', origin: 'seed', verified: true,
+      code: 'export const n: number = "not a number";\n' },
+    // a lang we cannot prove in Node → rejected rather than trusted
+    { id: 'h', title: 'page', kind: 'dom', tags: ['html'], lang: 'html', origin: 'seed', verified: true,
+      code: '<script>fetch("//evil")</script>' },
+  ];
+  const r = await revalidateForImport(incoming);
+  assert.equal(r.accepted.length, 1);
+  assert.equal(r.accepted[0].title, 'add two');
+  assert.equal(r.accepted[0].origin, 'user');          // never inherits 'seed'
+  assert.notEqual(r.accepted[0].id, 'spoofed');         // id re-derived from content
+  assert.equal(r.accepted[0].verified, true);           // because WE proved it
+  assert.equal(r.rejected.length, 2);
+  assert.ok(r.rejected.some((x) => /oracle rejected/.test(x.reason)));   // the liar
+  assert.ok(r.rejected.some((x) => /can't prove html/.test(x.reason)));  // unverifiable lang
+});
+
+// ---------- checks (checks-before-code, dense oracle for any goal) ----------
+test('checks: deriveChecks reads features from any goal + always a content baseline', async () => {
+  const { deriveChecks } = await import('../lib/oioxo/checks.ts');
+  const names = (g) => deriveChecks(g).map((c) => c.name);
+  // a goal with NO recipe still gets behavioral checks (the gap lever 3 closes)
+  const counter = names('a button that increases a counter when clicked');
+  assert.ok(counter.some((n) => /content/i.test(n)), 'baseline content check always present');
+  assert.ok(counter.some((n) => /button/i.test(n)));
+  assert.ok(counter.some((n) => /click/i.test(n)));
+  assert.ok(counter.some((n) => /number/i.test(n)));
+  // feature words map to their checks
+  assert.ok(names('a photo gallery').some((n) => /image/i.test(n)));
+  assert.ok(names('a contact form').some((n) => /form fields/i.test(n)));
+  assert.ok(names('move the player with arrow keys').some((n) => /keyboard/i.test(n)));
+  // contentless prose → just the baseline (no false feature checks)
+  const bare = deriveChecks('something nice');
+  assert.equal(bare.length, 1);
+  assert.ok(/content/i.test(bare[0].name));
+});
+
+test('checks: recipe checks win + dedupe + capped (stays satisfiable)', async () => {
+  const { deriveChecks, mergeChecks } = await import('../lib/oioxo/checks.ts');
+  const { recipeFor } = await import('../lib/oioxo/recipes.ts');
+  const pac = deriveChecks('build a pacman game');
+  assert.ok(pac.length <= 6, 'capped so a weak model can satisfy it');
+  // authored recipe canvas checks are present (and not duplicated by derived ones)
+  const recNames = (recipeFor('pacman game').checks || []).map((c) => c.name);
+  assert.ok(recNames.every((rn) => pac.some((c) => c.name === rn)));
+  const srcs = pac.map((c) => c.src);
+  assert.equal(new Set(srcs).size, srcs.length, 'no duplicate src');
+  // mergeChecks dedupes by name and by src
+  const a = { name: 'X', src: 's1' }, b = { name: 'x', src: 's2' }, c = { name: 'Y', src: 's1' };
+  assert.equal(mergeChecks([a], [b], [c]).length, 1);
+});
+
+// ---------- publish / show a finished site (roadmap #4) ----------
+test('publish: inlineSite folds a static site into one self-contained HTML', async () => {
+  const { inlineSite, preparePublish, publishTargets } = await import('../lib/oioxo/publish.ts');
+  const files = [
+    { path: 'index.html', content: '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><h1>Hi</h1><script src="./app.js"></script></body></html>' },
+    { path: 'style.css', content: 'h1{color:red}' },
+    { path: 'app.js', content: 'console.log("hi")' },
+    { path: 'README.md', content: 'docs' },
+  ];
+  const html = inlineSite(files);
+  assert.ok(html.includes('<style>') && html.includes('h1{color:red}'), 'css inlined');
+  assert.ok(html.includes('console.log("hi")'), 'js inlined');
+  assert.ok(!/href="[^"]*style\.css"/.test(html) && !/src="[^"]*app\.js"/.test(html), 'no local link/src left');
+  // remote refs are left untouched
+  const remote = inlineSite([{ path: 'index.html', content: '<link rel="stylesheet" href="https://cdn/x.css"><body></body>' }]);
+  assert.ok(remote.includes('https://cdn/x.css'));
+  // preparePublish: static site → one html bundle; node project → file tree + gh-pages adds .nojekyll
+  assert.ok(preparePublish(files, 'bundle').html.includes('<style>'));
+  const gh = preparePublish(files, 'github-pages');
+  assert.equal(gh.branch, 'gh-pages');
+  assert.ok(gh.files.some((f) => f.path === '.nojekyll'));
+  const node = preparePublish([{ path: 'package.json', content: '{}' }, { path: 'server.js', content: '' }], 'bundle');
+  assert.ok(node.files && !node.html, 'a node project ships as files, not one html');
+  assert.ok(publishTargets().length === 3);
+});
+
+// ---------- quality gates (roadmap #5) ----------
+test('checks: quality gates are opt-in, sound (vacuous), and extend beyond the cap', async () => {
+  const { deriveChecks, qualityChecks } = await import('../lib/oioxo/checks.ts');
+  const plain = deriveChecks('a photo gallery');
+  const withQ = deriveChecks('a photo gallery', { quality: true });
+  // quality adds checks on top of feature checks (beyond the 6 cap)
+  assert.ok(withQ.length > plain.length);
+  assert.ok(withQ.some((c) => /alt text/i.test(c.name)));
+  // default stays unchanged (back-compat: numeric cap still works)
+  assert.ok(deriveChecks('a photo gallery', 6).length <= 6);
+  // soundness pattern: each quality check is vacuously true when its element is absent
+  for (const c of qualityChecks()) {
+    assert.ok(/\.every\b|__oioxo/.test(c.src), `quality check "${c.name}" should be vacuous-sound`);
+  }
+});
+
+// ---------- model escalation policy (roadmap #3) ----------
+test('escalate: chooseCoder sizes the model to hardware + difficulty + resources', async () => {
+  const { chooseCoder, shouldOffloadOracle } = await import('../lib/oioxo/escalate.ts');
+  // baseline by hardware
+  assert.equal(chooseCoder({ hardware: 'none' }).tier, 'wasm');
+  assert.equal(chooseCoder({ hardware: 'low' }).tier, 'wasm');
+  assert.equal(chooseCoder({ hardware: 'mid' }).tier, 'webgpu-small');
+  assert.equal(chooseCoder({ hardware: 'high' }).tier, 'webgpu-small');
+  // stuck → escalate to the strongest AVAILABLE tier (frontier > local-big > peer)
+  assert.equal(chooseCoder({ hardware: 'mid', stuck: 2, hasFrontierKey: true, hasLocalBig: true }).tier, 'frontier');
+  assert.equal(chooseCoder({ hardware: 'mid', stuck: 2, hasLocalBig: true }).tier, 'local-big');
+  assert.equal(chooseCoder({ hardware: 'low', stuck: 3, hasPeer: true }).tier, 'distributed');
+  // stuck but nothing stronger → stay on-device (loop searches wider)
+  assert.equal(chooseCoder({ hardware: 'low', stuck: 3 }).tier, 'wasm');
+  // large project on capable hw with a bigger local model → use it
+  assert.equal(chooseCoder({ hardware: 'high', large: true, hasLocalBig: true }).tier, 'local-big');
+  // offload heavy verify to a peer when the device is weak
+  assert.equal(shouldOffloadOracle({ hardware: 'low', hasPeer: true }), true);
+  assert.equal(shouldOffloadOracle({ hardware: 'high', hasPeer: true }), false);
+});
+
+// ---------- long-horizon project planner (roadmap #2) ----------
+test('plan-project: dependency-ordered multi-step plan from the capability graph', async () => {
+  const { planProject, isLargeProject } = await import('../lib/oioxo/plan-project.ts');
+  // todo matches a RECIPE → authored decomposed steps shape the plan
+  const p = planProject('a todo list app that saves my items');
+  const titles = p.steps.map((s) => s.title);
+  assert.ok(/scaffold/i.test(titles[0]), 'scaffolds first');
+  assert.ok(/wire|verify/i.test(titles[titles.length - 1]), 'verifies last');
+  assert.equal(p.recipeKind, 'list-app');
+  assert.ok(p.steps.length >= 4, 'a real multi-step plan, not one blob');
+  // a goal with NO recipe → composed from the capability graph (deps ordered)
+  const comp = planProject('a counter with a theme toggle button');
+  assert.equal(comp.recipeKind, undefined);
+  assert.ok(comp.steps.some((s) => /counter/i.test(s.title)), 'composed a counter brick step');
+  assert.ok(comp.steps.some((s) => /theme/i.test(s.title)), 'composed a theme brick step');
+  // a known recipe shapes the plan (game → canvas-game steps)
+  const game = planProject('a snake game on canvas');
+  assert.equal(game.recipeKind, 'canvas-game');
+  assert.ok(game.steps.length >= 4);
+  // large-project detector
+  assert.equal(isLargeProject('a todo app that saves'), true);
+  assert.equal(isLargeProject('reverse a string'), false);
+});
+
+// ---------- on-device learning: federated LoRA merge (Gem 4) ----------
+test('lora: federated mergeDeltas (FedAvg weighted by samples) + job assembly', async () => {
+  const { mergeDeltas, scaleDelta, buildLoraJob, StubTrainer } = await import('../lib/oioxo/lora.ts');
+  // device A learned from 1 example, device B from 3 → B pulls 3x harder
+  const A = { base: 'qwen-coder', samples: 1, tensors: { w: [2, 4] } };
+  const B = { base: 'qwen-coder', samples: 3, tensors: { w: [4, 8] } };
+  const m = mergeDeltas([A, B]);
+  assert.deepEqual(m.tensors.w, [(2 * 1 + 4 * 3) / 4, (4 * 1 + 8 * 3) / 4]); // [3.5, 7]
+  assert.equal(m.samples, 4);
+  // never merge across different base models
+  const x = mergeDeltas([A, { base: 'other', samples: 9, tensors: { w: [99, 99] } }]);
+  assert.deepEqual(x.tensors.w, [2, 4]); // only A's base contributes
+  // shape mismatch for a tensor is skipped, not averaged into garbage
+  const y = mergeDeltas([{ base: 'b', samples: 1, tensors: { w: [1, 2] } }, { base: 'b', samples: 1, tensors: { w: [1, 2, 3] } }]);
+  assert.deepEqual(y.tensors.w, [1, 2]);
+  // scaleDelta (trust a fresh federated delta less)
+  assert.deepEqual(scaleDelta(A, 0.5).tensors.w, [1, 2]);
+  // job assembly from oracle-labeled examples
+  const job = buildLoraJob([{ role: 'fix', messages: [{ role: 'user', content: 'u' }, { role: 'assistant', content: 'a' }] }], { base: 'qwen-coder' });
+  assert.equal(job.base, 'qwen-coder'); assert.equal(job.examples.length, 1); assert.ok(job.rank > 0);
+  // stub trainer is honest (no-op delta) and conforms to the interface
+  assert.equal((await StubTrainer.train(job)).samples, 0);
+});
+
+// ---------- record-replay debugging (Gem 7) ----------
+test('debug-trace: faultWindow isolates the steps + last state before a failure', async () => {
+  const { faultWindow, formatFault, seedScript } = await import('../lib/oioxo/debug-trace.ts');
+  const trace = [
+    { seq: 0, kind: 'event', label: 'keydown' },
+    { seq: 1, kind: 'state', label: 'player', data: { x: 10, y: 5 } },
+    { seq: 2, kind: 'event', label: 'keydown' },
+    { seq: 3, kind: 'state', label: 'player', data: { x: NaN, y: 5 } },
+    { seq: 4, kind: 'log', label: 'moving' },
+    { seq: 5, kind: 'error', label: 'TypeError: cannot read x of undefined', data: 'game.js:42' },
+  ];
+  const fw = faultWindow(trace, 4);
+  assert.equal(fw.fault.seq, 5);
+  // the last state BEFORE the error is the corrupted one (x: NaN) — the real clue
+  assert.deepEqual(fw.lastState.data, { x: NaN, y: 5 });
+  assert.ok(fw.window.length <= 5 && fw.window[fw.window.length - 1].kind === 'error');
+  const text = formatFault(fw);
+  assert.ok(/Last known state/.test(text) && /Failure:/.test(text) && /cannot read x/.test(text));
+  // no error in the trace → tail context, no throw
+  assert.equal(faultWindow(trace.slice(0, 3)).fault, undefined);
+  // seed snippet is deterministic JS (smoke)
+  assert.ok(seedScript(7).includes('Math.random'));
+});
+
+// ---------- project history (never lose work, time-travel green) ----------
+test('history: dedupe + keep milestones + prune old edits + lastGreen', async () => {
+  const { makeSnapshot, addToHistory, lastGreen, changedPaths, sameFiles } = await import('../lib/oioxo/history.ts');
+  const f = (c) => [{ path: 'a.js', content: c }];
+  let h = [];
+  h = addToHistory(h, makeSnapshot('scaffold', 'start', f('v0')));
+  h = addToHistory(h, makeSnapshot('edit', 'e1', f('v1')));
+  // identical files → no new row (dedupe), but a green milestone upgrades the reason
+  const before = h.length;
+  h = addToHistory(h, makeSnapshot('green', 'works', f('v1')));
+  assert.equal(h.length, before, 'identical state did not add a row');
+  assert.equal(h[h.length - 1].reason, 'green', 'reason upgraded edit→green on same state');
+  // prune: many edits keep only the most recent N, but milestones survive
+  for (let i = 0; i < 40; i++) h = addToHistory(h, makeSnapshot('edit', 'e' + i, f('x' + i)), 10);
+  assert.ok(h.filter((s) => s.reason === 'edit').length <= 10, 'edits pruned to cap');
+  assert.ok(h.some((s) => s.reason === 'scaffold') && h.some((s) => s.reason === 'green'), 'milestones never pruned');
+  assert.equal(lastGreen(h)?.label, 'works');
+  // changedPaths + sameFiles
+  assert.deepEqual(changedPaths(f('a'), [{ path: 'a.js', content: 'b' }, { path: 'b.js', content: 'n' }]).sort(), ['a.js', 'b.js']);
+  assert.ok(sameFiles(f('z'), f('z')) && !sameFiles(f('z'), f('y')));
+});
+
+// ---------- instant server-free preview (weak-device "see results") ----------
+test('preview: route static vs server + build a self-contained srcdoc', async () => {
+  const { needsServer, previewKind, buildStaticPreview } = await import('../lib/oioxo/preview.ts');
+  // a plain static site → static (no WebContainer needed)
+  const site = [
+    { path: 'index.html', content: '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><h1>Hi</h1><script src="app.js"></script></body></html>' },
+    { path: 'style.css', content: 'h1{color:teal}' },
+    { path: 'app.js', content: 'document.querySelector("h1").title="hi"' },
+  ];
+  assert.equal(previewKind(site), 'static');
+  const doc = buildStaticPreview(site);
+  assert.ok(doc.includes('<style>') && doc.includes('h1{color:teal}'), 'css inlined');
+  assert.ok(doc.includes('document.querySelector') && !/src="app\.js"/.test(doc), 'js inlined, no local src');
+  // a Node/express project → server (WebContainer)
+  const node = [
+    { path: 'package.json', content: '{"scripts":{"start":"node server.js"},"dependencies":{"express":"^4"}}' },
+    { path: 'server.js', content: 'const e=require("express")();e.listen(3000)' },
+  ];
+  assert.equal(needsServer(node), true);
+  assert.equal(previewKind(node), 'server');
+  // a JS-only sketch (no html) → synthesize a runnable canvas shell
+  const sketch = [{ path: 'game.js', content: 'const c=document.getElementById("game");c.getContext("2d").fillRect(0,0,10,10)' }, { path: 'style.css', content: 'body{background:#111}' }];
+  assert.equal(needsServer(sketch), false);
+  const shell = buildStaticPreview(sketch);
+  assert.ok(/<canvas/.test(shell) && shell.includes('fillRect') && shell.includes('background:#111'));
+  // headInject (e.g. the runtime probe) lands in the doc
+  assert.ok(buildStaticPreview(site, { headInject: '<script>window.__probe=1</script>' }).includes('window.__probe=1'));
+});
+
+// ---------- seeded verified library (cold-start corpus) ----------
+test('brick-library: every seeded brick is oracle-validated (type-checks clean)', async () => {
+  const { buildBrickSeed } = await import('../lib/oioxo/bricks.ts');
+  const { LIBRARY_BRICKS } = await import('../lib/oioxo/brick-library.ts');
+  assert.ok(LIBRARY_BRICKS.length >= 30, 'a real library, not a stub');
+  const r = await buildBrickSeed(LIBRARY_BRICKS);
+  assert.equal(r.rejected.length, 0, 'rejected: ' + JSON.stringify(r.rejected.slice(0, 3)));
+  assert.equal(r.bricks.length, LIBRARY_BRICKS.length);
+  // unique ids (no accidental dupes that would collide in the store)
+  const ids = new Set(LIBRARY_BRICKS.map((b) => b.id));
+  assert.equal(ids.size, LIBRARY_BRICKS.length, 'duplicate brick ids');
+});
+
+// ---------- semantic retrieval (the "any device" keystone) ----------
+test('embed: cosine + semanticRank rank by MEANING (fake embedder) + cache corpus once', async () => {
+  const { cosine, semanticRank } = await import('../lib/oioxo/embed.ts');
+  assert.ok(cosine([1, 0, 0], [1, 0, 0]) > 0.99);
+  assert.ok(Math.abs(cosine([1, 0, 0], [0, 1, 0])) < 0.01);
+  // a fake embedder: deterministic vectors so we test RANKING, not the model
+  const V = { 'delay typing': [1, 0, 0], 'debounce wait': [0.95, 0.1, 0], 'stack lifo': [0, 1, 0], 'fetch http': [0, 0, 1] };
+  let calls = 0;
+  const embed = async (texts) => { calls++; return texts.map((t) => V[t] || [0, 0, 0]); };
+  const items = ['debounce wait', 'stack lifo', 'fetch http'];
+  const r = await semanticRank('delay typing', items, (x) => x, embed, { k: 3, min: 0 });
+  assert.equal(r[0].item, 'debounce wait', 'closest by meaning ranks first');
+  assert.ok(r[0].score > r[1].score);
+  // vector cache: the corpus is embedded once; a second query only embeds the query
+  const cache = new Map(); calls = 0;
+  await semanticRank('delay typing', items, (x) => x, embed, { vecCache: cache, min: 0 });
+  const after1 = calls;
+  await semanticRank('debounce wait', items, (x) => x, embed, { vecCache: cache, min: 0 });
+  assert.equal(calls - after1, 1, 'corpus cached → only the new query is embedded');
+});
+
+// ---------- "any device": remote coder + device strategy ----------
+test('escalate: codeSources + loopProfile route weak devices to cheap-first inference', async () => {
+  const { codeSources, loopProfile } = await import('../lib/oioxo/escalate.ts');
+  // no-GPU device: replay/compose FIRST (free), then borrowed inference, wasm LAST
+  const weak = codeSources({ hardware: 'none', hasPeer: true, hasServer: true, hasFrontierKey: true });
+  assert.deepEqual(weak.slice(0, 2), ['replay', 'compose'], 'free sources tried first');
+  assert.ok(weak.indexOf('wasm') === weak.length - 1, 'slow local model is the LAST resort');
+  assert.ok(weak.includes('peer') && weak.includes('server') && weak.includes('frontier'));
+  assert.ok(!weak.includes('webgpu'), 'no webgpu offered on a no-GPU device');
+  // capable device uses its on-device coder, no wasm fallback
+  const strong = codeSources({ hardware: 'high' });
+  assert.ok(strong.includes('webgpu') && !strong.includes('wasm'));
+  // weak local profile = more iterations of cheap patches + brick-heavy; remote = lean
+  const w = loopProfile({ hardware: 'none' }, 'wasm');
+  assert.ok(w.maxIters >= 8 && w.bricksHeavy && w.maxFiles <= 12);
+  assert.ok(loopProfile({ hardware: 'none' }, 'peer').maxIters <= 4);
+});
+
+test('remote-coder: HTTP + peer offload generation, drop into the loop', async () => {
+  const { makeHttpCoder, makePeerCoder, serveCoder } = await import('../lib/oioxo/remote-coder.ts');
+  const { runCodeLoop } = await import('../lib/oioxo/codeloop.ts');
+  // HTTP coder: a fake endpoint returns edits → generate yields them
+  const fakeFetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    return { ok: true, json: async () => ({ edits: [{ path: 'a.ts', content: 'FIXED:' + body.task }] }) };
+  };
+  const httpGen = makeHttpCoder('https://gpu/code', { fetchImpl: fakeFetch });
+  const e = await httpGen({ task: 't', files: [{ path: 'a.ts', content: 'x' }], attempt: 0 });
+  assert.equal(e[0].content, 'FIXED:t');
+
+  // PEER coder over loopback: weak device's LOOP runs locally, a GPU peer generates
+  const reg = {};
+  const connect = (role, room, h) => {
+    reg[role] = h;
+    queueMicrotask(() => { if (reg.s && reg.r) { reg.s.onState?.('connected'); reg.r.onState?.('connected'); } });
+    const other = () => reg[role === 's' ? 'r' : 's'];
+    return { send: (d) => { const o = other(); if (o) queueMicrotask(() => o.onMessage?.(d)); return true; }, sendBinary: () => true, close: () => {} };
+  };
+  // the GPU peer's local generator fixes the file on the first ask
+  const peerCoder = makePeerCoder({ connect, timeoutMs: 2000 });
+  serveCoder(peerCoder.room, async () => [{ path: 'a.ts', content: 'FIXED' }], { connect });
+  await new Promise((r) => setTimeout(r, 10));
+  const res = await runCodeLoop({
+    task: 't', files: [{ path: 'a.ts', content: 'broken' }], testCmd: 'x', maxIters: 3,
+    generate: peerCoder.generate,
+    run: async (f) => ({ ok: f[0].content === 'FIXED', output: '', errors: f[0].content === 'FIXED' ? '' : 'e' }),
+  });
+  assert.equal(res.ok, true, 'weak device reached green via a peer-generated edit');
+  peerCoder.cancel();
+});
+
+// ---------- distributed oracle over P2P (Gem 5) ----------
+test('remote-oracle: a driver loop is verified by a remote worker (loopback)', async () => {
+  const { driveWithRemoteOracle, serveOracle } = await import('../lib/oioxo/remote-oracle.ts');
+  const { runCodeLoop } = await import('../lib/oioxo/codeloop.ts');
+  // loopback transport (same shape as the share tests)
+  const reg = {};
+  const connect = (role, room, h) => {
+    reg[role] = h;
+    queueMicrotask(() => { if (reg.s && reg.r) { reg.s.onState?.('connected'); reg.r.onState?.('connected'); } });
+    const other = () => reg[role === 's' ? 'r' : 's'];
+    return { send: (d) => { const o = other(); if (o) queueMicrotask(() => o.onMessage?.(d)); return true; }, sendBinary: () => true, close: () => {} };
+  };
+  // WORKER: its local oracle says green iff the file contains FIXED. Tracks jobs seen.
+  let jobs = 0;
+  const workerRun = async (files) => {
+    const ok = files.some((f) => f.content.includes('FIXED'));
+    return { ok, output: ok ? 'ok' : 'still red', errors: ok ? '' : 'TS1: broken' };
+  };
+  const driver = driveWithRemoteOracle({ connect, timeoutMs: 2000 });
+  serveOracle(driver.room, async (f, c) => { jobs++; return workerRun(f, c); }, { connect });
+  await new Promise((r) => setTimeout(r, 10)); // let the loopback connect
+
+  // The DRIVER runs the loop but every verification happens on the WORKER.
+  let attempt = 0;
+  const generate = async () => { attempt++; return [{ path: 'a.ts', content: attempt >= 2 ? 'FIXED' : 'broken' }]; };
+  const res = await runCodeLoop({ task: 't', files: [{ path: 'a.ts', content: 'broken' }], testCmd: 'verify', maxIters: 4, generate, run: driver.run });
+  assert.equal(res.ok, true, 'reached green via the remote oracle');
+  assert.ok(jobs >= 2, 'the worker actually did the verification work');
+  driver.cancel();
+});
+
+// ---------- regression safety (Gem 6b) ----------
+test('regression: guard flags a once-passing check that breaks + checkpoints all-green', async () => {
+  const { RegressionGuard, parseFailingChecks } = await import('../lib/oioxo/regression.ts');
+  const g = new RegressionGuard();
+  const f1 = [{ path: 'i.html', content: 'v1' }];
+  // step 1: only c1 exists and passes → all-green checkpoint
+  let u = g.update(f1, ['c1'], []);
+  assert.equal(u.ok, true); assert.equal(u.checkpointed, true);
+  // step 2: add c2; both pass → checkpoint advances
+  const f2 = [{ path: 'i.html', content: 'v2' }];
+  u = g.update(f2, ['c1', 'c2'], []);
+  assert.equal(u.checkpointed, true);
+  // step 3: an edit makes c1 (which passed before) fail → REGRESSION, not accepted
+  u = g.update([{ path: 'i.html', content: 'v3' }], ['c1', 'c2'], ['c1']);
+  assert.equal(u.ok, false);
+  assert.deepEqual(u.regressions, ['c1']);
+  assert.equal(u.checkpointed, false);
+  // rollback target is the last all-green files (v2)
+  assert.equal(g.lastGood()[0].content, 'v2');
+  // parse failing checks from a preview-oracle report
+  const p = parseFailingChecks('not yet: has a button\nReferenceError: x is not defined\nnot yet: shows a number');
+  assert.deepEqual(p.failing, ['has a button', 'shows a number']);
+  assert.equal(p.runtimeErrors.length, 1);
+});
+
+test('regression: makeRegressionRun turns a regression into a loop-fixable failure', async () => {
+  const { RegressionGuard, makeRegressionRun } = await import('../lib/oioxo/regression.ts');
+  const g = new RegressionGuard();
+  const checks = ['a', 'b'];
+  const base = async (files) => {
+    // oracle: fail the checks named in the file content (after "fail:")
+    const fail = (files[0].content.match(/fail:(.*)/)?.[1] || '').split(',').filter(Boolean);
+    return { ok: fail.length === 0, output: '', errors: fail.map((c) => 'not yet: ' + c).join('\n') };
+  };
+  const run = makeRegressionRun(base, g, () => checks);
+  // both pass → ok
+  assert.equal((await run([{ path: 'x', content: 'fail:' }], 'c')).ok, true);
+  // now break 'a' (passed before) → regression surfaced as a failure with a clear msg
+  const r = await run([{ path: 'x', content: 'fail:a' }], 'c');
+  assert.equal(r.ok, false);
+  assert.ok(/regression:.*a/.test(r.errors));
+});
+
+// ---------- capability graph for app composition (Gem 6) ----------
+test('compose-app: needs inference + dependency-ordered plan + glue gaps', async () => {
+  const { neededCapabilities, planApp, APP_BRICKS } = await import('../lib/oioxo/compose-app.ts');
+  // a todo app needs list state + ui + persistence
+  const needs = neededCapabilities('a todo list app that saves my items');
+  assert.deepEqual(needs, ['list-state', 'list-ui', 'persistence']);
+  const plan = planApp(needs, APP_BRICKS);
+  const order = plan.bricks.map((b) => b.provides[0]);
+  // list-state must come before list-ui (which requires it) and persistence (requires it)
+  assert.ok(order.indexOf('list-state') < order.indexOf('list-ui'), 'state before ui');
+  assert.ok(order.indexOf('list-state') < order.indexOf('persistence'), 'state before persistence');
+  assert.deepEqual(plan.glue, [], 'all todo needs covered by verified bricks');
+  assert.equal(plan.unmetRequires.length, 0);
+
+  // a need with no provider becomes GLUE the model must write
+  const plan2 = planApp(['list-state', 'voice-input'], APP_BRICKS);
+  assert.ok(plan2.satisfied.includes('list-state'));
+  assert.deepEqual(plan2.glue, ['voice-input']);
+
+  // transitive requires get pulled in even if only the top need is asked for
+  const plan3 = planApp(['list-ui'], APP_BRICKS);
+  assert.ok(plan3.bricks.some((b) => (b.provides || []).includes('list-state')), 'pulled in list-state dependency');
+});
+
+// ---------- trajectory replay / memoization (Gem 3) ----------
+test('solutions: match + replayMode thresholds', async () => {
+  const { makeSolution, matchSolution, replayMode } = await import('../lib/oioxo/solutions.ts');
+  const sols = [
+    makeSolution('build a todo list app', [{ path: 'i.html', content: '<ul></ul>' }]),
+    makeSolution('a snake game on canvas', [{ path: 'i.html', content: '<canvas></canvas>' }]),
+  ];
+  // exact (normalized) → score 1
+  assert.equal(matchSolution('Build a Todo List App', sols).score, 1);
+  // related → some overlap, picks the todo one
+  const m = matchSolution('make me a todo list', sols);
+  assert.ok(m && /todo/.test(m.solution.goal));
+  // unrelated → below floor → null
+  assert.equal(matchSolution('a php payment gateway', sols, 0.5), null);
+  assert.equal(replayMode(1), 'exact'); assert.equal(replayMode(0.6), 'warm'); assert.equal(replayMode(0.2), 'none');
+});
+
+test('solutions: replayOrBuild — exact replays (0 model calls), warm-starts, else scratch', async () => {
+  const { replayOrBuild, makeSolution } = await import('../lib/oioxo/solutions.ts');
+  const cached = makeSolution('build a todo list app', [{ path: 'i.html', content: '<ul id="list"></ul>' }]);
+  const recall = (goal) => Promise.resolve(
+    /todo/.test(goal) ? { solution: cached, score: goal === 'build a todo list app' ? 1 : 0.6 } : null);
+  // verify: the cached project is still green
+  const verifyOk = () => Promise.resolve({ ok: true, output: 'ok', errors: '' });
+  let built = 0;
+  const build = async (startFiles) => { built++; return { files: [...startFiles, { path: 'new.js', content: 'x' }], ok: true, iters: 1, modelCalls: 5 }; };
+
+  // 1) EXACT goal + verifies → replay, ZERO model calls, no build
+  const exact = await replayOrBuild({ goal: 'build a todo list app', scratchFiles: [], recall, verify: verifyOk, build });
+  assert.equal(exact.replayed, true); assert.equal(exact.modelCalls, 0); assert.equal(built, 0);
+
+  // 2) SIMILAR goal → warm start from the cached files (build sees them)
+  let warmStart = null;
+  const build2 = async (startFiles) => { warmStart = startFiles; return { files: startFiles, ok: true, iters: 1, modelCalls: 2 }; };
+  const warm = await replayOrBuild({ goal: 'make me a todo list', scratchFiles: [{ path: 'blank', content: '' }], recall, verify: () => Promise.resolve({ ok: false, output: '', errors: 'e' }), build: build2 });
+  assert.equal(warm.warmStarted, true);
+  assert.equal(warmStart[0].path, 'i.html', 'build started from the cached solution, not blank');
+
+  // 3) UNRELATED goal → scratch build
+  const scratch = await replayOrBuild({ goal: 'a php gateway', scratchFiles: [{ path: 'blank', content: '' }], recall, verify: verifyOk, build });
+  assert.equal(scratch.replayed, false); assert.equal(scratch.warmStarted, false);
+});
+
+// ---------- adaptive oracle search (Gem 2) ----------
+test('codeloop: adaptive search ramps candidates when stuck → green where single-shot fails', async () => {
+  const { runCodeLoop } = await import('../lib/oioxo/codeloop.ts');
+  // The "correct" fix only appears on the 4th generate call. A constant error makes
+  // the loop STUCK, so adaptive search must widen the candidate count to reach it.
+  const mk = (maxCandidates) => {
+    let calls = 0; let maxEffort = 0;
+    const generate = async (ctx) => {
+      calls++; maxEffort = Math.max(maxEffort, ctx.effort ?? 0);
+      const good = calls >= 4; // the winning candidate
+      return [{ path: 'a.js', content: good ? 'FIXED' : 'broken' }];
+    };
+    const run = async (files) => {
+      const ok = files.some((f) => f.path === 'a.js' && f.content === 'FIXED');
+      return { ok, output: ok ? 'ok' : 'E', errors: ok ? '' : 'TS1: constant error' };
+    };
+    return { generate, run, maxCandidates, get calls() { return calls; }, get maxEffort() { return maxEffort; } };
+  };
+  // Without adaptive (cap = base 1): only 1 call/attempt, 3 attempts → never hits call #4.
+  const flat = mk(undefined);
+  const r1 = await runCodeLoop({ task: 't', files: [{ path: 'a.js', content: 'broken' }], testCmd: 'x', maxIters: 3, generate: flat.generate, run: flat.run });
+  assert.equal(r1.ok, false, 'single-shot cannot reach the 4th candidate in 3 attempts');
+  // With adaptive (cap 4): stuck on the same error ramps candidates → reaches call #4 → green.
+  const ad = mk(4);
+  const r2 = await runCodeLoop({ task: 't', files: [{ path: 'a.js', content: 'broken' }], testCmd: 'x', maxIters: 3, candidates: 1, maxCandidates: 4, generate: ad.generate, run: ad.run });
+  assert.equal(r2.ok, true, 'adaptive search reaches green by widening when stuck');
+  assert.ok(ad.maxEffort >= 1, 'effort was escalated and passed to the generator');
+});
+
+// ---------- patch: constrained JSON edits (Gem 1) ----------
+test('patch: parseJsonEdits + parseAnyPatch (constrained-decoding repair format)', async () => {
+  const { parseJsonEdits, parseAnyPatch, applyHunks } = await import('../lib/oioxo/patch.ts');
+  // canonical {edits:[...]}
+  const a = parseJsonEdits('{"edits":[{"find":"ms: string","replace":"ms: number"}]}', 'u.ts');
+  assert.equal(a.length, 1); assert.equal(a[0].search, 'ms: string'); assert.equal(a[0].replace, 'ms: number'); assert.equal(a[0].path, 'u.ts');
+  // bare array + field aliases (old/new, search/with) + per-edit path
+  const b = parseJsonEdits('[{"old":"a","new":"b","path":"x.ts"},{"search":"c","with":"d"}]', 'def.ts');
+  assert.deepEqual(b.map((h) => [h.path, h.search, h.replace]), [['x.ts', 'a', 'b'], ['def.ts', 'c', 'd']]);
+  // tolerant: JSON wrapped in prose / fences still extracted
+  assert.equal(parseJsonEdits('Sure! ```json\n{"edits":[{"find":"x","replace":"y"}]}\n```', 'u.ts').length, 1);
+  // the prose that corrupted a file in the live test → NO edits (safe)
+  assert.equal(parseJsonEdits('SEARCH/REPLACE: Replace `ms` with a number.', 'u.ts').length, 0);
+  // parseAnyPatch prefers JSON, falls back to markers
+  assert.equal(parseAnyPatch('{"edits":[{"find":"x","replace":"y"}]}', 'u.ts').length, 1);
+  assert.equal(parseAnyPatch('<<<<<<< SEARCH\nx\n=======\ny\n>>>>>>> REPLACE', 'u.ts').length, 1);
+  // end-to-end: JSON edit applies via the same hunk engine
+  const r = applyHunks('let ms: string = 0;\n', parseJsonEdits('{"edits":[{"find":"ms: string","replace":"ms: number"}]}'));
+  assert.ok(r.content.includes('ms: number'));
 });
 
 // ---------- recipes (grounding) ----------
@@ -230,6 +883,115 @@ test('crypto: protect encrypt/decrypt + HKDF + wrong-key reject', async () => {
   assert.ok(threw);
   const a = await deriveUserKey(key, 'u1'), b = await deriveUserKey(key, 'u1'), c = await deriveUserKey(key, 'u2');
   assert.deepEqual([...a], [...b]); assert.notDeepEqual([...a], [...c]);
+});
+
+// ---------- session unlock (hard-like-a-rock model/corpus gate) ----------
+test('unlock: ECDHE session gate — recovers the key only with a live device-bound entitlement', async () => {
+  const { signEntitlement } = await import('../lib/oioxo/entitlement.ts');
+  const { randomKey, encryptAsset, decryptAsset } = await import('../lib/oioxo/protect.ts');
+  const { genEphemeral, mintUnlock, openUnlock, deriveAssetKey, isDenied } = await import('../lib/oioxo/unlock.ts');
+  const td = new TextDecoder();
+  const master = randomKey(), secret = 'server-master-secret', device = 'dev-1', assetId = 'coder-1.5b', release = 'v3';
+
+  // build-time: the model ships encrypted with the per-release asset key
+  const assetKey = await deriveAssetKey(master, assetId, release);
+  const encModel = await encryptAsset(new TextEncoder().encode('SECRET WEIGHTS 🧠'), assetKey);
+
+  // happy path: pro entitlement on this device → handshake → recovers the key → decrypts
+  const ent = await signEntitlement({ sub: 'u1', device, tier: 'pro', features: ['pro-coder'] }, secret, { ttlMs: 3600_000 });
+  const eph = await genEphemeral();
+  const grant = await mintUnlock({ entitlement: ent, device, assetId, clientPubB64: eph.publicKeyB64 }, { secret, assetKey, release, feature: 'pro-coder' });
+  assert.ok(!isDenied(grant), 'valid entitlement should grant');
+  const k = await openUnlock(eph, grant, 'u1', device);
+  assert.equal(td.decode(await decryptAsset(encModel, k)), 'SECRET WEIGHTS 🧠', 'recovered key decrypts the model');
+
+  // ATTACKS — every one must fail to yield the key:
+  // wrong device
+  const g1 = await mintUnlock({ entitlement: ent, device: 'other-dev', assetId, clientPubB64: eph.publicKeyB64 }, { secret, assetKey, release, feature: 'pro-coder' });
+  assert.ok(isDenied(g1) && g1.reason === 'device-mismatch');
+  // no Pro feature
+  const entFree = await signEntitlement({ sub: 'u2', device, tier: 'free', features: [] }, secret);
+  const g2 = await mintUnlock({ entitlement: entFree, device, assetId, clientPubB64: eph.publicKeyB64 }, { secret, assetKey, feature: 'pro-coder' });
+  assert.ok(isDenied(g2) && g2.reason === 'missing-feature');
+  // expired entitlement
+  const entOld = await signEntitlement({ sub: 'u1', device, tier: 'pro', features: ['pro-coder'] }, secret, { ttlMs: 1000, now: Date.now() - 120_000 });
+  const g3 = await mintUnlock({ entitlement: entOld, device, assetId, clientPubB64: eph.publicKeyB64 }, { secret, assetKey, feature: 'pro-coder' });
+  assert.ok(isDenied(g3) && g3.reason === 'expired');
+  // forged signature (attacker's own secret)
+  const entForged = await signEntitlement({ sub: 'h4x', device, tier: 'pro', features: ['pro-coder'] }, 'attacker-secret');
+  const g4 = await mintUnlock({ entitlement: entForged, device, assetId, clientPubB64: eph.publicKeyB64 }, { secret, assetKey, feature: 'pro-coder' });
+  assert.ok(isDenied(g4) && g4.reason === 'bad-signature');
+  // INTERCEPTED grant opened with the attacker's own ephemeral key → useless
+  const good = await mintUnlock({ entitlement: ent, device, assetId, clientPubB64: eph.publicKeyB64 }, { secret, assetKey, release, feature: 'pro-coder' });
+  const attacker = await genEphemeral();
+  let stolen = false;
+  try { stolen = td.decode(await decryptAsset(encModel, await openUnlock(attacker, good, 'u1', device))) === 'SECRET WEIGHTS 🧠'; } catch { stolen = false; }
+  assert.equal(stolen, false, 'a captured grant is useless without this session ephemeral private key');
+  // tampered wrapped blob → open throws
+  let threw = false;
+  try { await openUnlock(eph, { ...good, wrapped: { ...good.wrapped, ct: good.wrapped.ct.slice(0, -4) + 'AAAA' } }, 'u1', device); } catch { threw = true; }
+  assert.ok(threw, 'tampered grant must not open');
+});
+
+// ---------- shared usage/billing meter (same logic web + desktop) ----------
+test('usage-client: CodeMeter start/stop, clamp, fail-open, formatRemaining', async () => {
+  const { CodeMeter, formatRemaining } = await import('../lib/oioxo/usage-client.ts');
+  const calls = [];
+  const fakeFetch = async (url, init) => {
+    const body = JSON.parse(init.body); calls.push({ url, body, auth: init.headers.Authorization });
+    if (body.action === 'start') return { json: async () => ({ allowed: true, remainingSeconds: 1800 }) };
+    return { json: async () => ({ allowed: true, remainingSeconds: 1500 }) };
+  };
+  // desktop-style: absolute endpoint + bearer token; both surfaces share this class
+  const m = new CodeMeter({ endpoint: 'https://oioxo.com/api/usage/code', fetchImpl: fakeFetch, authHeaders: () => ({ Authorization: 'Bearer tok' }), maxReport: 600 });
+  const s = await m.start();
+  assert.equal(s.allowed, true); assert.ok(m.running);
+  assert.equal(calls[0].url, 'https://oioxo.com/api/usage/code');
+  assert.equal(calls[0].auth, 'Bearer tok', 'desktop bearer token forwarded');
+  await new Promise((r) => setTimeout(r, 1100)); // ≥1s so the report fires
+  const e = await m.stop();
+  assert.ok(e && e.remainingSeconds === 1500); assert.equal(m.running, false);
+  assert.equal(calls[1].body.action, 'report'); assert.ok(calls[1].body.seconds >= 0 && calls[1].body.seconds <= 600);
+  // blocked start → not running
+  const blocked = new CodeMeter({ fetchImpl: async () => ({ json: async () => ({ allowed: false, remainingSeconds: 0 }) }) });
+  assert.equal((await blocked.start()).allowed, false); assert.equal(blocked.running, false);
+  // network failure → fail OPEN (never lock out on a blip)
+  const down = new CodeMeter({ fetchImpl: async () => { throw new Error('offline'); } });
+  assert.equal((await down.start()).allowed, true);
+  // formatRemaining: unlimited vs minutes
+  assert.equal(formatRemaining(null), 'Unlimited');
+  assert.ok(/\d+ min of AI left/.test(formatRemaining(1800)));
+});
+
+// ---------- outline (editor symbol nav) ----------
+test('outline: extracts TS/CSS/MD symbols with line numbers', async () => {
+  const { extractOutline } = await import('../lib/oioxo/outline.ts');
+  const ts = extractOutline('a.ts', [
+    'export function foo() {}',          // 1
+    'const bar = () => 2;',              // 2
+    'export class Baz {}',               // 3
+    'interface Shape { x: number }',     // 4
+    'type Id = string;',                 // 5
+    'export const Config = { a: 1 };',   // 6  (Capitalized const → variable)
+    'let counter = 0;',                  // 7  (lowercase non-fn → ignored)
+  ].join('\n'));
+  const by = (n) => ts.find((s) => s.name === n);
+  assert.equal(by('foo')?.kind, 'function'); assert.equal(by('foo')?.line, 1);
+  assert.equal(by('bar')?.kind, 'function'); assert.equal(by('bar')?.line, 2);
+  assert.equal(by('Baz')?.kind, 'class');
+  assert.equal(by('Shape')?.kind, 'interface');
+  assert.equal(by('Id')?.kind, 'type');
+  assert.equal(by('Config')?.kind, 'variable');
+  assert.equal(by('counter'), undefined, 'lowercase non-function const is not noise');
+  // CSS selectors + at-rules
+  const css = extractOutline('s.css', '.btn {\n  color: red;\n}\n@media (max-width: 600px) {\n}');
+  assert.equal(css[0].name, '.btn'); assert.equal(css[0].kind, 'selector');
+  assert.ok(css.some((s) => s.kind === 'rule' && /@media/.test(s.name)));
+  // Markdown headings carry depth
+  const md = extractOutline('r.md', '# Title\n## Section\ntext\n### Sub');
+  assert.deepEqual(md.map((h) => [h.name, h.depth]), [['Title', 1], ['Section', 2], ['Sub', 3]]);
+  // unknown language → empty (no false symbols)
+  assert.deepEqual(extractOutline('x.bin', 'random bytes here'), []);
 });
 
 // ---------- run ----------

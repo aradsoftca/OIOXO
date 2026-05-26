@@ -19,6 +19,8 @@ import EditorTabs from './EditorTabs';
 import FileTree from './FileTree';
 import ProblemsPanel from './ProblemsPanel';
 import EditorSettingsButton from './EditorSettings';
+import OutlinePanel from './OutlinePanel';
+import { extractOutline } from '@/lib/oioxo/outline';
 import { useProjectDiagnostics } from './useDiagnostics';
 import { AgentRun } from './NewProject';
 
@@ -213,6 +215,10 @@ export default function GitHubPanel({ match }: { match: string[] }) {
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-1 pb-2">
           <FileTree files={files} active={activePath} errorPaths={errorPaths} onOpen={openFile} onRename={(p) => void renameFile(p)} />
+          <OutlinePanel
+            items={activePath ? extractOutline(activePath, files.find((f) => f.path === activePath)?.content ?? '') : []}
+            onJump={(line) => setReveal({ line, column: 1, key: Date.now() })}
+          />
         </div>
       </aside>
 

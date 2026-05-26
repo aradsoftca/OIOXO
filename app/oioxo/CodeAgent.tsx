@@ -21,6 +21,28 @@ import GitHubPanel from './GitHubPanel';
 import EditorTabs from './EditorTabs';
 import ImageView from './ImageView';
 import { Rocket, Github } from 'lucide-react';
+// Compute mesh — borrow/lend a paired device's compute (lib/oioxo/mesh*).
+import { MeshPanel } from './MeshPanel';
+import { MeshClient } from '@/lib/oioxo/mesh-wire';
+import { profileFor } from '@/lib/oioxo/capability';
+import { detectHardware } from '@/lib/oioxo/hardware';
+import { makeCoderGenerate } from '@/lib/oioxo/codegen';
+import { makeTypeCheckRun } from '@/lib/oioxo/typecheck';
+import { loadOrCreateIdentity } from '@/lib/oioxo/device-key-store';
+import { toB64Url } from '@/lib/oioxo/bytes';
+import type { HelperProfile } from '@/lib/oioxo/mesh';
+import type { RunFn } from '@/lib/oioxo/codeloop';
+
+/** A short, friendly name for THIS device (shown to the paired sibling). */
+function deviceLabel(): string {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  if (/iPhone|iPad/.test(ua)) return 'This iPhone';
+  if (/Android/.test(ua)) return 'This Android';
+  if (/Macintosh/.test(ua)) return 'This Mac';
+  if (/Windows/.test(ua)) return 'This PC';
+  if (/Linux/.test(ua)) return 'This Linux';
+  return 'This device';
+}
 
 export default function CodeAgent() {
   const { installed } = useSkill('code');
@@ -641,6 +663,34 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
   const logRef = React.useRef<HTMLPreElement>(null);
   React.useEffect(() => { logRef.current?.scrollTo({ top: 1e9 }); }, [log]);
 
+  // ── Compute mesh: this device's profile + token, and the live fabric of peers ──
+  const meshRef = React.useRef<MeshClient | null>(null);
+  if (!meshRef.current) meshRef.current = new MeshClient();
+  const [meshPeers, setMeshPeers] = React.useState(0);
+  const [profile, setProfile] = React.useState<HelperProfile | null>(null);
+  const [meshToken, setMeshToken] = React.useState('');
+  React.useEffect(() => {
+    let on = true;
+    (async () => {
+      const [hw, id] = await Promise.all([detectHardware(), loadOrCreateIdentity()]);
+      if (!on) return;
+      const env = { desktop: native, webcontainer: runSupported(), hasModel: true };
+      setProfile(profileFor(id.deviceId, { tier: hw.tier, webgpu: hw.webgpu }, env, deviceLabel()));
+    })();
+    // Account-bound pairing token (same on all the user's devices). Not secret — it
+    // only scopes pairing to the account; the channel is DTLS + receipts are signed.
+    fetch('/api/auth/session').then((r) => r.json()).then(async (s) => {
+      const uid = s?.user?.id || s?.user?.email;
+      if (!on || !uid) return;
+      const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('oioxo-mesh:' + uid));
+      if (on) setMeshToken(toB64Url(h).slice(0, 22));
+    }).catch(() => {});
+    return () => { on = false; };
+  }, [native]);
+  // Local engines a paired peer borrows when THIS device lends.
+  const lendGenerate = React.useMemo(() => makeCoderGenerate(match), [match]);
+  const lendRun = React.useMemo<RunFn>(() => makeTypeCheckRun(), []);
+
   async function run() {
     if (!task.trim() || busy) return;
     setBusy(true); setSteps([]); setLog(''); setResult(null); setProgress(0);
@@ -648,6 +698,15 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
       const files = await filesFromTree(tree);
       const original = new Map(files.map((f) => [f.path, f.content]));
       const libFiles = mode === 'typecheck' && !native ? await loadTsLibs() : undefined;
+      // MESH OFFLOAD: a weak device with paired peers borrows generation (race = the
+      // fastest peer wins) and, if it has no real run oracle, borrows verification too.
+      // Strong devices keep generating locally; ollama/frontier selections are honored.
+      const mesh = meshRef.current!;
+      const weak = !profile || profile.tier === 'none' || profile.tier === 'low';
+      const plainCoder = !(useBig && ollama);
+      const meshGenerate = weak && plainCoder && mesh.registry.countFor('generate') > 0
+        ? mesh.coderPool({ mode: 'race' }) : undefined;
+      const meshRun = weak && mesh.registry.countFor('verify') > 0 ? mesh.verifyPool() : undefined;
       const res = await buildOrFix({
         task: task.trim(),
         files,
@@ -655,6 +714,8 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
         mode,
         libFiles,
         native,
+        generate: meshGenerate,
+        run: meshRun,
         // record: true, // capture the trajectory so verified red→green repairs become training data
         candidates: thorough && pro ? 3 : 1, // Pro "thorough": best-of-3, oracle-ranked
         coder: useBig && ollama ? { kind: 'ollama', model: ollama.models[0], base: ollama.base } : undefined,
@@ -743,6 +804,23 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
           )}
           <button type="button" onClick={onClose} className="text-xs text-zinc-400 hover:text-zinc-600">close</button>
         </div>
+      </div>
+      {/* Compute mesh — pair another of your devices to lend/borrow compute. */}
+      <div className="border-t border-zinc-200/70 px-3 py-1">
+        {profile && (
+          <MeshPanel
+            token={meshToken}
+            profile={profile}
+            localGenerate={lendGenerate}
+            localRun={lendRun}
+            onMeshChange={(m) => setMeshPeers(m.stats().total)}
+          />
+        )}
+        {meshPeers > 0 && (
+          <p className="px-2 pb-0.5 text-[10px] text-zinc-400">
+            Mesh: {meshPeers} device{meshPeers === 1 ? '' : 's'} connected — generation is borrowed when this device is weak.
+          </p>
+        )}
       </div>
       <div className="flex gap-2 px-3 pb-2">
         <input

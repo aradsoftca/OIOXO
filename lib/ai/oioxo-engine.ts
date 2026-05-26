@@ -33,6 +33,7 @@ import { toEnglish, fromEnglish } from './translate';
 import { getCached, putCached } from './search-cache';
 import { capturePreference, remember, recallLanguage, recallName } from './user-memory';
 import { detectFormat, renderFormat } from './format';
+import { tryCheck } from './check-ops';
 import { findImages } from './image-search';
 import { funReply } from '../ai-magic';
 import { getTool, TOOLS } from '../registry';
@@ -1083,6 +1084,14 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
     // web-search it (the battery caught "15% of 240" → news headlines).
     const computed = tryCompute(text);
     if (computed) return { text: computed };
+
+    // CHECK / VALIDATE inline — "is this a valid email?", "how strong is this
+    // password?", "is this JSON valid?", "is this a real card number?" — done live,
+    // instantly, on-device (heavier net checks route to the net-* tools).
+    if (!fileCat) {
+      const checked = tryCheck(text);
+      if (checked) return { text: checked };
+    }
 
     // TIME / DATE "now" → from the device clock, never a web search.
     if (!fileCat) {

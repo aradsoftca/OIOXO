@@ -32,6 +32,7 @@ import { richAnswer } from './web-read';
 import { toEnglish, fromEnglish } from './translate';
 import { getCached, putCached } from './search-cache';
 import { capturePreference, remember, recallLanguage, recallName } from './user-memory';
+import { detectFormat, renderFormat } from './format';
 import { findImages } from './image-search';
 import { funReply } from '../ai-magic';
 import { getTool, TOOLS } from '../registry';
@@ -1251,9 +1252,13 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
     // THE NO-DUMB GATE (system invariant): a search answer ships only if it isn't
     // visibly dumb; otherwise fall back to an honest clarify rather than embarrass.
     const ans = await answerFlow(qText, route.query || qText, fileCat);
-    if (ans.text && !ans.tool && !ans.app && !ans.openCode && !ans.game && isDumbAnswer(ans.text)) {
+    const isProse = !!ans.text && !ans.tool && !ans.app && !ans.openCode && !ans.game;
+    if (isProse && isDumbAnswer(ans.text)) {
       return gracefulFallback(comprehendAnswer(qText).concept);
     }
+    // Honor an output-format directive ("briefly", "in 3 sentences", "in bullets").
+    const fmt = detectFormat(qText);
+    if (isProse && fmt.form) ans.text = renderFormat(ans.text, fmt);
     return withAdviceDisclaimer(ans, qText);
   } catch {
     return { text: 'Something went wrong handling that — please try again.' };

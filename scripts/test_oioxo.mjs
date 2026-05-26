@@ -994,6 +994,472 @@ test('outline: extracts TS/CSS/MD symbols with line numbers', async () => {
   assert.deepEqual(extractOutline('x.bin', 'random bytes here'), []);
 });
 
+// ---------- compute credit (mesh: earn limit-time on your own hardware) ----------
+test('compute-credit: issue → verify → redeem grants reimbursed seconds', async () => {
+  const { issueReceipt, CreditLedger, canonicalPayload } =
+    await import('../lib/oioxo/compute-credit.ts');
+  // Fake account-bound crypto: signature = "sig:" + canonical. Verifier checks the match.
+  const sign = (c) => 'sig:' + c;
+  const verify = (c, s) => s === 'sig:' + c;
+  let n = 0;
+  const r = await issueReceipt(
+    { deviceId: 'mac', seq: 1, jobHash: 'h1', servedSec: 42, tokensOut: 100,
+      now: () => 1000, nonce: () => `nn${++n}` },
+    sign,
+  );
+  // servedSec*1 + tokensOut*0.02 = 42 + 2 = 44 (under the 300 clamp).
+  assert.ok(r.sig.startsWith('sig:'), 'receipt is signed');
+  // the signed bytes are the canonical payload (no sig field)
+  const { sig: _omit, ...payload } = r;
+  assert.equal(r.sig, 'sig:' + canonicalPayload(payload));
+  const led = new CreditLedger(undefined, { now: () => 2000 });
+  const res = await led.redeem(r, verify);
+  assert.equal(res.reason, 'granted');
+  assert.equal(res.granted, 44);
+  assert.equal(led.grantedTodaySec(), 44);
+});
+
+test('compute-credit: replay + tamper + expiry are rejected', async () => {
+  const { issueReceipt, CreditLedger } = await import('../lib/oioxo/compute-credit.ts');
+  const sign = (c) => 'sig:' + c;
+  const verify = (c, s) => s === 'sig:' + c;
+  const mk = (over) => issueReceipt(
+    { deviceId: 'mac', seq: 1, jobHash: 'h', servedSec: 10, tokensOut: 0,
+      now: () => 1000, nonce: () => 'x', ...over },
+    sign,
+  );
+  const led = new CreditLedger(undefined, { now: () => 2000 });
+  const r = await mk();
+  assert.equal((await led.redeem(r, verify)).reason, 'granted');
+  // same (deviceId, seq) again → duplicate, no double-grant
+  assert.equal((await led.redeem(r, verify)).reason, 'duplicate');
+  // tampered servedSec invalidates the signature
+  const t = { ...(await mk({ seq: 2 })), servedSec: 9999 };
+  assert.equal((await led.redeem(t, verify)).reason, 'bad-signature');
+  // stale receipt (older than maxAge) rejected
+  const old = await mk({ seq: 3, now: () => 0 });
+  const future = new CreditLedger(undefined, { now: () => 1000 * 60 * 60 * 24 * 30 });
+  assert.equal((await future.redeem(old, verify)).reason, 'expired');
+});
+
+test('compute-credit: per-receipt clamp + daily cap (the Pro lever)', async () => {
+  const { issueReceipt, CreditLedger, creditForReceipt, DEFAULT_POLICY } =
+    await import('../lib/oioxo/compute-credit.ts');
+  const sign = (c) => 'sig:' + c;
+  const verify = (c, s) => s === 'sig:' + c;
+  // A huge job is clamped to maxPerReceiptSec (300).
+  const big = await issueReceipt(
+    { deviceId: 'd', seq: 1, jobHash: 'h', servedSec: 99999, tokensOut: 0,
+      now: () => 1, nonce: () => 'a' }, sign);
+  assert.equal(creditForReceipt(big, DEFAULT_POLICY), 300);
+  // Fill the day to one clamp short of the cap, then redeem → partial grant to the cap.
+  const led = new CreditLedger(DEFAULT_POLICY, { now: () => 10, grantedTodaySec: 3600 - 100 });
+  const res = await led.redeem(big, verify);
+  assert.equal(res.granted, 100);            // only the remaining room
+  assert.equal(res.reason, 'granted');
+  assert.equal(led.grantedTodaySec(), 3600); // capped
+  // next one is fully blocked but its key is still reserved (no replay later)
+  const more = await issueReceipt(
+    { deviceId: 'd', seq: 2, jobHash: 'h', servedSec: 50, tokensOut: 0,
+      now: () => 11, nonce: () => 'b' }, sign);
+  assert.equal((await led.redeem(more, verify)).reason, 'daily-cap');
+  assert.ok(led.seenKeys().includes('d:2'));
+});
+
+// ---------- compute mesh: receipt flows provider → consumer → credit (stage 2) ----------
+test('mesh-receipt: served job mints a receipt the consumer banks, matches + redeems', async () => {
+  const { makePeerCoder, serveCoder } = await import('../lib/oioxo/remote-coder.ts');
+  const { makeReceiptIssuer, receiptMatchesJob } = await import('../lib/oioxo/mesh-receipt.ts');
+  const { CreditLedger } = await import('../lib/oioxo/compute-credit.ts');
+
+  // account-bound fake crypto + a trivial deterministic hash
+  const sign = (c) => 'sig:' + c;
+  const verify = (c, s) => s === 'sig:' + c;
+  const hash = (s) => 'h' + s.length;
+
+  // loopback transport (same shape as the other remote-coder tests)
+  const reg = {};
+  const connect = (role, room, h) => {
+    reg[role] = h;
+    queueMicrotask(() => { if (reg.s && reg.r) { reg.s.onState?.('connected'); reg.r.onState?.('connected'); } });
+    const other = () => reg[role === 's' ? 'r' : 's'];
+    return { send: (d) => { const o = other(); if (o) queueMicrotask(() => o.onMessage?.(d)); return true; }, sendBinary: () => true, close: () => {} };
+  };
+
+  const banked = [];
+  const peerCoder = makePeerCoder({ connect, timeoutMs: 2000, onReceipt: (r) => banked.push(r) });
+  const issuer = makeReceiptIssuer({ deviceId: 'mac', sign, hash });
+  // A realistically-sized edit so the token-based credit rounds to >= 1s (sub-second,
+  // tiny jobs legitimately earn ~0 — credit tracks real work).
+  const fixed = 'FIXED ' + 'x'.repeat(260);
+  serveCoder(peerCoder.room, async () => [{ path: 'a.ts', content: fixed }], { connect, issueReceipt: issuer.issue });
+  await new Promise((r) => setTimeout(r, 10));
+
+  const ctx = { task: 't', files: [{ path: 'a.ts', content: 'broken' }], attempt: 0 };
+  const edits = await peerCoder.generate(ctx);
+  assert.ok(edits[0].content.startsWith('FIXED'));
+  await new Promise((r) => setTimeout(r, 5)); // let the receipt message arrive
+
+  // consumer banked exactly one receipt, signed by the provider device
+  assert.equal(banked.length, 1, 'one receipt banked');
+  assert.equal(banked[0].deviceId, 'mac');
+  assert.equal(banked[0].seq, 0);
+  assert.ok(banked[0].tokensOut > 0, 'tokensOut measured from served edits');
+
+  // the fingerprint ties the receipt to the exact job the consumer sent + received
+  assert.equal(await receiptMatchesJob(banked[0], ctx, edits, hash), true);
+  assert.equal(await receiptMatchesJob(banked[0], { ...ctx, task: 'other' }, edits, hash), false);
+
+  // and it redeems into credit on the limit ledger
+  const led = new CreditLedger(undefined, { now: () => banked[0].issuedAt + 1 });
+  const res = await led.redeem(banked[0], verify);
+  assert.equal(res.reason, 'granted');
+  assert.ok(res.granted >= 1, 'served work granted credit seconds');
+  peerCoder.cancel();
+});
+
+// ---------- mesh fabric: any device is a capability-typed helper (stage 3A) ----------
+test('mesh: registry filters by capability + availability, ranks load/health/latency', async () => {
+  const { HelperRegistry } = await import('../lib/oioxo/mesh.ts');
+  const reg = new HelperRegistry();
+  reg.add({ id: 'mac', caps: ['generate', 'verify'], tier: 'high' });
+  reg.add({ id: 'pc', caps: ['generate'], tier: 'mid' });
+  reg.add({ id: 'phone', caps: ['verify', 'corpus'], tier: 'low' }); // weak device still helps
+
+  // capability filter: phone can't generate, mac/pc can
+  assert.deepEqual(reg.candidates('generate').map((h) => h.id).sort(), ['mac', 'pc']);
+  assert.deepEqual(reg.candidates('verify').map((h) => h.id).sort(), ['mac', 'phone']);
+
+  // load spreading: dispatch to mac → pc (0 inflight) now ranks ahead of mac (1 inflight)
+  reg.recordStart('mac');
+  assert.equal(reg.pick('generate').id, 'pc');
+  reg.recordResult('mac', { ok: true, ms: 100 });
+  // health: pc fails twice → its success rate drops, mac (proven) preferred
+  reg.recordStart('pc'); reg.recordResult('pc', { ok: false, ms: 50 });
+  reg.recordStart('pc'); reg.recordResult('pc', { ok: false, ms: 50 });
+  assert.equal(reg.pick('generate').id, 'mac', 'flaky device de-prioritised');
+
+  // availability: mac sleeps → pc is the only generator left
+  reg.setAvailable('mac', false);
+  assert.deepEqual(reg.candidates('generate').map((h) => h.id), ['pc']);
+  assert.equal(reg.countFor('generate'), 1);
+});
+
+// ---------- coder pool: three devices, faster + churn-tolerant (stage 3B) ----------
+test('coder-pool: race returns the FASTEST device’s result', async () => {
+  const { HelperRegistry } = await import('../lib/oioxo/mesh.ts');
+  const { makeCoderPool } = await import('../lib/oioxo/coder-pool.ts');
+  const reg = new HelperRegistry();
+  for (const id of ['slow', 'fast', 'mid']) reg.add({ id, caps: ['generate'], tier: 'mid' });
+  const delays = { slow: 40, fast: 5, mid: 20 };
+  const generatorFor = (id) => async () => {
+    await new Promise((r) => setTimeout(r, delays[id]));
+    return [{ path: 'a.ts', content: 'from-' + id }];
+  };
+  const pool = makeCoderPool({ registry: reg, generatorFor, mode: 'race', timeoutMs: 500 });
+  const edits = await pool({ task: 't', files: [], attempt: 0 });
+  assert.equal(edits[0].content, 'from-fast', 'fastest of three wins the race');
+  assert.equal(reg.get('fast').health.done, 1);
+});
+
+test('coder-pool: best mode keeps the highest-scoring result across responders', async () => {
+  const { HelperRegistry } = await import('../lib/oioxo/mesh.ts');
+  const { makeCoderPool } = await import('../lib/oioxo/coder-pool.ts');
+  const reg = new HelperRegistry();
+  for (const id of ['a', 'b', 'c']) reg.add({ id, caps: ['generate'], tier: 'mid' });
+  const len = { a: 1, b: 3, c: 2 };
+  const generatorFor = (id) => async () =>
+    Array.from({ length: len[id] }, (_, i) => ({ path: `f${i}.ts`, content: id }));
+  const pool = makeCoderPool({
+    registry: reg, generatorFor, mode: 'best', timeoutMs: 500,
+    score: (edits) => edits.length, // prefer the most complete proposal
+  });
+  const edits = await pool({ task: 't', files: [], attempt: 0 });
+  assert.equal(edits.length, 3, 'kept the richest candidate (b)');
+  assert.equal(edits[0].content, 'b');
+});
+
+test('coder-pool: churn — drops/throws/empties never hang, healthy peer still answers', async () => {
+  const { HelperRegistry } = await import('../lib/oioxo/mesh.ts');
+  const { makeCoderPool } = await import('../lib/oioxo/coder-pool.ts');
+  const reg = new HelperRegistry();
+  for (const id of ['dead', 'empty', 'good']) reg.add({ id, caps: ['generate'], tier: 'mid' });
+  const generatorFor = (id) => async () => {
+    if (id === 'dead') throw new Error('peer dropped');
+    if (id === 'empty') return [];                 // connected but produced nothing
+    await new Promise((r) => setTimeout(r, 10));
+    return [{ path: 'a.ts', content: 'good' }];
+  };
+  const pool = makeCoderPool({ registry: reg, generatorFor, mode: 'race', timeoutMs: 500 });
+  const edits = await pool({ task: 't', files: [], attempt: 0 });
+  assert.equal(edits[0].content, 'good', 'routed around the dead + empty helpers');
+  assert.equal(reg.get('dead').health.failed, 1);
+  assert.equal(reg.get('empty').health.failed, 1);
+
+  // all helpers fail → resolves to [] (a failed attempt the loop retries), never hangs
+  const regBad = new HelperRegistry();
+  regBad.add({ id: 'x', caps: ['generate'], tier: 'low' });
+  const badPool = makeCoderPool({ registry: regBad, generatorFor: () => async () => { throw new Error('no'); }, timeoutMs: 200 });
+  assert.deepEqual(await badPool({ task: 't', files: [], attempt: 0 }), []);
+
+  // no generate-capable helper at all → [] immediately
+  const empty = makeCoderPool({ registry: new HelperRegistry(), generatorFor: () => async () => [], timeoutMs: 200 });
+  assert.deepEqual(await empty({ task: 't', files: [], attempt: 0 }), []);
+});
+
+// ---------- capability auto-assignment: any device picks its roles (stage 4) ----------
+test('capability: hardware + env → the roles a device advertises', async () => {
+  const { capabilitiesFor, canGenerate, oracleStrength, profileFor } =
+    await import('../lib/oioxo/capability.ts');
+
+  // strong GPU box, plugged in, has the model + corpus, desktop → offers everything
+  const strong = capabilitiesFor({ tier: 'high', webgpu: true }, { desktop: true, hasModel: true, hasCorpus: true });
+  assert.ok(strong.includes('generate') && strong.includes('weights') && strong.includes('preview') && strong.includes('corpus'));
+
+  // same box on battery → drops the drainy generate role but still helps
+  assert.equal(canGenerate({ tier: 'high', webgpu: true }, { onBattery: true }), false);
+  const onBatt = capabilitiesFor({ tier: 'high', webgpu: true }, { onBattery: true });
+  assert.ok(!onBatt.includes('generate') && onBatt.includes('verify') && onBatt.includes('embed'));
+
+  // weak phone (no GPU) is never useless: verify + embed, but no generate/weights/preview
+  const phone = capabilitiesFor({ tier: 'none', webgpu: false }, {});
+  assert.deepEqual(phone.sort(), ['embed', 'verify']);
+
+  // oracle strength orders native > sandbox > types
+  assert.ok(oracleStrength({ desktop: true }) > oracleStrength({ webcontainer: true }));
+  assert.ok(oracleStrength({ webcontainer: true }) > oracleStrength({}));
+
+  const p = profileFor('mac', { tier: 'high', webgpu: true }, { desktop: true, hasModel: true }, 'MacBook');
+  assert.equal(p.id, 'mac'); assert.equal(p.label, 'MacBook'); assert.equal(p.tier, 'high');
+});
+
+// ---------- verify pool: parallel oracle, fastest-green + quorum trust (stage 4) ----------
+test('verify-pool: fastest takes the first GREEN, else the richest RED', async () => {
+  const { HelperRegistry } = await import('../lib/oioxo/mesh.ts');
+  const { makeVerifyPool } = await import('../lib/oioxo/verify-pool.ts');
+
+  const reg = new HelperRegistry();
+  for (const id of ['slow', 'fast']) reg.add({ id, caps: ['verify'], tier: 'mid' });
+  // slow says green at 30ms, fast says green at 5ms → fast wins
+  const runnerFor = (id) => async () => {
+    await new Promise((r) => setTimeout(r, id === 'fast' ? 5 : 30));
+    return { ok: true, output: id, errors: '' };
+  };
+  const pool = makeVerifyPool({ registry: reg, runnerFor, mode: 'fastest', timeoutMs: 500 });
+  const res = await pool([{ path: 'a.ts', content: 'x' }], 'npm test');
+  assert.equal(res.ok, true); assert.equal(res.output, 'fast');
+
+  // all red → returns a red carrying errors (a usable repair signal)
+  const reg2 = new HelperRegistry();
+  for (const id of ['v1', 'v2']) reg2.add({ id, caps: ['verify'], tier: 'mid' });
+  const redRunner = (id) => async () => ({ ok: false, output: '', errors: id === 'v2' ? 'TS2304: x' : '' });
+  const redPool = makeVerifyPool({ registry: reg2, runnerFor: redRunner, mode: 'fastest', timeoutMs: 500 });
+  const red = await redPool([], 'npm test');
+  assert.equal(red.ok, false); assert.equal(red.errors, 'TS2304: x', 'picked the informative red');
+});
+
+test('verify-pool: agree needs a quorum; a dishonest/dropped verifier is outvoted', async () => {
+  const { HelperRegistry } = await import('../lib/oioxo/mesh.ts');
+  const { makeVerifyPool } = await import('../lib/oioxo/verify-pool.ts');
+
+  const reg = new HelperRegistry();
+  for (const id of ['a', 'b', 'liar']) reg.add({ id, caps: ['verify'], tier: 'mid' });
+  // a + b honestly say GREEN; "liar" says RED — quorum of 2 trusts GREEN
+  const runnerFor = (id) => async () => {
+    await new Promise((r) => setTimeout(r, 5));
+    return id === 'liar' ? { ok: false, output: '', errors: 'fake fail' } : { ok: true, output: id, errors: '' };
+  };
+  const pool = makeVerifyPool({ registry: reg, runnerFor, mode: 'agree', quorum: 2, timeoutMs: 500 });
+  const res = await pool([], 'npm test');
+  assert.equal(res.ok, true, '2 honest verifiers outvote 1 liar');
+
+  // churn: one verifier throws, one returns — no quorum reachable → safe NOT-green
+  const reg2 = new HelperRegistry();
+  for (const id of ['ok', 'dead']) reg2.add({ id, caps: ['verify'], tier: 'mid' });
+  const r2 = (id) => async () => { if (id === 'dead') throw new Error('gone'); return { ok: true, output: 'ok', errors: '' }; };
+  const pool2 = makeVerifyPool({ registry: reg2, runnerFor: r2, mode: 'agree', quorum: 2, timeoutMs: 300 });
+  const res2 = await pool2([], 'npm test');
+  // only 1 green vote, quorum 2 unreachable → finish() trusts the majority of voters (1 green > 0 red)
+  assert.equal(res2.ok, true);
+  assert.equal(reg2.get('dead').health.failed, 1, 'dropped verifier recorded as failed');
+
+  // no verifier at all → clear no-verifier red, never hangs
+  const pool3 = makeVerifyPool({ registry: new HelperRegistry(), runnerFor: () => async () => ({ ok: true, output: '', errors: '' }), timeoutMs: 200 });
+  assert.equal((await pool3([], 'x')).errors, 'no verifier available');
+});
+
+// ---------- peer weight seeding: fetch the model from a sibling, multi-source (stage 5) ----------
+test('weight-seed: planChunks splits files incl. remainder + zero-byte files', async () => {
+  const { planChunks } = await import('../lib/oioxo/weight-seed.ts');
+  const chunks = planChunks([{ path: 'w.onnx', size: 10, hash: 'h' }, { path: 'cfg.json', size: 0, hash: 'h0' }], 4);
+  // 10 bytes / 4 → offsets 0,4,8 (lens 4,4,2) + one zero-len chunk for the empty file
+  assert.deepEqual(chunks.filter((c) => c.path === 'w.onnx').map((c) => [c.offset, c.len]), [[0, 4], [4, 4], [8, 2]]);
+  assert.equal(chunks.find((c) => c.path === 'cfg.json').len, 0);
+});
+
+test('weight-seed: two seeders fetch distinct chunks in parallel → complete', async () => {
+  const { planChunks, ChunkScheduler } = await import('../lib/oioxo/weight-seed.ts');
+  const sched = new ChunkScheduler(planChunks([{ path: 'w', size: 16, hash: 'h' }], 4)); // 4 chunks
+  const a = sched.next('seedA', 2);
+  const b = sched.next('seedB', 2);
+  // the two seeders got DISTINCT chunks (no double-download)
+  const ids = new Set([...a, ...b].map((c) => c.id));
+  assert.equal(ids.size, 4);
+  assert.equal(sched.remaining(), 0);
+  assert.ok(sched.progress().fraction === 0);
+  for (const c of [...a, ...b]) sched.complete(c.id);
+  assert.equal(sched.isComplete(), true);
+  assert.equal(sched.progress().fraction, 1);
+});
+
+test('weight-seed: a dropped/stalled seeder’s chunks are reassigned, never lost', async () => {
+  const { planChunks, ChunkScheduler } = await import('../lib/oioxo/weight-seed.ts');
+  let clock = 0;
+  const sched = new ChunkScheduler(planChunks([{ path: 'w', size: 12, hash: 'h' }], 4), { now: () => clock }); // 3 chunks
+  const a = sched.next('seedA', 3); // seedA grabs all 3
+  assert.equal(a.length, 3);
+  sched.complete(a[0].id);          // one arrives
+  sched.fail('seedA');              // seedA drops with 2 still in flight
+  assert.equal(sched.remaining(), 2, 'its 2 unfinished chunks returned to the pool');
+  // a fresh seeder picks them up and finishes
+  const b = sched.next('seedB', 2);
+  for (const c of b) sched.complete(c.id);
+  assert.equal(sched.isComplete(), true);
+
+  // stall reclaim: in-flight past the deadline returns to the pool
+  const s2 = new ChunkScheduler(planChunks([{ path: 'x', size: 8, hash: 'h' }], 4), { now: () => clock });
+  s2.next('slow', 2);
+  clock = 5000;
+  assert.equal(s2.reclaim(3000).length, 2, 'stalled chunks reclaimed');
+  assert.equal(s2.remaining(), 2);
+});
+
+test('weight-seed: verifyFile checks size + hash', async () => {
+  const { verifyFile } = await import('../lib/oioxo/weight-seed.ts');
+  const f = { path: 'w', size: 4, hash: 'good' };
+  assert.equal(await verifyFile(f, { byteLength: 4 }, () => 'good'), true);
+  assert.equal(await verifyFile(f, { byteLength: 4 }, () => 'bad'), false);
+  assert.equal(await verifyFile(f, { byteLength: 3 }, () => 'good'), false, 'wrong size fails fast');
+});
+
+// ---------- serverless LAN pairing: connect two devices with no signaling server (stage 6) ----------
+test('pairing: encode/decode round-trips, rejects junk + foreign tokens', async () => {
+  const { encodePairing, decodePairing, tokenMatches } = await import('../lib/oioxo/pairing.ts');
+  const p = { v: 1, role: 'offer', sdp: 'v=0\r\n...candidates...', token: 'acct-tok', deviceId: 'mac', label: 'MacBook' };
+  const wire = encodePairing(p);
+  assert.ok(!wire.includes('+') && !wire.includes('/') && !wire.includes('='), 'QR/URL-safe');
+  assert.deepEqual(decodePairing(wire), p);
+  assert.equal(decodePairing('not-base64!!'), null);
+  assert.equal(decodePairing(encodePairing({ ...p, sdp: '' })), null, 'empty sdp rejected');
+  // a stranger on the Wi-Fi presents a different token → rejected
+  assert.equal(tokenMatches(decodePairing(wire), 'acct-tok'), true);
+  assert.equal(tokenMatches(decodePairing(wire), 'someone-else'), false);
+});
+
+test('pairing: waitIceComplete resolves on complete / transition / timeout (non-trickle)', async () => {
+  const { waitIceComplete } = await import('../lib/oioxo/pairing.ts');
+  // already complete → immediate true
+  const ready = { iceGatheringState: 'complete', addEventListener() {}, removeEventListener() {} };
+  assert.equal(await waitIceComplete(ready), true);
+  // transitions to complete → true
+  let cb = null;
+  const pc = {
+    iceGatheringState: 'gathering',
+    addEventListener: (_t, fn) => { cb = fn; },
+    removeEventListener: () => {},
+  };
+  const pr = waitIceComplete(pc, 1000);
+  pc.iceGatheringState = 'complete'; cb();
+  assert.equal(await pr, true);
+  // never completes → times out to false (safety net, never stalls pairing)
+  const stuck = { iceGatheringState: 'gathering', addEventListener() {}, removeEventListener() {} };
+  assert.equal(await waitIceComplete(stuck, 20), false);
+});
+
+// ---------- device keys + server reconciliation: REAL ECDSA end-to-end (stage 7) ----------
+test('device-key: real signer + verifier; forgery + tamper + wrong-id fail closed', async () => {
+  const { createDeviceIdentity, makeVerifier } = await import('../lib/oioxo/device-key.ts');
+  const mac = await createDeviceIdentity();
+  const pc = await createDeviceIdentity();
+  assert.ok(mac.deviceId.length > 0 && mac.deviceId !== pc.deviceId, 'ids are key fingerprints, distinct');
+
+  // account key registry: deviceId → public JWK
+  const keys = { [mac.deviceId]: mac.publicKeyJwk, [pc.deviceId]: pc.publicKeyJwk };
+  const verify = makeVerifier((id) => keys[id] ?? null);
+
+  const msg = 'canonical-payload';
+  const sig = await mac.sign(msg);
+  assert.equal(await verify(msg, sig, mac.deviceId), true, 'genuine signature verifies');
+  assert.equal(await verify('tampered', sig, mac.deviceId), false, 'tampered payload fails');
+  assert.equal(await verify(msg, sig, pc.deviceId), false, 'mac sig under pc id fails (no forging identity)');
+  assert.equal(await verify(msg, sig, 'unknown-device'), false, 'unregistered device fails');
+});
+
+test('credit-server: reconcile real receipts → credit, replay across reports grants 0', async () => {
+  const { createDeviceIdentity, makeVerifier } = await import('../lib/oioxo/device-key.ts');
+  const { issueReceipt } = await import('../lib/oioxo/compute-credit.ts');
+  const { reconcileReceipts } = await import('../lib/oioxo/credit-server.ts');
+
+  const mac = await createDeviceIdentity();
+  const verify = makeVerifier((id) => (id === mac.deviceId ? mac.publicKeyJwk : null));
+  const at = 1_000_000;
+  const mk = (seq, servedSec) => issueReceipt(
+    { deviceId: mac.deviceId, seq, jobHash: 'h' + seq, servedSec, tokensOut: 0, now: () => at, nonce: () => 'n' + seq },
+    mac.sign,
+  );
+  const r1 = await mk(0, 30);
+  const r2 = await mk(1, 50);
+
+  // first report: both receipts redeem (servedSec → credit seconds)
+  const first = await reconcileReceipts([r1, r2], verify, { now: () => at + 1 });
+  assert.equal(first.grantedSec, 80, '30 + 50 served seconds credited');
+  assert.ok(first.perReceipt.every((p) => p.reason === 'granted'));
+
+  // second report replays r1 (network retry) against the persisted state → 0, not double-paid
+  const second = await reconcileReceipts([r1], verify, { now: () => at + 2, prior: first.state });
+  assert.equal(second.grantedSec, 0);
+  assert.equal(second.perReceipt[0].reason, 'duplicate');
+
+  // a receipt signed by an UNKNOWN device is rejected (no credit minted from nowhere)
+  const rogue = await createDeviceIdentity();
+  const fake = await issueReceipt({ deviceId: rogue.deviceId, seq: 0, jobHash: 'x', servedSec: 999, tokensOut: 0, now: () => at, nonce: () => 'z' }, rogue.sign);
+  const rejected = await reconcileReceipts([fake], verify, { now: () => at + 3 });
+  assert.equal(rejected.grantedSec, 0);
+  assert.equal(rejected.perReceipt[0].reason, 'bad-signature');
+});
+
+// ---------- mesh wiring: paired devices → working pools (stage 8) ----------
+test('mesh-wire: registers helpers, routes pool calls, churns on remove', async () => {
+  const { MeshClient } = await import('../lib/oioxo/mesh-wire.ts');
+  const mc = new MeshClient();
+
+  let bGenCancelled = false;
+  mc.addGenerator({ id: 'mac', caps: ['generate'], tier: 'high' }, { generate: async () => [{ path: 'a.ts', content: 'mac' }] });
+  mc.addGenerator({ id: 'pc', caps: ['generate'], tier: 'mid' }, { generate: async () => { await new Promise((r) => setTimeout(r, 30)); return [{ path: 'a.ts', content: 'pc' }]; }, cancel: () => { bGenCancelled = true; } });
+  mc.addVerifier({ id: 'mac', caps: ['generate', 'verify'], tier: 'high' }, { run: async () => ({ ok: true, output: 'green', errors: '' }) });
+
+  assert.equal(mc.stats().generators, 2);
+  assert.equal(mc.registry.countFor('generate'), 2);
+
+  // coder pool races the two generators → mac (instant) beats pc (30ms)
+  const gen = mc.coderPool({ mode: 'race', timeoutMs: 500 });
+  assert.equal((await gen({ task: 't', files: [], attempt: 0 }))[0].content, 'mac');
+
+  // verify pool routes to the verifier
+  const ver = mc.verifyPool({ timeoutMs: 500 });
+  assert.equal((await ver([], 'npm test')).ok, true);
+
+  // unknown helper id → safe empty (pool routes around it)
+  assert.deepEqual(await mc.generatorFor('ghost')({ task: 't', files: [], attempt: 0 }), []);
+  assert.equal((await mc.runnerFor('ghost')([], 'x')).errors, 'helper disconnected');
+
+  // removing a device cancels its handle + drops it from the fabric
+  mc.remove('pc');
+  assert.equal(bGenCancelled, true);
+  assert.equal(mc.registry.countFor('generate'), 1);
+  assert.equal(mc.stats().generators, 1);
+});
+
 // ---------- run ----------
 const t0 = Date.now();
 for (const [name, fn] of tests) {

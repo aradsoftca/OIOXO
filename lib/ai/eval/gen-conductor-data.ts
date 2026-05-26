@@ -27,7 +27,9 @@ import * as path from 'path';
 import { TOOLS } from '@/lib/registry';
 
 const KEY = process.env.GEMINI_API_KEY;
-const MODEL = process.env.GEN_MODEL || 'gemini-2.5-flash';
+// Teacher = gemini-2.5-pro for the real training set (teacher quality is the lever).
+// Override to gemini-2.5-flash for quick smoke tests: GEN_MODEL=gemini-2.5-flash.
+const MODEL = process.env.GEN_MODEL || 'gemini-2.5-pro';
 
 // ── The running agent state, carried turn to turn (BRAIN_PLAN §3.5) ───────────
 export type TurnRole =
@@ -134,7 +136,7 @@ async function gemini(prompt: string): Promise<string> {
     `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${KEY}`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.95, maxOutputTokens: 4000, responseMimeType: 'application/json',
+        generationConfig: { temperature: 0.95, maxOutputTokens: MODEL.includes('flash') ? 4000 : 8000, responseMimeType: 'application/json',
           ...(MODEL.includes('flash') ? { thinkingConfig: { thinkingBudget: 0 } } : {}) } }) },
   );
   if (!r.ok) return '';

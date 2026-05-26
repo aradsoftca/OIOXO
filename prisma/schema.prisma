@@ -58,6 +58,8 @@ model User {
   tickets                   Ticket[]
   apiKeys                   ApiKey[]
   emails                    Email[]
+  deviceKeys                DeviceKey[]
+  meshCredits               MeshCreditDay[]
 
   @@index([email])
   @@index([plan])
@@ -137,6 +139,41 @@ model RewardClaim {
 
   @@unique([fingerprint, category, date])
   @@index([fingerprint, date])
+}
+
+// Compute mesh — an account's registered device public keys (ECDSA P-256). A device
+// signs WorkReceipts with its private key; the server verifies them against these.
+// deviceId = base64url(SHA-256(public key)), so the key is self-authenticating.
+model DeviceKey {
+  id           String   @id @default(cuid())
+  userId       String
+  deviceId     String   @unique
+  publicKeyJwk Json
+  label        String?
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Compute mesh — per-account, per-UTC-day credit earned by lending hardware. Holds the
+// granted seconds (added to the free allowance that day) + the redeemed receipt replay
+// keys (deviceId:seq) so a receipt can't be double-credited across reports.
+model MeshCreditDay {
+  id         String   @id @default(cuid())
+  userId     String
+  date       DateTime @db.Date
+  grantedSec Int      @default(0)
+  seenKeys   String[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
 
 // Admin-editable per-tier, per-category limits (file size + daily quota).

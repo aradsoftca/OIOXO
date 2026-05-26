@@ -38,6 +38,9 @@ interface MeshPanelProps {
   localRun?: RunFn;
   /** The host receives the live mesh to drive its pools as helpers come and go. */
   onMeshChange?: (mesh: MeshClient) => void;
+  /** Shared fabric owned by the host (so its build loop and this panel see the SAME
+   *  helpers). Omitted → the panel makes its own (standalone use). */
+  mesh?: MeshClient;
 }
 
 /** SHA-256 → base64url, for the receipt job fingerprint. */
@@ -45,7 +48,7 @@ async function sha256(s: string): Promise<string> {
   return toB64Url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)));
 }
 
-export function MeshPanel({ token, profile, localGenerate, localRun, onMeshChange }: MeshPanelProps) {
+export function MeshPanel({ token, profile, localGenerate, localRun, onMeshChange, mesh }: MeshPanelProps) {
   const [open, setOpen] = React.useState(false);
   const [mode, setMode] = React.useState<'lend' | 'use'>('use');
   const [state, setState] = React.useState<PeerState | 'idle'>('idle');
@@ -60,7 +63,43 @@ export function MeshPanel({ token, profile, localGenerate, localRun, onMeshChang
   const meshRef = React.useRef<MeshClient | null>(null);
   const peerRef = React.useRef<{ send: (m: unknown) => boolean; close: () => void } | null>(null);
   const acceptRef = React.useRef<((blob: string) => Promise<boolean>) | null>(null);
-  if (!meshRef.current) meshRef.current = new MeshClient();
+  const receiptQ = React.useRef<unknown[]>([]);
+  const flushTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  if (!meshRef.current) meshRef.current = mesh ?? new MeshClient();
+
+  // Register this device's public key to the account once, so the receipts it signs
+  // (when lending) can be verified server-side. Best-effort; pairing/earning still
+  // work locally if this fails (the server just can't credit until it's registered).
+  React.useEffect(() => {
+    if (!token) return;
+    let on = true;
+    loadOrCreateIdentity().then((id) => {
+      if (!on) return;
+      fetch('/api/mesh/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceId: id.deviceId, publicKeyJwk: id.publicKeyJwk, label: profile.label }),
+      }).catch(() => {});
+    });
+    return () => { on = false; };
+  }, [token, profile.label]);
+
+  /** Bank a receipt earned while a peer borrowed THIS device's coding session, and
+   *  flush the batch to the meter (debounced) so the account's limit is credited. */
+  const bankReceipt = (r: unknown) => {
+    setEarned((n) => n + 1);
+    receiptQ.current.push(r);
+    if (flushTimer.current) clearTimeout(flushTimer.current);
+    flushTimer.current = setTimeout(() => {
+      const batch = receiptQ.current.splice(0);
+      if (!batch.length) return;
+      fetch('/api/usage/code', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'report', seconds: 0, receipts: batch }),
+      }).catch(() => { receiptQ.current.unshift(...batch); }); // requeue on failure
+    }, 1500);
+  };
 
   const showBlob = async (blob: string) => {
     setMyBlob(blob);
@@ -90,7 +129,7 @@ export function MeshPanel({ token, profile, localGenerate, localRun, onMeshChang
     setMode('use'); setError(''); setState('connecting');
     const id = await loadOrCreateIdentity();
     const session = meshSession((m) => peerRef.current?.send(m), {
-      onReceipt: () => setEarned((n) => n + 1),
+      onReceipt: bankReceipt,
       onPeerProfile: (p) => registerHelper(p, session.generate, session.run),
       profile,
     });

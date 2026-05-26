@@ -690,6 +690,12 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
   // Local engines a paired peer borrows when THIS device lends.
   const lendGenerate = React.useMemo(() => makeCoderGenerate(match), [match]);
   const lendRun = React.useMemo<RunFn>(() => makeTypeCheckRun(), []);
+  // Register THIS device as a generator in its own fabric so the coder pool can RACE
+  // local generation against the peers (a strong device gets faster; a weak device,
+  // whose profile lacks 'generate', simply isn't added and borrows instead).
+  React.useEffect(() => {
+    if (profile?.caps.includes('generate')) meshRef.current!.addGenerator(profile, { generate: lendGenerate });
+  }, [profile, lendGenerate]);
 
   async function run() {
     if (!task.trim() || busy) return;
@@ -698,15 +704,18 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
       const files = await filesFromTree(tree);
       const original = new Map(files.map((f) => [f.path, f.content]));
       const libFiles = mode === 'typecheck' && !native ? await loadTsLibs() : undefined;
-      // MESH OFFLOAD: a weak device with paired peers borrows generation (race = the
-      // fastest peer wins) and, if it has no real run oracle, borrows verification too.
-      // Strong devices keep generating locally; ollama/frontier selections are honored.
+      // MESH: when a PEER can generate, race the coder pool (local + peers → fastest
+      // wins) — a strong device gains speed, a weak device borrows (it isn't in the
+      // generator set). A weak device with a peer oracle also offloads verification.
+      // ollama/frontier selections are honored (pool skipped then).
       const mesh = meshRef.current!;
+      const myId = profile?.id;
       const weak = !profile || profile.tier === 'none' || profile.tier === 'low';
       const plainCoder = !(useBig && ollama);
-      const meshGenerate = weak && plainCoder && mesh.registry.countFor('generate') > 0
-        ? mesh.coderPool({ mode: 'race' }) : undefined;
-      const meshRun = weak && mesh.registry.countFor('verify') > 0 ? mesh.verifyPool() : undefined;
+      const peerGen = mesh.registry.candidates('generate').filter((h) => h.id !== myId).length;
+      const peerVer = mesh.registry.candidates('verify').filter((h) => h.id !== myId).length;
+      const meshGenerate = plainCoder && peerGen > 0 ? mesh.coderPool({ mode: 'race' }) : undefined;
+      const meshRun = weak && peerVer > 0 ? mesh.verifyPool() : undefined;
       const res = await buildOrFix({
         task: task.trim(),
         files,
@@ -811,9 +820,10 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
           <MeshPanel
             token={meshToken}
             profile={profile}
+            mesh={meshRef.current!}
             localGenerate={lendGenerate}
             localRun={lendRun}
-            onMeshChange={(m) => setMeshPeers(m.stats().total)}
+            onMeshChange={(m) => setMeshPeers(m.registry.candidates('generate').filter((h) => h.id !== profile.id).length + m.registry.candidates('verify').filter((h) => h.id !== profile.id).length)}
           />
         )}
         {meshPeers > 0 && (

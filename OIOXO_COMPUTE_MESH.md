@@ -122,11 +122,22 @@ is injected (prod: a `makePeerCoder` per helper).
    serverless QR/paste pairing, "Paired · using N devices · jobs credited" banner;
    decoupled via props, typechecks clean).
 
-**Status:** stages 1–7 + the session multiplex are pure cores, 72/72 Node tests green
-(incl. real ECDSA). Stage 8–9 binding (local-peer, device-key-store, mesh-wire,
-MeshPanel) typechecks clean but needs on-device verification. DEFERRED (by decision,
-last): the backend — a DeviceKey table (accounts-only earning), a key-registration
-endpoint, and extending `/api/usage/code` `report` to call `reconcileReceipts`.
+10. ✅ **Backend (accounts-only) + agent integration** — Prisma `DeviceKey` (account
+    pubkey registry) + `MeshCreditDay` (per-day grantedSec + replay seenKeys); endpoint
+    `app/api/mesh/register` (self-authenticating, one device id per account);
+    `mesh-credit-server.ts` (verify against the account's keys → `reconcileReceipts` →
+    persist); `app/api/usage/code` `report` now accepts `receipts[]` and extends the
+    day's free allowance by earned credit (PRO still unlimited; behavior unchanged with
+    no receipts). `CodeAgent` mounts `MeshPanel` (shared MeshClient), registers this
+    device's key, flushes banked receipts to the meter, and at `buildOrFix` races the
+    coder pool when a peer can generate (strong device gains speed; weak borrows) +
+    offloads verify when weak. Strong-device self-race: the device registers itself as a
+    generator so the pool races local + peers.
+
+**Status:** stages 1–7 + session multiplex are pure cores, 72/72 Node tests green (incl.
+real ECDSA). Stages 8–10 (binding, UI, backend, agent wiring) typecheck clean. NOT yet
+verified at runtime: a Prisma **migration** must be applied on deploy (DeviceKey +
+MeshCreditDay), and the WebRTC/IndexedDB/route paths need on-device + against-DB testing.
 
 ## Pro fit
 

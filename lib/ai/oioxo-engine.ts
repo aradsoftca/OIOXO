@@ -890,6 +890,48 @@ export function safetyReferral(text: string): OioxoReply | null {
 }
 
 /**
+ * HARM REFUSAL — graceful, calibrated refusal of genuinely harmful/illegal requests
+ * to DO or MAKE something (not informational/historical questions). Deterministic
+ * floor: more reliable than teacher-learned (Gemini's own filters resist generating
+ * harmful examples). Tightly scoped + excludes benign look-alikes ("bath bomb",
+ * "kill a process", "glue gun", defensive security) so it never over-refuses.
+ */
+export function harmRefusal(text: string): OioxoReply | null {
+  const t = text.toLowerCase();
+  const wantsToMake = /\b(how (to|do i|can i)|help me|build|make|create|construct|give me instructions)\b/.test(t);
+  // weapons / explosives
+  if (wantsToMake
+    && /\b(bomb|explosive|grenade|detonator|napalm|molotov|ied|silencer|untraceable (gun|firearm)|ghost gun|3d ?printed gun)\b/.test(t)
+    && !/\bbath bomb|photo ?bomb|glue gun|nail gun|water gun|squirt gun|nerf\b/.test(t)) {
+    return { text: "I can't help with making weapons or explosives — that's genuinely dangerous and I won't provide it. I'm happy to explain the science or history of a topic safely, though." };
+  }
+  // serious violence toward a person
+  if (/\b(how to|how do i|best way to|help me|ways to)\b/.test(t)
+    && /\b(kill|murder|poison|hurt|harm|attack|assault|stab|strangle|get rid of)\b/.test(t)
+    && /\b(someone|somebody|a person|people|my (ex|wife|husband|boss|neighbou?r|teacher)|him|her|them)\b/.test(t)) {
+    return { text: "I can't help with hurting anyone. If you're overwhelmed or angry, talking to someone you trust or a professional really can help — and if anyone is in danger, please contact your local emergency services." };
+  }
+  // unauthorized access / spying on others
+  if (/\b(hack|break into|get into|spy on|track|stalk|steal|read)\b/.test(t)
+    && /\b(someone|somebody|my (ex|partner|girlfriend|boyfriend|wife|husband|friend|neighbou?r|kid'?s)|his|her|their|a person'?s|other people'?s)\b/.test(t)
+    && /\b(account|phone|password|instagram|facebook|snapchat|whatsapp|email|wi-?fi|camera|location|messages?|texts?|dms?)\b/.test(t)) {
+    return { text: "I can't help access someone else's account or device — that's a privacy and legal line I won't cross. If it's YOUR own account you're locked out of, I can walk you through the official recovery steps." };
+  }
+  // illicit drug synthesis
+  if (/\b(how to|make|synthesi[sz]e|cook|produce|manufacture)\b/.test(t)
+    && /\b(meth|methamphetamine|cocaine|heroin|fentanyl|mdma|crack cocaine|crystal meth)\b/.test(t)) {
+    return { text: "I can't help with making illegal drugs. If substance use is affecting you or someone you know, a doctor or a local helpline can offer real, confidential support." };
+  }
+  // malware to attack (not defend/learn/remove)
+  if (/\b(write|create|make|build|code|develop)\b/.test(t)
+    && /\b(virus|malware|ransomware|trojan|keylogger|spyware|botnet|worm)\b/.test(t)
+    && !/\b(remove|protect|detect|scan|antivirus|defend|prevent|against|how (does|do)|what is)\b/.test(t)) {
+    return { text: "I won't write malware. If you want to understand how it works to defend against it, or need help removing an infection, I'm glad to help with that." };
+  }
+  return null;
+}
+
+/**
  * SOFT advice disclaimer (the "dark layer"). The hard `safetyReferral` REFUSES
  * personal medical/crisis; this is for questions we DO answer but that touch
  * legal / medical / financial / safety matters — we add ONE brief, FRIENDLY
@@ -975,6 +1017,9 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
 
     const safe = safetyReferral(text);
     if (safe) return safe;
+    // Refuse genuinely harmful/illegal "how to do X" requests (calibrated, floor).
+    const harm = harmRefusal(text);
+    if (harm) return harm;
 
     // COMPUTE: arithmetic / percent / unit-rate → answer EXACTLY on-device, never
     // web-search it (the battery caught "15% of 240" → news headlines).

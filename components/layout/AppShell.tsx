@@ -10,6 +10,7 @@ import { DragMagicProvider } from './DragMagicProvider';
 import { ToolsBar } from './ToolsBar';
 import { AppsBar } from './AppsBar';
 import { HeaderAccount } from './HeaderAccount';
+import { UsageGateProvider } from '@/components/usage/UsageGateProvider';
 import { GlobalProgress } from './GlobalProgress';
 import { NavProgress } from './NavProgress';
 import { CATALOG } from '@/lib/catalog';
@@ -133,6 +134,7 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </footer>
 
+        <UsageGateProvider />
         <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
         <MobileMenu open={menuOpen} onClose={() => setMenuOpen(false)} />
       </div>

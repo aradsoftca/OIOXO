@@ -6,6 +6,7 @@ import { Crown, Gift, Loader2, Lock, X } from 'lucide-react';
 import type { Category } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
 import { isGated } from '@/lib/usage/config';
+import { armDownloadBypass } from '@/lib/usage/gate-bridge';
 
 type Phase = 'idle' | 'reward' | 'paywall';
 
@@ -76,6 +77,7 @@ export function useUsageGate(category: Category) {
       category,
       action: 'consume',
     });
+    if (consumed.allowed) armDownloadBypass();
     settle(consumed.allowed);
   }, [category, settle]);
 
@@ -100,7 +102,7 @@ export function useUsageGate(category: Category) {
   const guard = React.useCallback(async (): Promise<boolean> => {
     if (!isGated(category)) return true;
     const r = await postJson<UsageResponse>('/api/usage', { category, action: 'consume' });
-    if (r.allowed) return true;
+    if (r.allowed) { armDownloadBypass(); return true; }
     if (r.gate === 'rewarded') {
       await postJson('/api/usage/reward', { category, action: 'start' });
       return new Promise<boolean>((resolve) => {
@@ -129,7 +131,7 @@ export function useUsageGate(category: Category) {
   return { guard, gate };
 }
 
-function GateModal({
+export function GateModal({
   phase,
   seconds,
   claiming,

@@ -234,7 +234,8 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.href = url;
   a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Deferred so the usage-gate download interceptor can still read the blob URL.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 export async function blobsToZip(items: { name: string; blob: Blob }[]): Promise<Blob> {

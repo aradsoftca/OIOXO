@@ -31,6 +31,7 @@ import { detectAnswerType, looksInstructional, type AnswerType } from './extract
 import { richAnswer } from './web-read';
 import { toEnglish, fromEnglish } from './translate';
 import { getCached, putCached } from './search-cache';
+import { capturePreference, remember, recallLanguage, recallName } from './user-memory';
 import { findImages } from './image-search';
 import { funReply } from '../ai-magic';
 import { getTool, TOOLS } from '../registry';
@@ -895,9 +896,24 @@ export async function respond(message: string, opts: RespondOpts = {}): Promise<
   } catch {
     /* translation unavailable → answer in the original text */
   }
+  // Honor a remembered language preference ("always reply in Spanish") when the
+  // user wrote in English (their stored choice wins for the reply language).
+  if (!lang) {
+    const pref = recallLanguage();
+    const code = pref ? LANG_CODE[pref.toLowerCase()] : null;
+    if (code) lang = code;
+  }
   const reply = await respondCore(text, opts);
   return lang ? localizeReply(reply, lang) : reply;
 }
+
+// Language NAME (as the user says it) → ISO code for the translate layer.
+const LANG_CODE: Record<string, string> = {
+  spanish: 'es', french: 'fr', german: 'de', italian: 'it', portuguese: 'pt', dutch: 'nl',
+  arabic: 'ar', chinese: 'zh', mandarin: 'zh', japanese: 'ja', korean: 'ko', russian: 'ru',
+  hindi: 'hi', persian: 'fa', farsi: 'fa', turkish: 'tr', polish: 'pl', swedish: 'sv',
+  greek: 'el', hebrew: 'he', thai: 'th', vietnamese: 'vi', indonesian: 'id', english: 'en',
+};
 
 /**
  * SAFETY POLICY LAYER: we do not give medical or mental-health advice — these
@@ -1110,6 +1126,18 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
     if (!fileCat) {
       const selfOrSocial = metaSelfReply(text) ?? socialReply(text);
       if (selfOrSocial) return selfOrSocial;
+      // MEMORY: a lasting preference ("call me Alex", "always reply in Spanish",
+      // "remember I'm vegetarian") → store on-device. If the turn is JUST the
+      // preference, acknowledge; otherwise store silently and keep handling the request.
+      const pref = capturePreference(text);
+      if (pref) {
+        remember(pref.kind, pref.value);
+        if (text.split(/\s+/).length <= 14 && !/\?\s*$/.test(text)) {
+          if (pref.kind === 'name') return { text: `Nice to meet you, ${pref.value}! I'll remember that.` };
+          if (pref.kind === 'language') return { text: `Got it — I'll reply in ${pref.value} from now on.` };
+          return { text: "Got it — I'll remember that, and keep it in mind going forward." };
+        }
+      }
       // Single-word definition → dictionary, not the open web.
       const def = await defineWord(text);
       if (def) return def;

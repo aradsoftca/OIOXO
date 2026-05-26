@@ -85,6 +85,10 @@ const CASES: Case[] = [
   { q: 'how many letters in mississippi', cls: 'math', kind: 'answer', right: ['11'], wrong: ['coat of arms', '2885'] },
   { q: 'what day comes after friday', cls: 'math', kind: 'answer', right: ['saturday'], wrong: ['black friday', 'thanksgiving'] },
   { q: 'how old is someone born in 1990', cls: 'math', kind: 'answer', right: ['36'], wrong: ['wolverhampton', 'lawrence'] },
+  { q: 'what is 2+2', cls: 'math', kind: 'answer', right: ['4'], wrong: ['falsehood', 'orwell', '2 + 2 = 5'] },
+  { q: 'whats 100 divided by 7', cls: 'math', kind: 'answer', right: ['14.28'], wrong: ['nasdaq'] },
+  { q: 'whats 20% off of 80', cls: 'math', kind: 'answer', right: ['64', 'save'], wrong: ['promo code', 'coupon'] },
+  { q: 'count from 1 to 5', cls: 'math', kind: 'answer', right: ['1, 2, 3, 4, 5'], wrong: ['nursery', 'caught a'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

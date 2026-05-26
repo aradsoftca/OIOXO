@@ -95,6 +95,13 @@ export function tryCompute(text: string): string | null {
   m = t.match(/what\s+percent\s+of\s+(\d[\d,]*(?:\.\d+)?)\s+is\s+(\d[\d,]*(?:\.\d+)?)/);
   if (m) return `${m[2]} is **${tidy((num(m[2]) / num(m[1])) * 100)}%** of ${m[1]}.`;
 
+  // percent OFF (discount):  "20% off of 80", "15 percent off 200"
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:percent|%)\s*off\s*(?:of\s*)?(\d[\d,]*(?:\.\d+)?)/);
+  if (m) {
+    const p = num(m[1]), base = num(m[2]);
+    return `${m[1]}% off ${m[2]} = **${tidy(base * (1 - p / 100))}** (you save ${tidy((base * p) / 100)}).`;
+  }
+
   // unit rate → speed:  distance + time + "speed"
   const dist = t.match(/(\d+(?:\.\d+)?)\s*(km|kilomet(?:er|re)s?|miles?|mi|m)\b/);
   const mins = t.match(/(\d+(?:\.\d+)?)\s*(minutes?|mins?)\b/);
@@ -115,6 +122,40 @@ export function tryCompute(text: string): string | null {
       const v = Function(`"use strict";return(${safe})`)();
       if (typeof v === 'number' && isFinite(v)) return `= **${tidy(v)}**`;
     } catch { /* not a valid expression */ }
+  }
+
+  // natural-language arithmetic:  "what is 2+2", "100 divided by 7", "5 times 8"
+  const expr2 = t
+    .replace(/^(?:what(?:'?s| is)|whats|calculate|compute|how much is|what does|solve)\s+/, '')
+    .replace(/\bdivided by\b|\bover\b/g, '/')
+    .replace(/\b(?:multiplied by|times)\b/g, '*')
+    .replace(/(\d)\s*x\s*(\d)/g, '$1*$2')
+    .replace(/\bplus\b/g, '+')
+    .replace(/\bminus\b/g, '-')
+    .replace(/\bto the power of\b/g, '**')
+    .replace(/\bsquared\b/g, '**2')
+    .replace(/\bcubed\b/g, '**3')
+    .replace(/\bmod(?:ulo)?\b/g, '%')
+    .replace(/[?=]/g, '')
+    .trim();
+  if (/^[\s\d.+\-*/()%×÷]+$/.test(expr2.replace(/\*\*/g, '')) && /[+\-*/×÷]/.test(expr2) && /\d/.test(expr2)) {
+    const safe = expr2.replace(/×/g, '*').replace(/÷/g, '/');
+    try {
+      // eslint-disable-next-line no-new-func
+      const v = Function(`"use strict";return(${safe})`)();
+      if (typeof v === 'number' && isFinite(v)) return `= **${tidy(v)}**`;
+    } catch { /* not valid */ }
+  }
+
+  // count a range:  "count from 1 to 5", "count 1 to 10"
+  m = t.match(/count\s+(?:from\s+)?(\d+)\s+(?:to|through|up to|until)\s+(\d+)/);
+  if (m) {
+    let a = +m[1]; const b = +m[2];
+    if (Math.abs(b - a) <= 200) {
+      const step = a <= b ? 1 : -1, out: number[] = [];
+      for (; step > 0 ? a <= b : a >= b; a += step) out.push(a);
+      return out.join(', ');
+    }
   }
 
   // square root:  "square root of 144", "sqrt(144)", "√144"

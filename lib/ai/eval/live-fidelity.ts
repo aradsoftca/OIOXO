@@ -70,6 +70,10 @@ const CASES: Case[] = [
   { q: 'what does ubiquitous mean', cls: 'define', kind: 'answer', right: ['everywhere', 'omnipresent', 'ubiquitous'], wrong: ['bbc', 'stereotype', 'acronym'] },
   // symbol/emoji-only → clarify/ack, never web-search
   { q: '?', cls: 'nocontent', kind: 'answer', right: ['ask', 'help', 'what you need'], wrong: ['punctuation', 'interrogation point'] },
+  // spelling → spell it out, never example-sentence junk
+  { q: 'how do you spell restaurant', cls: 'spell', kind: 'answer', right: ['spelled', 'r-e-s-t'], wrong: ['italian restaurants', 'steps'] },
+  // currency → live FX rate, never web junk
+  { q: '100 usd to eur', cls: 'currency', kind: 'answer', right: ['usd', 'eur', 'rate'], wrong: ['minimum wage', 'dark red'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

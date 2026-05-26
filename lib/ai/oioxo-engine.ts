@@ -268,6 +268,36 @@ async function defineWord(text: string): Promise<OioxoReply | null> {
   }
 }
 
+// CURRENCY conversion — needs a live rate, so use a free no-key FX API instead of
+// web-searching ("100 usd to eur" had returned minimum-wage-by-country junk). Falls
+// through (null) for non-currency or when offline. Unit conversion (compute.ts) runs
+// FIRST, so "5 km to miles" never reaches here.
+const CUR: Record<string, string> = {
+  usd: 'USD', dollar: 'USD', dollars: 'USD', buck: 'USD', bucks: 'USD',
+  eur: 'EUR', euro: 'EUR', euros: 'EUR', gbp: 'GBP', pound: 'GBP', pounds: 'GBP', quid: 'GBP',
+  jpy: 'JPY', yen: 'JPY', cad: 'CAD', aud: 'AUD', chf: 'CHF', cny: 'CNY', yuan: 'CNY', rmb: 'CNY',
+  inr: 'INR', rupee: 'INR', rupees: 'INR', krw: 'KRW', won: 'KRW', brl: 'BRL', mxn: 'MXN',
+  rub: 'RUB', ruble: 'RUB', rubles: 'RUB', try: 'TRY', lira: 'TRY', sek: 'SEK', nok: 'NOK', dkk: 'DKK', zar: 'ZAR',
+};
+const curCode = (s: string): string | null =>
+  CUR[s] ?? CUR[s.replace(/s$/, '')] ?? (/^[a-z]{3}$/.test(s) ? s.toUpperCase() : null);
+async function convertCurrency(text: string): Promise<OioxoReply | null> {
+  const m = text.toLowerCase().match(/(?:convert\s+)?(\d+(?:\.\d+)?)\s*([a-z]{1,8})\s+(?:to|in|into)\s+([a-z]{1,8})\b/);
+  if (!m) return null;
+  const from = curCode(m[2]), to = curCode(m[3]);
+  if (!from || !to || from === to) return null;
+  const amount = parseFloat(m[1]);
+  try {
+    const r = await fetch(`https://api.frankfurter.app/latest?amount=${amount}&from=${from}&to=${to}`);
+    if (!r.ok) return null;
+    const out = (await r.json())?.rates?.[to];
+    if (typeof out !== 'number') return null;
+    return { text: `${amount} ${from} = **${out.toFixed(2)} ${to}** at today's rate.` };
+  } catch {
+    return null; // offline / unsupported currency → normal flow
+  }
+}
+
 // NO-CONTENT input — only punctuation / symbols / emoji ("?", "...", "👍"). Never
 // web-search it ("?" → a Wikipedia page on the question mark); acknowledge or ask.
 const POSITIVE_EMOJI = /[\u{1F44D}\u{1F600}-\u{1F64F}\u{2764}\u{1F389}\u{1F44F}\u{1F525}\u{1F60D}]/u;
@@ -954,6 +984,9 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
       // Single-word definition → dictionary, not the open web.
       const def = await defineWord(text);
       if (def) return def;
+      // Currency conversion → live FX rate, not a web search.
+      const cur = await convertCurrency(text);
+      if (cur) return cur;
     }
 
     // GEO: a maps question ("how far is X from Y", "where is X") — understand the

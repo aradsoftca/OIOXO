@@ -115,5 +115,13 @@ export function tryCompute(text: string): string | null {
   const conv = tryUnitConvert(t);
   if (conv) return conv;
 
+  // spelling: "how do you spell restaurant", "spell necessary" → spell it out.
+  let sp = text.match(/^\s*(?:how (?:do you|to) spell|spell)\s+["']?([a-z][a-z'-]{1,20})["']?\s*[?.!]*$/i)
+        || text.match(/^\s*how is\s+["']?([a-z][a-z'-]{1,20})["']?\s+spell?ed\s*[?.!]*$/i);
+  if (sp) {
+    const w = sp[1];
+    return `**${w}** is spelled ${w.toUpperCase().split('').join('-')}.`;
+  }
+
   return null;
 }

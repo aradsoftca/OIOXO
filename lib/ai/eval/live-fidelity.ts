@@ -78,6 +78,13 @@ const CASES: Case[] = [
   { q: 'how many seconds in a year', cls: 'convert', kind: 'answer', right: ['31536000', 'seconds'], wrong: ['5 seconds of summer', 'album'] },
   // summarize the user's OWN text → never web-search their words
   { q: 'summarize this: The French Revolution was a period of radical political and societal change in France that began with the Estates General of 1789 and ended in 1799. It suppressed feudalism. It deeply influenced liberal democracy worldwide.', cls: 'summarize', kind: 'answer', right: ['revolution', 'france', '1789'], wrong: ['tilburg', 'societal change in the past', 'european university'] },
+  // deterministic math / logic / string / date — perfect on-device, never web junk
+  { q: 'what is the square root of 144', cls: 'math', kind: 'answer', right: ['12'], wrong: ['long hand', 'manual method'] },
+  { q: 'whats bigger 0.9 or 0.11', cls: 'math', kind: 'answer', right: ['0.9', 'bigger'], wrong: ['little distinctive', 'zero'] },
+  { q: 'reverse the word hello', cls: 'math', kind: 'answer', right: ['olleh'], wrong: ['french words', 'femme'] },
+  { q: 'how many letters in mississippi', cls: 'math', kind: 'answer', right: ['11'], wrong: ['coat of arms', '2885'] },
+  { q: 'what day comes after friday', cls: 'math', kind: 'answer', right: ['saturday'], wrong: ['black friday', 'thanksgiving'] },
+  { q: 'how old is someone born in 1990', cls: 'math', kind: 'answer', right: ['36'], wrong: ['wolverhampton', 'lawrence'] },
 ];
 
 async function one(c: Case): Promise<{ ok: boolean; why: string; kind: string; snip: string }> {

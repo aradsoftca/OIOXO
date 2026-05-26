@@ -117,6 +117,57 @@ export function tryCompute(text: string): string | null {
     } catch { /* not a valid expression */ }
   }
 
+  // square root:  "square root of 144", "sqrt(144)", "√144"
+  m = t.match(/(?:square root|sqrt|√)\s*(?:of\s+)?\(?(\d+(?:\.\d+)?)\)?/);
+  if (m) return `√${m[1]} = **${tidy(Math.sqrt(num(m[1])))}**.`;
+
+  // is N prime:  "is 7 a prime number", "is 12 prime"
+  m = t.match(/\bis\s+(\d{1,9})\s+(?:a\s+)?prime\b/);
+  if (m) {
+    const n = +m[1];
+    const prime = n >= 2 && !(() => { for (let i = 2; i * i <= n; i++) if (n % i === 0) return true; return false; })();
+    return `**${n}** is ${prime ? 'a prime number' : 'not a prime number'}.`;
+  }
+
+  // bigger/smaller of two numbers:  "whats bigger 0.9 or 0.11", "is 5 bigger than 3"
+  if (/\b(bigger|larger|greater|smaller|lesser|less|lower|higher)\b/.test(t) && /\b(or|than|vs)\b/.test(t)) {
+    const nums = t.match(/-?\d+(?:\.\d+)?/g);
+    if (nums && nums.length === 2) {
+      const a = num(nums[0]), b = num(nums[1]);
+      if (a === b) return `${nums[0]} and ${nums[1]} are equal.`;
+      const small = /\b(smaller|lesser|less|lower)\b/.test(t);
+      return `**${tidy(small ? Math.min(a, b) : Math.max(a, b))}** is the ${small ? 'smaller' : 'bigger'} of the two.`;
+    }
+  }
+
+  // reverse a word:  "reverse the word hello", "reverse hello"
+  m = text.match(/^\s*reverse(?:\s+the\s+(?:word|string|text))?\s+["']?([a-z]{1,30})["']?\s*[?.!]*$/i);
+  if (m) return `"${m[1]}" reversed is **${m[1].split('').reverse().join('')}**.`;
+
+  // letter count:  "how many letters in mississippi"
+  m = t.match(/how many (?:letters|characters|chars)\s+(?:are\s+)?(?:in|does)\s+(?:the word\s+)?["']?([a-z]{1,30})["']?/);
+  if (m) return `**${m[1]}** has **${m[1].length}** letters.`;
+
+  // day of week:  "what day comes after friday", "day before monday"
+  const DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  m = t.match(/day\s+(?:comes\s+|is\s+)?(after|before|following|preceding)\s+(\w+)/);
+  if (m) {
+    const i = DAYS.indexOf(m[2]);
+    if (i >= 0) {
+      const back = /before|preceding/.test(m[1]);
+      const d = DAYS[(i + (back ? 6 : 1)) % 7];
+      const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+      return `The day ${back ? 'before' : 'after'} ${cap(m[2])} is **${cap(d)}**.`;
+    }
+  }
+
+  // age from birth year:  "how old is someone born in 1990"
+  m = t.match(/how old\b[^]*?\bborn in\s+(\d{4})\b/);
+  if (m) {
+    const yr = +m[1], now = new Date().getFullYear();
+    if (yr >= 1000 && yr <= now) return `Someone born in ${yr} is **${now - yr}** (or about to turn ${now - yr}) this year.`;
+  }
+
   // unit / measure conversion: "5 km to miles", "100 f to c", "how many ml in a cup"
   const conv = tryUnitConvert(t);
   if (conv) return conv;

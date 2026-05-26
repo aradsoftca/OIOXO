@@ -1,0 +1,82 @@
+# oioxo Native Mesh — cross-platform Tauri builds (OIOXO_NATIVE_MESH.md).
+# Builds the native shell that wraps oioxo.com. The app loads the live site, so there is
+# NO frontend build step — only the Rust core compiles. Desktop builds run here; mobile
+# (Android/iOS) needs signing secrets + is documented at the bottom.
+#
+# Trigger: manually (workflow_dispatch) or on a version tag (v*).
+name: tauri-build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest,   args: '--target universal-apple-darwin' }
+          - { os: ubuntu-22.04,   args: '' }
+          - { os: windows-latest, args: '' }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Linux system deps (webkit/gtk)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Build the app (Rust only; frontend is the live oioxo.com)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # macOS signing/notarization (set as repo secrets to ship outside dev):
+          # APPLE_CERTIFICATE, APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY,
+          # APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID
+          # Windows Authenticode: TAURI_SIGNING_PRIVATE_KEY / _PASSWORD
+        with:
+          projectPath: .
+          # No npm build: tauri.conf frontendDist=../public (static), site is remote.
+          args: ${{ matrix.args }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oioxo-${{ matrix.os }}
+          path: |
+            src-tauri/target/**/release/bundle/**/*.dmg
+            src-tauri/target/**/release/bundle/**/*.app
+            src-tauri/target/**/release/bundle/**/*.AppImage
+            src-tauri/target/**/release/bundle/**/*.deb
+            src-tauri/target/**/release/bundle/**/*.msi
+            src-tauri/target/**/release/bundle/**/*.exe
+          if-no-files-found: ignore
+
+# ───────────────────────────── MOBILE (manual, needs secrets) ─────────────────────────
+# Android (runs on ubuntu): needs Android SDK/NDK + a signing keystore.
+#   - uses: actions/setup-java@v4 (temurin 17)
+#   - android-actions/setup-android@v3
+#   - rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+#   - npm exec tauri android init   (once, committed)
+#   - npm exec tauri android build --aab    (sign with KEYSTORE secrets) → Play Store
+#
+# iOS (runs on macos): needs an Apple Developer account + provisioning profile.
+#   - rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+#   - npm exec tauri ios init       (once, committed)
+#   - import signing cert/profile, then: npm exec tauri ios build  → .ipa → TestFlight
+# iOS also requires the native-inference bridge (MLC/llama.cpp Metal) for the provider
+# role, since the WKWebView can't host the model — see OIOXO_NATIVE_MESH.md.

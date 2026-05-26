@@ -54,6 +54,56 @@ fn write_files(files: Vec<FileSpec>, dir: Option<String>) -> Result<String, Stri
   Ok(base.to_string_lossy().to_string())
 }
 
+// ─────────────────────────── COMPUTE MESH (native) ───────────────────────────
+// The mesh's native superpowers (OIOXO_NATIVE_MESH.md). Reached from the web app via
+// lib/oioxo/native-bridge.ts. The verify oracle reuses exec + write_files above; the
+// commands below are the NEW native-only capabilities. They are stubs with the exact
+// integration point marked — implementing them is the per-platform native work; until
+// then the JS bridge no-ops gracefully (the mesh falls back to the webview paths).
+
+/// Run the coder model NATIVELY (Metal/CUDA/Vulkan/NPU) and return file edits.
+/// TODO(native-inference): bind llama.cpp (llama-cpp-2 crate) / MLC and decode the
+/// model named by the installed `code` skill. Until then the webview WebGPU coder
+/// handles generation, so returning an error here is safe (bridge → []).
+#[tauri::command]
+fn mesh_generate(_ctx: serde_json::Value) -> Result<serde_json::Value, String> {
+  Err("native inference not built yet — see OIOXO_NATIVE_MESH.md (webview coder is used meanwhile)".into())
+}
+
+/// Start a LAN HTTP provider ("API device") exposing /generate + /verify to siblings.
+/// TODO(lan): serve with axum/tiny_http bound to 0.0.0.0:<port>, dispatch /generate to
+/// mesh_generate and /verify to exec+write_files; return the chosen URL.
+#[tauri::command]
+fn lan_serve_start(_port: u16) -> Result<String, String> {
+  Err("LAN provider not implemented yet — see OIOXO_NATIVE_MESH.md".into())
+}
+
+#[tauri::command]
+fn lan_serve_stop() -> Result<(), String> {
+  Ok(())
+}
+
+/// Discover sibling provider endpoints on the local network (replaces the QR).
+/// TODO(mdns): advertise + browse `_oioxo-mesh._tcp` via the mdns-sd crate. Empty list
+/// is the safe default (the UI still offers manual QR/paste pairing).
+#[tauri::command]
+fn mdns_discover() -> Result<Vec<serde_json::Value>, String> {
+  Ok(vec![])
+}
+
+/// Read the device's private signing key from the OS keychain (non-exportable store).
+/// TODO(keychain): back with the `keyring` crate. Returning None makes the bridge fall
+/// back to IndexedDB storage, so receipts still work.
+#[tauri::command]
+fn keychain_get(_account: String) -> Result<Option<String>, String> {
+  Ok(None)
+}
+
+#[tauri::command]
+fn keychain_set(_account: String, _value: String) -> Result<(), String> {
+  Err("OS keychain not wired yet — IndexedDB used meanwhile (see OIOXO_NATIVE_MESH.md)".into())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -67,7 +117,16 @@ pub fn run() {
       }
       Ok(())
     })
-    .invoke_handler(tauri::generate_handler![exec, write_files])
+    .invoke_handler(tauri::generate_handler![
+      exec,
+      write_files,
+      mesh_generate,
+      lan_serve_start,
+      lan_serve_stop,
+      mdns_discover,
+      keychain_get,
+      keychain_set
+    ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
 }

@@ -32,6 +32,7 @@ import { loadOrCreateIdentity } from '@/lib/oioxo/device-key-store';
 import { toB64Url } from '@/lib/oioxo/bytes';
 import type { HelperProfile } from '@/lib/oioxo/mesh';
 import type { RunFn } from '@/lib/oioxo/codeloop';
+import { nativeLendEngines } from '@/lib/oioxo/native-bridge';
 
 /** A short, friendly name for THIS device (shown to the paired sibling). */
 function deviceLabel(): string {
@@ -687,9 +688,11 @@ function AgentPanel({ tree, root, match, onClose }: { tree: FileNode[]; root: un
     }).catch(() => {});
     return () => { on = false; };
   }, [native]);
-  // Local engines a paired peer borrows when THIS device lends.
-  const lendGenerate = React.useMemo(() => makeCoderGenerate(match), [match]);
-  const lendRun = React.useMemo<RunFn>(() => makeTypeCheckRun(), []);
+  // Local engines a paired peer borrows when THIS device lends. In the native shell,
+  // prefer the native engine (full-GPU model run / real exec); on the web, fall back to
+  // the webview coder + the universal type oracle.
+  const lendGenerate = React.useMemo(() => nativeLendEngines().generate ?? makeCoderGenerate(match), [match]);
+  const lendRun = React.useMemo<RunFn>(() => nativeLendEngines().run ?? makeTypeCheckRun(), []);
   // Register THIS device as a generator in its own fabric so the coder pool can RACE
   // local generation against the peers (a strong device gets faster; a weak device,
   // whose profile lacks 'generate', simply isn't added and borrows instead).

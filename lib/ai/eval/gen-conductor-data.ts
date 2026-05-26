@@ -163,7 +163,8 @@ async function main() {
   const outDir = path.join(process.cwd(), 'lib/ai/eval/out');
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'conductor-data.jsonl');
-  const ws = fs.createWriteStream(outFile, { flags: 'w' });
+  // APPEND=1 accumulates across runs (scale toward ~2000 without losing earlier rows).
+  const ws = fs.createWriteStream(outFile, { flags: process.env.APPEND ? 'a' : 'w' });
   console.log(`conductor data · model ${MODEL} · N=${N} dialogues`);
   let dialogs = 0, rows = 0, rejected = 0;
   for (let i = 0; i < N; i++) {

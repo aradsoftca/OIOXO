@@ -31,12 +31,13 @@ MAX_LEN = 256  # query-gen is short -> small ctx = fast
 
 # SERVE CONTRACT — must match QUERYGEN_SYSTEM in gen-querygen-data.ts and the engine.
 SYSTEM = (
-    "You turn the user's message into the best WEB SEARCH QUERY — the concise keywords "
-    "a skilled researcher types into a search engine. Drop filler, emotion, greetings, "
-    "and first-person (\"I'm 40, scared\"); keep the real entities (brands, models, "
-    "places, error text) and the intent word (\"how to\", \"fix\", \"review\", \"best\", "
-    "a year). Also give ONE different, more specific fallback query to try if the first "
-    "returns weak results. Output ONLY JSON: {\"query\":\"...\",\"refine\":\"...\"}."
+    "You turn the user's message into a SET of 3 DIVERSE web-search queries that attack "
+    "it from different angles (different keywords/synonyms, the specific entity or error, "
+    "the key constraint, the broader category). Each query is concise KEYWORDS (max 7 "
+    "words): drop filler, emotion, greetings and first-person; KEEP real entities (brands, "
+    "models, places, error text) and the intent word (\"how to\", \"fix\", \"review\", "
+    "\"best\", a year). Not paraphrases — genuinely different angles. Output ONLY JSON: "
+    "{\"queries\":[\"...\",\"...\",\"...\"]}."
 )
 
 # Resilient load: skip malformed lines.
@@ -47,7 +48,8 @@ for l in open(DATA, encoding="utf-8"):
         continue
     try:
         r = json.loads(l)
-        if isinstance(r, dict) and "input" in r and "label" in r and r["input"].get("message"):
+        if isinstance(r, dict) and "input" in r and "label" in r and r["input"].get("message") \
+                and isinstance(r["label"].get("queries"), list) and r["label"]["queries"]:
             rows.append(r)
         else:
             skipped += 1
@@ -66,9 +68,8 @@ def build(r):
     msgs = [{"role": "system", "content": SYSTEM},
             {"role": "user", "content": r["input"]["message"]}]
     prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
-    # only the fields we serve, in a fixed key order (stable target)
-    target = json.dumps({"query": r["label"].get("query", ""),
-                         "refine": r["label"].get("refine", "")}, ensure_ascii=False)
+    # the set of diverse queries (the field we serve)
+    target = json.dumps({"queries": r["label"]["queries"]}, ensure_ascii=False)
     full = prompt + target + tok.eos_token
     enc = tok(full, truncation=True, max_length=MAX_LEN)
     p_len = len(tok(prompt, truncation=True, max_length=MAX_LEN)["input_ids"])

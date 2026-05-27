@@ -56,34 +56,46 @@ export interface SnippetConsensus {
 
 interface Snip { text: string; source: SearchSource }
 
-/**
- * Gather snippets from the open indexes the browser may query directly — no page
- * reads, no proxy, no key. Best-effort: a failing index just contributes nothing.
- * Federated on purpose so no single index is a dependency. (GDELT for fresh news
- * slots in here once its CORS is confirmed.)
- */
-async function gatherSnippets(query: string): Promise<Snip[]> {
-  const [web, wiki] = await Promise.all([
-    webSearch(query, 24).catch(() => []),
-    wikipediaExtracts(query, 3).catch(() => []),
-  ]);
+/** Web snippets for ONE query (Mwmbl) — the engine's own extract, no page read. */
+async function webSnips(query: string): Promise<Snip[]> {
+  const web = await webSearch(query, 14).catch(() => []);
   const out: Snip[] = [];
   for (const r of web) {
     const text = [r.title, r.extract].filter(Boolean).join('. ').replace(/\s+/g, ' ').trim();
     if (text.length > 20) out.push({ text, source: { title: r.title || siteOf(r.url), url: r.url, site: siteOf(r.url) } });
   }
-  for (const w of wiki) if (w.text.length > 40) out.push({ text: w.text, source: w.source });
   return out;
 }
 
 /**
- * Answer from the snippet set by consensus. Returns the cited answer + a confidence
- * grounded in how many independent domains addressed the question; 'unverified' (and
- * empty answer) when nothing relevant was found — the honest "I couldn't confirm".
+ * Answer by FAN-OUT: run the model's diverse queries (different angles), POOL the
+ * results across all of them, dedupe by URL, then rerank against the user's true
+ * intent and synthesize — "give results of all and mix and decide". `queries` comes
+ * from the on-device query-writer; when absent (cold/SSR) we just search the message.
+ *
+ * Returns the cited answer + a confidence grounded in how many independent domains
+ * addressed it; 'unverified' (empty answer) when nothing relevant — the honest
+ * "I couldn't confirm" rather than a guess.
  */
-export async function answerFromSnippets(query: string): Promise<SnippetConsensus> {
-  const passages = await gatherSnippets(query);
+export async function answerFromSnippets(message: string, queries?: string[]): Promise<SnippetConsensus> {
+  const qs = (queries && queries.length ? queries : [message]).slice(0, 4);
+  // Fan out across the diverse queries (Mwmbl per query) + Wikipedia once on the
+  // real message; pool everything and dedupe by URL (keep the richest snippet).
+  const [webPools, wiki] = await Promise.all([
+    Promise.all(qs.map(webSnips)),
+    wikipediaExtracts(message, 3).catch(() => []),
+  ]);
+  const byUrl = new Map<string, Snip>();
+  for (const s of webPools.flat()) {
+    const k = s.source.url.replace(/[#?].*$/, '').replace(/\/$/, '');
+    const prev = byUrl.get(k);
+    if (!prev || s.text.length > prev.text.length) byUrl.set(k, s);
+  }
+  const passages: Snip[] = [...byUrl.values()];
+  for (const w of wiki) if (w.text.length > 40) passages.push({ text: w.text, source: w.source });
   if (!passages.length) return { answer: '', confidence: 'unverified', agreement: 0, sources: [] };
+  // Relevance + synthesis are judged against the MESSAGE (the true intent), not a sub-query.
+  const query = message;
 
   // Decide which snippets actually ADDRESS the question. Best path: the trained
   // reranker (a cross-encoder) scores each snippet's relevance — it understands a

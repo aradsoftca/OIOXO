@@ -57,10 +57,13 @@ export function buildConductorUser(message: string, history: Turn[] = [], hasFil
   return lines.join('\n');
 }
 
-// Inert until the trained conductor is actually deployed — no load attempt, zero
-// cost (the engine still calls planTurn every turn; it returns null instantly).
-// Deploy flips this: enableConductor(true) or localStorage 'oioxo.conductor'='1'.
-let _enabled = isBrowser && typeof localStorage !== 'undefined' && localStorage.getItem('oioxo.conductor') === '1';
+// LIVE: the trained conductor is deployed (encrypted on HF payam1394/oioxo-conductor;
+// key minted by /api/ai-key). ON by default in the browser; explicit opt-out via
+// localStorage 'oioxo.conductor'='0' (e.g. for the deterministic-floor A/B baseline).
+// Safe either way — a cold/denied/slow load returns null and the engine keeps its
+// regex floor (reliability contract), and the never-block cap ships the floor answer
+// if the model is slow to warm. Lazy: the ~364MB asset loads on the first planTurn.
+let _enabled = isBrowser && (typeof localStorage === 'undefined' || localStorage.getItem('oioxo.conductor') !== '0');
 export function enableConductor(on = true): void { _enabled = on; }
 export function conductorEnabled(): boolean { return _enabled; }
 

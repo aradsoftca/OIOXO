@@ -2,11 +2,14 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { ArrowUp, Sparkles, ExternalLink, Rocket, Code2, Play } from 'lucide-react';
+import { ArrowUp, Sparkles, ExternalLink, Rocket, Code2, Play, Mic, Square, Volume2, VolumeX } from 'lucide-react';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { respond, type OioxoReply } from '@/lib/ai/oioxo-engine';
 import { OioxoLoader, OioxoThinking } from './OioxoBrand';
 import { MapView } from './MapView';
+import GameBoard from './games/GameBoard';
+import { listen, canListen, type Listening } from '@/lib/ai/stt';
+import { speak, stopSpeaking, canSpeak } from '@/lib/ai/tts';
 
 interface Msg {
   id: number;
@@ -30,15 +33,30 @@ export default function OioxoChat({ onOpenCode }: { onOpenCode?: () => void }) {
   const [msgs, setMsgs] = React.useState<Msg[]>([]);
   const [input, setInput] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [recording, setRecording] = React.useState(false);
+  const [transcribing, setTranscribing] = React.useState(false);
+  const [speakingId, setSpeakingId] = React.useState<number | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const taRef = React.useRef<HTMLTextAreaElement>(null);
+  const listenRef = React.useRef<Listening | null>(null);
+  const voiceLangRef = React.useRef<string>('en'); // last spoken language → reply voice
+  const [voiceCap, setVoiceCap] = React.useState<{ listen: boolean; speak: boolean }>({ listen: false, speak: false });
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [msgs]);
 
+  // Warm the tool embedding matrix once (idempotent, cached in IndexedDB) so the
+  // engine's semantic tool recovery (refineRouteWithEncoder → routeToTool) is live;
+  // until it's ready the router degrades gracefully to the lexical floor.
+  React.useEffect(() => {
+    import('@/lib/ai/embed').then((m) => m.warmEmbeddings()).catch(() => {});
+    setVoiceCap({ listen: canListen(), speak: canSpeak() });
+    return () => { try { stopSpeaking(); } catch { /* noop */ } };
+  }, []);
+
   const send = React.useCallback(
-    async (raw: string) => {
+    async (raw: string, opts?: { voice?: boolean }) => {
       const text = raw.trim();
       if (!text || busy) return;
       setInput('');
@@ -58,9 +76,46 @@ export default function OioxoChat({ onOpenCode }: { onOpenCode?: () => void }) {
       );
       setBusy(false);
       taRef.current?.focus();
+      // Talk loop: if the user spoke this turn, speak the answer back in their language.
+      if (opts?.voice && reply.text) {
+        setSpeakingId(pendingId);
+        speak(reply.text, voiceLangRef.current).finally(() => setSpeakingId((id) => (id === pendingId ? null : id)));
+      }
     },
     [busy, msgs],
   );
+
+  // Push-to-talk: first tap records, second tap stops + transcribes (Whisper,
+  // on-device) → auto-sends and enters the talk loop (reply is spoken back).
+  const onMic = React.useCallback(async () => {
+    if (busy || transcribing) return;
+    if (listenRef.current) {
+      const handle = listenRef.current;
+      listenRef.current = null;
+      setRecording(false);
+      setTranscribing(true);
+      const res = await handle.stop().catch(() => null);
+      setTranscribing(false);
+      if (res?.text) {
+        if (res.lang) voiceLangRef.current = res.lang;
+        send(res.text, { voice: true });
+      }
+      return;
+    }
+    stopSpeaking();
+    const handle = await listen().catch(() => null);
+    if (!handle) return; // mic denied / unavailable → user keeps typing
+    listenRef.current = handle;
+    setRecording(true);
+  }, [busy, transcribing, send]);
+
+  // Tap the speaker on any reply to hear it (tap again to stop).
+  const onSpeak = React.useCallback((id: number, text: string) => {
+    if (speakingId === id) { stopSpeaking(); setSpeakingId(null); return; }
+    stopSpeaking();
+    setSpeakingId(id);
+    speak(text, voiceLangRef.current).finally(() => setSpeakingId((cur) => (cur === id ? null : cur)));
+  }, [speakingId]);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -99,7 +154,14 @@ export default function OioxoChat({ onOpenCode }: { onOpenCode?: () => void }) {
         ) : (
           <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6">
             {msgs.map((m) => (
-              <MessageRow key={m.id} msg={m} onAsk={send} onOpenCode={onOpenCode} />
+              <MessageRow
+                key={m.id}
+                msg={m}
+                onAsk={send}
+                onOpenCode={onOpenCode}
+                onSpeak={voiceCap.speak ? onSpeak : undefined}
+                speaking={speakingId === m.id}
+              />
             ))}
           </div>
         )}
@@ -120,6 +182,22 @@ export default function OioxoChat({ onOpenCode }: { onOpenCode?: () => void }) {
               placeholder="Ask anything…"
               className="max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent px-2 py-1.5 text-[15px] leading-relaxed placeholder:text-zinc-400 focus:outline-none"
             />
+            {voiceCap.listen && (
+              <button
+                type="button"
+                onClick={onMic}
+                disabled={busy || transcribing}
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition disabled:opacity-30 ${
+                  recording
+                    ? 'animate-pulse border-red-300 bg-red-50 text-red-600'
+                    : 'border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-50'
+                }`}
+                aria-label={recording ? 'Stop recording' : 'Speak'}
+                title={recording ? 'Stop and send' : 'Speak'}
+              >
+                {transcribing ? <OioxoLoader size={18} /> : recording ? <Square className="h-4 w-4" /> : <Mic className="h-5 w-5" />}
+              </button>
+            )}
             <button
               type="submit"
               disabled={!input.trim() || busy}
@@ -130,7 +208,7 @@ export default function OioxoChat({ onOpenCode }: { onOpenCode?: () => void }) {
             </button>
           </div>
           <p className="mt-2 text-center text-[11px] text-zinc-400">
-            oioxo runs on your device — answers can be imperfect.
+            oioxo can make mistakes — double-check important info. Not a substitute for professional legal, medical, or financial advice.
           </p>
         </form>
       </div>
@@ -138,7 +216,7 @@ export default function OioxoChat({ onOpenCode }: { onOpenCode?: () => void }) {
   );
 }
 
-function MessageRow({ msg, onAsk, onOpenCode }: { msg: Msg; onAsk: (s: string) => void; onOpenCode?: () => void }) {
+function MessageRow({ msg, onAsk, onOpenCode, onSpeak, speaking }: { msg: Msg; onAsk: (s: string) => void; onOpenCode?: () => void; onSpeak?: (id: number, text: string) => void; speaking?: boolean }) {
   if (msg.role === 'user') {
     return (
       <div className="mb-5 flex justify-end">
@@ -159,6 +237,20 @@ function MessageRow({ msg, onAsk, onOpenCode }: { msg: Msg; onAsk: (s: string) =
         ) : (
           <div className="text-[15px] text-zinc-800">
             <Markdown text={msg.text} />
+            {onSpeak && msg.text && (
+              <button
+                type="button"
+                onClick={() => onSpeak(msg.id, msg.text)}
+                className={`mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[12px] transition ${
+                  speaking ? 'text-[#a9801f]' : 'text-zinc-400 hover:text-zinc-600'
+                }`}
+                aria-label={speaking ? 'Stop' : 'Read aloud'}
+                title={speaking ? 'Stop' : 'Read aloud'}
+              >
+                {speaking ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                {speaking ? 'Stop' : 'Listen'}
+              </button>
+            )}
             {msg.reply?.tool && (
               <Link
                 href={`/tools/${msg.reply.tool.id}`}
@@ -186,6 +278,7 @@ function MessageRow({ msg, onAsk, onOpenCode }: { msg: Msg; onAsk: (s: string) =
                 Open Coding workspace
               </button>
             )}
+            {msg.reply?.game && <GameBoard kind={msg.reply.game.kind} />}
             {msg.reply?.app && (
               <Link
                 href={msg.reply.app.href}

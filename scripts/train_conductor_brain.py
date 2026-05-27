@@ -18,6 +18,7 @@ model shipped locally. Run on arad (cmd.exe, GPU free):
 Artifacts: ./conductor-final/ -> export to ONNX/transformers.js next.
 """
 import json
+import os
 import random
 import sys
 import torch
@@ -80,18 +81,20 @@ if tok.pad_token is None:
     tok.pad_token = tok.eos_token
 
 
+# No padding here — we pad per-batch in collate() to the batch's longest example
+# (dynamic padding). Conductor plans are mostly short, so this cuts wasted compute
+# from a fixed 1024-token pad to the real lengths — ~2-3x faster, no quality change.
 def build(r):
     msgs = [{"role": "system", "content": SYSTEM},
             {"role": "user", "content": build_user(r["input"])}]
     prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
     target = json.dumps(r["label"], ensure_ascii=False)
     full = prompt + target + tok.eos_token
-    enc = tok(full, truncation=True, max_length=MAX_LEN, padding="max_length")
+    enc = tok(full, truncation=True, max_length=MAX_LEN)
     p_len = len(tok(prompt, truncation=True, max_length=MAX_LEN)["input_ids"])
     labels = list(enc["input_ids"])
-    for i in range(len(labels)):
-        if i < p_len or enc["attention_mask"][i] == 0:
-            labels[i] = -100  # loss only on the JSON plan
+    for i in range(min(p_len, len(labels))):
+        labels[i] = -100  # loss only on the JSON plan, not the prompt
     enc["labels"] = labels
     return enc
 
@@ -104,7 +107,22 @@ class DS(Dataset):
         return len(self.data)
 
     def __getitem__(self, i):
-        return {k: torch.tensor(v) for k, v in self.data[i].items()}
+        return self.data[i]  # raw lists; collate() pads per-batch
+
+
+def collate(feats):
+    m = max(len(f["input_ids"]) for f in feats)
+    ids, mask, lab = [], [], []
+    for f in feats:
+        n = m - len(f["input_ids"])
+        ids.append(f["input_ids"] + [tok.pad_token_id] * n)
+        mask.append(f["attention_mask"] + [0] * n)
+        lab.append(f["labels"] + [-100] * n)
+    return {
+        "input_ids": torch.tensor(ids),
+        "attention_mask": torch.tensor(mask),
+        "labels": torch.tensor(lab),
+    }
 
 
 n = int(len(rows) * 0.92)
@@ -113,9 +131,14 @@ train_ds, val_ds = DS(rows[:n]), DS(rows[n:])
 model = AutoModelForCausalLM.from_pretrained(MODEL)
 model.config.pad_token_id = tok.pad_token_id
 
+# MAX_STEPS=2 (env) → smoke test: prove the pipe end-to-end in seconds before the
+# real multi-hour run. Unset / 0 → full training by epochs.
+_smoke = int(os.environ.get("MAX_STEPS", "0") or "0")
+
 args = TrainingArguments(
     output_dir="conductor-out",
     num_train_epochs=3,
+    max_steps=_smoke if _smoke > 0 else -1,
     per_device_train_batch_size=4,
     gradient_accumulation_steps=2,
     per_device_eval_batch_size=4,
@@ -123,12 +146,13 @@ args = TrainingArguments(
     warmup_ratio=0.05,
     lr_scheduler_type="cosine",
     logging_steps=20,
-    eval_strategy="epoch",
+    eval_strategy="no" if _smoke > 0 else "epoch",
     save_strategy="no",
     report_to=[],
     fp16=torch.cuda.is_available(),
 )
-trainer = Trainer(model=model, args=args, train_dataset=train_ds, eval_dataset=val_ds)
+trainer = Trainer(model=model, args=args, train_dataset=train_ds,
+                  eval_dataset=val_ds, data_collator=collate)
 trainer.train()
 
 model.save_pretrained("conductor-final")

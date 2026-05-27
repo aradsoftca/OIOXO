@@ -20,7 +20,7 @@ import { facetQueries, gatherForQueries, gatherComparison } from './research';
 import { analyzeQuestion, type Evidence } from './reason';
 import { readAnswer } from './reader';
 import { consensusAnswer } from './consensus';
-import { gatherOnDevice, enrichTopWikipedia, wikipediaBestArticles } from './sources';
+import { gatherOnDevice, enrichTopPages, wikipediaBestArticles } from './sources';
 import { tryCompute } from './compute';
 import { rerank, scorePassages } from './rerank';
 import { buildBrief, briefToDigest, briefHasContent } from './brief';
@@ -824,9 +824,12 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
   try { evidence = (await rerank(text, evidence, (e) => e.text)).slice(0, 10); } catch { /* keep order */ }
 
   // PAGE-BODY READ (reranker-gated): the reranker put the right pages on top, but
-  // their snippets can be thin. For the top Wikipedia pages, read the real body so
-  // the reader extracts the actual explanation/definition, not a fragment.
-  try { evidence = await enrichTopWikipedia(evidence, 3); } catch { /* keep snippets */ }
+  // some snippets are still thin. OPEN the top pages and read their real body — ANY
+  // site (Stack Overflow, Amazon, a blog), Wikipedia via its API, the rest via
+  // Common Crawl — so the reader extracts what the page actually says, not a
+  // fragment. Most of the core hits were already read in gather; this catches the
+  // ones a thin snippet under-ranked.
+  try { evidence = await enrichTopPages(evidence, 5); } catch { /* keep snippets */ }
 
   // ANALYZE: read the gathered passages AGAINST the question and keep only what
   // bears on it — ranked, deduped, grouped per side for a comparison. This is the

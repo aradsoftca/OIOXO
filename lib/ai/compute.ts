@@ -124,6 +124,17 @@ function tryUnitConvert(t: string): string | null {
 export function tryCompute(text: string): string | null {
   const t = text.toLowerCase().trim();
 
+  // TEMPERATURE in the other scale — tolerant of messy phrasing ("set my oven to
+  // 350f but its in celsius", "whats 200c in fahrenheit"). A strict "N U to U" miss.
+  let tf = t.match(/(-?\d+(?:\.\d+)?)\s*°?\s*f(?:ahrenheit)?\b/);
+  if (tf && /\b(celsius|centigrade|°?\s*c)\b/.test(t.replace(tf[0], ''))) {
+    return `${tf[1]}°F = **${tidy((num(tf[1]) - 32) * 5 / 9)}°C**.`;
+  }
+  tf = t.match(/(-?\d+(?:\.\d+)?)\s*°?\s*c(?:elsius|entigrade)?\b/);
+  if (tf && /\b(fahrenheit|°?\s*f)\b/.test(t.replace(tf[0], ''))) {
+    return `${tf[1]}°C = **${tidy(num(tf[1]) * 9 / 5 + 32)}°F**.`;
+  }
+
   // percent OF:  "15 percent of 240", "15% of 240"
   let m = t.match(/(\d+(?:\.\d+)?)\s*(?:percent|%)\s+of\s+(\d[\d,]*(?:\.\d+)?)/);
   if (m) return `${m[1]}% of ${m[2]} = **${tidy((num(m[1]) / 100) * num(m[2]))}**.`;
@@ -137,6 +148,25 @@ export function tryCompute(text: string): string | null {
   if (m) {
     const p = num(m[1]), base = num(m[2]);
     return `${m[1]}% off ${m[2]} = **${tidy(base * (1 - p / 100))}** (you save ${tidy((base * p) / 100)}).`;
+  }
+
+  // TIP:  "20% tip on 85", "20 percent tip on an 85 dollar bill"
+  m = t.match(/(\d+(?:\.\d+)?)\s*(?:percent|%)\s*tip\s+(?:on|for|of)\s+(?:an?\s+)?\$?(\d[\d,]*(?:\.\d+)?)/);
+  if (m) {
+    const p = num(m[1]), bill = num(m[2]);
+    const tip = (bill * p) / 100;
+    return `A ${m[1]}% tip on $${tidy(bill)} is **$${tidy(tip)}** — total **$${tidy(bill + tip)}**.`;
+  }
+
+  // FRACTION → decimal:  "3/8 as a decimal", "what is 5/16 in decimal"
+  m = t.match(/\b(\d+)\s*\/\s*(\d+)\b\s*(?:as|in|to|=)?\s*(?:a\s+)?decimal/);
+  if (m && num(m[2]) !== 0) return `${m[1]}/${m[2]} = **${tidy(num(m[1]) / num(m[2]))}**.`;
+
+  // SALARY → hourly:  "60k a year per hour", "60000 a year what's that hourly"
+  m = t.match(/\$?(\d[\d,]*(?:\.\d+)?)\s*(k)?\b\s*(?:a|per|\/)\s*year/);
+  if (m && /\b(per hour|hourly|an hour|\/\s*hour|hour)\b/.test(t)) {
+    const annual = num(m[1]) * (m[2] ? 1000 : 1);
+    return `$${tidy(annual)}/year ≈ **$${tidy(annual / 2080)}/hour** (40 hrs/week, 2080 hrs/year).`;
   }
 
   // unit rate → speed:  distance + time + "speed"

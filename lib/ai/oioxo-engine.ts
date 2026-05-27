@@ -24,6 +24,7 @@ import { gatherOnDevice, enrichTopWikipedia, wikipediaBestArticles } from './sou
 import { tryCompute } from './compute';
 import { rerank, scorePassages } from './rerank';
 import { buildBrief, briefToDigest, briefHasContent } from './brief';
+import { readAndSynthesize, synthesizeText } from './synth';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
@@ -228,8 +229,15 @@ const FRUSTRATION =
 // helped", "yeah nice" all match) — but a topic word ("great WALL of china") breaks it.
 const AFFIRM_CLOSE =
   /^(\s*(y(es|eah|ep|up|a)|no(pe)?|ok(ay)?|kk?|sure|cool|nice|great|good|fine|alright|perfect|awesome|got|gotcha|understood|makes|sense|sounds|will|do|bye|goodbye|see|ya|cya|you|good ?night|night|later|gtg|nvm|never|mind|that|that'?s|helped|helpful|all|it|thanks?|thank|thx|ty|cheers|man|mate|buddy|so|much|though|then|appreciate|appreciated|np|problem|no)[\s,!.]*)+$/i;
+// The user venting about their OWN state (not the AI) → empathy + a gentle offer,
+// never a fact sheet (the audit returned a mental-health PDF for "I'm so stressed").
+const VENTING =
+  /\b(i'?m (so |really |feeling )?(stressed|tired|exhausted|overwhelmed|anxious|sad|depressed|miserable|done|fed up|burnt? out|burned out)|i feel (like )?(awful|terrible|down|low|lost|stuck|hopeless|overwhelmed|like (everything|nothing|crap|shit))|everything('?s| is)? (going wrong|falling apart|a mess|so hard)|nothing (i try )?(works?|is working|is going right)|i can'?t (focus|cope|deal|take it|do this)|having (a|the) (bad|rough|hard|worst) (day|time|week)|so frustrating|i give up)\b/i;
 function socialReply(text: string): OioxoReply | null {
   const t = text.trim();
+  if (VENTING.test(t)) {
+    return { text: "That sounds genuinely tough — I'm sorry you're going through it. I'm happy to just listen, or if there's something concrete I can take off your plate (look something up, sort a file, draft a message), tell me and I'll jump on it." };
+  }
   if (FRUSTRATION.test(t)) {
     return { text: "Sorry — that wasn't helpful. Tell me what you're trying to do and I'll take a different approach." };
   }
@@ -565,10 +573,18 @@ function imageSubjectOf(concept: string, fallback: string): string {
   return before && before.length >= 2 ? before : concept || fallback;
 }
 
+// Images only help a concrete, SEEABLE subject (a place, animal, object, person,
+// food, landmark). For process / number / advice / troubleshooting / yes-no /
+// "difference between" questions, 4 stock photos are just noise — the audit showed
+// images firing on "why is my internet slow", "3/8 as a decimal", "stock market".
+const NONVISUAL =
+  /\b(how (do|to|can|should|much|many|long|old|far)|why (is|do|does|are|did|can|would)|difference between|vs\.?|versus|calculate|convert|percent|\btip\b|should i|is it (safe|ok|okay|bad|worth|normal|good)|wo n'?t|won'?t|not work|doesn'?t work|so slow|keeps? (crash|drop|restart)|fix\b|error|stress|nervous|frustrat|depress|recommend|suggest|worth it|safe to|how does .* work)\b/i;
+
 /** Images for an answer — show ALL parts of the subject. A comparison fetches a
  *  couple of images of EACH option and interleaves them; otherwise the subject. */
 async function imagesForPlan(plan: AnswerPlan, text: string): Promise<ImageHit[]> {
   if (plan.shape === 'code') return [];
+  if (NONVISUAL.test(text)) return []; // non-visual intent → no noisy stock photos
   if (plan.gather === 'per-entity' && plan.topics.length >= 2) {
     const lists = await Promise.all(plan.topics.slice(0, 3).map((t) => findImages(t, 2).catch(() => [] as ImageHit[])));
     return interleaveImages(lists, 4);
@@ -590,6 +606,9 @@ const DUMB_PATTERNS =
 export function isDumbAnswer(reply: string): boolean {
   const r = (reply || '').replace(/\s+/g, ' ').trim();
   if (r.length < 15) return true;
+  // SAFETY veto: explicit/adult content must never ship as an answer (the audit
+  // surfaced porn-site text leaking for "a good movie tonite").
+  if (/\b(porn|pornography|xxx|nsfw|explicit sex|hardcore|nude girls?|sex (cam|chat|website)|escort)\b/i.test(r)) return true;
   if (/^[#*\-•>`|]|```/.test(r)) return false; // structured (recipe/code/list) is intentional
   if (DUMB_PATTERNS.test(r)) return true;
   const w = r.toLowerCase().split(/\s+/);
@@ -692,6 +711,32 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
   if (recalled?.answer) {
     const images = await imagesForPlan(plan, text);
     return { text: tidyAnswer(recalled.answer), images, related: cleanRelated(recalled.related) };
+  }
+
+  // PRACTICAL / HOW-TO / RECIPE / CODE / "best way" / "substitute" — a Wikipedia
+  // LEAD here gives a DEFINITION ("a bicycle is a vehicle…") not an answer. For
+  // these, READ several real web sources and synthesize the relevant sentences
+  // (relevance + junk gated, extractive, cited). This is the fix for the audit's
+  // biggest failure family — and it needs no trained model, so it works cold too.
+  const atype = detectAnswerType(text);
+  const practical =
+    atype === 'howto' || atype === 'recipe' || atype === 'code' ||
+    // ANY how/why question wants an explanation or steps — a Wikipedia DEFINITION
+    // lead ("a bicycle is a vehicle…") is the wrong shape. Read real sources instead.
+    /^\s*(how|why)\b/i.test(text) ||
+    /\b(substitutes?|alternative|replace|best way|fix\b|unclog|stop|tips?|steps?|recipe|should i|recommend|suggest|troubleshoot|not working|wo n'?t|won'?t)\b/i.test(text);
+  // …but a FACTUAL lookup (capital/who/when/where/how-much) is answered by the
+  // encyclopedia path below, not synthesis.
+  if (practical && !/\b(capital|population|tallest|largest|who (is|was|are|wrote|invented|founded)|when (did|was|is|will)|where (is|are|was)|how (much|many|old|far|long|tall|big))\b/i.test(text)) {
+    try {
+      const s = await readAndSynthesize(query);
+      if (s && s.answer && s.answer.length > 80) {
+        const images = await imagesForPlan(plan, text);
+        const videos = await videosP;
+        void rememberAnswer(text, s.answer, undefined);
+        return { text: tidyAnswer(s.answer), images, videos: videos.length ? videos : undefined, sources: s.sources };
+      }
+    } catch { /* fall through to the standard pipeline */ }
   }
 
   // ENCYCLOPEDIC LEAD (explain/define/fact): Wikipedia search reliably finds the
@@ -833,6 +878,18 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
       void rememberAnswer(text, clean, related);
       return { text: clean, images, videos: vids, related: cleanRelated(related), sources: brief.sources };
     }
+    // Fallback when the trained reader is cold: the relevance-gated synthesis over
+    // the SAME gathered evidence — keeps only sentences that bear on the question
+    // and drops nav/forum/SEO junk (much stronger than the raw digest, no model).
+    try {
+      const s = synthesizeText(text, evidence.map((e) => ({ text: e.text, source: e.source })));
+      if (s && s.answer && s.answer.length > 80 && !isDumbAnswer(s.answer)) {
+        const images = await imagesForPlan(plan, text);
+        void rememberAnswer(text, s.answer, related);
+        return { text: tidyAnswer(s.answer), images, videos: vids, related: cleanRelated(related), sources: s.sources.length ? s.sources : brief.sources };
+      }
+    } catch { /* fall through to the digest */ }
+
     // Fallback: the deterministic digest — still extractive and multi-source,
     // never a paraphrase. Used only when the encoder isn't available.
     const digest = briefToDigest(brief);
@@ -965,17 +1022,23 @@ export function harmRefusal(text: string): OioxoReply | null {
     && !/\bbath bomb|photo ?bomb|glue gun|nail gun|water gun|squirt gun|nerf\b/.test(t)) {
     return { text: "I can't help with making weapons or explosives — that's genuinely dangerous and I won't provide it. I'm happy to explain the science or history of a topic safely, though." };
   }
-  // serious violence toward a person
-  if (/\b(how to|how do i|best way to|help me|ways to)\b/.test(t)
-    && /\b(kill|murder|poison|hurt|harm|attack|assault|stab|strangle|get rid of)\b/.test(t)
-    && /\b(someone|somebody|a person|people|my (ex|wife|husband|boss|neighbou?r|teacher)|him|her|them)\b/.test(t)) {
-    return { text: "I can't help with hurting anyone. If you're overwhelmed or angry, talking to someone you trust or a professional really can help — and if anyone is in danger, please contact your local emergency services." };
+  // serious violence / harming a person's health (incl. "make someone sick", poison)
+  if (/\b(how to|how do i|best way to|easiest way to|help me|ways to|how can i)\b/.test(t)
+    && /\b(kill|murder|poison|hurt|harm|attack|assault|stab|strangle|get rid of|make (someone|somebody|him|her|them|people|my \w+) (sick|ill)|sicken|infect)\b/.test(t)
+    && /\b(someone|somebody|a person|people|my (ex|wife|husband|boss|neighbou?rs?|teacher)|him|her|them)\b/.test(t)) {
+    return { text: "I can't help with harming anyone. If you're overwhelmed or angry, talking to someone you trust or a professional really can help — and if anyone is in danger, please contact your local emergency services." };
   }
-  // unauthorized access / spying on others
+  // unauthorized access / spying on others (plural "neighbors" included)
   if (/\b(hack|break into|get into|spy on|track|stalk|steal|read)\b/.test(t)
-    && /\b(someone|somebody|my (ex|partner|girlfriend|boyfriend|wife|husband|friend|neighbou?r|kid'?s)|his|her|their|a person'?s|other people'?s)\b/.test(t)
-    && /\b(account|phone|password|instagram|facebook|snapchat|whatsapp|email|wi-?fi|camera|location|messages?|texts?|dms?)\b/.test(t)) {
+    && /\b(someone|somebody|my (ex|partner|girlfriend|boyfriend|wife|husband|friend|neighbou?rs?|kid'?s)|his|her|their|a person'?s|other people'?s)\b/.test(t)
+    && /\b(account|phone|password|instagram|facebook|snapchat|whatsapp|email|wi-?fi|wifi|camera|location|messages?|texts?|dms?)\b/.test(t)) {
     return { text: "I can't help access someone else's account or device — that's a privacy and legal line I won't cross. If it's YOUR own account you're locked out of, I can walk you through the official recovery steps." };
+  }
+  // breaking into / picking a lock on property that isn't yours
+  if (/\b(pick|picking|bypass|break into|breaking into|hotwire|jimmy|force open)\b/.test(t)
+    && /\b(lock|padlock|door|car|house|safe|window|vehicle)\b/.test(t)
+    && /\b(is ?n'?t (mine|yours|theirs|hers|his)|not (mine|my own|yours)|someone else|neighbou?rs?|stranger'?s|that i do ?n'?t own)\b/.test(t)) {
+    return { text: "I can't help break into something that isn't yours — that's a legal line I won't cross. If it's YOUR own lock, car, or home you're locked out of, the safe route is a licensed locksmith or the official recovery process." };
   }
   // illicit drug synthesis
   if (/\b(how to|make|synthesi[sz]e|cook|produce|manufacture)\b/.test(t)
@@ -1053,6 +1116,9 @@ async function talkReply(text: string, history?: Turn[]): Promise<OioxoReply> {
   const social = socialReply(text);
   if (social) return social;
   const convo = (history ?? []).slice(-4).map((t) => `${t.role === 'user' ? 'User' : 'oioxo'}: ${t.text}`).join('\n');
+  // True chitchat ("lol", "haha", "good morning") → the persona floor.
+  const fun = funReply(text);
+  if (fun) return { text: fun };
   try {
     const r = await converseReply(text, convo || undefined);
     const clean = tidyAnswer(r);
@@ -1060,7 +1126,16 @@ async function talkReply(text: string, history?: Turn[]): Promise<OioxoReply> {
   } catch {
     /* writer unavailable → deterministic floor */
   }
-  return { text: funReply(text) ?? HELLO };
+  // A SUBSTANTIVE message that landed in "chat" by mistake — a problem, a request,
+  // an implicit question ("my computer won't turn on", "my cake sank", "best ramen")
+  // — must be ANSWERED, not met with the greeting. The greeting is only for an
+  // empty/bare opener. (Audit: this misfire returned "Hi, I'm oioxo" to real needs.)
+  const words = text.split(/\s+/).filter(Boolean).length;
+  if (words >= 3 || /\?\s*$/.test(text)) {
+    const a = await answerFlow(text, text, null).catch(() => null);
+    if (a && a.text && a.text.length > 1) return a;
+  }
+  return { text: HELLO };
 }
 
 /** The English-internal engine: move → route → comprehend → answer. Never throws. */

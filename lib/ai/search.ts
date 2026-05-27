@@ -79,7 +79,10 @@ export function cleanQuery(text: string): string {
   // Drop a leading auxiliary left after the question word ("why DID rome fall"
   // → "rome fall"), then leading filler and trailing punctuation.
   q = q.replace(/^(did|does|do|is|are|was|were|has|have|had|will|would|can|could|should)\s+/i, '');
-  q = q.replace(/^(the|a|an|of|about)\s+/i, '').replace(/[?!.\s]+$/g, '').trim();
+  // Drop a dangling leading pronoun left after peeling a wrapper ("how do I reverse
+  // a string" → "reverse a string", not "i reverse a string").
+  q = q.replace(/^(i|you|we|they|he|she|it)\s+/i, '');
+  q = q.replace(/^(the|a|an|of|about|to)\s+/i, '').replace(/[?!.\s]+$/g, '').trim();
   return q || text.trim().replace(/[?!.\s]+$/g, '');
 }
 
@@ -351,6 +354,20 @@ export async function answerQuestion(text: string): Promise<SearchAnswer | null>
     const q = await liveQuote(text);
     if (q && q.answer) return q;
   } catch { /* fall through */ }
+
+  // PRIMARY answer path: READ several sources and SYNTHESIZE (relevance-gated),
+  // instead of returning the first snippet. Structured intents (how-to / recipe /
+  // code) get real extracted steps. Returns null when nothing relevant clears the
+  // floor — then we fall back to the encyclopedia tiers, and finally to an honest
+  // "couldn't find it". This is the fix for the snippet-grab dumbness.
+  try {
+    const { readAndSynthesize } = await import('./synth');
+    const synth = await readAndSynthesize(query);
+    if (synth && synth.answer && synth.answer.length > 60) {
+      if (!LIVE_RE.test(text)) void putCached(text, synth);
+      return synth;
+    }
+  } catch { /* fall through to the encyclopedia tiers */ }
 
   // Live / recent / opinion queries ("latest news", "best games 2026") are
   // answered by the open web, NOT a static encyclopedia article — so for these,

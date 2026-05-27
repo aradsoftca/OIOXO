@@ -19,8 +19,9 @@
  */
 import type { SearchAnswer, SearchSource } from './search';
 import { trimExtract } from './search';
-import { gatherPassages, richAnswer } from './web-read';
-import { detectAnswerType } from './extract';
+import { webSearch } from './metasearch';
+
+const siteOf = (url: string): string => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'web'; } };
 
 const STOP = new Set([
   'the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'for', 'with', 'as', 'at', 'by',
@@ -66,13 +67,18 @@ function looksJunk(s: string): boolean {
   return false;
 }
 
-/** How many distinct query keywords the sentence contains (the relevance score).
+/** Relevance score: matched query keywords weighted by SPECIFICITY (longer/rarer
+ *  words count more than common short ones), so a sentence that merely shares
+ *  "good"/"substitute" scores below one that actually contains "eggs"+"baking".
  *  Hyphen/period-insensitive so "wifi" matches "Wi-Fi", "ebike" matches "e-bike". */
 function relevance(sentence: string, kws: string[]): number {
   const low = ' ' + sentence.toLowerCase().replace(/[-.]/g, '') + ' ';
-  let hits = 0;
-  for (const k of kws) if (low.includes(k.replace(/[-.]/g, ''))) hits++;
-  return hits;
+  let score = 0;
+  for (const k of kws) {
+    const kk = k.replace(/[-.]/g, '');
+    if (low.includes(kk)) score += Math.min(4, Math.max(1, kk.length - 3));
+  }
+  return score;
 }
 
 interface Shape { compare: string[]; howto: boolean; }
@@ -88,19 +94,16 @@ function detectShape(q: string, kws: string[]): Shape {
  * relevant is found (caller then asks to clarify instead of guessing).
  */
 export async function readAndSynthesize(query: string): Promise<SearchAnswer | null> {
-  const type = detectAnswerType(query);
-
-  // 1) Structured intents: read full pages, extract the real steps/ingredients/code.
-  if (type === 'recipe' || type === 'howto' || type === 'code') {
-    try {
-      const rich = await richAnswer(query, type);
-      if (rich && rich.answer && rich.answer.length > 40) return rich;
-    } catch { /* fall through to synthesis */ }
-  }
-
-  // 2) Gather multi-source passages and synthesize from the relevant sentences.
-  const passages = await gatherPassages(query, 6).catch(() => []);
-  if (!passages.length) return null;
+  // WHOLE-INTERNET search on the USER'S device: Mwmbl (CORS-open public index, no
+  // key/proxy/server of ours) — rate limits are per-user IP so there's no shared
+  // throttle (this replaced the r.jina.ai gateway we removed). Synthesize the answer
+  // from the relevant snippets across many results.
+  const results = await webSearch(query, 14).catch(() => []);
+  if (!results.length) return null;
+  const passages = results.map((r) => ({
+    text: [r.title, r.extract].filter(Boolean).join('. '),
+    source: { title: r.title || siteOf(r.url), url: r.url, site: siteOf(r.url) } as SearchSource,
+  }));
   return synthesizeText(query, passages);
 }
 
@@ -119,15 +122,24 @@ export function synthesizeText(
   const kws = keywords(query);
   if (kws.length === 0 || !passages.length) return null;
   const shape = detectShape(query, kws);
-  const minHits = Math.min(2, kws.length); // need ≥2 query words (or all, if query is 1 word)
+  // KEY TERMS = the most specific (longest) half of the query words. A sentence
+  // must contain at least one — so "good substitute for eggs in baking" needs
+  // "eggs"/"baking"/"substitute", not just the word "good" (drops the tangential
+  // "chicory coffee substitute" that merely shares a common word).
+  const keyTerms = [...kws].sort((a, b) => b.length - a.length).slice(0, Math.max(1, Math.ceil(kws.length / 2)))
+    .map((k) => k.replace(/[-.]/g, ''));
+  const hasKey = (low: string) => keyTerms.some((k) => low.includes(k));
+  const minScore = 2;
 
   type Scored = { s: string; src: SearchSource; sc: number };
   const pool: Scored[] = [];
   for (const p of passages) {
     for (const s of sentences(p.text)) {
       if (looksJunk(s)) continue;
+      const low = ' ' + s.toLowerCase().replace(/[-.]/g, '') + ' ';
+      if (!hasKey(low)) continue; // must contain a specific term, not just filler
       const sc = relevance(s, kws);
-      if (sc >= minHits) pool.push({ s, src: p.source, sc });
+      if (sc >= minScore) pool.push({ s, src: p.source, sc });
     }
   }
   if (!pool.length) return null;
@@ -153,7 +165,7 @@ export function synthesizeText(
     if (picked.length >= want) break;
   }
   // Relevance floor: the best sentence must share real content with the question.
-  if (!picked.length || picked[0].sc < minHits) return null;
+  if (!picked.length || picked[0].sc < minScore) return null;
 
   const answer = trimExtract(picked.map((p) => p.s).join(' '), 700, 7);
   // Cite the distinct sources the picked sentences came from.

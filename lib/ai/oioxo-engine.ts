@@ -24,7 +24,7 @@ import { gatherOnDevice, enrichTopWikipedia, wikipediaBestArticles } from './sou
 import { tryCompute } from './compute';
 import { rerank, scorePassages } from './rerank';
 import { buildBrief, briefToDigest, briefHasContent } from './brief';
-import { readAndSynthesize, synthesizeText } from './synth';
+import { synthesizeText } from './synth';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
@@ -713,33 +713,20 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
     return { text: tidyAnswer(recalled.answer), images, related: cleanRelated(recalled.related) };
   }
 
-  // PRACTICAL / HOW-TO / RECIPE / CODE / "best way" / "substitute" — a Wikipedia
-  // LEAD here gives a DEFINITION ("a bicycle is a vehicle…") not an answer. For
-  // these, READ several real web sources and synthesize the relevant sentences
-  // (relevance + junk gated, extractive, cited). This is the fix for the audit's
-  // biggest failure family — and it needs no trained model, so it works cold too.
+  // PRACTICAL / HOW-TO / RECIPE / CODE / "best way" / "substitute" / how-why: a
+  // Wikipedia LEAD here gives a DEFINITION ("a bicycle is a vehicle…"), the wrong
+  // shape. These SKIP the encyclopedic-lead below and flow to the whole-internet
+  // gather → the trained reader (readAnswer, in-browser) → synthesizeText fallback —
+  // so the model ranks real how-to/explanation sentences instead of a definition.
   const atype = detectAnswerType(text);
-  const practical =
+  const factualLookup = /\b(capital|population|tallest|largest|who (is|was|are|wrote|invented|founded)|when (did|was|is|will)|where (is|are|was)|how (much|many|old|far|long|tall|big))\b/i.test(text);
+  const practical = !factualLookup && (
     atype === 'howto' || atype === 'recipe' || atype === 'code' ||
-    // ANY how/why question wants an explanation or steps — a Wikipedia DEFINITION
-    // lead ("a bicycle is a vehicle…") is the wrong shape. Read real sources instead.
     /^\s*(how|why)\b/i.test(text) ||
-    /\b(substitutes?|alternative|replace|best way|fix\b|unclog|stop|tips?|steps?|recipe|should i|recommend|suggest|troubleshoot|not working|wo n'?t|won'?t)\b/i.test(text);
-  // …but a FACTUAL lookup (capital/who/when/where/how-much) is answered by the
-  // encyclopedia path below, not synthesis.
-  if (practical && !/\b(capital|population|tallest|largest|who (is|was|are|wrote|invented|founded)|when (did|was|is|will)|where (is|are|was)|how (much|many|old|far|long|tall|big))\b/i.test(text)) {
-    try {
-      const s = await readAndSynthesize(query);
-      if (s && s.answer && s.answer.length > 80) {
-        const images = await imagesForPlan(plan, text);
-        const videos = await videosP;
-        void rememberAnswer(text, s.answer, undefined);
-        return { text: tidyAnswer(s.answer), images, videos: videos.length ? videos : undefined, sources: s.sources };
-      }
-    } catch { /* fall through to the standard pipeline */ }
-  }
+    /\b(substitutes?|alternative|replace|best way|fix\b|unclog|stop|tips?|steps?|recipe|should i|recommend|suggest|troubleshoot|not working|wo n'?t|won'?t)\b/i.test(text)
+  );
 
-  // ENCYCLOPEDIC LEAD (explain/define/fact): Wikipedia search reliably finds the
+  // ENCYCLOPEDIC LEAD (explain/define/fact, NON-practical): Wikipedia search finds the
   // right article from a natural question ("why is the sky blue" → Diffuse sky
   // radiation; "capital of australia" → Canberra), and an article's LEAD paragraph
   // is the definition/explanation/value. We fetch the top 2 articles, score each
@@ -751,7 +738,7 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
   // — those answers live in the live web, not a stable article lead (the battery
   // showed the lead path regressing quantity/people otherwise).
   const valueOrCurrent = /\b(how much|how many|cost|costs?|price[ds]?|worth|net worth|salary|calorie|dating|married|girlfriend|boyfriend|latest|newest|current(ly)?|today|this year|20\d\d|release date|when (did|will|is|was)|who is .* (dating|married))\b/i;
-  if ((plan.shape === 'explain' || plan.shape === 'define' || plan.shape === 'fact') && !valueOrCurrent.test(text)) {
+  if (!practical && (plan.shape === 'explain' || plan.shape === 'define' || plan.shape === 'fact') && !valueOrCurrent.test(text)) {
     try {
       // Fetch SEVERAL candidates (the best article may be #3 — "capital of
       // australia" ranks ACT #1 but Canberra #3) and let the reranker pick the

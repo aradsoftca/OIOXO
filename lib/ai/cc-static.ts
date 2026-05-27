@@ -79,8 +79,8 @@ const SEED_CRAWLS = [
   'CC-MAIN-2025-38', 'CC-MAIN-2025-26', 'CC-MAIN-2025-18', 'CC-MAIN-2025-13', 'CC-MAIN-2025-08',
 ];
 const CADENCE_WEEKS = [51, 47, 43, 38, 33, 30, 26, 21, 18, 13, 8, 5];
-let _crawl: string | null = null;
-let _crawlAt = 0;
+let _crawls: string[] | null = null;
+let _crawlsAt = 0;
 const CRAWL_TTL = 12 * 60 * 60 * 1000; // re-validate at most twice a day
 
 /** Candidate crawl ids, newest-first: a few generated recent ones (to catch new
@@ -105,28 +105,36 @@ async function probeCrawl(crawl: string): Promise<boolean> {
   } catch { return false; } finally { clearTimeout(t); }
 }
 
-/** The newest Common Crawl whose static index is live. Cached in memory + (in the
- *  browser) localStorage, so discovery runs at most twice a day. On a transient
- *  all-fail, the last known id is kept rather than dropping to null. */
-export async function latestStaticCrawl(): Promise<string | null> {
-  if (_crawl && Date.now() - _crawlAt < CRAWL_TTL) return _crawl;
+/** The N most recent Common Crawls whose static index is live, freshest-first.
+ *  Querying several snapshots is what lifts coverage of arbitrary pages: a URL
+ *  missing from this month is usually in a recent one (and it widens freshness).
+ *  Cached in memory + (browser) localStorage so discovery runs at most twice a day;
+ *  on a transient all-fail the last-known list is kept. */
+export async function recentStaticCrawls(max = 3): Promise<string[]> {
+  if (_crawls && Date.now() - _crawlsAt < CRAWL_TTL) return _crawls.slice(0, max);
   try {
     const ls = (globalThis as { localStorage?: Storage }).localStorage;
-    if (ls && !_crawl) {
-      const saved = ls.getItem('oioxo.ccCrawl');
-      const at = Number(ls.getItem('oioxo.ccCrawlAt') || 0);
-      if (saved && Date.now() - at < CRAWL_TTL) { _crawl = saved; _crawlAt = at; return saved; }
+    if (ls && !_crawls) {
+      const saved = ls.getItem('oioxo.ccCrawls');
+      const at = Number(ls.getItem('oioxo.ccCrawlsAt') || 0);
+      if (saved && Date.now() - at < CRAWL_TTL) { _crawls = JSON.parse(saved); _crawlsAt = at; return (_crawls ?? []).slice(0, max); }
     }
   } catch { /* no storage */ }
+  const live: string[] = [];
   for (const c of candidateCrawls()) {
-    if (await probeCrawl(c)) {
-      _crawl = c; _crawlAt = Date.now();
-      try { (globalThis as { localStorage?: Storage }).localStorage?.setItem('oioxo.ccCrawl', c);
-        (globalThis as { localStorage?: Storage }).localStorage?.setItem('oioxo.ccCrawlAt', String(_crawlAt)); } catch { /* ignore */ }
-      return c;
-    }
+    if (await probeCrawl(c)) { live.push(c); if (live.length >= Math.max(max, 4)) break; }
   }
-  return _crawl; // keep last-known on a transient all-fail
+  if (live.length) {
+    _crawls = live; _crawlsAt = Date.now();
+    try { const ls = (globalThis as { localStorage?: Storage }).localStorage;
+      ls?.setItem('oioxo.ccCrawls', JSON.stringify(live)); ls?.setItem('oioxo.ccCrawlsAt', String(_crawlsAt)); } catch { /* ignore */ }
+  }
+  return (_crawls ?? []).slice(0, max);
+}
+
+/** The single newest live crawl (back-compat helper). */
+export async function latestStaticCrawl(): Promise<string | null> {
+  return (await recentStaticCrawls(1))[0] ?? null;
 }
 
 // ── cluster.idx binary search ───────────────────────────────────────────────
@@ -217,21 +225,27 @@ function recordsFrom(cdx: string, url: string): CcRecord[] {
  * newest HTML 200 captures, or [] if not in the crawl. Best-effort + timed so a
  * slow read can't stall the caller.
  */
-export async function ccLookupStatic(url: string, opts: { limit?: number; timeoutMs?: number } = {}): Promise<CcRecord[]> {
-  const { limit = 3, timeoutMs = 9000 } = opts;
+export async function ccLookupStatic(url: string, opts: { limit?: number; timeoutMs?: number; maxCrawls?: number } = {}): Promise<CcRecord[]> {
+  const { limit = 3, timeoutMs = 14000, maxCrawls = 3 } = opts;
   if (isBackedOff()) return []; // rate-limited recently — don't hammer the host
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
-    const crawl = await latestStaticCrawl();
-    if (!crawl) return [];
-    const block = await findBlock(crawl, toSurt(url), ctl.signal);
-    if (!block || !block.length) return [];
-    const buf = await rangeBuf(`${idxBase(crawl)}/${block.chunk}`, block.offset, block.length, ctl.signal);
-    const cdx = await gunzip(buf);
-    let recs = recordsFrom(cdx, url);
-    recs = recs.filter((r) => r.status === '200' && (r['mime-detected'] === 'text/html' || r.mime === 'text/html'));
-    return recs.slice(0, limit);
+    const crawls = await recentStaticCrawls(maxCrawls);
+    const target = toSurt(url);
+    // Walk recent snapshots newest-first; the first that has the page wins (so a
+    // hit costs one crawl, only misses pay for the next). Lifts coverage a lot.
+    for (const crawl of crawls) {
+      if (isBackedOff()) break;
+      const block = await findBlock(crawl, target, ctl.signal).catch(() => null);
+      if (!block || !block.length) continue;
+      const buf = await rangeBuf(`${idxBase(crawl)}/${block.chunk}`, block.offset, block.length, ctl.signal).catch(() => null);
+      if (!buf) continue;
+      const recs = recordsFrom(await gunzip(buf), url)
+        .filter((r) => r.status === '200' && (r['mime-detected'] === 'text/html' || r.mime === 'text/html'));
+      if (recs.length) return recs.slice(0, limit);
+    }
+    return [];
   } catch {
     return [];
   } finally {

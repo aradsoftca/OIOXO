@@ -14,6 +14,8 @@
  * TextDecoder are all global in both. No DOM needed — extraction is regex-based.
  */
 
+import { ccLookupStatic } from './cc-static';
+
 const INDEX_HOST = 'https://index.commoncrawl.org';
 const DATA_HOST = 'https://data.commoncrawl.org';
 
@@ -133,10 +135,13 @@ export async function ccFetchRecord(rec: CcRecord, timeoutMs = 12000): Promise<{
   }
 }
 
-/** Read a specific URL (its newest HTML capture) as clean text. */
+/** Read a specific URL (its newest HTML capture) as clean text, via the static
+ *  index — our own client-side lookup against the fast CORS-open data host. We do
+ *  NOT fall back to the CDX API server: it queries the same data but is chronically
+ *  overloaded (it times out), so a miss there just adds latency. A URL not in the
+ *  static index isn't in this crawl; the caller keeps the snippet. */
 export async function ccReadUrl(url: string): Promise<{ url: string; title: string; text: string } | null> {
-  const recs = await ccLookup(url, { matchType: 'exact', limit: 1 });
-  const rec = recs[0] ?? (await ccLookup(url, { matchType: 'prefix', limit: 1 }))[0];
+  const rec = (await ccLookupStatic(url, { limit: 1 }))[0];
   return rec ? ccFetchRecord(rec) : null;
 }
 

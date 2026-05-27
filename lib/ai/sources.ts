@@ -121,11 +121,11 @@ function wikiTitleOf(url: string): string | null {
  * concurrency (can't stall the tab) + best-effort: a page not in the crawl just
  * keeps its snippet. Skips pages we already have a substantial body for.
  */
-export async function enrichTopPages(evidence: RankedEvidence[], topN = 5): Promise<RankedEvidence[]> {
+export async function enrichTopPages(evidence: RankedEvidence[], topN = 4): Promise<RankedEvidence[]> {
   const out = [...evidence];
   const targets = out.slice(0, topN).map((e, i) => ({ e, i }));
   await mapWithConcurrency(targets, async ({ e, i }) => {
-    if (e.text.length > 1200) return; // already a real body (wiki/reddit fetch) — skip
+    if (e.text.length > 1200) return; // already a real body (wiki/reddit/stack/core read) — skip
     const url = e.source?.url || '';
     if (!/^https?:\/\//i.test(url)) return;
     const title = wikiTitleOf(url);
@@ -133,7 +133,7 @@ export async function enrichTopPages(evidence: RankedEvidence[], topN = 5): Prom
       ? await wikipediaFullByTitle(title).catch(() => null)
       : await ccReadUrl(url).then((p) => (p && p.text.length > 200 ? p.text.slice(0, 4000) : null)).catch(() => null);
     if (body && body.length > e.text.length) out[i] = { ...e, text: body };
-  }, 6);
+  }, 3);
   return out;
 }
 
@@ -172,7 +172,9 @@ function snippetEvidence(hits: WebResult[], topic: string): RankedEvidence[] {
  * concurrency so a burst of reads can't stall the tab; a page not in the crawl just
  * keeps its snippet. This is what turns "found the right page" into "here's the answer".
  */
-async function readTopPages(hits: WebResult[], topic: string, n = 8): Promise<RankedEvidence[]> {
+async function readTopPages(hits: WebResult[], topic: string, n = 4): Promise<RankedEvidence[]> {
+  // Bounded: each Common Crawl lookup is several range requests (binary search), and
+  // the data host rate-limits bursts — so read only the top few, at low concurrency.
   const targets = hits.filter((h) => !/(^|\.)wikipedia\.org$/i.test(domainOf(h.url))).slice(0, n);
   const out = await mapWithConcurrency(targets, (h) =>
     ccReadUrl(h.url)
@@ -180,7 +182,7 @@ async function readTopPages(hits: WebResult[], topic: string, n = 8): Promise<Ra
         ? { topic, text: p.text.slice(0, 4000), source: { title: p.title || h.title, url: h.url, site: domainOf(h.url) } }
         : null))
       .catch(() => null),
-  6);
+  3);
   return out.filter((e): e is RankedEvidence => !!e);
 }
 
@@ -193,7 +195,7 @@ async function generalSearch(query: string, readPages = false): Promise<RankedEv
   const hits = await webSearch(query, 20).catch(() => []);
   const snippets = snippetEvidence(hits, query);
   if (!readPages) return snippets;
-  const pages = await readTopPages(hits, query, 8);
+  const pages = await readTopPages(hits, query, 4);
   const readUrls = new Set(pages.map((p) => p.source.url));
   // full-page bodies first, then snippets only for the pages we couldn't open
   return [...pages, ...snippets.filter((s) => !readUrls.has(s.source.url))];

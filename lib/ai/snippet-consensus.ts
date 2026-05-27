@@ -22,6 +22,7 @@ import type { SearchSource } from './search';
 import { webSearch } from './metasearch';
 import { wikipediaExtracts } from './sources';
 import { synthesizeText } from './synth';
+import { scorePassages } from './rerank';
 
 const siteOf = (url: string): string => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'web'; } };
 
@@ -84,22 +85,35 @@ export async function answerFromSnippets(query: string): Promise<SnippetConsensu
   const passages = await gatherSnippets(query);
   if (!passages.length) return { answer: '', confidence: 'unverified', agreement: 0, sources: [] };
 
-  // A snippet "addresses" the question only if it contains the ANCHOR — the rarest,
-  // most distinctive query term (proxied by the longest, usually the key entity) —
-  // AND enough of the other content words. The anchor is what stops a false
-  // consensus: a "Mongolia president visits NORWAY" snippet shares president+mongolia
-  // but lacks the anchor "tajikistan", so it can't count toward a Tajikistan question.
-  const terms = keyTerms(query);
-  const byLen = [...terms].sort((a, b) => b.length - a.length);
-  const anchor = byLen[0];
-  const key = byLen.slice(0, Math.max(1, Math.ceil(terms.length / 2)));
-  const need = Math.min(2, key.length);
-  const addresses = (t: string) => {
-    const low = ' ' + t.toLowerCase() + ' ';
-    if (anchor && !low.includes(anchor)) return false; // must contain the key entity
-    return key.filter((k) => low.includes(k)).length >= need;
-  };
-  const addressing = passages.filter((p) => addresses(p.text));
+  // Decide which snippets actually ADDRESS the question. Best path: the trained
+  // reranker (a cross-encoder) scores each snippet's relevance — it understands a
+  // bike SONG isn't a how-to, which keyword overlap can't. Verified on the model:
+  // real answers score ~+1..+8, off-topic/junk ~-3..-4, so a 0 logit cleanly
+  // separates them. When the reranker is cold (e.g. Node/SSR), fall back to a
+  // lexical ANCHOR gate (must contain the rarest query term + enough content words),
+  // which still blocks cross-topic false consensus (Norway ≠ Tajikistan).
+  const REL = 0; // relevance-logit threshold: > 0 ≈ on-topic, < 0 ≈ off-topic
+  let addressing: Snip[];
+  const scores = await scorePassages(query, passages.map((p) => p.text)).catch(() => null);
+  if (scores) {
+    addressing = passages
+      .map((p, i) => ({ p, s: scores[i] ?? -99 }))
+      .filter((x) => x.s > REL)
+      .sort((a, b) => b.s - a.s) // strongest first, so synthesis reads the best
+      .map((x) => x.p);
+  } else {
+    const terms = keyTerms(query);
+    const byLen = [...terms].sort((a, b) => b.length - a.length);
+    const anchor = byLen[0];
+    const key = byLen.slice(0, Math.max(1, Math.ceil(terms.length / 2)));
+    const need = Math.min(2, key.length);
+    const addresses = (t: string) => {
+      const low = ' ' + t.toLowerCase() + ' ';
+      if (anchor && !low.includes(anchor)) return false; // must contain the key entity
+      return key.filter((k) => low.includes(k)).length >= need;
+    };
+    addressing = passages.filter((p) => addresses(p.text));
+  }
 
   // Consensus strength = distinct domains among the snippets that address it.
   const domains = new Set(addressing.map((p) => p.source.site));

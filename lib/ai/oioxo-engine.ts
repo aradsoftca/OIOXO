@@ -26,6 +26,7 @@ import { rerank, scorePassages } from './rerank';
 import { buildBrief, briefToDigest, briefHasContent } from './brief';
 import { synthesizeText } from './synth';
 import { classifyNature, answer as researchAnswer } from './researcher';
+import { wikiFact } from './wikifact';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
@@ -738,6 +739,16 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
       }
     }
   } catch { /* fall through to the normal answer pipeline */ }
+
+  // WIKIDATA FACTOID FAST-PATH — exact answers for "capital/population/currency/…
+  // of X" straight from Wikidata (CORS-clean, works in-browser). Fixes the class
+  // where the Wikipedia lead is an ambiguity/list article ("capital of japan" → the
+  // legal-debate page that never says "Tokyo"). Returns null for non-factoids →
+  // normal pipeline. Conservative: only fires on a confident property+entity match.
+  try {
+    const wf = await wikiFact(text);
+    if (wf) { void rememberAnswer(text, wf.text, undefined); return { text: wf.text, sources: [wf.source] }; }
+  } catch { /* fall through */ }
 
   // PRACTICAL / HOW-TO / RECIPE / CODE / "best way" / "substitute" / how-why: a
   // Wikipedia LEAD here gives a DEFINITION ("a bicycle is a vehicle…"), the wrong

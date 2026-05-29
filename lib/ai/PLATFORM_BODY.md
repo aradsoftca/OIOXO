@@ -114,15 +114,20 @@ v3 ship-gate result (eval_smolvlm_brain.py): JSON-valid 93.2% ✓ · **turn-role
 ## 4. The rule for WHEN to retrain (v4 trigger)
 
 Retrain only when ALL of these hold (so one expensive run fixes the real gaps):
-1. The **repair pass** has shipped and we've re-measured — confirm JSON-valid and
+1. ⬜ The **repair pass** has shipped and we've re-measured — confirm JSON-valid and
    chain-typecheck are effectively solved at serve time (so v4 only needs to fix
-   turn-role + reply quality, not structure).
-2. The **confusion matrix** has run on arad against the v3 checkpoint — we KNOW which
-   roles conflate (not a guess).
-3. The **role-boost counts** in the enumerator are tuned to those weak roles.
-4. The **turn-role classifier head** design is decided (separate head vs in-plan).
-5. The search/whole-body problem inventory (§3 B,D) is catalogued so the brain's
-   routing targets match the real surfaces it must drive.
+   turn-role + reply quality, not structure). SHIPPED (parsePlan in brain-runtime.ts +
+   brain-v3.js); NOT yet re-measured — needs the eval to dump all 207 raw model outputs
+   and re-score them THROUGH parsePlan. Cheap (no GPU); the one remaining gate item.
+2. ✅ The **confusion matrix** has run on arad against the v3 checkpoint (2026-05-29,
+   brain-final, 207 rows). Result recorded in §3C. Runaway new-goal prior confirmed.
+3. ✅ The **role-boost counts** in the enumerator are tuned to those weak roles —
+   budget-proportional, outcome 5.4→11.2% / chitchat 0.7→8.4%, new-goal 17.7→12.5%.
+4. ⬜ The **turn-role classifier head** design is decided (separate head vs in-plan).
+   Leaning separate encoder head (§3C) — needs a go/no-go before data regen.
+5. 🟡 The search/whole-body problem inventory (§3 B,D) is catalogued so the brain's
+   routing targets match the real surfaces it must drive. Search side done; cross-organ
+   front-door unification (§3D) still design-only.
 
 Then: regenerate Gemini-Pro data → train (r64 / 7ep) on the 3070 → eval → ship ONLY if
 turn-role ≥ 82 AND chain-typecheck ≥ 95 AND honest = 100. Same discipline that took the

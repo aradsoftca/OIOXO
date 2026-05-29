@@ -66,8 +66,8 @@ function detectLang(q: string): string {
   const l = q.toLowerCase();
   if (/\b(vorrei|comprare|biciclett|negozio|dove|migliore|prezzo|come posso)\b/.test(l)) return 'it';
   if (/\b(quiero|comprar|dónde|mejor|precio|cómo|cuánto)\b/.test(l)) return 'es';
-  if (/\b(je veux|acheter|où|meilleur|prix|comment|combien)\b/.test(l)) return 'fr';
-  if (/\b(ich möchte|kaufen|wo|beste|preis|wie|wie viel)\b/.test(l)) return 'de';
+  if (/\b(je veux|acheter|où|meilleur|prix|comment|combien|quelle?|capitale|pourquoi|est-ce|qu'est)\b/.test(l)) return 'fr';
+  if (/\b(ich möchte|kaufen|wo|beste|preis|wie|wie viel|warum|hauptstadt)\b/.test(l)) return 'de';
   return 'en';
 }
 
@@ -81,7 +81,9 @@ const STOP = new Set([
 function keywords(q: string): string[] {
   const out: string[] = [];
   for (const raw of q.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/)) {
-    if (raw.length >= 2 && !STOP.has(raw)) out.push(raw);
+    // Keep tokens ≥2 chars OR any token containing a digit ("2" in "world war 2",
+    // "200k" — single digits disambiguate WW1/WW2 and must not be dropped).
+    if ((raw.length >= 2 || /\d/.test(raw)) && !STOP.has(raw)) out.push(raw);
   }
   return Array.from(new Set(out));
 }
@@ -92,7 +94,11 @@ const SPEC_RE = /\b(how many .* (will|going to)|what will|how will|when will|do 
 const LOCAL_RE = /\b(buy|purchase|shop|store|near me|nearby|where can i (buy|get|find)|rent|hire)\b|\b(vorrei comprare|comprare|negozio|quiero comprar|comprar|acheter|kaufen)\b|بخرم|خرید/i;
 const PROC_RE = /^\s*(how to|how do i|how can i|steps to)\b|چگونه|چطور|come (posso|si fa)|cómo|comment (faire|je)/i;
 const COMPARE_RE = /\b(vs\.?|versus|difference between|compared? to|which is better|better than)\b/i;
-const EXPLAIN_RE = /^\s*(why|how does|how do|how is)\b|چرا|perché|por qué|pourquoi|warum/i;
+const EXPLAIN_RE = /^\s*(why|how does|how do|how is|how come|explain|tell me about|what is the difference)\b|چرا|왜|为什么|なぜ|perché|por qué|pourquoi|warum/i;
+// Definition asks — "define X", "what does X mean", "meaning of X". Handled as a
+// short explanation, and NOT through location extraction ("meaning of serendipity"
+// must not treat "serendipity" as a place).
+const DEFINE_RE = /^\s*(define|what(?:'s| is| does)\b.*\b(mean|meaning|definition)|meaning of|definition of)\b/i;
 const LIST_RE = /\b(best|top \d+|top|recommend|good .* for|favou?rite)\b|migliori|mejores|meilleurs/i;
 
 // place after "in/at/near/of" (EN) or "a/à/en" (it/fr/es), grounding the search.
@@ -122,16 +128,21 @@ function extractAttribute(q: string): string | null {
 export function classifyNature(question: string): { nature: Nature; slots: Slots } {
   const q = question.trim();
   const lang = detectLang(q);
-  const location = extractLocation(q);
+  const isDefine = DEFINE_RE.test(q);
+  // Definitions don't have a location ("meaning of serendipity" ≠ a place).
+  const location = isDefine ? null : extractLocation(q);
   const attribute = extractAttribute(q);
   const future = FUTURE_RE.test(q);
   const kw = keywords(q);
   const slots: Slots = { lang, location, future, entity: kw[0] ?? null, attribute, keywords: kw };
 
-  // Order matters: speculative-future BEFORE factual (it looks like a fact ask but isn't),
-  // local BEFORE factual (commerce intent), then the rest.
+  // Order matters: define + speculative BEFORE factual (they LOOK like fact asks but
+  // aren't), local BEFORE factual (commerce intent), then the rest.
   let nature: Nature;
-  if ((future && SPEC_RE.test(q)) || (future && /\b(how many|how much|when|score|win|reach)\b/i.test(q))) nature = 'speculative';
+  if (isDefine) nature = 'explain';                          // a definition → short explanation
+  // Any future-tense OUTCOME question is speculative — "will X", "is X going to",
+  // "who/what/when will", quantity/event predictions. We must never fake the future.
+  else if (future && (SPEC_RE.test(q) || /\b(will|going to|gonna)\b/i.test(q) || /\b(how many|how much|when|score|wins?|reach|hit|happen|cost)\b/i.test(q))) nature = 'speculative';
   else if (LOCAL_RE.test(q)) nature = 'local';
   else if (PROC_RE.test(q)) nature = 'procedural';
   else if (COMPARE_RE.test(q)) nature = 'compare';
@@ -177,7 +188,10 @@ export function planQueries(question: string): SearchPlan {
       break;
     }
     case 'procedural':
-      queries.push(`how to ${core}`, `${core} steps`);
+      // Don't bolt English "how to" onto a non-English query (the prompt already
+      // carries its own "how" — Persian چگونه, etc.).
+      if (slots.lang === 'en') queries.push(`how to ${core}`, `${core} steps`);
+      else queries.push(question.trim(), core);
       break;
     case 'list':
       queries.push(core, `best ${kw.filter((w) => w !== 'best' && w !== 'top').join(' ')}`.trim());

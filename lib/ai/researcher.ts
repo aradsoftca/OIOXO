@@ -94,7 +94,7 @@ function keywords(q: string): string[] {
 // ── nature cues (multilingual) ────────────────────────────────────────────────
 const FUTURE_RE = /\b(will|going to|gonna|future|predict|forecast|by 20[2-9]\d|in 20[3-9]\d|next (year|decade)|in the future)\b|آینده|در آینده|خواهد|futuro|avenir|zukunft/i;
 const SPEC_RE = /\b(how many .* (will|going to)|what will|how will|when will|do you think .* will|predict|chance(s)? (of|that)|odds)\b/i;
-const LOCAL_RE = /\b(buy|purchase|shop|store|near me|nearby|where can i (buy|get|find)|rent|hire)\b|\b(vorrei comprare|comprare|negozio|quiero comprar|comprar|acheter|kaufen)\b|بخرم|خرید/i;
+const LOCAL_RE = /\b(buy|purchase|shops?|stores?|near me|nearby|where can i (buy|get|find)|rent|hire)\b|\b(vorrei comprare|comprare|negozio|negozi|quiero comprar|comprar|acheter|kaufen)\b|بخرم|خرید/i;
 const PROC_RE = /^\s*(how to|how do i|how can i|steps to)\b|چگونه|چطور|come (posso|si fa)|cómo|comment (faire|je)/i;
 const COMPARE_RE = /\b(vs\.?|versus|difference between|compared? to|which is better|better than)\b/i;
 const EXPLAIN_RE = /^\s*(why|how does|how do|how is|how come|explain|tell me about|what is the difference)\b|چرا|왜|为什么|なぜ|perché|por qué|pourquoi|warum/i;
@@ -339,9 +339,87 @@ async function lookupDefinition(term: string): Promise<EvidenceItem | null> {
   } catch { return null; }
 }
 
+// thing keyword → OpenStreetMap tag, so "bike/coffee/shoes" become a real CATEGORY
+// query (Nominatim free-text can't do categories; Overpass can). Extend freely.
+const OSM_CATEGORY: [RegExp, string][] = [
+  [/\b(bike|bicycle|biciclett|cycl|vélo|fahrrad|bicicleta)\b/i, 'shop=bicycle'],
+  [/\b(coffee|cafe|caff|café)\b/i, 'amenity=cafe'],
+  [/\b(shoe|shoes|sneaker|running|scarpe|zapat)\b/i, 'shop=shoes'],
+  [/\b(restaurant|ristorante|food|eat|dinner|comida)\b/i, 'amenity=restaurant'],
+  [/\b(book|books|libreria|librairie|buch)\b/i, 'shop=books'],
+  [/\b(pharmacy|farmacia|pharmacie|apotheke)\b/i, 'amenity=pharmacy'],
+  [/\b(grocery|supermarket|supermercato|épicerie)\b/i, 'shop=supermarket'],
+  [/\b(hotel|albergo|hôtel)\b/i, 'tourism=hotel'],
+  [/\b(bar|pub|birra)\b/i, 'amenity=bar'],
+  [/\b(gym|fitness|palestra)\b/i, 'leisure=fitness_centre'],
+  [/\b(guitar|music|chitarra|musical|instrument)\b/i, 'shop=musical_instrument'],
+  [/\b(furniture|divano|sofa|möbel|meuble)\b/i, 'shop=furniture'],
+  [/\b(clothes|clothing|abbigliamento|vêtement|kleidung)\b/i, 'shop=clothes'],
+  [/\b(electronics|elettronica|computer|phone)\b/i, 'shop=electronics'],
+  [/\b(bakery|bread|panetteria|boulangerie|bäckerei)\b/i, 'shop=bakery'],
+];
+function osmTagFor(thing: string): string | null {
+  for (const [re, tag] of OSM_CATEGORY) if (re.test(thing)) return tag;
+  return null;
+}
+
+// The "thing" being sought, minus commerce verbs/place — "buy running shoes in
+// berlin" → "running shoes", not "buy running".
+const COMMERCE_STOP = new Set(['buy','purchase','find','get','rent','hire','shop','shops','store','stores','comprare','negozi','negozio','comprar','acheter','kaufen','want','need','looking']);
+function localThing(plan: SearchPlan): string {
+  const loc = (plan.slots.location || '').toLowerCase();
+  return plan.slots.keywords.filter((w) => w !== loc && !COMMERCE_STOP.has(w)).slice(0, 3).join(' ').trim();
+}
+
+// LOCAL-business source — OpenStreetMap (free, CORS-open, no key). For a known
+// CATEGORY (bike/coffee/…) use Overpass (real shops in the city); otherwise fall
+// back to Nominatim free-text (named places). Needs a descriptive User-Agent.
+async function localBusinesses(thing: string, place: string): Promise<EvidenceItem[]> {
+  const tag = osmTagFor(thing);
+  // Category query via Overpass: find the city area, then shops of that type.
+  if (tag) {
+    try {
+      const [k, v] = tag.split('=');
+      const ql = `[out:json][timeout:8];area["name"~"${place}",i]->.a;(node["${k}"="${v}"](area.a);way["${k}"="${v}"](area.a););out center 10;`;
+      // Overpass is a heavy public API — cap it tight so it never blocks the answer
+      // (fast on the weakest device). Best-effort: a timeout falls through.
+      const r = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(ql)}`, { cache: 'no-store', headers: WIKI_UA, signal: AbortSignal.timeout(4500) });
+      if (r.ok) {
+        const d = await r.json() as { elements?: { tags?: Record<string, string>; lat?: number; lon?: number; center?: { lat: number; lon: number } }[] };
+        const named = (d.elements ?? []).filter((e) => e.tags?.name);
+        if (named.length) return named.slice(0, 8).map((e) => {
+          const lat = e.lat ?? e.center?.lat, lon = e.lon ?? e.center?.lon;
+          const addr = [e.tags!['addr:street'], e.tags!['addr:housenumber'], e.tags!['addr:city']].filter(Boolean).join(' ');
+          return { query: `local:${tag}:${place}`, hop: 1, title: e.tags!.name, url: lat && lon ? `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=18/${lat}/${lon}` : '', text: addr || place, source: 'openstreetmap' };
+        });
+      }
+    } catch { /* fall back to Nominatim */ }
+  }
+  // Free-text fallback (named places like "Portland Coffee Roasters").
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(`${thing} ${place}`.trim())}&format=jsonv2&limit=8&addressdetails=1`,
+      { cache: 'no-store', headers: WIKI_UA, signal: AbortSignal.timeout(4500) });
+    if (!r.ok) return [];
+    const d = await r.json() as { display_name?: string; name?: string; lat?: string; lon?: string }[];
+    return (Array.isArray(d) ? d : []).filter((p) => p.name || p.display_name).map((p) => ({
+      query: `local:${thing} ${place}`, hop: 1,
+      title: p.name || (p.display_name || '').split(',')[0],
+      url: p.lat && p.lon ? `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lon}#map=18/${p.lat}/${p.lon}` : '',
+      text: p.display_name || '', source: 'openstreetmap',
+    }));
+  } catch { return []; }
+}
+
 export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBundle> {
   const items: EvidenceItem[] = [];
   let hops = 0;
+
+  // LOCAL fast-path: real businesses/places from OpenStreetMap, listed first so the
+  // local synthesis uses actual shops (not tourism pages from the general web).
+  if (plan.nature === 'local' && plan.slots.location) {
+    const thing = localThing(plan);
+    items.push(...await localBusinesses(thing, plan.slots.location));
+  }
 
   // DEFINITION fast-path: a real dictionary definition (not a sentence that merely
   // USES the word). Goes in first so the synthesis picks it as the answer.
@@ -480,6 +558,15 @@ function bestSentences(bundle: EvidenceBundle, n = 2): { text: string; src: Evid
   return out;
 }
 
+// Honest "no live shop list" message per language — useful (points at maps), never
+// a tourism-junk dump or a collapse.
+const LOCAL_NORESULT: Record<string, (thing: string, place: string) => string> = {
+  it: (t, p) => `Non sono riuscito a trovare un elenco aggiornato di negozi di ${t}${p ? ` a ${p}` : ''} in questo momento. Una ricerca su una mappa (es. Google/OpenStreetMap) per "${t} ${p}" ti darà i risultati più freschi.`,
+  es: (t, p) => `No pude obtener una lista actualizada de tiendas de ${t}${p ? ` en ${p}` : ''} ahora mismo. Una búsqueda en un mapa de "${t} ${p}" te dará los resultados más recientes.`,
+  fr: (t, p) => `Je n'ai pas pu trouver une liste à jour de magasins de ${t}${p ? ` à ${p}` : ''} pour le moment. Une recherche sur une carte pour « ${t} ${p} » donnera les résultats les plus récents.`,
+  de: (t, p) => `Ich konnte gerade keine aktuelle Liste von ${t}-Geschäften${p ? ` in ${p}` : ''} finden. Eine Kartensuche nach „${t} ${p}" liefert die aktuellsten Ergebnisse.`,
+  en: (t, p) => `I couldn't pull a live shop list for ${t}${p ? ` in ${p}` : ''} just now — a maps search for "${t} ${p}" will have the freshest results.`,
+};
 // Local-result framing per language (model-free; the brain localizes finer later).
 const LOCAL_FRAME: Record<string, (place: string, thing: string) => string> = {
   it: (p, t) => `Ecco alcune opzioni per ${t}${p ? ` a ${p}` : ''}:`,
@@ -508,11 +595,19 @@ export function synthesize(bundle: EvidenceBundle): Answer {
     }
     case 'local': {
       const frame = (LOCAL_FRAME[lang] || LOCAL_FRAME.en);
-      const thing = plan.slots.keywords.filter((w) => w !== (plan.slots.location || '').toLowerCase()).slice(0, 2).join(' ') || 'this';
-      const picks = items.filter((i) => i.title).slice(0, 5);
-      const list = picks.map((p) => `• ${p.title}${p.url ? ` — ${host(p.url)}` : ''}`).join('\n');
-      const txt = picks.length ? `${frame(plan.slots.location || '', thing)}\n${list}` : `${frame(plan.slots.location || '', thing)}\n(— couldn't reach local listings just now; try a maps search for the freshest results.)`;
-      return { nature: 'local', text: txt, sources: cite(picks), confident: picks.length > 0, lang };
+      const thing = localThing(plan) || 'this';
+      // Prefer REAL places (OpenStreetMap) over general-web pages — those are
+      // actual shops, not tourism articles. List the business + its area.
+      const osm = items.filter((i) => i.source === 'openstreetmap' && i.title);
+      if (osm.length) {
+        const picks = osm.slice(0, 6);
+        const line = (p: EvidenceItem) => `• ${p.title}${p.text && p.text !== plan.slots.location ? ` — ${p.text.split(',').slice(0, 2).join(',').trim()}` : ''}`;
+        return { nature: 'local', text: `${frame(plan.slots.location || '', thing)}\n${picks.map(line).join('\n')}`, sources: cite(picks), confident: true, lang };
+      }
+      // No real businesses (free geo data is thin / the API was slow). Be HONEST and
+      // useful in the user's language — point at maps — rather than dumping unrelated
+      // tourism pages (which would be dumb) or collapsing.
+      return { nature: 'local', text: LOCAL_NORESULT[lang]?.(thing, plan.slots.location || '') || LOCAL_NORESULT.en(thing, plan.slots.location || ''), sources: [], confident: false, lang };
     }
     default: {
       // Factual / explain / compare / list / procedural — extractive, SHORT, cited.

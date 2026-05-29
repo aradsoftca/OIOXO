@@ -24,6 +24,7 @@ Usage on arad:
 """
 import argparse
 import json
+import re
 import sys
 
 import torch
@@ -157,6 +158,62 @@ chain_nonempty = 0
 chain_typecheck = 0  # well-formed (each step has surface:id form)
 samples = []
 
+# ─── SERVE-PATH REPAIR (port of brain-runtime.ts parsePlan repair) ─────────────
+# INFORMATIONAL ONLY — the ship gate above stays on the RAW model (never gamed
+# with regex, per this file's discipline). These parallel counters report what
+# the user ACTUALLY gets, because the live serve path runs this exact repair:
+# truncation/loop recovery + bracket balancing + chain normalization. Tells us
+# how much of the JSON/chain gap v4 must close vs what serve-repair already
+# handles — so the costly retrain targets only what's genuinely broken.
+_SURFACE_RE = re.compile(r"^(?:tool|chain|studio|app|vision|search|memory|limit|chat):.+")
+def _balance_close(s):
+    stack, in_str, esc = [], False, False
+    for ch in s:
+        if in_str:
+            if esc: esc = False
+            elif ch == "\\": esc = True
+            elif ch == '"': in_str = False
+            continue
+        if ch == '"': in_str = True
+        elif ch == "{": stack.append("}")
+        elif ch == "[": stack.append("]")
+        elif ch in "}]":
+            if stack: stack.pop()
+    out = s + ('"' if in_str else "")
+    while stack: out += stack.pop()
+    return out
+def _repair_json(raw):
+    if not raw: return None
+    o = raw.find("{")
+    if o < 0: return None
+    s = raw[o:]
+    c = s.rfind("}")
+    if c >= 0:
+        try: return json.loads(s[:c + 1])
+        except Exception: pass
+    t = re.sub(r"(.)\1{40,}", r"\1\1", s)        # collapse runaway token loops
+    t = re.sub(r",\s*$", "", t)
+    cand = re.sub(r",\s*([}\]])", r"\1", _balance_close(t))
+    try: return json.loads(cand)
+    except Exception: return None
+def _norm_chain(chain):
+    if not isinstance(chain, list): return []
+    out = []
+    for c in chain:
+        step = (c if isinstance(c, str) else (c.get("step") if isinstance(c, dict) else "")) or ""
+        step = step.strip()
+        if not _SURFACE_RE.match(step): continue
+        can = c.get("can") if isinstance(c, dict) and isinstance(c.get("can"), bool) else True
+        o = {"step": step, "can": can}
+        if not can:
+            alt = (c.get("alternative") if isinstance(c, dict) else "") or ""
+            o["alternative"] = alt.strip() or "show you the closest thing we can do"
+        out.append(o)
+    return out
+
+valid_repaired = 0          # JSON recoverable after serve-repair
+chain_typecheck_repaired = 0  # chain well-formed after _norm_chain
+
 for i, r in enumerate(rows):
     if (i % 25) == 0 and i > 0:
         print(f"  …{i}/{len(rows)}")
@@ -168,6 +225,13 @@ for i, r in enumerate(rows):
         parsed = json.loads(s)
     except Exception:
         pass
+    # SERVE-PATH (informational): does the repair recover this row?
+    rep = parsed if (parsed and isinstance(parsed, dict)) else _repair_json(gen)
+    if rep and isinstance(rep, dict):
+        valid_repaired += 1
+        rep_chain = _norm_chain(rep.get("chain"))
+        if rep_chain:
+            chain_typecheck_repaired += 1
     if not parsed or not isinstance(parsed, dict):
         if len(samples) < 5:
             samples.append({"i": i, "user": r["input"]["message"][:80], "gen": gen[:200], "issue": "json-parse"})
@@ -225,6 +289,11 @@ print(f"Turn-role acc:     {pct(role_correct, n)}            gate ≥82% {'✓' 
 print(f"Honest (alt named):{pct(honest, max(1, honest_eligible))}   (of {honest_eligible} eligible)  gate =100% {'✓' if honest == honest_eligible else '✗ FAIL'}")
 print(f"Chain non-empty:   {pct(chain_nonempty, n)}")
 print(f"Chain typecheck:   {pct(chain_typecheck, n)}            gate ≥95% {'✓' if 100*chain_typecheck/max(1,n) >= 95 else '✗ FAIL'}")
+print("───────────────────────────────────────────────────────────────────")
+print("SERVE-PATH (repair applied — what users get; NOT the ship gate):")
+print(f"  JSON-valid+repair: {pct(valid_repaired, n)}            {'≥92 ✓' if 100*valid_repaired/max(1,n) >= 92 else '<92'}")
+print(f"  Chain typecheck+repair: {pct(chain_typecheck_repaired, n)}       {'≥95 ✓' if 100*chain_typecheck_repaired/max(1,n) >= 95 else '<95'}")
+print(f"  → repair recovered {valid_repaired - valid} JSON rows, {chain_typecheck_repaired - chain_typecheck} chains")
 
 # ─── Turn-role per-class recall + confusion (THE v4 diagnosis) ──────────────
 print("\nTurn-role per-class recall (gold → correct%):")

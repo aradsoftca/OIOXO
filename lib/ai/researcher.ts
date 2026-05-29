@@ -103,6 +103,10 @@ const EXPLAIN_RE = /^\s*(why|how does|how do|how is|how come|explain|tell me abo
 // must not treat "serendipity" as a place).
 const DEFINE_RE = /^\s*(define|what(?:'s| is| does)\b.*\b(mean|meaning|definition)|meaning of|definition of)\b/i;
 const LIST_RE = /\b(best|top \d+|top|recommend|good .* for|favou?rite)\b|migliori|mejores|meilleurs/i;
+// Advice / recommendation — "should I X", "is it worth", "which should I". These
+// are SUBJECTIVE (community opinion answers them), not facts. "should I X or Y"
+// with two options is a comparison; otherwise a recommendation (→ list).
+const RECO_RE = /\b(should i|should we|is it worth|worth it|which (one )?should|do you recommend|is .+ worth)\b/i;
 
 // place after "in/at/near/of" (EN) or "a/à/en" (it/fr/es), grounding the search.
 // Users type lowercase, so we DON'T require a capital — we take the 1–2 word noun
@@ -159,6 +163,8 @@ export function classifyNature(question: string): { nature: Nature; slots: Slots
   else if (future && (SPEC_RE.test(q) || /\b(will|going to|gonna)\b/i.test(q) || /\b(how many|how much|when|score|wins?|reach|hit|happen|cost)\b/i.test(q))) nature = 'speculative';
   else if (LOCAL_RE.test(q)) nature = 'local';
   else if (PROC_RE.test(q)) nature = 'procedural';
+  // Advice: "should I X or Y" (two options) = compare; "should I X" = recommendation.
+  else if (RECO_RE.test(q)) nature = /\bor\b/.test(q) ? 'compare' : 'list';
   else if (COMPARE_RE.test(q)) nature = 'compare';
   else if (LIST_RE.test(q)) nature = 'list';
   else if (EXPLAIN_RE.test(q)) nature = 'explain';
@@ -256,9 +262,13 @@ export function crossLingualTargets(plan: SearchPlan): string[] {
 // ─────────────────────────────────────────────────────────────────────────────
 import { webSearch, WIKI_UA } from './metasearch';
 import { gatherPassages } from './web-read';
+import { redditOpinions } from './reddit-read';
 
 export interface EvidenceItem {
   query: string; hop: number; title: string; url: string; text: string; source: string;
+  /** Community endorsement (Reddit upvotes) — real human opinion the synthesis
+   *  weights up for subjective asks ("best X", "is X worth it"). */
+  votes?: number;
 }
 export interface EvidenceBundle {
   plan: SearchPlan;
@@ -432,6 +442,16 @@ export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBun
   hops++;
   items.push(...await searchHop(plan.queries, hops));
 
+  // COMMUNITY OPINION (Reddit). Subjective asks — recommendations, comparisons,
+  // "is X worth it" — are answered best by real people, not SEO pages. This is the
+  // tail Google leans on. JSONP (CORS-bypass, in-browser); returns [] in Node/on
+  // failure, so it's a safe additive. The opinions carry upvotes → weighted up.
+  if (plan.nature === 'list' || plan.nature === 'compare' || plan.nature === 'speculative') {
+    const core = plan.slots.keywords.join(' ').trim() || plan.queries[0] || '';
+    const ops = await redditOpinions(core, { threads: 3, perThread: 3 }).catch(() => []);
+    for (const o of ops) items.push({ query: `reddit:${core}`, hop: hops, title: o.source.title, url: o.source.url, text: o.text, source: 'reddit', votes: o.score });
+  }
+
   // CROSS-LINGUAL reach. For knowledge-gap topics (history/war/culture), English
   // alone is thin — pull the SAME topic from other-language Wikipedias so we cover
   // what Google's English index misses ("WW1 from Bengali/German sources"). The
@@ -549,6 +569,10 @@ function bestSentences(bundle: EvidenceBundle, n = 2): { text: string; src: Evid
       let score = kw.reduce((a, w) => a + (l.includes(w) ? 1 : 0), 0);
       if (wantNum && NUM_RE.test(s)) score += 2;
       if (bundle.plan.slots.location && l.includes(bundle.plan.slots.location.toLowerCase())) score += 1.5;
+      // Subjective asks: real upvoted community opinion beats an SEO sentence.
+      if (it.source === 'reddit' && (bundle.plan.nature === 'list' || bundle.plan.nature === 'compare')) {
+        score += 1.5 + Math.min(1.5, Math.log10((it.votes ?? 0) + 1));
+      }
       if (score > 0) scored.push({ text: s, src: it, score });
     }
   }

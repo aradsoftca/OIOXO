@@ -62,6 +62,34 @@ function hasBrowser(name: 'Translator' | 'LanguageDetector'): boolean {
   return typeof self !== 'undefined' && name in self;
 }
 
+// Latin-script languages look like English to the script heuristic, and the browser
+// LanguageDetector isn't always present (headless, Firefox/Safari, older Chrome). So
+// detect the big European languages by their DISTINCTIVE function words + diacritics
+// (model-free). Require ≥2 signals so plain English ("why is the sky blue") is never
+// misread as foreign. This is what makes "warum ist der himmel blau" / "quelle est la
+// capitale du japon" actually get translated instead of flowing through raw.
+// Unicode-aware word boundary (JS \b breaks on accented letters like "où", so
+// accented function words would never match) — letter/number lookarounds instead.
+const B = (words: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${words})(?![\\p{L}\\p{N}])`, 'giu');
+const LATIN_SIG: [string, RegExp][] = [
+  ['de', /[äöüß]/giu], ['de', B('der|die|das|und|ist|nicht|wie|warum|was|wer|ich|möchte|eine?|mit|auf|für|wo|wieviel|viele|hauptstadt|kaufen')],
+  ['fr', /[œ]/giu], ['fr', B("le|les|est|qui|pour|avec|dans|une|vous|pourquoi|comment|où|quelle?|c'est|qu'est|combien|je|du|des|au|la|acheter")],
+  ['es', /[ñ¿¡]/giu], ['es', B('el|los|las|una|por|qué|cómo|dónde|cuál|cuántos?|quiero|está|para|del|comprar|capital')],
+  ['it', B('il|gli|che|di|perché|vorrei|sono|dove|quale|della|sulla|per|una|come|comprare|qual')],
+  ['pt', /[ãõ]/giu], ['pt', B('você|não|são|está|porque|quero|uma|dos|das|para|qual|comprar')],
+];
+function latinHeuristic(text: string): string | null {
+  const low = ' ' + text.toLowerCase() + ' ';
+  const score: Record<string, number> = {};
+  for (const [lang, re] of LATIN_SIG) {
+    const n = (low.match(re) || []).length;
+    if (n) score[lang] = (score[lang] || 0) + n;
+  }
+  let best: string | null = null, bestN = 0;
+  for (const [lang, n] of Object.entries(score)) if (n > bestN) { bestN = n; best = lang; }
+  return bestN >= 2 ? best : null; // ≥2 distinctive signals to override "English"
+}
+
 // --- detection -------------------------------------------------------------
 
 /**
@@ -90,9 +118,11 @@ export async function detectLanguage(text: string): Promise<string | null> {
     } catch { /* fall through */ }
   }
 
-  // 2) Script heuristic — only fires for non-Latin scripts (high confidence).
+  // 2) Script heuristic — non-Latin scripts (high confidence).
   for (const [re, lang] of SCRIPT) if (re.test(t)) return lang;
-  return null; // Latin text with no detector → treat as English
+  // 3) Latin-script function-word signature (de/fr/es/it/pt) — so European
+  //    languages are translated even with no browser detector.
+  return latinHeuristic(t);
 }
 
 // --- browser Translator API ------------------------------------------------

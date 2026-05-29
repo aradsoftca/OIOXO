@@ -114,17 +114,20 @@ v3 ship-gate result (eval_smolvlm_brain.py): JSON-valid 93.2% ✓ · **turn-role
 ## 4. The rule for WHEN to retrain (v4 trigger)
 
 Retrain only when ALL of these hold (so one expensive run fixes the real gaps):
-1. ⬜ The **repair pass** has shipped and we've re-measured — confirm JSON-valid and
-   chain-typecheck are effectively solved at serve time (so v4 only needs to fix
-   turn-role + reply quality, not structure). SHIPPED (parsePlan in brain-runtime.ts +
-   brain-v3.js); NOT yet re-measured — needs the eval to dump all 207 raw model outputs
-   and re-score them THROUGH parsePlan. Cheap (no GPU); the one remaining gate item.
+1. ✅ The **repair pass** has shipped and we've **re-measured** (eval SERVE-PATH section,
+   newxonvert 8d39570): JSON 93.2%→**99.0%**, chain 87.9%→**93.2%**, turn-role 67.6%→67.6%.
+   CONFIRMED: structure is solved/near-solved at serve time; **turn-role is the one
+   irreducible model gap** repair cannot touch. v4 targets turn-role, not formatting.
 2. ✅ The **confusion matrix** has run on arad against the v3 checkpoint (2026-05-29,
    brain-final, 207 rows). Result recorded in §3C. Runaway new-goal prior confirmed.
 3. ✅ The **role-boost counts** in the enumerator are tuned to those weak roles —
    budget-proportional, outcome 5.4→11.2% / chitchat 0.7→8.4%, new-goal 17.7→12.5%.
-4. ⬜ The **turn-role classifier head** design is decided (separate head vs in-plan).
-   Leaning separate encoder head (§3C) — needs a go/no-go before data regen.
+4. ✅ The **turn-role classifier head** design is **DECIDED** — see `BRAIN_ARCHITECTURE_V4.md`
+   (the terminal design). Not a separate encoder but a **head bank on the shared SmolVLM
+   backbone**: linear probes on the last-prompt hidden state for turn-role (8) + the
+   linchpin goal-continuation (3, kills the new-goal prior) + mediaNeed/confidence/safety,
+   read once at prefill, owning their slots; **constrained decoding** guarantees JSON/chain
+   100%; capabilities bound by **retrieval** (no retrain for new tools). ≤180 MB, one model.
 5. 🟡 The search/whole-body problem inventory (§3 B,D) is catalogued so the brain's
    routing targets match the real surfaces it must drive. Search side done; cross-organ
    front-door unification (§3D) still design-only.

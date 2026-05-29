@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Upload, X, Music } from 'lucide-react';
 import { decode, type AudioInfo, getInfo } from '@/engines/audio';
 import { useStagedInput } from '@/lib/ai/handoff';
+import { checkFreeSize } from '@/lib/usage/size-gate';
 
 export interface AudioFileItem {
   file: File;
@@ -49,7 +50,18 @@ export function AudioDrop(props: Props) {
     try {
       const list = Array.from(files).filter(isAudio);
       if (!list.length) { setError('Drop an audio file.'); return; }
-      const items = await Promise.all(list.map(loadFile));
+      // Free size gate — block on the largest file, show the upgrade prompt.
+      // Iterate instead of spreading: Math.max(...arr) with a huge arr (10k+
+      // files via folder-drop) blows the JS argument-count stack on V8.
+      let maxSize = 0;
+      for (const f of list) if (f.size > maxSize) maxSize = f.size;
+      if (!(await checkFreeSize('audio', maxSize))) return;
+      // Decode serially, not in parallel. Each decoded AudioBuffer can be
+      // ~10x the source file size (float PCM); 10 MP3s in parallel was
+      // enough to OOM mobile browsers. Sequencing trades wall time for
+      // peak memory — the right call when the alternative is a tab crash.
+      const items: AudioFileItem[] = [];
+      for (const f of list) items.push(await loadFile(f));
       if (props.multiple) {
         props.onItemsChange([...props.items, ...items]);
       } else {

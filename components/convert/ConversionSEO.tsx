@@ -1,4 +1,5 @@
 import type { ConversionContentData } from '@/lib/convert/content';
+import { structuredDataToScript } from '@/lib/seo/jsonld';
 
 function paras(text: string): string[] {
   return text.split(/\n\s*\n+/).map((p) => p.trim()).filter(Boolean);
@@ -65,7 +66,10 @@ export function ConversionSEO({ content, from, to }: { content: ConversionConten
 
       {faqLd && (
         // eslint-disable-next-line react/no-danger
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }} />
+        // structuredDataToScript escapes `<` to `<` so a `</script>` in
+        // the migrated FAQ content can't break out of the JSON-LD tag — the
+        // raw `JSON.stringify` here was vulnerable.
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: structuredDataToScript(faqLd) }} />
       )}
     </article>
   );

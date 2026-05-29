@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Upload, Download, Loader2, BookOpen } from 'lucide-react';
 import { epubToContent, htmlToPlainText } from '@/engines/ebook';
+import { sanitizeHtml } from '@/lib/safe-html';
 
 type Target = 'pdf' | 'html' | 'txt';
 
@@ -30,19 +31,26 @@ export default function EbookConvertTool() {
     try {
       const base = content.title.replace(/[^\w\s-]/g, '').trim() || file.name.replace(/\.[^.]+$/, '');
       let blob: Blob, ext: string;
+      // Sanitize before BOTH PDF and HTML output. The EPUB body strips
+      // <script>/<style>/<link> at extraction but leaves inline event
+      // handlers like onclick=, so a hostile .epub could ship JS to anyone
+      // who downloaded the converted HTML and opened it.
+      const safeBody = sanitizeHtml(content.html);
+      const escTitle = content.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       if (target === 'pdf') {
         const { htmlToPdf } = await import('@/engines/document');
-        blob = await htmlToPdf(`<h1>${content.title}</h1>${content.html}`, base); ext = 'pdf';
+        blob = await htmlToPdf(`<h1>${escTitle}</h1>${safeBody}`, base); ext = 'pdf';
       } else if (target === 'html') {
-        blob = new Blob([`<!doctype html><meta charset="utf-8"><title>${content.title}</title><body>${content.html}</body>`], { type: 'text/html' }); ext = 'html';
+        blob = new Blob([`<!doctype html><meta charset="utf-8"><title>${escTitle}</title><body>${safeBody}</body>`], { type: 'text/html' }); ext = 'html';
       } else {
         blob = new Blob([htmlToPlainText(content.html)], { type: 'text/plain' }); ext = 'txt';
       }
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `${base}.${ext}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message || 'Conversion failed.');
     } finally { setBusy(false); }
@@ -73,7 +81,7 @@ export default function EbookConvertTool() {
               {busy && !content ? (
                 <div className="flex items-center gap-2 text-[13px] text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</div>
               ) : content ? (
-                <div dangerouslySetInnerHTML={{ __html: content.html.slice(0, 30000) }} />
+                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(content.html.slice(0, 30000)) }} />
               ) : null}
             </div>
           </div>

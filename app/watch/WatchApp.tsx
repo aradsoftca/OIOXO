@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { MonitorPlay, Copy, Check, Loader2, ShieldCheck, Smartphone, Square } from 'lucide-react';
 import { connectMedia, type MediaPeer, type MediaState } from '@/lib/p2p/media';
+import { useUsageGate } from '@/components/usage/use-usage-gate';
 
 export default function WatchApp() {
   const params = useSearchParams();
@@ -38,6 +39,8 @@ function Host() {
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const peerRef = React.useRef<MediaPeer | null>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
+  const wmStopRef = React.useRef<(() => void) | null>(null);
+  const { guard, gate } = useUsageGate('watch');
 
   const link = typeof window !== 'undefined' ? `${window.location.origin}/watch?r=${room}` : '';
 
@@ -48,30 +51,49 @@ function Host() {
     return () => { alive = false; };
   }, [link]);
 
-  React.useEffect(() => () => { peerRef.current?.close(); streamRef.current?.getTracks().forEach((t) => t.stop()); }, []);
+  React.useEffect(() => () => {
+    // Stop the watermark RAF loop too — without this the requestAnimationFrame
+    // that composites the brand badge keeps running after the user leaves,
+    // burning a frame's worth of CPU forever.
+    try { wmStopRef.current?.(); } catch { /* */ } wmStopRef.current = null;
+    peerRef.current?.close();
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
 
   const start = async () => {
+    if (!(await guard())) return; // count lever — the sharer (host) is metered; viewers are free
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
       streamRef.current = stream;
       if (videoRef.current) { videoRef.current.srcObject = stream; videoRef.current.muted = true; void videoRef.current.play().catch(() => {}); }
       stream.getVideoTracks()[0]?.addEventListener('ended', stop);
-      peerRef.current = connectMedia('s', room, { localStream: stream, onState: setState });
+      // Free → composite "Powered by xonvert.com" into the shared video (defensive:
+      // returns the raw stream on any issue, so the share never breaks).
+      const { isWatermarkOn } = await import('@/lib/watermark/config');
+      const { watermarkVideoStream } = await import('@/lib/watermark/stream-overlay');
+      const wrapped = await watermarkVideoStream(stream, await isWatermarkOn());
+      wmStopRef.current = wrapped.stop;
+      peerRef.current = connectMedia('s', room, { localStream: wrapped.stream, onState: setState });
     } catch { /* cancelled */ }
   };
 
   const stop = () => {
+    try { wmStopRef.current?.(); } catch { /* */ } wmStopRef.current = null;
     peerRef.current?.close(); peerRef.current = null;
     streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null;
     setState(null);
     if (videoRef.current) videoRef.current.srcObject = null;
   };
 
-  const copy = () => { void navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const copy = () => {
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
+    setCopied(true); setTimeout(() => setCopied(false), 1600);
+  };
   const sharing = !!state;
 
   return (
     <Shell>
+      {gate}
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <div className="relative aspect-video overflow-hidden border border-black/[0.08] bg-[oklch(18%_0.008_250)]">
           <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" playsInline />

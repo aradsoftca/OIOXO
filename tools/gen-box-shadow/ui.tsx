@@ -51,9 +51,11 @@ export default function Tool() {
   };
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(`box-shadow: ${cssValue};`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(`box-shadow: ${cssValue};`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   return (
@@ -75,7 +77,7 @@ export default function Tool() {
             box-shadow: {cssValue};
           </div>
           <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-bg)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
+            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
             {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
           </button>
         </div>

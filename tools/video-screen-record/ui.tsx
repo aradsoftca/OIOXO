@@ -2,6 +2,12 @@
 
 import * as React from 'react';
 import { Monitor, Mic, MicOff, Circle, Square, Download, RotateCcw } from 'lucide-react';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+import { freeCap } from '@/lib/limits/policy';
+
+const POLICY_KEY = 'video-screen-record';
 
 function pickMime(): string {
   const candidates = [
@@ -22,6 +28,8 @@ function fmtTime(s: number): string {
 }
 
 export default function ScreenRecorderTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [supported] = React.useState(() => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia);
   const [withMic, setWithMic] = React.useState(false);
   const [state, setState] = React.useState<'idle' | 'recording' | 'done'>('idle');
@@ -35,20 +43,36 @@ export default function ScreenRecorderTool() {
   const streamsRef = React.useRef<MediaStream[]>([]);
   const livePreviewRef = React.useRef<HTMLVideoElement>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // mountedRef so rec.onstop doesn't create a blob URL after unmount.
+  const mountedRef = React.useRef(true);
 
   const cleanupStreams = () => {
     streamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     streamsRef.current = [];
   };
 
+  // Mirror outUrl into a ref so the unmount-only cleanup can revoke whatever
+  // URL is current at teardown. Previously the cleanup carried [outUrl] as a
+  // dep — that re-ran the stop-streams + clear-interval side effects on
+  // every recording completion, which (although idempotent) is the wrong
+  // shape and easy to break by future edits.
+  const outUrlRef = React.useRef('');
+  React.useEffect(() => { outUrlRef.current = outUrl; }, [outUrl]);
   React.useEffect(() => () => {
+    mountedRef.current = false;
     cleanupStreams();
     if (timerRef.current) clearInterval(timerRef.current);
-    if (outUrl) URL.revokeObjectURL(outUrl);
-  }, [outUrl]);
+    // Stop the in-flight recorder so its onstop can't fire post-unmount
+    // and leak a fresh blob URL that setOutUrl will discard silently.
+    try { recRef.current?.stop(); } catch { /* */ }
+    recRef.current = null;
+    if (outUrlRef.current) URL.revokeObjectURL(outUrlRef.current);
+  }, []);
 
   const start = async () => {
     setError('');
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, []);
+    if (!ok) return;
     if (outUrl) { URL.revokeObjectURL(outUrl); setOutUrl(''); }
     try {
       const display = await navigator.mediaDevices.getDisplayMedia({
@@ -79,11 +103,22 @@ export default function ScreenRecorderTool() {
       chunksRef.current = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
       rec.onstop = () => {
+        if (!mountedRef.current) { cleanupStreams(); return; }
         const blob = new Blob(chunksRef.current, { type: mimeType || 'video/webm' });
         setOutUrl(URL.createObjectURL(blob));
         setState('done');
         cleanupStreams();
         if (timerRef.current) clearInterval(timerRef.current);
+      };
+      // MediaRecorder error path: codec drop, OOM, or the tab being throttled
+      // past tolerance. Without a handler, a mid-recording failure produced a
+      // truncated/zero-byte file with no error surfaced to the user.
+      rec.onerror = (ev) => {
+        const err = (ev as unknown as { error?: { message?: string } }).error;
+        setError(err?.message || 'Recording stopped unexpectedly.');
+        cleanupStreams();
+        if (timerRef.current) clearInterval(timerRef.current);
+        setState('idle');
       };
       // If the user clicks the browser's native "Stop sharing", end cleanly.
       display.getVideoTracks()[0]?.addEventListener('ended', () => {
@@ -94,7 +129,28 @@ export default function ScreenRecorderTool() {
       rec.start();
       setState('recording');
       setElapsed(0);
-      timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      // Auto-stop at the policy's free recording cap so the file never exceeds the limit.
+      const capMin = freeCap(POLICY_KEY, 'recording-minutes');
+      const capSec = Number.isFinite(capMin) ? capMin * 60 : Infinity;
+      timerRef.current = setInterval(() => {
+        setElapsed((e) => {
+          const next = e + 1;
+          if (!isPro && Number.isFinite(capSec) && next >= capSec) {
+            // Trigger the paywall + force stop. checkLever computes the friendly msg.
+            policyGate.fire({
+              key: POLICY_KEY,
+              policy: { key: POLICY_KEY, displayName: 'Screen Record', tier: 'standard', levers: [], watermarkFree: true, proValueProp: [] },
+              lever: { type: 'recording-minutes', free: capMin, unit: 'min', label: 'Max recording length', response: 'block' },
+              observed: next,
+              upgradeTo: 'pro',
+              friendly: `Free plan caps recordings at ${capMin} min — Pro recordings can be up to 8h.`,
+            });
+            recRef.current?.stop();
+            return capSec;
+          }
+          return next;
+        });
+      }, 1000);
     } catch (e) {
       const err = e as Error;
       if (err.name === 'NotAllowedError') setError('Permission denied — screen sharing was cancelled.');
@@ -130,6 +186,7 @@ export default function ScreenRecorderTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      {policyGate.element}
       <div className="space-y-3">
         <div className="relative aspect-video overflow-hidden border border-black/[0.08] bg-[oklch(18%_0.008_250)]">
           {state === 'done' && outUrl ? (

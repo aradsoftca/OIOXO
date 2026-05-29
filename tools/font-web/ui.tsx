@@ -25,9 +25,11 @@ export default function Tool() {
 
   const copy = async () => {
     if (!snippet) return;
-    await navigator.clipboard.writeText(snippet);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* iframe / permission denied — code is still visible in textarea */ }
   };
 
   return (

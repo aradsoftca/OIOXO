@@ -43,7 +43,8 @@ interface BergTranslator {
 let _translator: Promise<BergTranslator | null> | null = null;
 
 function loadTranslator(): Promise<BergTranslator | null> {
-  _translator ??= (async () => {
+  if (_translator) return _translator;
+  const p = (async () => {
     try {
       // Native runtime import of the static asset — kept out of the bundle so the
       // worker/wasm paths stay relative to /bergamot/. (webpackIgnore + a
@@ -57,7 +58,12 @@ function loadTranslator(): Promise<BergTranslator | null> {
       return null;
     }
   })();
-  return _translator;
+  _translator = p;
+  // Drop the cache on null/reject so a transient asset-load failure doesn't
+  // permanently disable Bergamot for the rest of the session.
+  p.then((v) => { if (v == null && _translator === p) _translator = null; })
+   .catch(() => { if (_translator === p) _translator = null; });
+  return p;
 }
 
 /** Translate `text` from→to on-device. Null if unsupported / unavailable. */

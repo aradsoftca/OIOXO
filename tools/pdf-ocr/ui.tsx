@@ -5,6 +5,11 @@ import { Upload, Loader2, Copy, Download, FileText, Languages, FileX, Wand2 } fr
 import { cn } from '@/lib/cn';
 import { recognize, OCR_LANGUAGES } from '@/engines/ocr';
 import { rasterizePdf, getPdfPageCount } from '@/engines/pdf/rasterize';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'pdf-ocr';
 
 interface PageResult {
   index: number;
@@ -13,6 +18,8 @@ interface PageResult {
 }
 
 export default function PdfOcrTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
   const [language, setLanguage] = React.useState('eng');
@@ -36,6 +43,8 @@ export default function PdfOcrTool() {
   );
 
   const run = React.useCallback(async (target: File, lang: string, maxEdge: number) => {
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', target.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     setRunning(true);
     setPages([]);
     setStage('Reading PDF');
@@ -44,6 +53,8 @@ export default function PdfOcrTool() {
       const buffer = await target.arrayBuffer();
       const count = await getPdfPageCount(buffer);
       setPageCount(count);
+      const pagesHit = checkLever(POLICY_KEY, 'pages', count, isPro);
+      if (pagesHit) { policyGate.fire(pagesHit); setRunning(false); setStage(''); return; }
       setStage('Rendering pages');
       const rendered = await rasterizePdf(buffer, {
         maxEdge,
@@ -67,7 +78,7 @@ export default function PdfOcrTool() {
       setStage('');
       setProgress(null);
     }
-  }, []);
+  }, [isPro, policyGate]);
 
   const loadFile = React.useCallback(async (next: File) => {
     if (next.type !== 'application/pdf' && !next.name.toLowerCase().endsWith('.pdf')) return;
@@ -94,18 +105,20 @@ export default function PdfOcrTool() {
     const base = file.name.replace(/\.[^.]+$/, '');
     const blob = new Blob([fullText], { type: 'text/plain' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = `${base}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   const ratio = progress ? Math.max(0, Math.min(1, progress.done / Math.max(1, progress.total))) : 0;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      {policyGate.element}
       <div className="space-y-4">
         {!file ? (
           <div

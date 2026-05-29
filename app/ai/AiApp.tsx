@@ -636,6 +636,51 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     // A cool loader — never reveal that we're searching the web or anything else.
     push({ role: 'assistant', content: 'Thinking', kind: 'loading' });
     try {
+      // UNIFIED BRAIN (primary): delegate to the shared engine — oioxo-engine
+      // `respond()`, the SAME consensus + reader + memory + multi-turn +
+      // encoder-routing brain the platform chat uses. Every engine improvement now
+      // lands here too, and answers are extractive (cited, no hallucination) and
+      // self-contained (no model round-trip). The legacy in-app model research
+      // below is kept as a FALLBACK only for when the engine can't answer.
+      try {
+        const { respond } = await import('@/lib/ai/oioxo-engine');
+        const hist = messages
+          .filter((x) => x.content && (x.role === 'user' || x.role === 'assistant'))
+          .slice(-6)
+          .map((x) => ({ role: x.role as 'user' | 'assistant', text: x.content }));
+        const reply = await respond(text, { history: hist });
+        const lang = sessionLangRef.current;
+        const loc = async (s: string) => {
+          if (lang && s) { try { const tr = await import('@/lib/ai/translate'); const t = await tr.fromEnglish(s, lang); if (t) return t; } catch { /* keep English */ } }
+          return s;
+        };
+        if (reply.text) {
+          const answer = await loc(reply.text);
+          lastTopicRef.current = text; lastAnswerRef.current = answer; lastSourceRef.current = reply.sources?.[0] ?? null;
+          // Related images → CSP-safe blob URLs (mirrors the legacy image strip).
+          let urls: string[] = [];
+          if (reply.images?.length) {
+            urls = (await Promise.all(reply.images.slice(0, 4).map(async (im) => {
+              try { const r = await fetch(im.url, { mode: 'cors', referrerPolicy: 'no-referrer' }); if (r.ok) { const b = await r.blob(); if (b.type.startsWith('image/')) return URL.createObjectURL(b); } } catch { /* skip */ }
+              return null;
+            }))).filter((u): u is string => !!u);
+          }
+          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: answer, kind: 'search', sources: reply.sources, related: reply.related, images: urls.length ? urls : undefined }; return c; });
+          return true;
+        }
+        // The engine may RE-ROUTE a "question" to a tool/app (encoder recovery) — honor it.
+        if (reply.tool) {
+          const href = docById(reply.tool.id)?.href ?? `/tools/${reply.tool.id}`;
+          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `Here’s the tool for that — ${reply.tool!.blurb}`, kind: 'tool', toolName: reply.tool!.name, toolHref: href }; return c; });
+          return true;
+        }
+        if (reply.app) {
+          setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: `I can open ${reply.app!.name} for that — ${reply.app!.blurb}`, kind: 'tool', toolName: reply.app!.name, toolHref: reply.app!.href }; return c; });
+          return true;
+        }
+        // No usable reply → fall through to the legacy in-app research below.
+      } catch { /* engine error → fall through to legacy path */ }
+
       // STRATEGY A — the answer already exists structured on a page (recipe,
       // how-to, code). Find the best page and extract it. Frontier-quality
       // because an expert wrote it; the model authors nothing.
@@ -2414,7 +2459,7 @@ function Shell({ children, embedded }: { children: React.ReactNode; embedded?: b
       {children}
       <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-3 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
         <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
-        <span>Private and secure — your messages and creations stay yours.</span>
+        <span>Private and secure — your messages and creations stay yours. {BRAND} AI can make mistakes, so double-check important info; it isn&apos;t a substitute for professional legal, medical, or financial advice.</span>
       </div>
     </div>
   );

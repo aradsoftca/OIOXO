@@ -29,9 +29,11 @@ export default function Tool() {
 
   const copy = async () => {
     if (!result.ok) return;
-    await navigator.clipboard?.writeText(result.text!);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(result.text!);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   const renderTex = (tex: string) => {

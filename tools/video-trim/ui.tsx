@@ -4,8 +4,15 @@ import * as Slider from '@radix-ui/react-slider';
 import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { recordRange, downloadBlob, fmtDuration } from '@/engines/video';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'video-trim';
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
   const [range, setRange] = React.useState<[number, number]>([0, 0]);
   const [withAudio, setWithAudio] = React.useState(true);
@@ -23,6 +30,10 @@ export default function Tool() {
 
   const run = async () => {
     if (!item) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', item.file.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
+    const durHit = checkLever(POLICY_KEY, 'input-duration', item.info.duration, isPro);
+    if (durHit) { policyGate.fire(durHit); return; }
     setBusy(true); setError(''); setProgress(0);
     try {
       const dur = range[1] - range[0];
@@ -41,6 +52,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <VideoDrop loaded={false} onLoad={load} />}
 
       {item && (

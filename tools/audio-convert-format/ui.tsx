@@ -4,11 +4,19 @@ import { Download, Loader2 } from 'lucide-react';
 import { AudioDrop, type AudioFileItem } from '@/components/tool/AudioDrop';
 import { encodeWav, encodeMp3, downloadBlob } from '@/engines/audio';
 import { encodeAudio } from '@/lib/compute/audioMerge';
+import { checkLever, checkFormat } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { ProBadge } from '@/components/limits/ProBadge';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'audio-convert-format';
 
 type Format = 'wav' | 'mp3';
 const BITRATES = [96, 128, 192, 256, 320];
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<AudioFileItem | null>(null);
   const [format, setFormat] = React.useState<Format>('mp3');
   const [bitrate, setBitrate] = React.useState(192);
@@ -18,6 +26,12 @@ export default function Tool() {
 
   const run = async () => {
     if (!item) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', item.file.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
+    const brHit = checkLever(POLICY_KEY, 'output-bitrate', bitrate, isPro);
+    if (brHit) { policyGate.fire(brHit); return; }
+    const fmtHit = checkFormat(POLICY_KEY, format, isPro);
+    if (fmtHit) { policyGate.fire(fmtHit); return; }
     setBusy(true); setError(''); setResultSize(null);
     try {
       const blob = format === 'mp3'
@@ -32,6 +46,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <AudioDrop loaded={false} onLoad={setItem} />}
 
       {item && (
@@ -66,7 +81,8 @@ export default function Tool() {
                   <div className="grid grid-cols-5 gap-1.5">
                     {BITRATES.map((br) => (
                       <button key={br} type="button" onClick={() => setBitrate(br)}
-                        className={`border py-2 text-[11px] font-mono tabular-nums transition ${bitrate === br ? 'border-[var(--color-cat-audio)] bg-[var(--color-cat-audio)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                        className={`relative border py-2 text-[11px] font-mono tabular-nums transition ${bitrate === br ? 'border-[var(--color-cat-audio)] bg-[var(--color-cat-audio)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                        <div className="absolute right-0.5 top-0.5"><ProBadge toolKey={POLICY_KEY} lever="output-bitrate" value={br} isPro={isPro} compact /></div>
                         {br}k
                       </button>
                     ))}

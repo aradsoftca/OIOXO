@@ -100,7 +100,9 @@ export default function Tool() {
       const a = document.createElement('a');
       a.href = url; a.download = src.file.name.replace(/\.[^.]+$/, '') + '-text.' + ext;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // 60s defer — immediate revoke aborts the download on mobile when the
+      // download dialog opens late.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally { setBusy(false); }

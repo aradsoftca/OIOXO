@@ -56,8 +56,17 @@ export async function resolvePublic(host: string): Promise<string> {
     return host;
   }
   let addrs: { address: string; family: number }[];
+  // Race with a hard 5s timeout — dns.lookup doesn't honor AbortSignal and
+  // the system resolver can hang ~30s on an unreachable upstream, tying up
+  // every network-tool request past next.js' default deadline.
+  let dnsTimer: ReturnType<typeof setTimeout> | null = null;
   try {
-    addrs = await dns.lookup(host, { all: true });
+    addrs = await Promise.race<{ address: string; family: number }[]>([
+      dns.lookup(host, { all: true }),
+      new Promise<{ address: string; family: number }[]>((_, rej) => {
+        dnsTimer = setTimeout(() => rej(new Error('timeout')), 5000);
+      }),
+    ]).finally(() => { if (dnsTimer) clearTimeout(dnsTimer); });
   } catch {
     throw new Error('Could not resolve host.');
   }
@@ -74,14 +83,10 @@ export function validPort(n: unknown): boolean {
 }
 
 // ---- per-IP rate limit (in-memory; resets on deploy) ----
-const hits = new Map<string, { count: number; reset: number }>();
+import { take as _take, type Bucket } from './rate-limit';
+const hits = new Map<string, Bucket>();
 export function rateLimited(ip: string, max = 30, windowMs = 5 * 60 * 1000): boolean {
-  const now = Date.now();
-  const e = hits.get(ip);
-  if (!e || now > e.reset) { hits.set(ip, { count: 1, reset: now + windowMs }); return false; }
-  if (e.count >= max) return true;
-  e.count++;
-  return false;
+  return !_take(hits, ip, { max, windowMs });
 }
 
 export function clientIp(h: Headers): string {

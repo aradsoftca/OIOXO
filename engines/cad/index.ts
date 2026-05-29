@@ -23,12 +23,16 @@ interface OcctModule {
 let cached: Promise<OcctModule> | null = null;
 async function getOcct(): Promise<OcctModule> {
   if (!cached) {
-    cached = (async () => {
+    const p = (async () => {
       const mod = await import('occt-import-js');
       const factory = (mod as unknown as { default?: (o?: unknown) => Promise<OcctModule> }).default
         ?? (mod as unknown as (o?: unknown) => Promise<OcctModule>);
       return factory({ locateFile: (f: string) => `/occt/${f}` });
     })();
+    // Clear the cache on rejection so a transient WASM load failure doesn't
+    // memoise a broken promise forever.
+    p.catch(() => { cached = null; });
+    cached = p;
   }
   return cached;
 }

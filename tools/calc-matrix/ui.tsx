@@ -53,9 +53,11 @@ export default function Tool() {
 
   const copy = async () => {
     if (!result?.ok) return;
-    await navigator.clipboard?.writeText(format(result.value!));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(format(result.value!));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   const OPS: { id: Op; label: string }[] = [
@@ -85,14 +87,14 @@ export default function Tool() {
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)] mb-2">Matrix A</div>
           <textarea value={a} onChange={(e) => setA(e.target.value)} rows={5}
             placeholder="1 2&#10;3 4"
-            className="w-full bg-[var(--color-bg)] border border-black/[0.08] p-2 font-mono text-[13px] tabular-nums outline-none focus:border-[var(--color-cat-calc)]" />
+            className="w-full bg-[var(--color-canvas)] border border-black/[0.08] p-2 font-mono text-[13px] tabular-nums outline-none focus:border-[var(--color-cat-calc)]" />
           <div className="mt-1 text-[10px] text-[var(--color-fg-muted)]">Separate values with spaces, rows with newlines.</div>
         </div>
         {needsB && (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
             <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)] mb-2">Matrix B</div>
             <textarea value={b} onChange={(e) => setB(e.target.value)} rows={5}
-              className="w-full bg-[var(--color-bg)] border border-black/[0.08] p-2 font-mono text-[13px] tabular-nums outline-none focus:border-[var(--color-cat-calc)]" />
+              className="w-full bg-[var(--color-canvas)] border border-black/[0.08] p-2 font-mono text-[13px] tabular-nums outline-none focus:border-[var(--color-cat-calc)]" />
           </div>
         )}
       </div>

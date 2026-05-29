@@ -4,8 +4,15 @@ import * as React from 'react';
 import { Upload, Loader2, Copy, Download, FileText, Languages, Image as ImageIcon, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { recognize, OCR_LANGUAGES, type OcrProgress, type OcrResult } from '@/engines/ocr';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'image-ocr';
 
 export default function ImageOcrTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = React.useState<string>('');
   const [dims, setDims] = React.useState<{ w: number; h: number } | null>(null);
@@ -22,6 +29,8 @@ export default function ImageOcrTool() {
   React.useEffect(() => () => { if (sourceUrl) URL.revokeObjectURL(sourceUrl); }, [sourceUrl]);
 
   const run = React.useCallback(async (target: File, lang: string) => {
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', target.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     setRunning(true);
     setProgress({ phase: 'Preparing', ratio: 0 });
     setResult(null);
@@ -34,7 +43,7 @@ export default function ImageOcrTool() {
       setRunning(false);
       setProgress(null);
     }
-  }, []);
+  }, [isPro, policyGate]);
 
   const loadFile = React.useCallback(async (next: File) => {
     if (!next.type.startsWith('image/')) return;
@@ -69,12 +78,13 @@ export default function ImageOcrTool() {
     const body = result.text;
     const blob = new Blob([body], { type: ext === 'txt' ? 'text/plain' : 'application/x-subrip' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = `${base}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   const wordCount = result ? result.text.trim().split(/\s+/).filter(Boolean).length : 0;
@@ -82,6 +92,7 @@ export default function ImageOcrTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      {policyGate.element}
       {/* Stage */}
       <div className="space-y-4">
         <div

@@ -4,6 +4,11 @@ import * as React from 'react';
 import { Upload, Loader2, Download, Wand2, Captions, Languages, FileText } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { transcribe, chunksToSrt, chunksToVtt, type TranscribeProgress, type TranscribeChunk, type TranscribeSize } from '@/engines/transcribe';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'subtitle-generate';
 
 const LANGUAGES = [
   ['', 'Auto-detect'], ['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'],
@@ -26,6 +31,8 @@ function fmt(s: number): string {
 }
 
 export default function SubtitleGenerateTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [url, setUrl] = React.useState('');
   const [isVideo, setIsVideo] = React.useState(true);
@@ -52,6 +59,10 @@ export default function SubtitleGenerateTool() {
 
   const run = React.useCallback(async () => {
     if (!file) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'input-size', value: file.size },
+    ]);
+    if (!ok) return;
     setRunning(true); setChunks([]); setProgress({ phase: 'Preparing', ratio: 0 });
     try {
       const out = await transcribe(file, { size, language: language || undefined, onProgress: (p) => setProgress(p) });
@@ -82,16 +93,18 @@ export default function SubtitleGenerateTool() {
     else body = chunks.map((c) => c.text.trim()).join('\n');
     const blob = new Blob([body], { type: mime });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = `${base}.${kind}`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   const activeText = activeIdx >= 0 ? chunks[activeIdx]?.text.trim() : '';
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      {policyGate.element}
       <div className="space-y-4">
         {!file ? (
           <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) loadFile(f); }} onDragOver={(e) => e.preventDefault()}

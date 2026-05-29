@@ -54,5 +54,5 @@ export default function ImageBatchConvertTool() {
     </div>
   );
 
-  return <BatchImage controls={controls} process={process} zipName={`converted-${target === 'jpeg' ? 'jpg' : target}.zip`} cta="Convert all → ZIP" />;
+  return <BatchImage controls={controls} process={process} zipName={`converted-${target === 'jpeg' ? 'jpg' : target}.zip`} cta="Convert all → ZIP" policyKey="image-batch-convert" />;
 }

@@ -73,6 +73,18 @@ export async function embedText(text: string): Promise<Float32Array | null> {
   try { return await embedOne(text); } catch { return null; }
 }
 
+/**
+ * Embed many sentences for the READER (extractive answer assembly). Unlike
+ * `embedText`, this WILL load the MiniLM extractor if needed — the reader is the
+ * core answer path now, so the ~23MB encoder (already used for tool search) is a
+ * justified load. Returns [] on failure so the caller falls back to the lexical
+ * digest. The vectors are L2-normalised → cosine is a dot product.
+ */
+export async function embedSentences(texts: string[]): Promise<Float32Array[]> {
+  if (!texts.length) return [];
+  try { return await embedMany(texts); } catch { return []; }
+}
+
 // --- IndexedDB blob cache (one record) -------------------------------------
 
 function idbOpen(): Promise<IDBDatabase> {

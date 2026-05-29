@@ -18,6 +18,9 @@ function parseField(spec: string, min: number, max: number): CronField {
     if (stepMatch) {
       baseSpec = stepMatch[1];
       step = parseInt(stepMatch[2], 10);
+      // Guard against `*/0` — without this the iterator loop below spins
+      // forever (v += 0) and hangs the tab on a malformed cron expression.
+      if (!Number.isFinite(step) || step <= 0) step = 1;
     }
     let lo = min, hi = max;
     if (baseSpec === '*') {

@@ -20,7 +20,11 @@ export default function Tool() {
           }
         }
         try {
-          const rounds = Math.max(4, Math.min(15, Number(o.rounds) || 10));
+          // Cap rounds at 10 in the live preview — TextTool re-runs this
+          // synchronously on every keystroke. Cost 12 freezes the input
+          // ~250ms/char, cost 15 freezes it ~2s/char. 10 is industry-standard
+          // and stays under ~80ms on a typical laptop.
+          const rounds = Math.max(4, Math.min(10, Number(o.rounds) || 10));
           return bcrypt.hashSync(s, rounds);
         } catch (e) {
           return `Error: ${e instanceof Error ? e.message : String(e)}`;
@@ -34,7 +38,7 @@ export default function Tool() {
             { value: 'verify', label: 'Verify password vs hash' },
           ],
         },
-        { id: 'rounds', label: 'Cost (rounds)', type: 'number', defaultValue: 10, min: 4, max: 15 },
+        { id: 'rounds', label: 'Cost (rounds)', type: 'number', defaultValue: 10, min: 4, max: 10 },
       ]}
     />
   );

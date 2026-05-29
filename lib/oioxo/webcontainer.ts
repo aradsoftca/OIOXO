@@ -8,6 +8,7 @@
  * One container per page (WebContainer.boot is single-instance). Everything is
  * dynamically imported so the heavy runtime only loads when the user runs code.
  */
+import { PROBE_SCRIPT } from './probe';
 let _wc: any = null;
 let _booting: Promise<any> | null = null;
 
@@ -52,30 +53,10 @@ import { readFile } from 'node:fs/promises';
 import { join, extname } from 'node:path';
 const root = process.cwd();
 const TYPES = { '.html':'text/html','.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.svg':'image/svg+xml','.png':'image/png','.jpg':'image/jpeg','.gif':'image/gif','.ico':'image/x-icon','.wasm':'application/wasm','.map':'application/json' };
-// Injected into served HTML so the IDE's loop can CAPTURE runtime errors from the
-// actually-running app (window.onerror / unhandledrejection / console.error) and
-// run goal checks — the "device proves it" oracle for web/UI/games. Posts a single
-// 'probe' report to the parent after load.
-const PROBE = '<script>(function(){var E=[],CHK=null;function rec(m){E.push(String(m))}' +
-  'window.__oioxoFrames=0;window.__oioxoListeners=[];window.__oioxoCanvasPainted=false;' +
-  // count animation frames (is a render loop actually running?)
-  'try{var raf=window.requestAnimationFrame;if(raf){window.requestAnimationFrame=function(cb){window.__oioxoFrames++;return raf.call(window,cb)}}}catch(_){}' +
-  // record which event types are ever listened for (interactivity)
-  'try{var ael=EventTarget.prototype.addEventListener;EventTarget.prototype.addEventListener=function(t){try{if(window.__oioxoListeners.indexOf(t)<0)window.__oioxoListeners.push(t)}catch(_){}return ael.apply(this,arguments)}}catch(_){}' +
-  // did the canvas actually paint (vs a blank/cleared frame)?
-  'try{var C=window.CanvasRenderingContext2D&&CanvasRenderingContext2D.prototype;if(C){["fill","stroke","fillRect","fillText","drawImage","strokeRect","strokeText","arc","ellipse","putImageData","lineTo"].forEach(function(m){var o=C[m];if(o)C[m]=function(){window.__oioxoCanvasPainted=true;return o.apply(this,arguments)}})}}catch(_){}' +
-  "window.addEventListener('error',function(e){rec((e.message||'error')+(e.filename?(' @'+(e.filename.split('/').pop())+':'+e.lineno):''))});" +
-  "window.addEventListener('unhandledrejection',function(e){rec('unhandledrejection: '+((e.reason&&e.reason.message)||e.reason))});" +
-  'var ce=console.error;console.error=function(){rec("console.error: "+Array.prototype.map.call(arguments,String).join(" "));return ce.apply(console,arguments)};' +
-  // the IDE posts the goal checks in; eval each in the page (truthy = pass)
-  "window.addEventListener('message',function(e){var d=e.data;if(d&&d.__oioxoSetChecks){CHK=d.__oioxoSetChecks}});" +
-  // Wait until the checks have ARRIVED before reporting — otherwise a slow device
-  // reports "no errors" before the checks were delivered = a false pass.
-  'var deadline=Date.now()+6000;' +
-  'function run(){if(CHK===null&&Date.now()<deadline){setTimeout(run,150);return;}' +
-  'var fails=[];var arr=CHK||[];for(var i=0;i<arr.length;i++){var c=arr[i];try{var ok=eval(c.src);if(!ok)fails.push("not yet: "+c.name)}catch(err){fails.push("check error ("+c.name+"): "+(err&&err.message||err))}}' +
-  'try{parent.postMessage({__oioxo:"probe",errors:E.concat(fails)},"*")}catch(_){}}' +
-  "window.addEventListener('load',function(){setTimeout(run,900)});setTimeout(run,2600);})();</script>";
+// The runtime probe (shared with the srcdoc preview oracle) — injected into served
+// HTML so the loop CAPTURES runtime errors + a trace + runs the goal checks. One
+// source of truth in probe.ts; interpolated here into the in-WebContainer server.
+const PROBE = ${JSON.stringify(PROBE_SCRIPT)};
 http.createServer(async (req, res) => {
   let p = decodeURIComponent((req.url || '/').split('?')[0]);
   if (p.endsWith('/')) p += 'index.html';

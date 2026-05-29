@@ -24,12 +24,23 @@ function generate(opts: Record<string, unknown>, nonce: number): string {
     const drop = new Set(SETS.ambiguous);
     charset = Array.from(charset).filter((c) => !drop.has(c)).join('');
   }
+  // Rejection sampling to avoid modulo bias — a password generator is
+  // exactly the wrong place to have non-uniform character selection.
+  const n = charset.length;
+  const limit = Math.floor(0x1_0000_0000 / n) * n;
   const lines: string[] = [];
-  const rand = new Uint32Array(len);
+  const rand = new Uint32Array(64);
+  let ri = rand.length;
+  const next = (): number => {
+    while (true) {
+      if (ri >= rand.length) { crypto.getRandomValues(rand); ri = 0; }
+      const v = rand[ri++];
+      if (v < limit) return v % n;
+    }
+  };
   for (let i = 0; i < count; i++) {
-    crypto.getRandomValues(rand);
     let pw = '';
-    for (let j = 0; j < len; j++) pw += charset[rand[j] % charset.length];
+    for (let j = 0; j < len; j++) pw += charset[next()];
     lines.push(pw);
   }
   return lines.join('\n');

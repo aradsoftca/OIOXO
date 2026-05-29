@@ -3,6 +3,11 @@
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { Play, Pause, Square, Download, Volume2 } from 'lucide-react';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'audio-text-to-speech';
 
 interface VoiceOption {
   voice: SpeechSynthesisVoice;
@@ -10,6 +15,8 @@ interface VoiceOption {
 }
 
 export default function AudioTextToSpeechTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [text, setText] = React.useState(
     'Hello, and welcome to Xonvert. Type or paste any text here and pick a voice to read it aloud.',
   );
@@ -44,6 +51,14 @@ export default function AudioTextToSpeechTool() {
     return () => { window.speechSynthesis.onvoiceschanged = null; };
   }, [voiceURI]);
 
+  // Stop any in-flight speech on unmount. Without this, navigating away
+  // while the voice was reading left the synthesizer running for the rest
+  // of the page lifetime — the user would hear the entire passage finish
+  // out loud on whatever tool they navigated to.
+  React.useEffect(() => () => {
+    try { window.speechSynthesis?.cancel(); } catch { /* */ }
+  }, []);
+
   const buildUtterance = (): SpeechSynthesisUtterance => {
     const u = new SpeechSynthesisUtterance(text);
     const picked = voices.find((v) => v.voice.voiceURI === voiceURI);
@@ -75,6 +90,8 @@ export default function AudioTextToSpeechTool() {
 
   const downloadWav = async () => {
     if (!supported || !text.trim()) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', text.length, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     setError('');
     try {
       // Capture the playback via getUserMedia? Not portable. Use MediaRecorder
@@ -101,6 +118,7 @@ export default function AudioTextToSpeechTool() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+      {policyGate.element}
       <div className="space-y-3">
         <textarea
           value={text}

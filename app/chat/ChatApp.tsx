@@ -57,15 +57,34 @@ export default function ChatApp() {
       onRoster: setRoster,
       onMessage: (data) => {
         if (data?.type === 'msg' && typeof data.text === 'string') {
-          addMsg({ mine: false, name: data.name || 'Them', ts: data.ts || Date.now(), kind: 'text', text: data.text });
+          // Cap inbound text length — a malicious peer could send a 10MB
+          // string and freeze the receiver's UI trying to render it.
+          const text = data.text.length > 10_000 ? data.text.slice(0, 10_000) + '…' : data.text;
+          const name = typeof data.name === 'string' ? data.name.slice(0, 64) : 'Them';
+          addMsg({ mine: false, name, ts: data.ts || Date.now(), kind: 'text', text });
         } else if (data?.type === 'file') {
-          recvRef.current = { name: data.name, mime: data.mime || 'application/octet-stream', size: data.size || 0, parts: [], got: 0, sender: data.sender || 'Them' };
+          // Cap inbound file size at the same MAX_FILE we enforce on send,
+          // so a peer can't flood the receiver by lying about size or
+          // streaming forever.
+          const size = Math.min(Math.max(0, Number(data.size) || 0), MAX_FILE);
+          // Sanitize peer-supplied filename: strip path separators, NULs, and
+          // leading dots. Same defense as lib/p2p/transfer.ts.
+          const rawName = typeof data.name === 'string' ? data.name : 'file';
+          const safeName = rawName
+            .replace(/[\\/\x00-\x1f]/g, '_')
+            .replace(/^\.+/, '')
+            .slice(0, 255)
+            .trim() || 'file';
+          recvRef.current = { name: safeName, mime: data.mime || 'application/octet-stream', size, parts: [], got: 0, sender: (data.sender || 'Them').slice(0, 64) };
         } else if (data?.type === 'file-end') {
           finalizeIncoming();
         }
       },
       onBinary: (buf) => {
         const r = recvRef.current; if (!r) return;
+        // Guard against a peer sending more bytes than they declared — would
+        // otherwise let them push past MAX_FILE one chunk at a time.
+        if (r.got + buf.byteLength > r.size + CHUNK) { recvRef.current = null; return; }
         r.parts.push(buf); r.got += buf.byteLength;
         if (r.got >= r.size) finalizeIncoming();
       },
@@ -78,9 +97,21 @@ export default function ChatApp() {
   const finalizeIncoming = () => {
     const r = recvRef.current; if (!r) return;
     recvRef.current = null;
-    const blob = new Blob(r.parts, { type: r.mime });
+    // Coerce the blob's MIME to a SAFE one. A peer could send text/html and
+    // get the receiver to download it; if the user right-clicks "Open in new
+    // tab", the blob: URL is same-origin with xonvert.com and the HTML's
+    // <script>s execute with our origin. Only `image/*` MIMEs are honored
+    // (so the inline <img> preview still works); everything else becomes
+    // application/octet-stream, forcing the browser to download instead of
+    // navigating into the blob.
+    // SVG is intentionally EXCLUDED — SVG can carry <script> tags that execute
+    // when the blob URL is navigated to (right-click → Open in new tab).
+    // Other raster formats can't execute code, so they're safe to preview.
+    const isImage = /^image\/(png|jpe?g|webp|gif|avif|bmp)$/i.test(r.mime);
+    const safeMime = isImage ? r.mime : 'application/octet-stream';
+    const blob = new Blob(r.parts, { type: safeMime });
     const url = URL.createObjectURL(blob); urlsRef.current.push(url);
-    addMsg({ mine: false, name: r.sender, ts: Date.now(), kind: r.mime.startsWith('image/') ? 'media' : 'file', url, mime: r.mime, fileName: r.name, size: r.size });
+    addMsg({ mine: false, name: r.sender, ts: Date.now(), kind: isImage ? 'media' : 'file', url, mime: safeMime, fileName: r.name, size: r.size });
   };
 
   React.useEffect(() => () => { urlsRef.current.forEach((u) => URL.revokeObjectURL(u)); }, []);
@@ -154,7 +185,10 @@ export default function ChatApp() {
     if (f) { e.preventDefault(); void sendFile(f); }
   };
 
-  const copyLink = () => { void navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const copyLink = () => {
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
+    setCopied(true); setTimeout(() => setCopied(false), 1600);
+  };
   const connected = state === 'connected';
   const failed = state === 'failed';
 

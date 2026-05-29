@@ -27,11 +27,15 @@ let rnnoiseReady: Promise<RnnoiseInstance> | null = null;
 
 async function loadRnnoise(): Promise<RnnoiseInstance> {
   if (!rnnoiseReady) {
-    rnnoiseReady = (async () => {
+    const p = (async () => {
       const mod = await import('@shiguredo/rnnoise-wasm');
       const rnnoise = await mod.Rnnoise.load();
       return rnnoise as unknown as RnnoiseInstance;
     })();
+    // Clear the cache on rejection so a transient WASM-load failure doesn't
+    // permanently disable denoise for the rest of the page lifetime.
+    p.catch(() => { rnnoiseReady = null; });
+    rnnoiseReady = p;
   }
   return rnnoiseReady;
 }

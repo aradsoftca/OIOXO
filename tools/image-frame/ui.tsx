@@ -157,12 +157,13 @@ export default function ImageFrameTool() {
       if (!blob) return;
       const base = file.name.replace(/\.[^.]+$/, '');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `${base}-${style}.${format === 'jpeg' ? 'jpg' : 'png'}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.95);
   };
 

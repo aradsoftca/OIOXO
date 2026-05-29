@@ -3,8 +3,15 @@ import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import { getTool, TOOLS } from '@/lib/registry';
 import { ToolFrame } from '@/components/tool/ToolFrame';
-import { softwareAppJsonLd, breadcrumbJsonLd } from '@/lib/seo/jsonld';
-import { BRAND } from '@/lib/brand';
+import { buildToolPageStructuredData, structuredDataToScript } from '@/lib/seo/jsonld';
+import { buildMeta } from '@/lib/seo/meta';
+import { buildRichPage } from '@/lib/seo/content';
+import { RichToolSection } from '@/components/seo/RichToolSection';
+import { PolicyHint } from '@/components/limits/PolicyHint';
+
+function findRelated(toolId: string, category: string, limit = 6) {
+  return TOOLS.filter((t) => t.category === category && t.id !== toolId).slice(0, limit);
+}
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -18,11 +25,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const tool = getTool(slug);
   if (!tool) return {};
-  return {
-    title: tool.name,
-    description: tool.blurb,
-    openGraph: { title: `${tool.name} · ${BRAND}`, description: tool.blurb },
-  };
+  const page = buildRichPage(tool);
+  return buildMeta({
+    path: `/tools/${tool.id}`,
+    title: page.title,
+    description: page.description,
+    keywords: page.keywords,
+  });
 }
 
 const loading = () => <div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />;
@@ -437,6 +446,71 @@ const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
 
   // wave 36 — AI segmentation
   'image-smart-cutout':     dynamic(() => import('@/tools/image-smart-cutout/ui'),     { loading }),
+
+  // wave 37 — high-end AI media + editors
+  'video-auto-subtitle':    dynamic(() => import('@/tools/video-auto-subtitle/ui'),    { loading }),
+  'audio-voice-studio':     dynamic(() => import('@/tools/audio-voice-studio/ui'),     { loading }),
+  'text-translate':         dynamic(() => import('@/tools/text-translate/ui'),         { loading }),
+  'image-studio':           dynamic(() => import('@/tools/image-studio/ui'),           { loading }),
+  'video-studio':           dynamic(() => import('@/tools/video-studio/ui'),           { loading }),
+
+  // wave 38 — Test/diagnostics + PDF Studio
+  'test-typing':            dynamic(() => import('@/tools/test-typing/ui'),            { loading }),
+  'test-reaction':          dynamic(() => import('@/tools/test-reaction/ui'),          { loading }),
+  'test-cps':               dynamic(() => import('@/tools/test-cps/ui'),               { loading }),
+  'test-keyboard':          dynamic(() => import('@/tools/test-keyboard/ui'),          { loading }),
+  'test-mouse':             dynamic(() => import('@/tools/test-mouse/ui'),             { loading }),
+  'test-monitor':           dynamic(() => import('@/tools/test-monitor/ui'),           { loading }),
+  'test-mic':               dynamic(() => import('@/tools/test-mic/ui'),               { loading }),
+  'test-speaker':           dynamic(() => import('@/tools/test-speaker/ui'),           { loading }),
+  'test-hearing':           dynamic(() => import('@/tools/test-hearing/ui'),           { loading }),
+  'test-gamepad':           dynamic(() => import('@/tools/test-gamepad/ui'),           { loading }),
+  'test-touch':             dynamic(() => import('@/tools/test-touch/ui'),             { loading }),
+  'test-browser':           dynamic(() => import('@/tools/test-browser/ui'),           { loading }),
+  'pdf-studio':             dynamic(() => import('@/tools/pdf-studio/ui'),             { loading }),
+
+  // wave 39 — on-device creator combos + deterministic high-value
+  'video-auto-dub':         dynamic(() => import('@/tools/video-auto-dub/ui'),         { loading }),
+  'video-to-shorts':        dynamic(() => import('@/tools/video-to-shorts/ui'),        { loading }),
+  'video-boomerang':        dynamic(() => import('@/tools/video-boomerang/ui'),        { loading }),
+  'audio-ringtone':         dynamic(() => import('@/tools/audio-ringtone/ui'),         { loading }),
+  'image-enhance':          dynamic(() => import('@/tools/image-enhance/ui'),          { loading }),
+  'image-auto-blur':        dynamic(() => import('@/tools/image-auto-blur/ui'),        { loading }),
+  'image-passport':         dynamic(() => import('@/tools/image-passport/ui'),         { loading }),
+  'pdf-nup':                dynamic(() => import('@/tools/pdf-nup/ui'),                { loading }),
+
+  // wave 40 — music
+  'audio-music-studio':     dynamic(() => import('@/tools/audio-music-studio/ui'),     { loading }),
+
+  // wave 41 — layout-preserving document translation
+  'doc-translate':          dynamic(() => import('@/tools/doc-translate/ui'),          { loading }),
+
+  // wave 42 — translation studio
+  'translate-studio':       dynamic(() => import('@/tools/translate-studio/ui'),       { loading }),
+
+  // wave 43 — 11 Premium Studios
+  'studio-resume':          dynamic(() => import('@/tools/studio-resume/ui'),          { loading }),
+  'studio-invoice':         dynamic(() => import('@/tools/studio-invoice/ui'),         { loading }),
+  'studio-background':      dynamic(() => import('@/tools/studio-background/ui'),      { loading }),
+  'studio-qr':              dynamic(() => import('@/tools/studio-qr/ui'),              { loading }),
+  'studio-thumbnail':       dynamic(() => import('@/tools/studio-thumbnail/ui'),       { loading }),
+  'studio-sheets':          dynamic(() => import('@/tools/studio-sheets/ui'),          { loading }),
+  'studio-docs':            dynamic(() => import('@/tools/studio-docs/ui'),            { loading }),
+  'studio-slides':          dynamic(() => import('@/tools/studio-slides/ui'),          { loading }),
+  'studio-chart':           dynamic(() => import('@/tools/studio-chart/ui'),           { loading }),
+  'audio-record':           dynamic(() => import('@/tools/audio-record/ui'),           { loading }),
+  'video-webcam-record':    dynamic(() => import('@/tools/video-webcam-record/ui'),    { loading }),
+  'scan-qr':                dynamic(() => import('@/tools/scan-qr/ui'),                { loading }),
+  'studio-diagram':         dynamic(() => import('@/tools/studio-diagram/ui'),         { loading }),
+  'studio-mockup':          dynamic(() => import('@/tools/studio-mockup/ui'),          { loading }),
+  'studio-redact':          dynamic(() => import('@/tools/studio-redact/ui'),          { loading }),
+  'dev-encrypt':            dynamic(() => import('@/tools/dev-encrypt/ui'),            { loading }),
+  'studio-meme':            dynamic(() => import('@/tools/studio-meme/ui'),            { loading }),
+  'studio-collage':         dynamic(() => import('@/tools/studio-collage/ui'),         { loading }),
+  'studio-poster':          dynamic(() => import('@/tools/studio-poster/ui'),          { loading }),
+  'studio-gif':             dynamic(() => import('@/tools/studio-gif/ui'),             { loading }),
+  'studio-sticker':         dynamic(() => import('@/tools/studio-sticker/ui'),         { loading }),
+  'studio-avatar':          dynamic(() => import('@/tools/studio-avatar/ui'),          { loading }),
 };
 
 export default async function ToolPage({ params }: Props) {
@@ -455,15 +529,18 @@ export default async function ToolPage({ params }: Props) {
     );
   }
 
+  const related = findRelated(tool.id, tool.category);
+  const page = buildRichPage(tool, related.map((r) => r.id));
+  const structuredData = buildToolPageStructuredData(tool, page);
+
   return (
     <ToolFrame tool={tool}>
+      <PolicyHint toolKey={tool.id} fallbackKey={tool.category} />
       <ToolUI />
+      <RichToolSection tool={tool} page={page} related={related} />
       <script
         type="application/ld+json"
-        // JSON-LD is safe to render server-side as-is; React escapes it.
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify([softwareAppJsonLd(tool), breadcrumbJsonLd(tool)]),
-        }}
+        dangerouslySetInnerHTML={{ __html: structuredDataToScript(structuredData) }}
       />
     </ToolFrame>
   );

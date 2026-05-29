@@ -31,7 +31,7 @@ function renderTextPng(text: string, fontSize: number, opacity: number, color: s
   ctx.fillText(text, padding + 2, h / 2 + 2);
   ctx.fillStyle = color;
   ctx.fillText(text, padding, h / 2);
-  return new Promise((resolve) => c.toBlob((b) => resolve(b!), 'image/png'));
+  return new Promise((resolve, reject) => c.toBlob((b) => b ? resolve(b) : reject(new Error('Could not render watermark')), 'image/png'));
 }
 
 export default function Tool() {

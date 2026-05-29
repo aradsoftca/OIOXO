@@ -34,6 +34,9 @@ export interface Evidence {
   topic: string;
   text: string;
   source: SearchSource;
+  /** Community endorsement (e.g. Reddit upvotes) — tilts the reader's ranking
+   *  toward the takes people actually backed. Optional; absent = 0. */
+  votes?: number;
 }
 
 // "A vs B", "A versus B", "compare A and B", "difference between A and B",

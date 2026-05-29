@@ -8,10 +8,14 @@
  *   - resolve every hop (including redirects) and REFUSE private/internal IPs
  *     via the same guard the socket tools use (resolvePublic),
  *   - cap response size and wall-clock time,
- *   - never auto-follow redirects blindly (we re-validate each Location).
+ *   - never auto-follow redirects blindly (we re-validate each Location),
+ *   - DNS-rebinding-proof: a custom undici Agent re-checks each IP at the
+ *     actual TCP-connect moment, so a hostname that resolved public once
+ *     and private the second time can't slip through.
  */
 
-import { resolvePublic } from '@/lib/net-guard';
+import { Agent, fetch as undiciFetch } from 'undici';
+import { resolvePublic, isPublicIp } from '@/lib/net-guard';
 
 export interface FetchResult {
   finalUrl: string;
@@ -34,6 +38,35 @@ function parseUrl(raw: string): URL {
   return u;
 }
 
+/**
+ * A per-call undici Agent whose `connect` hook re-validates the IP at the
+ * moment of TCP connection — closes the DNS-rebinding window that exists when
+ * the SSRF pre-check uses one DNS answer and the eventual `fetch()` re-resolves
+ * the hostname (potentially to a private IP this time). The check happens
+ * INSIDE the connector, so even split-horizon / TTL-0 records can't slip past.
+ */
+function ssrfSafeAgent(): Agent {
+  return new Agent({
+    connect: (opts, callback) => {
+      // Cast through the undici module to grab its default `buildConnector`.
+      // Using the default connector keeps TLS handling identical to the
+      // built-in fetch path; we only inject an IP-validation hook.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const undici = require('undici') as typeof import('undici');
+      const baseConnect = undici.buildConnector({});
+      baseConnect(opts, (err, socket) => {
+        if (err || !socket) return callback(err, null);
+        const addr = (socket as unknown as { remoteAddress?: string }).remoteAddress;
+        if (!addr || !isPublicIp(addr)) {
+          try { socket.destroy(); } catch { /* */ }
+          return callback(new Error('Host resolved to a private/internal address — blocked.'), null);
+        }
+        callback(null, socket);
+      });
+    },
+  });
+}
+
 export async function guardedFetch(
   rawUrl: string,
   opts: { method?: 'GET' | 'HEAD'; maxBytes?: number; timeoutMs?: number; maxRedirects?: number } = {},
@@ -42,6 +75,8 @@ export async function guardedFetch(
 
   let url = parseUrl(rawUrl);
   const deadline = Date.now() + timeoutMs;
+  const agent = ssrfSafeAgent();
+  try {
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     // SSRF guard: throws if the host resolves to a private / reserved address.
@@ -54,7 +89,11 @@ export async function guardedFetch(
 
     let res: Response;
     try {
-      res = await fetch(url.toString(), {
+      // Use undici's fetch with our IP-validating Agent. The pre-check above
+      // catches the easy case (hostname → all-private IPs); this catches the
+      // DNS-rebinding case where the second resolution returns a private IP
+      // even though the first didn't.
+      res = (await undiciFetch(url.toString(), {
         method,
         redirect: 'manual',
         signal: ctrl.signal,
@@ -64,7 +103,8 @@ export async function guardedFetch(
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
           accept: 'text/html,application/xhtml+xml,*/*',
         },
-      });
+        dispatcher: agent,
+      })) as unknown as Response;
     } catch (e) {
       throw new Error((e as Error).name === 'AbortError' ? 'Request timed out.' : 'Could not reach that URL.');
     } finally {
@@ -86,17 +126,46 @@ export async function guardedFetch(
 
     let body = '';
     if (method === 'GET' && res.body) {
+      // Body read must honor the same wall-clock deadline as the request, or
+      // a slowloris-style server that drips bytes (or sends nothing) keeps
+      // reader.read() pending past timeoutMs — bypassing the timeout.
       const reader = res.body.getReader();
       const chunks: Uint8Array[] = [];
       let total = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          total += value.length;
-          if (total > maxBytes) { reader.cancel(); break; }
-          chunks.push(value);
+      try {
+        for (;;) {
+          const left = deadline - Date.now();
+          if (left <= 0) { try { await reader.cancel(); } catch { /* */ } throw new Error('Request timed out.'); }
+          let timer: ReturnType<typeof setTimeout> | null = null;
+          const tick = new Promise<never>((_, rej) => {
+            timer = setTimeout(() => rej(new Error('Request timed out.')), left);
+          });
+          let step: { done: boolean; value?: Uint8Array };
+          try {
+            step = await Promise.race([reader.read(), tick]);
+          } finally {
+            // Free the per-iteration timer — without this, each chunk read
+            // leaves a pending setTimeout alive until natural fire.
+            if (timer) clearTimeout(timer);
+          }
+          if (step.done) break;
+          if (step.value) {
+            // Bail BEFORE pushing the over-cap chunk. Headers-only call sites
+            // pass maxBytes: 1; a hostile server returning a giant first chunk
+            // would briefly buffer the entire chunk in memory if we pushed
+            // then checked. Trim the chunk to the remaining budget so the
+            // total never exceeds maxBytes by more than one byte.
+            const remaining = maxBytes - total;
+            if (remaining <= 0) { try { await reader.cancel(); } catch { /* */ } break; }
+            const slice = step.value.length > remaining ? step.value.subarray(0, remaining) : step.value;
+            total += slice.length;
+            chunks.push(slice);
+            if (total >= maxBytes) { try { await reader.cancel(); } catch { /* */ } break; }
+          }
         }
+      } catch (e) {
+        try { await reader.cancel(); } catch { /* */ }
+        throw e;
       }
       body = Buffer.concat(chunks.map((c) => Buffer.from(c))).toString('utf8');
     }
@@ -111,4 +180,9 @@ export async function guardedFetch(
   }
 
   throw new Error('Too many redirects.');
+  } finally {
+    // Release any keepalive sockets the Agent created. Single-request-per-agent
+    // so there's no reuse benefit; close so we don't leak FDs on the throw path.
+    void agent.close().catch(() => { /* */ });
+  }
 }

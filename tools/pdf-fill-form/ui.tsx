@@ -1,4 +1,5 @@
 'use client';
+import { stampPdfFooter } from '@/engines/pdf';
 
 import * as React from 'react';
 import { Download, Loader2, AlertTriangle } from 'lucide-react';
@@ -88,15 +89,16 @@ export default function PdfFillFormTool() {
         } catch { /* skip read-only or invalid */ }
       }
       if (flatten) form.flatten();
-      const bytes = await doc.save();
+      await stampPdfFooter(doc); const bytes = await doc.save();
       const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = item.file.name.replace(/\.[^.]+$/, '') + (flatten ? '-filled.pdf' : '-edited.pdf');
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally {

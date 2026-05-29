@@ -67,7 +67,16 @@ export async function POST(req: Request) {
   try {
     // Uses the resolver this server is configured with — point the box at a
     // local Unbound/CoreDNS for fully independent resolution.
-    const answers = await resolveType(name, type);
+    // Hard 8s ceiling: dns.resolve* doesn't honor an AbortSignal and the
+    // system resolver's own timeout can be ~30s, so an unreachable upstream
+    // would tie up the request handler past next.js' default deadline.
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const answers = await Promise.race<Row[]>([
+      resolveType(name, type),
+      new Promise<Row[]>((_, rej) => {
+        timer = setTimeout(() => rej(new Error('Lookup timed out.')), 8000);
+      }),
+    ]).finally(() => { if (timer) clearTimeout(timer); });
     return NextResponse.json({ name, type, answers });
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;

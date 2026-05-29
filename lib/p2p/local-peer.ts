@@ -45,7 +45,14 @@ async function build(
     dc.onopen = () => handlers.onState?.('connected');
     dc.onclose = () => handlers.onState?.('closed');
     dc.onmessage = (e) => {
-      if (typeof e.data === 'string') { try { handlers.onMessage?.(JSON.parse(e.data)); } catch { /* ignore */ } }
+      if (typeof e.data === 'string') {
+        // Cap inbound JSON — a hostile or buggy peer could ship a multi-MB
+        // string and JSON.parse OOMs the receiver. Local-peer is the
+        // QR-paired channel so the cap can be modest (control messages, not
+        // file streams).
+        if (e.data.length > 256_000) return;
+        try { handlers.onMessage?.(JSON.parse(e.data)); } catch { /* ignore */ }
+      }
       else handlers.onBinary?.(e.data as ArrayBuffer);
     };
   };
@@ -69,8 +76,18 @@ async function build(
   );
 
   const peer: Peer = {
-    send: (data) => { if (dc && dc.readyState === 'open') { dc.send(JSON.stringify(data)); return true; } return false; },
-    sendBinary: (buf) => { if (dc && dc.readyState === 'open') { dc.send(buf); return true; } return false; },
+    // Wrap send in try/catch — dc.send throws on oversize messages
+    // (SCTP > ~256KB) or when bufferedAmount is past the queue limit.
+    // Without the catch, the caller's UI handler dies with an uncaught
+    // exception instead of seeing a clean `false` return.
+    send: (data) => {
+      if (!dc || dc.readyState !== 'open') return false;
+      try { dc.send(JSON.stringify(data)); return true; } catch { return false; }
+    },
+    sendBinary: (buf) => {
+      if (!dc || dc.readyState !== 'open') return false;
+      try { dc.send(buf); return true; } catch { return false; }
+    },
     close: () => { try { dc?.close(); } catch { /* */ } try { pc.close(); } catch { /* */ } },
   };
 

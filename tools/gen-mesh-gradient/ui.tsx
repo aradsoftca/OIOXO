@@ -57,9 +57,15 @@ export default function GenMeshGradientTool() {
   const setPointColor = (i: number, color: string) => setPoints((prev) => prev.map((p, idx) => idx === i ? { ...p, color } : p));
 
   const copyCss = async () => {
-    await navigator.clipboard.writeText(css);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(css);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard write rejects in some embedded/iframe contexts and on
+      // Safari without a recent user-activation; just no-op so the page
+      // doesn't surface an unhandled rejection.
+    }
   };
 
   const downloadPng = () => {
@@ -83,12 +89,13 @@ export default function GenMeshGradientTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `mesh-gradient-${w}x${h}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
 

@@ -49,7 +49,49 @@ export default function ViewerPage() {
   const open = React.useCallback(async (f: File) => {
     if (url) URL.revokeObjectURL(url);
     const k = kindOf(f);
-    const objUrl = URL.createObjectURL(f);
+    // SVG carries a dual XSS risk: even rendered via <img> (which is script-
+    // disabled), the blob: URL is same-origin with this page. Right-click "Open
+    // image in new tab" navigates to that blob: URL, which executes any inline
+    // <script> with our origin (cookies/localStorage readable). Defense: parse
+    // the SVG, strip <script> + event-handler attrs + javascript:/data: URLs,
+    // and serve the SANITIZED bytes from the blob. If parsing fails (malformed
+    // SVG), fall through to octet-stream so the new-tab navigation downloads
+    // instead of rendering.
+    let objUrl: string;
+    if (k === 'svg') {
+      try {
+        const raw = await f.text();
+        const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
+        const svg = doc.documentElement;
+        if (svg.querySelector('parsererror')) throw new Error('parse');
+        // Strip <script> globally.
+        svg.querySelectorAll('script').forEach((n) => n.remove());
+        // Strip event handlers + unsafe URLs on every element in the SVG tree.
+        const walk = (node: Element) => {
+          for (const attr of Array.from(node.attributes)) {
+            const name = attr.name.toLowerCase();
+            if (name.startsWith('on')) { node.removeAttribute(attr.name); continue; }
+            if (name === 'href' || name === 'xlink:href') {
+              const v = attr.value.trim().toLowerCase();
+              if (v.startsWith('javascript:') || v.startsWith('data:')) node.removeAttribute(attr.name);
+            }
+            if (name === 'style' && /expression\s*\(|javascript:/i.test(attr.value)) {
+              node.removeAttribute(attr.name);
+            }
+          }
+          for (const child of Array.from(node.children)) walk(child);
+        };
+        walk(svg);
+        const cleaned = new XMLSerializer().serializeToString(svg);
+        objUrl = URL.createObjectURL(new Blob([cleaned], { type: 'image/svg+xml' }));
+      } catch {
+        // Bad parse → don't render the SVG inline; force a download by serving
+        // bytes as octet-stream (so any embedded <script> never executes).
+        objUrl = URL.createObjectURL(new Blob([f], { type: 'application/octet-stream' }));
+      }
+    } else {
+      objUrl = URL.createObjectURL(f);
+    }
     setFile(f); setKind(k); setUrl(objUrl); setText(null); setDims(null);
 
     if (k === 'text') {
@@ -115,7 +157,15 @@ export default function ViewerPage() {
               <img src={url} alt={file.name} onLoad={(e) => setDims({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
                 className="mx-auto max-h-[75vh] w-auto object-contain" />
             )}
-            {kind === 'pdf' && <iframe src={url} title={file.name} className="h-[80vh] w-full bg-white" />}
+            {kind === 'pdf' && (
+              // Sandbox the PDF iframe: a malicious PDF can carry embedded
+              // JavaScript that, without `sandbox`, runs same-origin and can
+              // read this app's cookies/localStorage. `allow-scripts` is kept
+              // so the browser's built-in PDF viewer (which is a normal web
+              // page) still works; `allow-same-origin` is REMOVED so the
+              // PDF's scripts can't reach our origin.
+              <iframe src={url} title={file.name} sandbox="allow-scripts" className="h-[80vh] w-full bg-white" />
+            )}
             {kind === 'video' && <video src={url} controls className="mx-auto max-h-[75vh] w-full bg-black" />}
             {kind === 'audio' && (
               <div className="grid place-items-center gap-4 py-16">

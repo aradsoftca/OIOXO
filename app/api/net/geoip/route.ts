@@ -43,7 +43,15 @@ export async function POST(req: Request) {
   if (!net.isIP(query)) {
     if (!validHost(query)) return NextResponse.json({ error: 'Enter a valid IP or domain.' }, { status: 400 });
     try {
-      const { address } = await dns.lookup(query);
+      // dns.lookup doesn't honor an AbortSignal; cap with a race so a hung
+      // upstream resolver can't tie up the request past next.js' timeout.
+      let lookupTimer: ReturnType<typeof setTimeout> | null = null;
+      const { address } = await Promise.race<{ address: string }>([
+        dns.lookup(query),
+        new Promise<{ address: string }>((_, rej) => {
+          lookupTimer = setTimeout(() => rej(new Error('timeout')), 4000);
+        }),
+      ]).finally(() => { if (lookupTimer) clearTimeout(lookupTimer); });
       ip = address;
     } catch {
       return NextResponse.json({ error: 'Could not resolve that domain.' }, { status: 400 });
@@ -59,10 +67,15 @@ export async function POST(req: Request) {
     // Reverse DNS (PTR) — resolved on our server, best-effort.
     let reverseDns: string | undefined;
     try {
+      // Race with timeout, and clear the timer on the winning path so it
+      // doesn't keep the event loop alive after the request settles.
+      let revTimer: ReturnType<typeof setTimeout> | null = null;
       const names = await Promise.race([
         dns.reverse(ip),
-        new Promise<string[]>((_, rej) => setTimeout(() => rej(new Error('timeout')), 2500)),
-      ]);
+        new Promise<string[]>((_, rej) => {
+          revTimer = setTimeout(() => rej(new Error('timeout')), 2500);
+        }),
+      ]).finally(() => { if (revTimer) clearTimeout(revTimer); });
       reverseDns = names?.[0];
     } catch { /* no PTR record */ }
     return NextResponse.json({ ...result, reverseDns, resolvedFrom: query !== ip ? query : undefined });

@@ -5,6 +5,11 @@ import * as Slider from '@radix-ui/react-slider';
 import { Upload, Download, Loader2, FileImage, X, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'image-heic-convert';
 
 type Target = 'image/jpeg' | 'image/png' | 'image/webp';
 const FORMATS: { id: Target; label: string; ext: string; lossy: boolean }[] = [
@@ -31,6 +36,8 @@ function formatBytes(b: number): string {
 }
 
 export default function HeicConvertTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [items, setItems] = React.useState<Item[]>([]);
   const [target, setTarget] = React.useState<Target>('image/jpeg');
   const [quality, setQuality] = React.useState(90);
@@ -44,6 +51,10 @@ export default function HeicConvertTool() {
 
   const convertAll = React.useCallback(async (files: File[]) => {
     if (!files.length) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'batch', value: files.length },
+    ]);
+    if (!ok) return;
     setBusy(true);
     const { heicTo, isHeic } = await import('heic-to/next');
     const base: Item[] = files.map((f, i) => ({ id: `${Date.now()}-${i}`, name: f.name, status: 'pending', inBytes: f.size }));
@@ -89,6 +100,7 @@ export default function HeicConvertTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      {policyGate.element}
       <div className="space-y-4">
         <div
           onDrop={(e) => { e.preventDefault(); onPick(e.dataTransfer.files); }}

@@ -22,6 +22,10 @@ export interface BgRemoveOptions {
   quality?: BgRemoveQuality;
   /** Progress reporter. */
   onProgress?: (p: BgRemoveProgress) => void;
+  /** Per-action permission ticket — engine asserts server-side before work. */
+  permission?: import('@/lib/limits/permission').Permission | null;
+  toolKey?: string;
+  inputHash?: string;
 }
 
 const MODEL_KEY: Record<BgRemoveQuality, 'isnet_fp16' | 'isnet_quint8' | 'isnet'> = {
@@ -31,6 +35,10 @@ const MODEL_KEY: Record<BgRemoveQuality, 'isnet_fp16' | 'isnet_quint8' | 'isnet'
 };
 
 export async function removeBackground(input: Blob, opts: BgRemoveOptions = {}): Promise<Blob> {
+  if (opts.permission?.ticket && opts.toolKey) {
+    const { assertPermission } = await import('@/lib/limits/permission');
+    await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
+  }
   const { removeBackground: lib } = await import('@imgly/background-removal');
   return lib(input, {
     output: { format: opts.format ?? 'image/png', quality: 1 },

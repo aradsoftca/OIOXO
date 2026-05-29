@@ -3,8 +3,15 @@ import * as React from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { PdfDrop, type PdfFileItem } from '@/components/tool/PdfDrop';
 import { mergePdfs, download } from '@/engines/pdf';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'pdf-merge';
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [items, setItems] = React.useState<PdfFileItem[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -12,6 +19,14 @@ export default function Tool() {
 
   const run = async () => {
     if (items.length < 2) { setError('Add at least 2 PDFs.'); return; }
+    const batchHit = checkLever(POLICY_KEY, 'batch', items.length, isPro);
+    if (batchHit) { policyGate.fire(batchHit); return; }
+    // Fold-based max — Math.max(...arr) overflows V8's argument-count stack
+    // on a folder-drop of 10k+ PDFs.
+    let maxSize = 0;
+    for (const it of items) if (it.file.size > maxSize) maxSize = it.file.size;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', maxSize, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     setBusy(true); setError('');
     try {
       const out = await mergePdfs(items.map((it) => it.buffer));
@@ -25,6 +40,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       <PdfDrop multiple items={items} onItemsChange={setItems} />
 
       {items.length > 0 && (

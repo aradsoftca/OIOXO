@@ -2,13 +2,16 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { Crown, Gift, Loader2, Lock, X } from 'lucide-react';
-import type { Category } from '@/lib/registry/types';
-import { CATEGORIES } from '@/lib/registry/types';
-import { isGated } from '@/lib/usage/config';
+import { Check, Crown, Gift, Loader2, Lock, X } from 'lucide-react';
+import { gateMetaForKey, isGatedKey, maxBytesForKey, formatBytes } from '@/lib/usage/config';
+import { benefitsForKey } from '@/lib/usage/benefits';
+import { DISPLAY_PRICING } from '@/lib/stripe';
 import { armDownloadBypass } from '@/lib/usage/gate-bridge';
 
-type Phase = 'idle' | 'reward' | 'paywall';
+type Phase = 'idle' | 'reward' | 'paywall' | 'size';
+
+/** File-size context shown in the 'size' phase of the gate. */
+export interface SizeContext { bytes: number; cap: number }
 
 interface UsageResponse {
   gate: 'free' | 'rewarded' | 'paywall';
@@ -38,13 +41,26 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
  * `guard()` resolves true when the user may proceed (free use consumed, or the
  * 30s reward was earned). It resolves false when they cancel or hit the paywall.
  * Ungated categories resolve true instantly without a network call.
+ *
+ * `key` is the gate key: usually a Category, but it can be a per-tool id for the
+ * surgical studio cases (e.g. 'studio-invoice'). The modal still renders using
+ * the key's display category.
  */
-export function useUsageGate(category: Category) {
+export function useUsageGate(key: string) {
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [seconds, setSeconds] = React.useState(0);
   const [claiming, setClaiming] = React.useState(false);
+  const [sizeCtx, setSizeCtx] = React.useState<SizeContext | null>(null);
   const resolver = React.useRef<((ok: boolean) => void) | null>(null);
   const timer = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // Guards claim() against double-fire: setState updaters can run twice
+  // (React StrictMode in dev, or a re-render racing the tick), which would
+  // double-POST /api/usage/reward and burn TWO uses on one countdown.
+  const claimFired = React.useRef(false);
+  // Flipped when the user cancels mid-countdown. claim() reads this AFTER
+  // its server call resolves and skips consuming a use that nobody is
+  // waiting for.
+  const cancelled = React.useRef(false);
 
   const clearTimer = () => {
     if (timer.current) clearInterval(timer.current);
@@ -55,41 +71,70 @@ export function useUsageGate(category: Category) {
     clearTimer();
     setPhase('idle');
     setClaiming(false);
-    resolver.current?.(ok);
+    const r = resolver.current;
     resolver.current = null;
+    r?.(ok);
   }, []);
+
+  const cancel = React.useCallback(() => {
+    cancelled.current = true;
+    settle(false);
+  }, [settle]);
 
   React.useEffect(() => clearTimer, []);
 
   const claim = React.useCallback(async () => {
+    if (claimFired.current) return;
+    claimFired.current = true;
     setClaiming(true);
-    const done = await postJson<{ success: boolean; secondsRemaining: number }>(
-      '/api/usage/reward',
-      { category, action: 'complete' },
-    );
-    if (!done.success) {
-      setSeconds(done.secondsRemaining || 1);
+    let done: { success: boolean; secondsRemaining: number };
+    try {
+      done = await postJson<{ success: boolean; secondsRemaining: number }>(
+        '/api/usage/reward',
+        { category: key, action: 'complete' },
+      );
+    } catch {
+      // Reward complete failed — let the user retry by resetting state.
+      claimFired.current = false;
       setClaiming(false);
       return;
     }
-    // Reward earned — now actually consume the rewarded use.
-    const consumed = await postJson<UsageResponse>('/api/usage', {
-      category,
-      action: 'consume',
-    });
+    if (!done.success) {
+      setSeconds(done.secondsRemaining || 1);
+      setClaiming(false);
+      claimFired.current = false;
+      return;
+    }
+    // If the user cancelled while the reward request was in flight, don't
+    // consume a use — the caller has already received false.
+    if (cancelled.current) return;
+    let consumed: UsageResponse;
+    try {
+      consumed = await postJson<UsageResponse>('/api/usage', {
+        category: key,
+        action: 'consume',
+      });
+    } catch {
+      settle(false);
+      return;
+    }
+    if (cancelled.current) return;
     if (consumed.allowed) armDownloadBypass();
     settle(consumed.allowed);
-  }, [category, settle]);
+  }, [key, settle]);
 
   const startCountdown = React.useCallback(
     (from: number) => {
       setSeconds(from);
       clearTimer();
+      claimFired.current = false;
+      cancelled.current = false;
       timer.current = setInterval(() => {
         setSeconds((s) => {
           if (s <= 1) {
             clearTimer();
-            void claim();
+            // Schedule outside the updater so React can't double-invoke us.
+            queueMicrotask(() => { void claim(); });
             return 0;
           }
           return s - 1;
@@ -99,12 +144,44 @@ export function useUsageGate(category: Category) {
     [claim],
   );
 
-  const guard = React.useCallback(async (): Promise<boolean> => {
-    if (!isGated(category)) return true;
-    const r = await postJson<UsageResponse>('/api/usage', { category, action: 'consume' });
+  const guard = React.useCallback(async (opts?: { bytes?: number }): Promise<boolean> => {
+    if (!isGatedKey(key)) return true;
+    // If a previous gate is still open (double-click on Run, or two gated
+    // controls fired together), resolve the stale one as false so the first
+    // caller's promise doesn't hang forever, then take over the modal.
+    if (resolver.current) {
+      const prior = resolver.current;
+      resolver.current = null;
+      clearTimer();
+      prior(false);
+    }
+    // SIZE gate (free tier only) — runs before the count gate. A file over the
+    // free cap shows a polite upgrade prompt; no 30s reward (a bigger file can't
+    // be earned by waiting). Pro has no size cap, so it falls straight through.
+    if (opts?.bytes != null) {
+      const cap = maxBytesForKey(key);
+      if (Number.isFinite(cap) && opts.bytes > cap) {
+        let free = true;
+        try { const { isWatermarkOn } = await import('@/lib/watermark/config'); free = await isWatermarkOn(); }
+        catch { /* unknown → treat as free, surface the gate */ }
+        if (free) {
+          setSizeCtx({ bytes: opts.bytes, cap });
+          return new Promise<boolean>((resolve) => { resolver.current = resolve; setPhase('size'); });
+        }
+      }
+    }
+    let r: UsageResponse;
+    try {
+      r = await postJson<UsageResponse>('/api/usage', { category: key, action: 'consume' });
+    } catch {
+      // FAIL-CLOSED for free / FAIL-OPEN for Pro (cached entitlement) — same policy
+      // as the global interceptor: no unlimited free use by blocking the endpoint.
+      try { const { isWatermarkOn } = await import('@/lib/watermark/config'); return !(await isWatermarkOn()); }
+      catch { return false; }
+    }
     if (r.allowed) { armDownloadBypass(); return true; }
     if (r.gate === 'rewarded') {
-      await postJson('/api/usage/reward', { category, action: 'start' });
+      await postJson('/api/usage/reward', { category: key, action: 'start' });
       return new Promise<boolean>((resolve) => {
         resolver.current = resolve;
         setPhase('reward');
@@ -115,7 +192,7 @@ export function useUsageGate(category: Category) {
       resolver.current = resolve;
       setPhase('paywall');
     });
-  }, [category, startCountdown]);
+  }, [key, startCountdown]);
 
   const gate =
     phase === 'idle' ? null : (
@@ -123,8 +200,9 @@ export function useUsageGate(category: Category) {
         phase={phase}
         seconds={seconds}
         claiming={claiming}
-        category={category}
-        onCancel={() => settle(false)}
+        category={key}
+        sizeCtx={sizeCtx}
+        onCancel={cancel}
       />
     );
 
@@ -136,16 +214,31 @@ export function GateModal({
   seconds,
   claiming,
   category,
+  sizeCtx,
   onCancel,
 }: {
   phase: Phase;
   seconds: number;
   claiming: boolean;
-  category: Category;
+  /** The gate KEY — a Category, a per-tool studio id, or an app key (send/call/watch). */
+  category: string;
+  sizeCtx?: SizeContext | null;
   onCancel: () => void;
 }) {
-  const cat = CATEGORIES[category];
-  const color = `var(${cat.colorVar})`;
+  const meta = gateMetaForKey(category);
+  const color = `var(${meta.colorVar})`;
+  const benefits = benefitsForKey(category);
+  const priceLine = `$${DISPLAY_PRICING.monthly}/mo · cancel anytime`;
+  const Benefits = () => (
+    <ul className="mt-4 space-y-1.5 border-t border-black/[0.06] pt-4">
+      <li className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">With Pro you get</li>
+      {benefits.map((b) => (
+        <li key={b} className="flex items-start gap-2 text-[12.5px] text-[var(--color-fg)]">
+          <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color }} /> {b}
+        </li>
+      ))}
+    </ul>
+  );
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="relative w-full max-w-md border border-white/10 bg-[var(--color-surface-1)] shadow-2xl">
@@ -164,18 +257,43 @@ export function GateModal({
           </div>
           <div>
             <div className="text-[9px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
-              {cat.name}
+              {meta.name}
             </div>
             <h2 className="text-[19px] font-semibold tracking-tight text-[var(--color-fg)]">
-              {phase === 'reward' ? 'One more, on us' : 'Daily free limit reached'}
+              {phase === 'reward' ? 'One more, on us' : phase === 'size' ? 'File over the free size limit' : 'Daily free limit reached'}
             </h2>
           </div>
         </div>
 
-        {phase === 'reward' ? (
+        {phase === 'size' ? (
           <div className="px-6 py-5">
             <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
-              You&apos;ve used your free {cat.name.toLowerCase()} action for today. Wait a few
+              This file is {sizeCtx ? <strong className="text-[var(--color-fg)]">{formatBytes(sizeCtx.bytes)}</strong> : 'larger than'}, but
+              the free tier handles {meta.name.toLowerCase()} files up to{' '}
+              <strong className="text-[var(--color-fg)]">{formatBytes(sizeCtx?.cap ?? 0)}</strong>. Go Pro to
+              process files of any size — or try a smaller file.
+            </p>
+            <Benefits />
+            <Link
+              href="/pricing"
+              className="mt-4 flex items-center justify-center gap-2 py-3 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110"
+              style={{ background: color }}
+            >
+              <Crown className="h-3.5 w-3.5" /> Upgrade for larger files
+            </Link>
+            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="mt-2 w-full py-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
+            >
+              Use a smaller file instead
+            </button>
+          </div>
+        ) : phase === 'reward' ? (
+          <div className="px-6 py-5">
+            <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
+              You&apos;ve used your free {meta.name.toLowerCase()} action for today. Wait a few
               seconds for one more — or skip the wait and unlock unlimited use.
             </p>
             <div className="my-5 flex flex-col items-center gap-2">
@@ -186,27 +304,31 @@ export function GateModal({
                 {claiming ? 'Unlocking…' : 'until your free action'}
               </div>
             </div>
+            <Benefits />
             <Link
               href="/pricing"
-              className="flex items-center justify-center gap-2 py-3 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110"
+              className="mt-4 flex items-center justify-center gap-2 py-3 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110"
               style={{ background: color }}
             >
               <Crown className="h-3.5 w-3.5" /> Skip the wait — go Pro
             </Link>
+            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
           </div>
         ) : (
           <div className="px-6 py-5">
             <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
-              You&apos;ve reached today&apos;s free {cat.name.toLowerCase()} actions. Upgrade to Pro
-              for unlimited use across every tool — one account unlocks the whole platform.
+              You&apos;ve used today&apos;s free {meta.name.toLowerCase()} exports. Your limit resets at
+              midnight UTC — or go Pro for unlimited use across every tool, no waits.
             </p>
+            <Benefits />
             <Link
               href="/pricing"
-              className="mt-5 flex items-center justify-center gap-2 py-3 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110"
+              className="mt-4 flex items-center justify-center gap-2 py-3 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110"
               style={{ background: color }}
             >
               <Crown className="h-3.5 w-3.5" /> Upgrade to Pro
             </Link>
+            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
             <button
               type="button"
               onClick={onCancel}

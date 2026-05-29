@@ -88,9 +88,10 @@ export default function WebcamTestTool() {
     c.toBlob((b) => {
       if (!b) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(b); a.download = `snapshot-${Date.now()}.png`;
+      const href = URL.createObjectURL(b);
+      a.href = href; a.download = `snapshot-${Date.now()}.png`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
 

@@ -32,7 +32,16 @@ export default function TextBehindTool() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { bg?.close(); subject?.close(); }, [bg, subject]);
+  // Unmount-only. With [bg, subject] in the deps, changing bg also closed
+  // the still-in-use `subject` bitmap (and vice versa). loadFile already
+  // closes the prior bitmaps inline via the setBg/setSubject updater form.
+  const bgRef = React.useRef<ImageBitmap | null>(null);
+  const subjectRef = React.useRef<ImageBitmap | null>(null);
+  React.useEffect(() => { bgRef.current = bg; subjectRef.current = subject; }, [bg, subject]);
+  React.useEffect(() => () => {
+    bgRef.current?.close();
+    subjectRef.current?.close();
+  }, []);
 
   const loadFile = React.useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;

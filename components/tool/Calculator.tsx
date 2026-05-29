@@ -31,6 +31,10 @@ function fmt(n: number): string {
 
 function factorial(n: number): number {
   if (n < 0 || !Number.isInteger(n)) return NaN;
+  // Cap at 170 — past that, the result overflows to Infinity anyway (170! is
+  // the largest factorial representable in a double). Without this cap a user
+  // typing "1e100!" would freeze the tab in an unbounded loop.
+  if (n > 170) return Infinity;
   let r = 1;
   for (let i = 2; i <= n; i++) r *= i;
   return r;

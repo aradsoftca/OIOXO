@@ -4,6 +4,49 @@
  */
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 import type { PDFFont, PageSizes } from 'pdf-lib';
+import { BRAND_DOMAIN } from '@/lib/brand';
+
+// ---- Brand footer (free) ----------------------------------------------------
+// A faint "Made with xonvert.com" footer on every page of any PDF this engine
+// outputs. Default ON (free); Pro calls setPdfWatermark(null). Every save goes
+// through saveBranded() so no output is missed. Fully defensive — a footer
+// failure never blocks the save.
+let _pdfWm: string | null = BRAND_DOMAIN;
+export function setPdfWatermark(text: string | null): void { _pdfWm = text; }
+
+/**
+ * Draw the brand footer on every page (free; no-op for Pro). Exported so tools
+ * that build PDFs DIRECTLY with pdf-lib (images-to-pdf, pdf-sign, pdf-compress,
+ * pdf-fill-form, pdf-protect, pdf-unlock) can call it before their own .save() —
+ * they bypass this engine's functions, so saveBranded() alone wouldn't cover them.
+ * Typed loosely (any) so it also accepts @cantoo/pdf-lib documents. Defensive.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function stampPdfFooter(doc: any): Promise<void> {
+  if (!_pdfWm) return;
+  try {
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    const text = `Made with ${_pdfWm}`;
+    const size = 8;
+    for (const page of doc.getPages()) {
+      const { width } = page.getSize();
+      const tw = font.widthOfTextAtSize(text, size);
+      page.drawText(text, {
+        x: Math.max(8, width - tw - 12),
+        y: 10,
+        size,
+        font,
+        color: rgb(0.5, 0.5, 0.5),
+        opacity: 0.6,
+      });
+    }
+  } catch { /* never block the save on a footer */ }
+}
+
+async function saveBranded(doc: PDFDocument): Promise<Uint8Array> {
+  await stampPdfFooter(doc);
+  return doc.save();
+}
 
 export interface PdfInfo {
   pageCount: number;
@@ -63,7 +106,7 @@ export async function mergePdfs(buffers: ArrayBuffer[]): Promise<Uint8Array> {
     const pages = await out.copyPages(src, src.getPageIndices());
     pages.forEach((p) => out.addPage(p));
   }
-  return out.save();
+  return saveBranded(out);
 }
 
 /**
@@ -77,7 +120,7 @@ export async function splitPdf(buffer: ArrayBuffer, ranges: number[][]): Promise
     const doc = await PDFDocument.create();
     const pages = await doc.copyPages(src, range);
     pages.forEach((p) => doc.addPage(p));
-    out.push(await doc.save());
+    out.push(await saveBranded(doc));
   }
   return out;
 }
@@ -89,7 +132,7 @@ export async function splitEveryPage(buffer: ArrayBuffer): Promise<Uint8Array[]>
     const doc = await PDFDocument.create();
     const [page] = await doc.copyPages(src, [i]);
     doc.addPage(page);
-    out.push(await doc.save());
+    out.push(await saveBranded(doc));
   }
   return out;
 }
@@ -123,7 +166,7 @@ export async function rotatePages(
       pages[i].setRotation(degrees((cur + rotation) % 360));
     }
   }
-  return doc.save();
+  return saveBranded(doc);
 }
 
 export async function deletePages(buffer: ArrayBuffer, toDelete: number[]): Promise<Uint8Array> {
@@ -132,7 +175,7 @@ export async function deletePages(buffer: ArrayBuffer, toDelete: number[]): Prom
   for (const i of sorted) {
     if (i >= 0 && i < doc.getPageCount()) doc.removePage(i);
   }
-  return doc.save();
+  return saveBranded(doc);
 }
 
 export async function extractPages(buffer: ArrayBuffer, toKeep: number[]): Promise<Uint8Array> {
@@ -141,7 +184,7 @@ export async function extractPages(buffer: ArrayBuffer, toKeep: number[]): Promi
   const valid = toKeep.filter((i) => i >= 0 && i < src.getPageCount());
   const pages = await out.copyPages(src, valid);
   pages.forEach((p) => out.addPage(p));
-  return out.save();
+  return saveBranded(out);
 }
 
 export async function reorderPages(buffer: ArrayBuffer, order: number[]): Promise<Uint8Array> {
@@ -150,7 +193,7 @@ export async function reorderPages(buffer: ArrayBuffer, order: number[]): Promis
   const valid = order.filter((i) => i >= 0 && i < src.getPageCount());
   const pages = await out.copyPages(src, valid);
   pages.forEach((p) => out.addPage(p));
-  return out.save();
+  return saveBranded(out);
 }
 
 export type PageNumberPosition =
@@ -186,7 +229,7 @@ export async function addPageNumbers(buffer: ArrayBuffer, opts: {
     const { x, y } = pickXY(position, width, height, textWidth, fontSize, margin);
     page.drawText(text, { x, y, size: fontSize, font, color: rgb(color.r, color.g, color.b) });
   });
-  return doc.save();
+  return saveBranded(doc);
 }
 
 function pickXY(
@@ -227,7 +270,7 @@ export async function addTextWatermark(buffer: ArrayBuffer, opts: {
       rotate: degrees(rotation),
     });
   }
-  return doc.save();
+  return saveBranded(doc);
 }
 
 export function download(bytes: Uint8Array, filename: string) {
@@ -238,7 +281,11 @@ export function download(bytes: Uint8Array, filename: string) {
   a.href = url;
   a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // Defer revoke — mobile Safari/Firefox can abort the download if the blob
+  // URL is torn down before the download stream is established. 60s is
+  // plenty for any practical PDF; long-deferred revokes are GC'd at tab
+  // close so there's no real leak.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export type { PageSizes };

@@ -69,8 +69,11 @@ export function ConvertFrame({ pair, children }: Props) {
             onClick={() => {
               if (typeof navigator === 'undefined') return;
               const nav = navigator as Navigator & { share?: (data: { url?: string; title?: string }) => Promise<void> };
-              if (nav.share) void nav.share({ url: window.location.href, title });
-              else void nav.clipboard?.writeText(window.location.href);
+              // Both Web Share and clipboard can reject (permission denied,
+              // user cancelled the share sheet) — swallow so the UI doesn't
+              // log an unhandled rejection in those normal flows.
+              if (nav.share) nav.share({ url: window.location.href, title }).catch(() => { /* */ });
+              else nav.clipboard?.writeText(window.location.href).catch(() => { /* */ });
             }}
           >
             <Share2 className="h-4 w-4" />

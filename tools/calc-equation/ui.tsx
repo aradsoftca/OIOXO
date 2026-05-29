@@ -108,9 +108,11 @@ export default function Tool() {
 
   const copy = async () => {
     if (!result.ok) return;
-    await navigator.clipboard?.writeText(result.lines!.join('\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(result.lines!.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   return (
@@ -143,7 +145,7 @@ export default function Tool() {
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)] mb-2">System</div>
           <textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={5}
             placeholder="2x + 3y = 13&#10;4x - y = 5"
-            className="w-full bg-[var(--color-bg)] border border-black/[0.08] p-2 font-mono text-[14px] outline-none focus:border-[var(--color-cat-calc)]" />
+            className="w-full bg-[var(--color-canvas)] border border-black/[0.08] p-2 font-mono text-[14px] outline-none focus:border-[var(--color-cat-calc)]" />
           <div className="mt-1 text-[10px] text-[var(--color-fg-muted)]">One equation per line. Variables auto-detected.</div>
         </div>
       )}

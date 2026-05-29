@@ -96,9 +96,11 @@ export default function PlaceholderTool() {
 
   const renderToken = React.useRef(0);
 
+  // Ref-mirror so unmount cleanup revokes the CURRENT preview URL.
+  const previewUrlRef = React.useRef('');
+  React.useEffect(() => { previewUrlRef.current = previewUrl; }, [previewUrl]);
   React.useEffect(() => () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
   }, []);
 
   const ratio = React.useRef(width / height);

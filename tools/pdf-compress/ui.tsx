@@ -1,9 +1,15 @@
 'use client';
+import { stampPdfFooter } from '@/engines/pdf';
 
 import * as React from 'react';
 import { Download, Loader2, AlertTriangle } from 'lucide-react';
 import { PdfDrop, type PdfFileItem } from '@/components/tool/PdfDrop';
 import { rasterizePdf } from '@/engines/pdf/rasterize';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'pdf-compress';
 
 interface Level { id: string; label: string; edge: number; quality: number; hint: string }
 
@@ -22,6 +28,8 @@ function formatBytes(bytes: number): string {
 }
 
 export default function PdfCompressTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<PdfFileItem | null>(null);
   const [levelId, setLevelId] = React.useState('medium');
   const [grayscale, setGrayscale] = React.useState(false);
@@ -35,6 +43,10 @@ export default function PdfCompressTool() {
 
   const run = async () => {
     if (!item) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'input-size', value: item.file.size },
+    ]);
+    if (!ok) return;
     setBusy(true); setError(''); setResult(null); setProgress(null);
     try {
       const { PDFDocument } = await import('pdf-lib');
@@ -70,7 +82,7 @@ export default function PdfCompressTool() {
         page.drawImage(jpeg, { x: 0, y: 0, width: p.width, height: p.height });
       }
 
-      const bytes = await doc.save();
+      await stampPdfFooter(doc); const bytes = await doc.save();
       const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
       setResult({ blob, size: blob.size });
     } catch (e) {
@@ -84,18 +96,20 @@ export default function PdfCompressTool() {
   const download = () => {
     if (!result || !item) return;
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(result.blob);
+    const href = URL.createObjectURL(result.blob);
+    a.href = href;
     a.download = item.file.name.replace(/\.[^.]+$/, '') + '-compressed.pdf';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   const saving = result && originalSize ? (1 - result.size / originalSize) * 100 : 0;
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <PdfDrop loaded={false} onLoad={setItem} />}
 
       {item && (

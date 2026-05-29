@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { preCheckRequest } from '@/lib/oioxo/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,36 +16,13 @@ export const dynamic = 'force-dynamic';
  * The durable moat remains the fine-tuned model whose value can't be copied.)
  */
 
-// Hosts allowed to receive the key even when an Origin is present.
-const ALLOWED_HOSTS = new Set([
-  'xonvert.com',
-  'www.xonvert.com',
-  'new.xonvert.com',
-  'oioxo.com',
-  'www.oioxo.com',
-  'localhost:3000',
-  'localhost:3001',
-  '127.0.0.1:3001',
-]);
-
-function hostOf(value: string | null): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).host.toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(req: Request) {
-  const reqHost = (req.headers.get('host') || '').toLowerCase();
-  const originHost = hostOf(req.headers.get('origin'));
-
-  // Same-origin GETs usually omit Origin → allow. Only reject a PRESENT Origin
-  // whose host is neither our request host nor an allowed host (= a cross-site copy).
-  if (originHost && originHost !== reqHost && !ALLOWED_HOSTS.has(originHost)) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-  }
+  // Shared rate-limit + UA + origin/referer pre-check (lib/oioxo/gate). Note
+  // this now REQUIRES one of Origin/Referer — same-origin browser GETs always
+  // send Referer for navigation/fetch within the app, so legitimate callers
+  // still pass; previous "no Origin → pass" behavior was the gap.
+  const pre = preCheckRequest(req);
+  if (pre) return pre;
 
   const key = process.env.BRAIN_WASM_KEY;
   if (!key) {

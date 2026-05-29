@@ -38,8 +38,15 @@ export default function Tool() {
   const [error, setError] = React.useState('');
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
+  // Revoke the prior URL on replace + on unmount. Previously every re-run
+  // leaked the previous result PNG and the final one leaked on navigation.
+  React.useEffect(() => () => { if (outUrl) URL.revokeObjectURL(outUrl); }, [outUrl]);
+
   const run = async (file: File) => {
-    setBusy(true); setError(''); setCount(null); setOutUrl(''); setStatus('Loading detector…');
+    setBusy(true); setError(''); setCount(null);
+    if (outUrl) URL.revokeObjectURL(outUrl);
+    setOutUrl('');
+    setStatus('Loading detector…');
     try {
       const detector = await getDetector();
       setStatus('Detecting faces…');

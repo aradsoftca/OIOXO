@@ -4,6 +4,7 @@ import { Upload } from 'lucide-react';
 import type { Font } from 'opentype.js';
 import { loadFont } from '@/engines/font';
 import { useStagedInput } from '@/lib/ai/handoff';
+import { checkFreeSize } from '@/lib/usage/size-gate';
 
 interface Props {
   onLoad: (font: Font, file: File, buffer: ArrayBuffer) => void;
@@ -18,6 +19,7 @@ export function FontDrop({ onLoad, loaded, fileName }: Props) {
 
   const handleFile = async (file: File) => {
     setError('');
+    if (!(await checkFreeSize('font', file.size))) return; // free size gate
     setBusy(true);
     try {
       const buf = await file.arrayBuffer();
@@ -63,6 +65,8 @@ export function FontDrop({ onLoad, loaded, fileName }: Props) {
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void handleFile(f);
+          // Reset value so re-picking the same font triggers onChange again.
+          e.target.value = '';
         }}
       />
       {error && <div className="mt-3 text-[12px] text-red-600">{error}</div>}

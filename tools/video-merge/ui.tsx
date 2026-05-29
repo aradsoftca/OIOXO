@@ -3,10 +3,17 @@ import * as React from 'react';
 import { Upload, X, FileVideo } from 'lucide-react';
 import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
 import { runFfmpegMulti, downloadBlob } from '@/engines/ffmpeg';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'video-merge';
 
 interface VideoItem { file: File; }
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [items, setItems] = React.useState<VideoItem[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
@@ -21,6 +28,10 @@ export default function Tool() {
 
   const run = async () => {
     if (items.length < 2) { setError('Add at least 2 videos.'); return; }
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'batch', value: items.length },
+    ]);
+    if (!ok) return;
     setBusy(true); setError(''); setProgress(0);
     try {
       // Re-encode each to identical format first using concat filter (safer than concat demuxer).
@@ -54,6 +65,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       <div
         onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) add(e.dataTransfer.files); }}
         onDragOver={(e) => e.preventDefault()}

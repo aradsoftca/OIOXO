@@ -135,3 +135,27 @@ export function extractStructured(md: string, type: AnswerType): string | null {
     default: return null;
   }
 }
+
+/**
+ * Is an extracted "step list" REALLY instructions, or a navigation/link menu
+ * that happened to be the densest list on the page? A nav menu is short
+ * one/two-word items with no verbs or connectives (".htaccess", "C#", "CSS",
+ * "Python"); real steps are verb-led, longer lines. Structural, no topic words —
+ * the guard that stops "fix python error" → a language sidebar. (ANSWER_BRAIN.)
+ */
+export function looksInstructional(md: string): boolean {
+  const items = md.split('\n')
+    .map((l) => l.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, '').replace(/\*\*/g, '').trim())
+    .filter(Boolean);
+  // Site chrome — a nav bar / marketing footer / language sidebar masquerading as
+  // a step list. If a chunk of items are these, it's not instructions.
+  const NAV = /^(about|products?|for teams|stack \w+|pricing|licen[sc]ing|ads?|advertis\w+|privacy|terms|cookies?|sign ?(in|up)|log ?in|contact|careers?|blog|newsletter|subscribe|follow us|copyright|home|menu|search|\.?[a-z]+\s*$)/i;
+  const navHits = items.filter((i) => NAV.test(i)).length;
+  if (items.length >= 2 && navHits / items.length >= 0.4) return false;
+  const VERBY = /\b(the|a|an|your|over|under|through|then|next|first|to|and|with|until|into|run|install|import|use|using|set|open|click|select|type|enter|add|check|place|take|bring|pull|hold|cut|cook|mix|wrap|cross|loop|create|make|ensure|verify|restart|update)\b/i;
+  if (items.length < 2) {
+    return /[a-z]/.test(md) && VERBY.test(md);
+  }
+  const verby = items.filter((i) => VERBY.test(i) || i.split(/\s+/).length >= 5).length;
+  return verby / items.length >= 0.5;
+}

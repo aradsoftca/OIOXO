@@ -42,6 +42,31 @@ export async function incrementUsage(
 }
 
 /**
+ * Add N seconds of usage to a TIME-metered category (e.g. the OIOXO coding agent).
+ * Reuses categoryUsage.count as accumulated seconds for the day. Clamps the per-call
+ * amount so a buggy/forged client can't burn the allowance in one shot.
+ */
+export async function addSeconds(
+  fps: string[],
+  category: string,
+  seconds: number,
+  userId?: string,
+): Promise<void> {
+  const amount = Math.max(0, Math.min(Math.round(seconds), 600)); // ≤10 min per report
+  if (amount === 0) return;
+  const date = utcToday();
+  await Promise.all(
+    fps.map((fp) =>
+      prisma.categoryUsage.upsert({
+        where: { fingerprint_category_date: { fingerprint: fp, category, date } },
+        create: { fingerprint: fp, category, date, userId, count: amount },
+        update: { count: { increment: amount } },
+      }),
+    ),
+  );
+}
+
+/**
  * Whether the 30s reward was granted today for this category. Auto-completes a
  * timer that started ≥30s ago (covers a client whose "complete" call was lost).
  */

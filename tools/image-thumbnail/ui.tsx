@@ -68,7 +68,15 @@ export default function ImageThumbnailTool() {
   const [error, setError] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); bitmap?.close(); }, [previewUrl, bitmap]);
+  // Unmount-only. With [previewUrl, bitmap] the intermediate render between
+  // setPreviewUrl and setBitmap revoked the newly-set URL still in use.
+  const previewUrlRef = React.useRef('');
+  const bitmapRef = React.useRef<ImageBitmap | null>(null);
+  React.useEffect(() => { previewUrlRef.current = previewUrl; bitmapRef.current = bitmap; }, [previewUrl, bitmap]);
+  React.useEffect(() => () => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    bitmapRef.current?.close();
+  }, []);
 
   const loadFile = async (next: File) => {
     if (!next.type.startsWith('image/')) return;
@@ -108,12 +116,13 @@ export default function ImageThumbnailTool() {
       const blob = await drawSize(bitmap, size, fit, format, quality, bg);
       const base = file.name.replace(/\.[^.]+$/, '');
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `${base}-${size}.${format === 'jpeg' ? 'jpg' : format}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } finally {
       setBusy(false);
     }
@@ -133,12 +142,13 @@ export default function ImageThumbnailTool() {
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(zipBlob);
+      const href = URL.createObjectURL(zipBlob);
+      a.href = href;
       a.download = `${base}-thumbnails.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally {

@@ -27,7 +27,7 @@ export default function HashTool() {
       const next = { 'MD5': md5h, 'SHA-1': sha1, 'SHA-256': sha256, 'SHA-384': sha384, 'SHA-512': sha512 };
       setResults(next);
       setRecent('dev-hash', textThumb(`${sha256.slice(0, 32)}…`));
-    });
+    }).catch(() => { /* subtle.digest very rarely rejects; ignore */ });
 
     return () => { cancelled = true; };
   }, [input]);
@@ -78,9 +78,11 @@ function HashRow({ algo, value }: { algo: Algo; value: string }) {
           type="button"
           disabled={!value}
           onClick={async () => {
-            await navigator.clipboard.writeText(value);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1200);
+            try {
+              await navigator.clipboard.writeText(value);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1200);
+            } catch { /* iframe / permission denied */ }
           }}
           className={cn(
             'flex h-7 w-7 items-center justify-center text-[var(--color-fg-subtle)] transition',

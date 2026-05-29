@@ -25,10 +25,14 @@ export default function ArchiveZipTool() {
       const files = await Promise.all(items.map(async (it) => ({ name: it.file.name, data: new Uint8Array(await it.file.arrayBuffer()) })));
       const blob = await zipFiles(files);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = (name.trim() || 'archive') + '.zip';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke — mobile Safari/Firefox can abort the download if the
+      // blob URL is torn down before the stream starts. For large zips this
+      // is particularly important since the download takes longer to begin.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } finally { setBusy(false); }
   };
 

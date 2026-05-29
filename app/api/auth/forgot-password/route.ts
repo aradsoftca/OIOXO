@@ -2,21 +2,14 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db';
 import { sendPasswordResetEmail } from '@/lib/email/service';
+import { take, type Bucket } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 
-// Best-effort in-memory rate limit (per server instance): 3 / 15 min / IP.
-const hits = new Map<string, { count: number; reset: number }>();
+// Per-instance limit: 3 / 15 min / IP. Bounded sweep lives in lib/rate-limit.
+const hits = new Map<string, Bucket>();
 function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  const e = hits.get(ip);
-  if (!e || now > e.reset) {
-    hits.set(ip, { count: 1, reset: now + 15 * 60 * 1000 });
-    return false;
-  }
-  if (e.count >= 3) return true;
-  e.count++;
-  return false;
+  return !take(hits, ip, { max: 3, windowMs: 15 * 60 * 1000 });
 }
 
 export async function POST(req: Request) {
@@ -47,13 +40,24 @@ export async function POST(req: Request) {
     const recent =
       user.resetTokenExpiry && user.resetTokenExpiry > new Date(Date.now() - 5 * 60 * 1000);
     if (!recent) {
+      // Email the plaintext token; store ONLY its SHA-256 hash so a DB read
+      // (backup leak, mis-permissioned replica) can't reveal an in-flight
+      // reset. reset-password hashes the submitted token to match.
       const token = crypto.randomBytes(32).toString('hex');
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       await prisma.user.update({
         where: { id: user.id },
-        data: { resetToken: token, resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000) },
+        data: { resetToken: tokenHash, resetTokenExpiry: new Date(Date.now() + 60 * 60 * 1000) },
       });
       try {
-        await sendPasswordResetEmail(email, token, user.name ?? undefined);
+        // Migrated user rows (France import) predate Pass 91's EMAIL_RE tightening
+        // — `user.email` could still be a multi-recipient string like
+        // "a@evil.com,b@victim.com". The submitter would match that row exactly
+        // (case-insensitive lookup), and SMTP would deliver the reset link to
+        // both addresses, letting an attacker phish the victim with a real link
+        // from a trusted sender. Take only the first address.
+        const safeTo = email.split(/[,;]/)[0].trim();
+        await sendPasswordResetEmail(safeTo, token, user.name ?? undefined);
       } catch (e) {
         console.error('[forgot-password] email failed:', (e as Error).message);
       }

@@ -56,8 +56,15 @@ export function htmlDecode(s: string): string {
   };
   return s.replace(/&(#\d+|#x[0-9a-f]+|[a-z]+);/gi, (m, name: string) => {
     const lower = name.toLowerCase();
-    if (lower.startsWith('#x')) return String.fromCodePoint(parseInt(lower.slice(2), 16));
-    if (lower.startsWith('#'))  return String.fromCodePoint(parseInt(lower.slice(1), 10));
+    // String.fromCodePoint throws RangeError on values outside [0, 0x10FFFF].
+    // A malicious input like `&#x10FFFFFF;` would otherwise crash the entire
+    // conversion. Clamp + finite-check and fall back to the literal entity.
+    const safeCodePoint = (n: number) => {
+      if (!Number.isFinite(n) || n < 0 || n > 0x10FFFF) return m;
+      try { return String.fromCodePoint(n); } catch { return m; }
+    };
+    if (lower.startsWith('#x')) return safeCodePoint(parseInt(lower.slice(2), 16));
+    if (lower.startsWith('#'))  return safeCodePoint(parseInt(lower.slice(1), 10));
     return map[lower] ?? m;
   });
 }

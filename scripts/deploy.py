@@ -28,7 +28,7 @@ from pathlib import Path
 
 import paramiko
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
 
 HOST = "194.247.182.248"
 USER = "root"
@@ -56,6 +56,23 @@ PROJECT = Path(__file__).resolve().parents[1]
 # Fresh per-deploy WASM key, minted by rotate_brain_key() and written to the
 # server env by write_remote_env() so any previously-leaked key dies each deploy.
 ROTATED_KEY = None
+
+# Fresh per-deploy master key for the ENCRYPTED TOOL ENGINE WORKERS (image/codec/
+# audio/cad/model3d). Minted by mint_tool_key(), passed into the server build so
+# prebuild's encrypt-workers.mjs encrypts with it, and written to the remote .env
+# so /api/tool-key derives the matching per-asset keys. Rotating it each deploy
+# kills any leaked key on the next ship (same model as BRAIN_WASM_KEY).
+TOOL_KEY = None
+
+
+def mint_tool_key():
+    """Generate a fresh 256-bit TOOL_WASM_KEY (base64) for this deploy."""
+    global TOOL_KEY
+    import base64
+    import os as _os
+    TOOL_KEY = base64.b64encode(_os.urandom(32)).decode("ascii")
+    print("\n========== TOOL WORKER KEY ==========")
+    print("      minted fresh TOOL_WASM_KEY ✓ (server build encrypts workers with it)")
 
 
 def rotate_brain_key():
@@ -91,7 +108,14 @@ EXCLUDES = {
     ".next-build", # zero-downtime side build dir (server-only)
     "target",      # Rust/wasm build output (lib/ai/wasm/target, ~68M) — never ship
     "pkg-node",    # wasm-pack node test build — never ship (browser uses pkg/)
+    "_models_plain",  # DEV plaintext model weights — only the .enc ships
+    "_ai_secret.txt", # the AI master key — NEVER ship the raw file (it's seeded into .env)
+    "_hf_token.txt",  # Hugging Face write token — local-only; never leaves this machine
+    "_hf_push.py",    # one-off HF upload util — no need on the server
     "tsconfig.tsbuildinfo",
+    ".tool-wasm-key.dev",  # ephemeral DEV worker key — never ship (server mints its own)
+    "protected",   # public/protected/*.enc — regenerated on the server with the real key
+    "jsquash",     # public/jsquash/* — regenerated on the server by copy-jsquash
     ".env",
     ".env.local",
     ".env.production",
@@ -102,7 +126,13 @@ EXCLUDES = {
 
 def excluded(rel: str) -> bool:
     parts = rel.replace("\\", "/").split("/")
-    # Never ship local model weights / large binaries used only for dev testing.
+    base = parts[-1]
+    # Never ship local model weights / large binaries used only for dev testing,
+    # nor throwaway debug scratch (`_test_*.ts`, `_*.py` one-offs) sitting in the
+    # tree — they aren't part of the app and can break the remote `next build`
+    # typecheck (tsconfig includes **/*.ts).
+    if base.startswith("_test_") or (base.startswith("_") and base.endswith(".py")):
+        return True
     return any(p in EXCLUDES for p in parts) or rel.endswith((".log", ".gguf", ".onnx", ".bin"))
 
 
@@ -367,6 +397,8 @@ def write_remote_env(sftp):
     merged = {**base, **load_deploy_secrets()}  # secrets win
     if ROTATED_KEY:  # this deploy's fresh key wins over any stored one
         merged["BRAIN_WASM_KEY"] = ROTATED_KEY
+    if TOOL_KEY:  # fresh tool-worker key (must match what the server build encrypts with)
+        merged["TOOL_WASM_KEY"] = TOOL_KEY
 
     present = [k for k in _REQUIRED_SECRETS if merged.get(k)]
     missing = [k for k in _REQUIRED_SECRETS if not merged.get(k)]
@@ -382,20 +414,16 @@ def write_remote_env(sftp):
     print(f"      wrote {remote_env} ({len(merged)} keys)")
 
 
-# Caddy hostname block — auto Let's Encrypt for new.xonvert.com.
-# Replaces the older /xonvert subpath blocks; we keep a 301 from the
-# subpath to the hostname so any bookmarked test URLs still work.
+# new.xonvert.com is RETIRED — it was the temporary staging hostname. We now
+# serve the app only on the primary domain (xonvert.com) and keep new.xonvert.com
+# as a 301 redirect so any old bookmarked links still resolve.
 CADDY_NEW_HOST_BLOCK = """
-# Xonvert 2026 — public test hostname (auto-HTTPS via Let's Encrypt)
+# new.xonvert.com retired → 301 to the primary domain
 {host} {{
-    encode zstd gzip
-    reverse_proxy 127.0.0.1:{port} {{
-        header_up Host {{host}}
-        header_up X-Forwarded-Proto {{scheme}}
-    }}
+    redir https://{primary}{{uri}} permanent
 }}
 
-""".strip("\n").format(host=PUBLIC_HOST, port=LOCAL_PORT)
+""".strip("\n").format(host=PUBLIC_HOST, primary=PRIMARY_HOST)
 
 
 # Primary domain block — Cloudflare Origin Cert (not ACME). Covers apex + www.
@@ -482,6 +510,7 @@ def main():
     ensure_db(ssh)
 
     rotate_brain_key()  # re-encrypt with a fresh key BEFORE upload
+    mint_tool_key()     # fresh tool-worker key; server build encrypts with it
 
     print("\n========== UPLOADING SOURCE ==========")
     mkdir_p(sftp, REMOTE_DIR)
@@ -492,7 +521,9 @@ def main():
     # First run uses `npm install` to create the lock file; subsequent
     # deploys upload the lock and we could switch to `npm ci` for speed.
     install_cmd = "npm ci" if remote_exists(sftp, posixpath.join(REMOTE_DIR, "package-lock.json")) else "npm install"
-    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && {install_cmd} --no-audit --no-fund",
+    # --include=dev: the prebuild (encrypt-workers.mjs) needs esbuild, a devDependency.
+    # Force it even if the server shell has NODE_ENV=production (which would skip devDeps).
+    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && {install_cmd} --include=dev --no-audit --no-fund",
                    t=1200, label=install_cmd)
     if rc != 0:
         print("      ! install failed")
@@ -517,8 +548,11 @@ def main():
     # OBFUSCATE=1 = worker-safe obfuscation (hex renaming + compact, minify off;
     # stringArray/selfDefending/domainLock stay off — they break blob workers).
     run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean stale .next-build")
-    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} NEXT_DIST_DIR=.next-build npm run build",
-                   t=1800, label="next build (side dir — live site stays up)")
+    # TOOL_WASM_KEY is passed into the build so prebuild's encrypt-workers.mjs
+    # encrypts the engine workers with the SAME key written to the remote .env.
+    tool_key_env = f"TOOL_WASM_KEY={TOOL_KEY} " if TOOL_KEY else ""
+    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && {tool_key_env}OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} NEXT_DIST_DIR=.next-build npm run build",
+                   t=5400, label="next build (side dir — live site stays up)")  # CPU box + obfuscation + worker-encrypt prebuild + AI bundle chunking
     if rc != 0:
         # `next build` can finish writing a COMPLETE .next-build and then fail to
         # exit its own process (lingering jest-workers / open handles), so run()

@@ -10,6 +10,16 @@ const basePath = process.env.NEXT_BASE_PATH || '';
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Hide the "X-Powered-By: Next.js" fingerprint. Makes it marginally harder
+  // for an attacker to map known framework CVEs to the deployment, and avoids
+  // advertising the stack to clone-bot crawlers.
+  poweredByHeader: false,
+  // Browser source maps OFF in production. Default is already false but make
+  // it explicit so a future config tweak can't accidentally re-expose source.
+  productionBrowserSourceMaps: false,
+  // @wllama ships untranspiled TS source — let Next's loaders process it so the
+  // oioxo coder (dynamic-imported, client-only) doesn't break the build parse.
+  transpilePackages: ['@wllama/wllama'],
   // Build output dir. Overridable at BUILD time (NEXT_DIST_DIR) so deploys can
   // build into a side dir while the live `.next` keeps serving — zero-downtime.
   // At runtime NEXT_DIST_DIR is unset, so `next start` serves the swapped-in `.next`.
@@ -78,6 +88,24 @@ const nextConfig = {
           // Don't let another site embed our pages (incl. the AI) in a frame.
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+          // Force HTTPS in browsers that have ever seen the site. 2y window +
+          // preload-eligible value (subdomains included). Pre-existing HTTP
+          // bookmarks get upgraded automatically — closes a TLS-stripping vector.
+          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          // Stop MIME sniffing — defends against XSS via mistyped responses
+          // (the watermark JSON file getting executed as a script, etc.).
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          // Don't leak full referrer URLs to third parties. Origin only across
+          // cross-origin, full URL on same-origin (so analytics can still
+          // attribute internal navigation).
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          // Lock down powerful APIs to ones the tools actually need. camera/
+          // mic/display-capture are on for Call/Watch/Send. Everything else is
+          // OFF — third-party iframes (none expected) and would-be clones lose
+          // access to sensors/payments/geolocation by default.
+          { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=(), bluetooth=(), midi=()' },
+          // Tells crawlers to not fingerprint stack via cookies/method behavior.
+          { key: 'X-DNS-Prefetch-Control', value: 'on' },
         ],
       },
       ...wasmDirs.map((source) => ({ source, headers: immutable })),
@@ -143,26 +171,45 @@ const nextConfig = {
         config.optimization.minimize = false;
 
         const WebpackObfuscator = require('webpack-obfuscator');
+        // The allowed-host list MUST match the brand build target — domainLock
+        // makes the bundle SELF-CHECK its location at runtime and silently
+        // refuse to run on the wrong host (a copied site on attacker.tld
+        // simply never executes). Bypass requires comprehending and patching
+        // the obfuscated host check inside hex-renamed code.
+        const allowedHosts = process.env.OBFUSCATE_HOSTS
+          ? process.env.OBFUSCATE_HOSTS.split(',').map((h) => h.trim()).filter(Boolean)
+          : ['xonvert.com', 'www.xonvert.com', 'new.xonvert.com', 'oioxo.com', 'www.oioxo.com', 'localhost'];
         config.plugins.push(
           new WebpackObfuscator(
             {
               compact: true,
               identifierNamesGenerator: 'hexadecimal',
-              // Known-good hex-only renaming. Stronger transforms are NOT worth
-              // it here: splitStrings made builds ~15min at 482 pages, and the
-              // numbers/simplify set destabilized the Next build (pages-manifest
-              // ENOENT). The strong worker-breakers (stringArray/control-flow)
-              // need a worker-extraction refactor + browser QA. The real moat is
-              // the WASM brain-core, not JS obfuscation.
-              numbersToExpressions: false,
+              // Known-safe transforms (verified worker-compatible). The strong
+              // string-array / control-flow transforms break the ~15 inline
+              // blob workers this app spawns; we keep them off and lean on:
+              //   • numbersToExpressions   — every number → (a^b) arithmetic
+              //   • transformObjectKeys    — object literal keys hex-named
+              //   • unicodeEscapeSequence  — string literals → \uXXXX form
+              //   • simplify               — collapses dead control flow
+              //   • domainLock             — bundle refuses to run off-host
+              //   • disableConsoleOutput   — silences console.* in prod
+              // Combined, these turn the bundle into something a casual scraper
+              // can't parse, while the workers stay intact. Stronger transforms
+              // require the worker-extraction refactor noted earlier.
+              numbersToExpressions: true,
               simplify: true,
-              disableConsoleOutput: false,
+              transformObjectKeys: true,
+              unicodeEscapeSequence: true,
+              disableConsoleOutput: true,
               stringArray: false,
               selfDefending: false,
               controlFlowFlattening: false,
               deadCodeInjection: false,
               renameProperties: false,
-              transformObjectKeys: false,
+              domainLock: allowedHosts,
+              // domainLock with NO redirect → unauthorized host = silent failure
+              // (no useful error message for the cloner to debug against).
+              domainLockRedirectUrl: 'about:blank',
               log: false,
             },
             // Don't touch the framework runtime / worker glue — obfuscating those

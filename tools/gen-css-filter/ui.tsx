@@ -31,8 +31,10 @@ export default function Tool() {
 
   const reset = () => setVals(Object.fromEntries(FILTERS.map((f) => [f.key, f.def])));
   const copy = async () => {
-    await navigator.clipboard?.writeText(`filter: ${css};`);
-    setCopied(true); setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(`filter: ${css};`);
+      setCopied(true); setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   return (

@@ -3,8 +3,7 @@ import { cookies, headers } from 'next/headers';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import type { Category } from '@/lib/registry/types';
-import { getGateType, isGated, REWARD_WAIT_SECONDS } from '@/lib/usage/config';
+import { getGateType, isGatedKey, REWARD_WAIT_SECONDS } from '@/lib/usage/config';
 import { getLimitFor } from '@/lib/usage/limits';
 import { fingerprints, newCookieId, USAGE_COOKIE, COOKIE_MAX_AGE } from '@/lib/usage/identity';
 import { getUsage, hasClaimedReward, incrementUsage } from '@/lib/usage/service';
@@ -18,7 +17,15 @@ async function isPro(): Promise<boolean> {
   const session = await getServerSession(authOptions);
   const id = (session?.user as { id?: string } | undefined)?.id;
   if (!id) return false;
-  const user = await prisma.user.findUnique({ where: { id }, select: { plan: true } });
+  const user = await prisma.user.findUnique({ where: { id }, select: { plan: true, subscriptionEndsAt: true } });
+  // Fail-safe: if Stripe's `customer.subscription.deleted` webhook never
+  // fires (Stripe outage, mis-routed endpoint), the stored plan stays PRO
+  // forever. Treat a firmly-past subscriptionEndsAt as FREE here so Pro
+  // gating closes even when the webhook silently failed. 24h buffer covers
+  // webhook lag without stranding a paying user mid-renewal.
+  if (user?.subscriptionEndsAt && user.subscriptionEndsAt.getTime() + 24 * 60 * 60 * 1000 < Date.now()) {
+    return false;
+  }
   return user?.plan === 'PRO' || user?.plan === 'BUSINESS';
 }
 
@@ -29,12 +36,13 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: 'bad request' }, { status: 400 });
   }
-  const category = body.category as Category | undefined;
+  // `category` is the gate KEY — usually a Category, sometimes a per-tool id.
+  const category = body.category as string | undefined;
   const action: Action = body.action === 'consume' ? 'consume' : 'status';
   if (!category) return NextResponse.json({ error: 'category required' }, { status: 400 });
 
-  // Ungated category, or Pro account → always free, never metered.
-  if (!isGated(category) || (await isPro())) {
+  // Ungated key, or Pro account → always free, never metered.
+  if (!isGatedKey(category) || (await isPro())) {
     return NextResponse.json({ gate: 'free', allowed: true, unlimited: true });
   }
 

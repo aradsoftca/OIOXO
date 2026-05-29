@@ -34,6 +34,12 @@ const ISO3: Record<string, string> = {
   ru: 'rus', zh: 'cmn_Hans', ja: 'jpn', ko: 'kor', hi: 'hin', tr: 'tur', nl: 'nld',
   pl: 'pol', uk: 'ukr', fa: 'pes', he: 'heb', el: 'ell', vi: 'vie', id: 'ind',
   sv: 'swe', cs: 'ces', ro: 'ron', hu: 'hun', fi: 'fin', da: 'dan', no: 'nno',
+  // extended set (en→target token for opus-mt-en-mul; pivots through English).
+  bg: 'bul', hr: 'hrv', sr: 'srp', sk: 'slk', sl: 'slv', lt: 'lit', lv: 'lav',
+  et: 'est', is: 'isl', ca: 'cat', gl: 'glg', sq: 'sqi', mk: 'mkd', af: 'afr',
+  sw: 'swh', ms: 'msa', tl: 'tgl', bn: 'ben', ta: 'tam', te: 'tel', ur: 'urd',
+  mr: 'mar', gu: 'guj', pa: 'pan', ml: 'mal', kn: 'kan', hy: 'hye', ka: 'kat',
+  az: 'aze', kk: 'kaz',
 };
 
 // Unicode script ranges → a likely language, for detection without a model.
@@ -130,7 +136,7 @@ const pipes = new Map<string, Promise<Translator | null>>();
 
 async function opusPipe(modelId: string): Promise<Translator | null> {
   if (!pipes.has(modelId)) {
-    pipes.set(modelId, (async () => {
+    const p = (async () => {
       try {
         const lib = await import('@xenova/transformers');
         lib.env.allowLocalModels = false;
@@ -140,7 +146,15 @@ async function opusPipe(modelId: string): Promise<Translator | null> {
         const pipe = await lib.pipeline('translation', `Xenova/${modelId}`, { quantized: true });
         return pipe as unknown as Translator;
       } catch { return null; }
-    })());
+    })();
+    pipes.set(modelId, p);
+    // If the model couldn't load (network blip, missing per-language model,
+    // out of memory on a small device), drop the cache entry so we don't
+    // permanently disable translation for this pair — next call retries.
+    // Previously the user got "Translation unavailable" for the rest of the
+    // session even after the network recovered.
+    p.then((v) => { if (v == null) pipes.delete(modelId); })
+     .catch(() => { pipes.delete(modelId); });
   }
   return pipes.get(modelId)!;
 }
@@ -185,9 +199,15 @@ export async function translate(text: string, from: string, to: string): Promise
   if (viaBergamot) return viaBergamot;
   if (to === 'en') return opusToEnglish(t, from);
   if (from === 'en') return opusFromEnglish(t, to);
-  // Arbitrary pair: pivot through English so we only need en↔x models.
-  const en = await opusToEnglish(t, from);
-  return en ? opusFromEnglish(en, to) : null;
+  // Arbitrary pair (e.g. ar→fa): pivot through English, but use the BEST engine
+  // available at EACH hop — not Opus-only. On Chrome this routes ar→en and en→fa
+  // through the browser's on-device model (good) instead of collapsing the whole
+  // pivot onto Opus-MT (whose Persian/Arabic output is archaic + error-compounded).
+  // Recursing through translate() re-runs the full cascade for each hop; the
+  // recursive calls hit the to==='en' / from==='en' branches, so no infinite loop.
+  const en = await translate(t, from, 'en');
+  if (!en) return null;
+  return translate(en, 'en', to);
 }
 
 /** Detect + translate to English. Returns the English text and source language. */

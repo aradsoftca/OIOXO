@@ -15,12 +15,14 @@ interface Props {
   error?: string;
   /** When set, the click is metered through the freemium gate for this category. */
   gateCategory?: Category;
+  /** Input file size (bytes) — enables the free-tier size gate for this action. */
+  gateBytes?: number;
 }
 
-export function FfmpegRunButton({ colorVar, busy, progress, disabled = false, label, busyLabel, onClick, error, gateCategory }: Props) {
+export function FfmpegRunButton({ colorVar, busy, progress, disabled = false, label, busyLabel, onClick, error, gateCategory, gateBytes }: Props) {
   const { guard, gate } = useUsageGate(gateCategory ?? 'video');
   const handleClick = async () => {
-    if (gateCategory && !(await guard())) return;
+    if (gateCategory && !(await guard(gateBytes != null ? { bytes: gateBytes } : undefined))) return;
     onClick();
   };
   return (

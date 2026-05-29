@@ -35,9 +35,15 @@ export default function Tool() {
 
   const copy = async () => {
     if (!code) return;
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      // Clipboard write can reject (no user-activation context, denied
+      // permissions). Suppress the unhandled rejection — the user can still
+      // read the code on screen.
+    }
   };
 
   const ratio = remaining / period;

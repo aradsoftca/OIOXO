@@ -22,7 +22,14 @@ function read(): RecentMap {
   if (typeof window === 'undefined') return {};
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as RecentMap) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    // Defensive: a browser extension or older code could have written a
+    // non-object shape (null, array, string). Without this guard the next
+    // call to setRecent / getRecent crashes on `parsed[toolId]` and every
+    // tile that reads recents stays broken until localStorage is cleared.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return parsed as RecentMap;
   } catch {
     return {};
   }
@@ -42,6 +49,9 @@ function write(map: RecentMap) {
     });
     try {
       localStorage.setItem(KEY, JSON.stringify(kept));
+      // Notify listeners — without this, tiles keep showing the pre-prune
+      // state until the next successful write happens to fire the event.
+      window.dispatchEvent(new CustomEvent('xonvert:recent-update'));
     } catch {
       // give up
     }

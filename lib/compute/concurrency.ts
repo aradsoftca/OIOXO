@@ -79,12 +79,23 @@ export async function mapWithConcurrency<T, R>(
   const results = new Array<R>(items.length);
   let next = 0;
   let completed = 0;
+  // When one worker throws, Promise.all rejects but the OTHER workers would
+  // happily keep grinding through items in the background — wasted CPU, and
+  // potentially DB/network side effects after the caller already moved on.
+  // This flag short-circuits sibling lanes on first failure.
+  let failed = false;
   const lanes = Math.max(1, Math.min(limit, items.length));
 
   async function worker() {
     while (next < items.length) {
+      if (failed) return;
       const i = next++;
-      results[i] = await fn(items[i], i);
+      try {
+        results[i] = await fn(items[i], i);
+      } catch (e) {
+        failed = true;
+        throw e;
+      }
       completed++;
       onSettled?.(completed);
     }

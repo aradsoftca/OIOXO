@@ -16,11 +16,13 @@
 
 import crypto from 'node:crypto';
 
-const SECRET = process.env.POW_SECRET || 'dev-insecure-pow-secret-change-me';
+// Hard-fail at module load if POW_SECRET is missing in production. With a
+// known fallback the gate is trivially bypassable (anyone reading the source
+// can mint valid tokens). Matches middleware.ts which checks the same way.
 if (!process.env.POW_SECRET && process.env.NODE_ENV === 'production') {
-  // Loud, but don't crash — the gate still works, just with a known secret.
-  console.warn('[pow] POW_SECRET is not set — using an insecure default. Set it in production.');
+  throw new Error('POW_SECRET must be set in production — see lib/pow.ts');
 }
+const SECRET = process.env.POW_SECRET || 'dev-insecure-pow-secret-change-me';
 
 export const CHALLENGE_TTL_MS = 2 * 60_000;
 export const TOKEN_TTL_MS = 30 * 60_000;
@@ -50,15 +52,13 @@ function timingSafeEqHex(a: string, b: string): boolean {
 
 // Adaptive difficulty: track how many challenges an IP asks for per minute and
 // ramp the cost so a real user stays near-instant while a flood gets harder.
-const issued = new Map<string, { count: number; reset: number }>();
+// Bounded sweep lives in lib/rate-limit.
+import { bumpAndPeek, type Bucket as _Bucket } from './rate-limit';
+const issued = new Map<string, _Bucket>();
 function difficultyFor(ip: string): number {
-  const now = Date.now();
-  if (issued.size > 10_000) for (const [k, v] of issued) if (now > v.reset) issued.delete(k);
-  const e = issued.get(ip);
-  if (!e || now > e.reset) { issued.set(ip, { count: 1, reset: now + 60_000 }); return BASE_DIFFICULTY; }
-  e.count++;
+  const count = bumpAndPeek(issued, ip, { windowMs: 60_000, maxEntries: 10_000 });
   // +2 bits (4x cost) for every 10 challenges/min from the same IP.
-  return Math.min(MAX_DIFFICULTY, BASE_DIFFICULTY + Math.floor(e.count / 10) * 2);
+  return Math.min(MAX_DIFFICULTY, BASE_DIFFICULTY + Math.floor((count - 1) / 10) * 2);
 }
 
 export interface Challenge { salt: string; ts: number; difficulty: number; sig: string }

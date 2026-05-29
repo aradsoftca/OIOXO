@@ -1,11 +1,21 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BRAND } from '@/lib/brand';
+import { buildMeta } from '@/lib/seo/meta';
 
-export const metadata: Metadata = {
-  title: 'Supported formats',
+export const metadata: Metadata = buildMeta({
+  path: '/formats',
+  title: `Supported file formats — ${BRAND}`,
   description: `Every file format ${BRAND} can convert, compress, view, and edit — images, audio, video, documents, ebooks, archives, 3D, fonts, and subtitles.`,
-};
+  keywords: [
+    'supported file formats',
+    'png jpg webp avif conversion',
+    'mp3 wav flac ogg conversion',
+    'mp4 webm mov mkv conversion',
+    'pdf docx xlsx pptx conversion',
+    'browser file format support',
+  ],
+});
 
 const GROUPS: { cat: string; colorVar: string; note: string; formats: string[] }[] = [
   { cat: 'Images', colorVar: '--color-cat-image', note: 'Convert, compress, resize, and edit.', formats: ['PNG', 'JPG', 'WEBP', 'AVIF', 'GIF', 'SVG', 'BMP', 'ICO', 'TIFF', 'HEIC'] },

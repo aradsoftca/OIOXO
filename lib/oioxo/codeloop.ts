@@ -37,6 +37,10 @@ export interface GenContext {
   error?: string;
   /** 0 = first draft, 1.. = repairs. */
   attempt: number;
+  /** Adaptive-search effort (Gem 2): 0 normally, climbing each time the loop is
+   *  STUCK on the same error. The generator uses it to vary harder — raise
+   *  temperature, pull more bricks — so repeated proposals genuinely differ. */
+  effort?: number;
 }
 
 export type GenerateFn = (ctx: GenContext) => Promise<Edit[]>;
@@ -54,6 +58,10 @@ export interface LoopOptions {
    *  model calls for correctness — the deterministic form of the conductor's RANK
    *  role. Default 1 (single draft, unchanged behavior). */
   candidates?: number;
+  /** Gem 2 — adaptive search cap: when STUCK on the same error, candidates ramp
+   *  from `candidates` up to this (one more per repeated error). Default = no ramp
+   *  (equals `candidates`). Trades model calls for correctness only where needed. */
+  maxCandidates?: number;
   generate: GenerateFn;
   run: RunFn;
   /** Progress hook (UI: show each attempt's result). */
@@ -139,7 +147,11 @@ function better(a: RunResult, b: RunResult | null): boolean {
 export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   const cmd = opts.testCmd ?? 'npm test';
   const maxIters = Math.max(1, opts.maxIters ?? 5);
-  const nCand = Math.max(1, opts.candidates ?? 1);
+  const baseCand = Math.max(1, opts.candidates ?? 1);
+  // Gem 2 — adaptive search: when stuck on the same error, draw MORE candidates
+  // (up to maxCandidates) so the device's free verification searches wider exactly
+  // where a single shot fails. Off by default (maxCandidates falls back to base).
+  const maxCand = Math.max(baseCand, opts.maxCandidates ?? baseCand);
   let files = [...opts.files];
   let last: RunResult = { ok: false, output: '', errors: '' };
   const history: { attempt: number; ok: boolean }[] = [];
@@ -147,11 +159,20 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
   const searchAfter = opts.searchAfter ?? 2;
   const searched = new Set<string>();
   let engineError: string | undefined;
+  let prevErrKey = '';
+  let stuck = 0;
 
   for (let attempt = 0; attempt < maxIters; attempt++) {
     if (opts.signal?.aborted) { opts.onNote?.('\n■ stopped\n'); break; }
     const filesBefore = files;
-    let error = attempt === 0 ? undefined : last.errors;
+    const rawErr = attempt === 0 ? undefined : last.errors;
+    // Stuck = the SAME error survived the last attempt → escalate effort/search.
+    const errKey = (rawErr ?? '').slice(0, 160);
+    stuck = errKey && errKey === prevErrKey ? stuck + 1 : 0;
+    prevErrKey = errKey;
+    const nCand = Math.min(maxCand, baseCand + stuck);
+    if (stuck > 0 && nCand > baseCand) opts.onNote?.(`\n· stuck — searching wider (${nCand} candidates)\n`);
+    let error = rawErr;
     // An engine/GPU failure is not a code problem — don't recall, don't search,
     // don't keep retrying; abort so the caller can surface it clearly.
     if (isEngineError(error)) { engineError = error; opts.onNote?.('\n■ on-device model error — stopping\n'); break; }
@@ -180,7 +201,7 @@ export async function runCodeLoop(opts: LoopOptions): Promise<LoopResult> {
       let edits: Edit[] = [];
       let res: RunResult;
       try {
-        edits = (await opts.generate({ task: opts.task, files: filesBefore, error, attempt })) ?? [];
+        edits = (await opts.generate({ task: opts.task, files: filesBefore, error, attempt, effort: stuck })) ?? [];
         cand = edits.length ? applyEdits(filesBefore, edits) : filesBefore;
         res = await opts.run(cand, cmd);
       } catch (e) {

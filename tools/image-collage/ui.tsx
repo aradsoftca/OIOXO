@@ -43,7 +43,13 @@ export default function ImageCollageTool() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { items.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); }, [items]);
+  // Only free resources on UNMOUNT. With [items] this fired on every add, so
+  // the URLs and bitmaps of items still on screen were freed under us.
+  const itemsRef = React.useRef<typeof items>([]);
+  React.useEffect(() => { itemsRef.current = items; }, [items]);
+  React.useEffect(() => () => {
+    itemsRef.current.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); });
+  }, []);
 
   const layout = LAYOUTS.find((l) => l.id === layoutId)!;
   const cellCount = layout.rows * layout.cols;
@@ -119,12 +125,13 @@ export default function ImageCollageTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `collage-${layoutId}.png`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
 

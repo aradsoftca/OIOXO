@@ -5,6 +5,11 @@ import { Download, Upload, Image as ImageIcon, Loader2, ArrowLeftRight, Wand2 } 
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { removeBackground, type BgRemoveQuality } from '@/engines/image';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'image-remove-bg';
 
 type BackdropKind = 'transparent' | 'solid' | 'gradient';
 interface Backdrop {
@@ -52,6 +57,8 @@ function backdropCss(b: Backdrop): React.CSSProperties {
 }
 
 export default function RemoveBackgroundTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = React.useState<string>('');
   const [outputBlob, setOutputBlob] = React.useState<Blob | null>(null);
@@ -69,15 +76,21 @@ export default function RemoveBackgroundTool() {
   const stageRef = React.useRef<HTMLDivElement>(null);
   const draggingCompareRef = React.useRef(false);
 
-  React.useEffect(() => {
-    return () => {
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-      if (outputUrl) URL.revokeObjectURL(outputUrl);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // Ref-mirror so unmount cleanup reads CURRENT URLs, not the empty ones
+  // captured at first render (the previous eslint-ignored deps version
+  // leaked both loaded source and output URLs on every navigation away).
+  const sourceUrlRef = React.useRef('');
+  const outputUrlRef = React.useRef('');
+  React.useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+  React.useEffect(() => { outputUrlRef.current = outputUrl; }, [outputUrl]);
+  React.useEffect(() => () => {
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
+    if (outputUrlRef.current) URL.revokeObjectURL(outputUrlRef.current);
   }, []);
 
   const run = React.useCallback(async (target: File) => {
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', target.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     setRunning(true);
     setProgress({ phase: 'Preparing', ratio: 0 });
     try {
@@ -103,7 +116,7 @@ export default function RemoveBackgroundTool() {
       setRunning(false);
       setProgress(null);
     }
-  }, [outputUrl, quality]);
+  }, [outputUrl, quality, isPro, policyGate]);
 
   const loadFile = React.useCallback(async (next: File) => {
     if (!next.type.startsWith('image/')) return;
@@ -164,16 +177,18 @@ export default function RemoveBackgroundTool() {
     const ext = backdrop.kind === 'transparent' ? 'png' : 'png';
     const base = file.name.replace(/\.[^.]+$/, '');
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = `${base}-no-bg.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      {policyGate.element}
       {/* Stage */}
       <div
         ref={stageRef}

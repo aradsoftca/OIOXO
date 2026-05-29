@@ -29,7 +29,10 @@ export default function ClipboardApp() {
       onState: setState,
       onMessage: (data) => {
         if (data?.type === 'text' && typeof data.text === 'string') {
-          setItems((prev) => [{ id: idRef.current++, text: data.text, mine: false }, ...prev].slice(0, 50));
+          // Cap inbound text length — a malicious peer could send a 10MB
+          // string and freeze the receiver's UI trying to render it.
+          const text = data.text.length > 200_000 ? data.text.slice(0, 200_000) + '…' : data.text;
+          setItems((prev) => [{ id: idRef.current++, text, mine: false }, ...prev].slice(0, 50));
         }
       },
     });
@@ -46,8 +49,14 @@ export default function ClipboardApp() {
   }, [role, link]);
 
   const sendText = (text: string) => {
-    const t = text.trim();
-    if (!t || !peerRef.current?.send({ type: 'text', text: t })) return;
+    const raw = text.trim();
+    if (!raw) return;
+    // Cap the OUTBOUND text too. The receiver caps inbound at 200KB, but
+    // without a sender cap, pasting a multi-megabyte clipboard (e.g. a giant
+    // base64 image) freezes THIS browser when we push the full string into
+    // `items` and render it in the DOM.
+    const t = raw.length > 200_000 ? raw.slice(0, 200_000) + '…' : raw;
+    if (!peerRef.current?.send({ type: 'text', text: t })) return;
     setItems((prev) => [{ id: idRef.current++, text: t, mine: true }, ...prev].slice(0, 50));
     setDraft('');
   };
@@ -61,7 +70,10 @@ export default function ClipboardApp() {
     try { await navigator.clipboard.writeText(it.text); setCopiedId(it.id); setTimeout(() => setCopiedId(null), 1400); } catch { /* */ }
   };
 
-  const copyLink = () => { void navigator.clipboard?.writeText(link); setCopiedLink(true); setTimeout(() => setCopiedLink(false), 1600); };
+  const copyLink = () => {
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
+    setCopiedLink(true); setTimeout(() => setCopiedLink(false), 1600);
+  };
 
   const connected = state === 'connected';
 

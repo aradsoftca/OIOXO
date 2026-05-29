@@ -11,9 +11,10 @@ import { CATEGORIES } from '@/lib/registry/types';
 import { stageHandoff } from '@/lib/ai/handoff';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
+import { freeSizeLabel } from '@/lib/usage/benefits';
 
 const CAT_LABEL: Record<ConvCategory, string> = {
-  image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation',
+  image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation', text: 'text file', archive: 'archive', calendar: 'calendar / contacts', email: 'email', certificate: 'certificate / key',
 };
 
 export default function ConvertAnythingTool() {
@@ -43,7 +44,7 @@ export default function ConvertAnythingTool() {
 
   const run = async (target: Target) => {
     if (!file) return;
-    if (!(await guard())) return;
+    if (!(await guard({ bytes: file.size }))) return;
     setActive(target); setBusy(true); setError(''); setProgress(0);
     if (result?.url) URL.revokeObjectURL(result.url);
     setResult(null);
@@ -76,11 +77,22 @@ export default function ConvertAnythingTool() {
   const download = () => {
     if (!result) return;
     let url = result.url;
-    if (!url && result.text != null) url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain' }));
+    // If we build the URL on demand for a text-only output, remember to
+    // revoke it after the download fires. The persistent `result.url` case
+    // is already managed by the cleanup useEffect.
+    let createdHere = false;
+    if (!url && result.text != null) {
+      url = URL.createObjectURL(new Blob([result.text], { type: 'text/plain' }));
+      createdHere = true;
+    }
     if (!url) return;
     const a = document.createElement('a');
     a.href = url; a.download = result.filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    // 60s defer — 4s was occasionally too short on slow mobile networks where
+    // the download dialog opens late and the browser aborts the saved file
+    // when the blob URL is torn down before the stream starts.
+    if (createdHere) { const u = url; setTimeout(() => URL.revokeObjectURL(u), 60_000); }
   };
 
   return (
@@ -100,6 +112,7 @@ export default function ConvertAnythingTool() {
               Drop a file — see everything you can do with it
             </button>
             <p className="mt-1 text-[13px] text-[var(--color-fg-muted)]">Convert it to any format, or open it in the right tool — edit, compress, extract. Files never leave your device.</p>
+            <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">1 free conversion/day · {freeSizeLabel('convert')} · <a href="/limits" className="underline underline-offset-2">see all limits</a></p>
           </div>
           <input ref={inputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
         </div>

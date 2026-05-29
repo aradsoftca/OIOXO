@@ -1,12 +1,24 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { TileIcon } from '@/components/tiles/TileIcon';
-import { BRAND } from '@/lib/brand';
+import { BRAND, IS_OIOXO } from '@/lib/brand';
+import { buildMeta } from '@/lib/seo/meta';
+import { faqPageJsonLd, structuredDataToScript } from '@/lib/seo/jsonld';
 
-export const metadata: Metadata = {
-  title: 'Help & FAQ',
-  description: `Answers to common questions about ${BRAND} — pricing, privacy, file formats, Pro, and more.`,
-};
+export const metadata: Metadata = buildMeta({
+  path: '/help',
+  title: `${BRAND} Help & FAQ — pricing, privacy, formats, Pro`,
+  description: IS_OIOXO
+    ? `Answers about ${BRAND}: how the on-device AI works, what Pro unlocks, file privacy, browser requirements, billing.`
+    : `Answers about ${BRAND}: pricing, file privacy, supported formats, what Pro unlocks, browser requirements, billing.`,
+  keywords: [
+    `${BRAND.toLowerCase()} help`,
+    `${BRAND.toLowerCase()} faq`,
+    `${BRAND.toLowerCase()} support`,
+    `${BRAND.toLowerCase()} pricing faq`,
+    `${BRAND.toLowerCase()} privacy faq`,
+  ],
+});
 
 const FAQ: { q: string; a: React.ReactNode }[] = [
   {
@@ -55,6 +67,20 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
   },
 ];
 
+const FAQ_PLAIN: { q: string; a: string }[] = [
+  { q: `Is ${BRAND} free?`, a: `Yes. Most tools are free to use. Heavier categories (image, audio, video, PDF, convert) give you a free action per day, then a short wait — or upgrade to Pro for unlimited use across everything.` },
+  { q: 'Are my files uploaded to your servers?', a: `No. ${BRAND} processes your files entirely in your browser — they never leave your device. The only exception is the optional "Pro Quality" feature for heavy jobs, which you turn on explicitly.` },
+  { q: 'Do I need an account?', a: `No account is needed for the everyday tools. You only need to sign up to subscribe to Pro or manage billing.` },
+  { q: 'How do the free limits work?', a: `For metered categories you get one free action per day. After that, you can wait ~30 seconds for another, or go Pro for unlimited use. Limits reset daily.` },
+  { q: 'What does Pro include?', a: `Unlimited use of every tool with no waits, across the whole platform.` },
+  { q: 'How do I cancel my subscription?', a: `Open your account and use "Manage billing". You keep Pro until the end of the period you've paid for. Refunds follow our refund policy.` },
+  { q: 'Which file formats are supported?', a: `Hundreds — across images, audio, video, PDF, documents, and more. Browse all tools or the converter to see what a given file can become.` },
+  { q: 'Can I view a file without converting it?', a: `Yes — use the Universal Viewer to open images, PDFs, video, audio, text, code, JSON, and CSV right in your browser.` },
+  { q: 'Does it work offline?', a: `Many tools keep working offline once the page has loaded, since processing happens on your device. Tools that fetch live data (network lookups) need a connection.` },
+  { q: 'Is my payment secure?', a: `Yes. Card payments are handled by Stripe and crypto by NOWPayments — we never see or store your card number.` },
+  { q: 'I found a bug or need help.', a: `Open a ticket on the support page and we will reply by email.` },
+];
+
 export default function HelpPage() {
   return (
     <div className="mx-auto w-[min(760px,94vw)] py-6">
@@ -89,6 +115,10 @@ export default function HelpPage() {
           Contact support
         </Link>
       </div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: structuredDataToScript(faqPageJsonLd(FAQ_PLAIN)) }}
+      />
     </div>
   );
 }

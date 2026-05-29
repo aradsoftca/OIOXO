@@ -36,7 +36,7 @@ function renderTextPng(text: string, fontSize: number, color: string, bgEnabled:
   }
   ctx.fillStyle = color;
   ctx.fillText(text, w / 2, h / 2);
-  return new Promise((resolve) => c.toBlob((b) => resolve(b!), 'image/png'));
+  return new Promise((resolve, reject) => c.toBlob((b) => b ? resolve(b) : reject(new Error('Could not render text overlay')), 'image/png'));
 }
 
 export default function Tool() {

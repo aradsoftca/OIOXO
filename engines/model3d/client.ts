@@ -4,6 +4,7 @@
  * in-engine path when Workers aren't available.
  */
 import { workerOnce, canUseWorker } from '@/lib/compute/workerOnce';
+import { loadProtectedWorker } from '@/lib/protect/protected-worker';
 import { convertModel, type Model3dResult, type Model3dTarget } from './index';
 
 export async function convertModelInWorker(
@@ -11,7 +12,7 @@ export async function convertModelInWorker(
   target: Model3dTarget,
 ): Promise<Model3dResult> {
   if (!canUseWorker()) return convertModel(files, target);
-  const worker = new Worker(new URL('./model3d.worker.ts', import.meta.url));
+  const worker = await loadProtectedWorker('model3d');
   // Send copies so we don't detach the caller's buffers; transfer the copies.
   const payload = files.map((f) => ({ name: f.name, data: f.data.slice().buffer }));
   const res = await workerOnce<{ files: { name: string; data: ArrayBuffer }[] }>(

@@ -231,7 +231,11 @@ export function border(
   src: ImageData,
   opts: { width: number; color: string },
 ): ImageData {
-  const w = Math.max(0, Math.round(opts.width));
+  // Cap border width so a UI slider bug (or hostile params over the worker
+  // message channel) can't request a 200_000 px border and crash the tab
+  // attempting a multi-GB ImageData allocation. 4096 is far more than any
+  // sensible border use case.
+  const w = Math.max(0, Math.min(4096, Math.round(opts.width)));
   const [r, g, b] = hexToRgb(opts.color);
   const outW = src.width + w * 2;
   const outH = src.height + w * 2;

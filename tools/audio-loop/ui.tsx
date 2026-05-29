@@ -22,10 +22,22 @@ export default function AudioLoopTool() {
   const [error, setError] = React.useState('');
   const [previewUrl, setPreviewUrl] = React.useState('');
 
-  React.useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+  // Mirror previewUrl into a ref so the cleanup only fires on unmount —
+  // running it on every URL change worked here only because `preview()`
+  // already revokes inline, but the shape invites a future regression where
+  // the cleanup races with state updates and revokes the live URL.
+  const previewUrlRef = React.useRef('');
+  React.useEffect(() => { previewUrlRef.current = previewUrl; }, [previewUrl]);
+  React.useEffect(() => () => { if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current); }, []);
 
   const sourceDur = item?.info.duration ?? 0;
-  const repetitions = mode === 'count' ? count : Math.max(1, Math.ceil(targetSec / Math.max(0.01, sourceDur)));
+  // Cap repetitions so a very short source paired with the slider's 1-hour
+  // max can't OOM the tab. 4000 reps of a 1s clip is already 1+ hour of
+  // 16-bit stereo audio (~360 MB rendered) — well past anything useful.
+  const repetitions = Math.min(
+    4000,
+    mode === 'count' ? count : Math.max(1, Math.ceil(targetSec / Math.max(0.01, sourceDur))),
+  );
   const finalDur = mode === 'count' ? sourceDur * count : Math.min(targetSec, sourceDur * repetitions);
 
   const buildLoop = (): AudioBuffer | null => {

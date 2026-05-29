@@ -6,6 +6,7 @@
  */
 
 import { startJob, updateJob, endJob } from './progressBus';
+import { loadProtectedWorker } from '@/lib/protect/protected-worker';
 
 export interface AudioProgress { phase: string; ratio: number }
 
@@ -21,20 +22,25 @@ export async function encodeAudio(
 ): Promise<Blob> {
   startJob('Encoding');
   try {
-    return await mergeAudio([buffer], format, bitrate, (p) => { updateJob(p.phase, p.ratio); onProgress?.(p); });
+    const raw = await mergeAudio([buffer], format, bitrate, (p) => { updateJob(p.phase, p.ratio); onProgress?.(p); });
+    // File-level brand metadata (free → WAV LIST/INFO or MP3 ID3v1; Pro → unchanged).
+    try {
+      const { brandAudioBlob } = await import('@/lib/watermark/audio');
+      return await brandAudioBlob(raw);
+    } catch { return raw; }
   } finally {
     endJob();
   }
 }
 
 /** Concat + encode in the audio worker (WAV is fast; MP3 here uses lamejs). */
-function workerMerge(
+async function workerMerge(
   buffers: AudioBuffer[],
   format: 'wav' | 'mp3',
   bitrate: number,
   onProgress?: (p: AudioProgress) => void,
 ): Promise<Blob> {
-  const worker = new Worker(new URL('./audio.worker.ts', import.meta.url));
+  const worker = await loadProtectedWorker('audio');
   const tracks = buffers.map((ab) => {
     const channels: Float32Array[] = [];
     for (let c = 0; c < ab.numberOfChannels; c++) channels.push(new Float32Array(ab.getChannelData(c)));

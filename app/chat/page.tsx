@@ -1,6 +1,6 @@
 import * as React from 'react';
 import type { Metadata } from 'next';
-import ChatApp from './ChatApp';
+import ChatStudio from './ChatStudio';
 import { BRAND } from '@/lib/brand';
 
 export const metadata: Metadata = {
@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 export default function ChatPage() {
   return (
     <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
-      <ChatApp />
+      <ChatStudio />
     </React.Suspense>
   );
 }

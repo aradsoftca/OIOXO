@@ -6,6 +6,7 @@ import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { FetchUrlBar } from '@/components/tool/FetchUrlBar';
 import { useStagedInput } from '@/lib/ai/handoff';
+import { downloadBlob } from '@/lib/watermark/download';
 
 export interface TextToolControl {
   id: string;
@@ -90,22 +91,21 @@ export function TextTool({
 
   const copy = async () => {
     if (!output) return;
-    await navigator.clipboard.writeText(output);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard denied (iframe / insecure context) — silent */
+    }
   };
 
-  const download = () => {
+  const download = async () => {
     if (!output) return;
+    // Text content is left untouched (an in-body attribution would corrupt the
+    // user's result); the brand signature is the filename suffix for free users.
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${toolId}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    await downloadBlob(blob, toolId, 'txt');
   };
 
   const paste = async () => {

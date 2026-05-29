@@ -11,10 +11,12 @@ const TTL_MS = 6 * 60 * 60 * 1000; // 6 h
 
 interface FxData { base: 'EUR'; date: string; rates: Record<string, number> }
 let cache: { data: FxData; fetchedAt: number } | null = null;
+// Single-flight: without this, N concurrent stale-cache requests each issue
+// their own fetch to ECB — classic cache stampede that blows through ECB's
+// rate limit and wastes outbound bandwidth.
+let inflight: Promise<FxData> | null = null;
 
-async function loadRates(): Promise<FxData> {
-  if (cache && Date.now() - cache.fetchedAt < TTL_MS) return cache.data;
-
+async function fetchRates(): Promise<FxData> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 9000);
   let xml: string;
@@ -36,6 +38,13 @@ async function loadRates(): Promise<FxData> {
   const data: FxData = { base: 'EUR', date, rates };
   cache = { data, fetchedAt: Date.now() };
   return data;
+}
+
+async function loadRates(): Promise<FxData> {
+  if (cache && Date.now() - cache.fetchedAt < TTL_MS) return cache.data;
+  if (inflight) return inflight;
+  inflight = fetchRates().finally(() => { inflight = null; });
+  return inflight;
 }
 
 export async function GET(req: Request) {

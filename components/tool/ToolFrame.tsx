@@ -6,6 +6,7 @@ import { ArrowLeft, Share2, Pin } from 'lucide-react';
 import type { ToolManifest } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
 import { TileIcon } from '@/components/tiles/TileIcon';
+import { UsageMeter } from '@/components/usage/UsageMeter';
 import { togglePin, getPins } from '@/lib/storage/pins';
 import { cn } from '@/lib/cn';
 
@@ -115,10 +116,12 @@ export function ToolFrame({ tool, children }: ToolFrameProps) {
                 const nav = navigator as Navigator & {
                   share?: (data: { url?: string; title?: string }) => Promise<void>;
                 };
+                // Both rejections are normal flows (user cancelled the
+                // share sheet, clipboard permission denied) — swallow them.
                 if (nav.share) {
-                  void nav.share({ url: window.location.href, title: tool.name });
+                  nav.share({ url: window.location.href, title: tool.name }).catch(() => { /* */ });
                 } else {
-                  void nav.clipboard?.writeText(window.location.href);
+                  nav.clipboard?.writeText(window.location.href).catch(() => { /* */ });
                 }
               }}
             >
@@ -128,7 +131,10 @@ export function ToolFrame({ tool, children }: ToolFrameProps) {
         </div>
       </header>
 
-      <div className="relative z-10">{children}</div>
+      <div className="relative z-10">
+        <UsageMeter category={tool.category} toolId={tool.id} />
+        {children}
+      </div>
     </div>
   );
 }

@@ -4,6 +4,9 @@ import * as React from 'react';
 import { Upload, X, Download, Loader2 } from 'lucide-react';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { mapWithConcurrency } from '@/lib/compute/concurrency';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
 
 export interface BatchItem {
   file: File;
@@ -19,9 +22,14 @@ export interface BatchImageProps {
   zipName: string;
   cta?: string;
   accept?: string;
+  /** Tool-specific policy key (e.g. 'image-batch-resize'). When set, the
+   * batch+input-size levers from that policy are enforced. */
+  policyKey?: string;
 }
 
-export function BatchImage({ controls, process, zipName, cta = 'Process all → ZIP', accept = 'image/*' }: BatchImageProps) {
+export function BatchImage({ controls, process, zipName, cta = 'Process all → ZIP', accept = 'image/*', policyKey }: BatchImageProps) {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [items, setItems] = React.useState<BatchItem[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null);
@@ -29,7 +37,17 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
   const inputRef = React.useRef<HTMLInputElement>(null);
   const { guard, gate } = useUsageGate('image');
 
-  React.useEffect(() => () => { items.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); }, [items]);
+  // Track the live items list in a ref so the UNMOUNT cleanup can free
+  // resources without freeing them on every re-render. Previously the cleanup
+  // depended on `items`, so adding a new image revoked the URLs and closed the
+  // bitmaps of every existing item — thumbnails went broken and processing
+  // failed because the bitmaps were already detached.
+  // Per-item cleanup on remove/clear is handled inline in those handlers.
+  const itemsRef = React.useRef<BatchItem[]>([]);
+  React.useEffect(() => { itemsRef.current = items; }, [items]);
+  React.useEffect(() => () => {
+    itemsRef.current.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); });
+  }, []);
 
   const add = async (files: FileList | File[]) => {
     setError('');
@@ -50,7 +68,18 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
 
   const run = async () => {
     if (!items.length) return;
-    if (!(await guard())) return;
+    // Compute the largest input size once via a fold — Math.max(...arr) blows
+    // V8's argument-count stack on a 10k+ folder-drop.
+    let maxBytes = 0;
+    for (const it of items) if (it.file.size > maxBytes) maxBytes = it.file.size;
+    if (policyKey) {
+      const batchHit = checkLever(policyKey, 'batch', items.length, isPro);
+      if (batchHit) { policyGate.fire(batchHit); return; }
+      const sizeHit = checkLever(policyKey, 'input-size', maxBytes, isPro);
+      if (sizeHit) { policyGate.fire(sizeHit); return; }
+    }
+    // Gate on the largest image in the batch (each is processed individually).
+    if (!(await guard({ bytes: maxBytes }))) return;
     setBusy(true); setError(''); setProgress({ done: 0, total: items.length });
     try {
       const { default: JSZip } = await import('jszip');
@@ -71,10 +100,14 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
       }
       const blob = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = zipName;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke — mobile Safari/Firefox can abort the download if the
+      // blob URL is torn down before the stream starts. For large batch
+      // zips this is particularly important since download starts later.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -85,6 +118,7 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
   return (
     <div className="space-y-4">
       {gate}
+      {policyGate.element}
       <div
         onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) void add(e.dataTransfer.files); }}
         onDragOver={(e) => e.preventDefault()}

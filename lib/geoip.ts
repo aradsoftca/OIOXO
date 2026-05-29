@@ -18,7 +18,11 @@ const DIR = process.env.GEOIP_DIR || path.join(process.cwd(), 'data', 'geoip');
 
 let cityReader: Reader<CityResponse> | null = null;
 let asnReader: Reader<AsnResponse> | null = null;
-let loaded = false;
+// In-flight load promise (not a boolean): without this, two concurrent
+// load() calls race — the first sets loaded=true and starts the async work,
+// the second sees loaded=true and returns immediately, then proceeds to
+// query a still-null reader.
+let loadingP: Promise<void> | null = null;
 
 /** Newest .mmdb in DIR whose name matches re, or null. */
 async function findDb(re: RegExp): Promise<string | null> {
@@ -35,13 +39,18 @@ export async function geoipReady(): Promise<boolean> {
 }
 
 async function load(): Promise<void> {
-  if (loaded) return;
-  loaded = true;
-  const maxmind = await import('maxmind');
-  const cityPath = await findDb(/city/);
-  const asnPath = await findDb(/asn/);
-  if (cityPath) cityReader = await maxmind.open<CityResponse>(cityPath);
-  if (asnPath) asnReader = await maxmind.open<AsnResponse>(asnPath);
+  if (loadingP) return loadingP;
+  loadingP = (async () => {
+    const maxmind = await import('maxmind');
+    const cityPath = await findDb(/city/);
+    const asnPath = await findDb(/asn/);
+    if (cityPath) cityReader = await maxmind.open<CityResponse>(cityPath);
+    if (asnPath) asnReader = await maxmind.open<AsnResponse>(asnPath);
+  })();
+  // Drop the cached promise on failure so the next call retries (e.g., a
+  // disk hiccup or missing file that gets fixed without a redeploy).
+  loadingP.catch(() => { loadingP = null; });
+  return loadingP;
 }
 
 export interface GeoResult {

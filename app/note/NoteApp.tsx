@@ -77,7 +77,10 @@ function Create() {
     finally { setBusy(false); }
   };
 
-  const copy = () => { void navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const copy = () => {
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
+    setCopied(true); setTimeout(() => setCopied(false), 1600);
+  };
 
   return (
     <Shell>
@@ -130,17 +133,30 @@ function Read({ id }: { id: string }) {
         const res = await fetch(`/api/note?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
         if (res.status === 404) { setState('gone'); return; }
         if (!res.ok) { setState('error'); return; }
-        const { ct, iv, oneTime: ot } = await res.json();
+        const { ct, iv, oneTime: ot, burnToken } = await res.json();
         setOneTime(!!ot);
         const key = await crypto.subtle.importKey('raw', fromB64url(keyB64), { name: 'AES-GCM' }, false, ['decrypt']);
         const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(fromB64url(iv)) }, key, fromB64url(ct));
         setText(new TextDecoder().decode(plain));
         setState('ok');
+        // Confirm the burn now that we know decrypt succeeded. If the key
+        // fragment was stripped by a chat client, decrypt throws and we
+        // skip this — the server will sweep the staged burn after 30s.
+        if (burnToken) {
+          void fetch(`/api/note?id=${encodeURIComponent(id)}&token=${encodeURIComponent(burnToken)}`, { method: 'DELETE' }).catch(() => { /* */ });
+        }
       } catch { setState('error'); }
     })();
   }, [id]);
 
-  const copy = () => { void navigator.clipboard?.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); };
+  const copy = () => {
+    // Catch the rejection: clipboard.writeText rejects on permission denied
+    // (iframe / insecure context) and would surface as an unhandled promise
+    // rejection. The visual "Copied" state is best-effort either way.
+    navigator.clipboard?.writeText(text).catch(() => { /* */ });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1400);
+  };
 
   return (
     <Shell>

@@ -15,7 +15,7 @@
  * by the same factor for the preview so the downscaled result matches export.
  */
 
-import { decode, encode } from '../../engines/image/codec';
+import { decode, encode, setWatermark } from '../../engines/image/codec';
 import { OPS } from '../../engines/image/ops';
 
 type In =
@@ -80,6 +80,9 @@ function scaleParams(op: string, params: Record<string, unknown>, scale: number)
 
 ctx.onmessage = async (e: MessageEvent<In>) => {
   const m = e.data;
+  // Init from the loader: Pro session → turn the engine's brand stamp OFF (encode
+  // watermarks by default, so free needs no message). Produces no output.
+  if ((m as { __wmInit?: boolean }).__wmInit) { if ((m as { pro?: boolean }).pro) setWatermark(null); return; }
   try {
     if (m.type === 'load') {
       const { data } = await decode(m.blob);

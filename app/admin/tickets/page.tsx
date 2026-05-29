@@ -24,6 +24,7 @@ export default function AdminTicketsPage() {
   const [reply, setReply] = React.useState('');
   const [status, setStatus] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [sendError, setSendError] = React.useState('');
 
   const load = React.useCallback(() => {
     const q = filter ? `?status=${filter}` : '';
@@ -43,14 +44,27 @@ export default function AdminTicketsPage() {
   async function send() {
     if (!sel) return;
     setBusy(true);
-    await fetch(`/api/admin/tickets/${sel.id}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ message: reply.trim() || undefined, status: status !== sel.status ? status : undefined }),
-    });
-    setBusy(false);
-    await open(sel.id);
-    load();
+    setSendError('');
+    try {
+      const r = await fetch(`/api/admin/tickets/${sel.id}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: reply.trim() || undefined, status: status !== sel.status ? status : undefined }),
+      });
+      if (!r.ok) {
+        // Without an error path, a failed reply (network blip, 5xx) was
+        // silently dropped — the admin saw the spinner stop, watched the
+        // reply textbox clear on reload, and assumed it sent.
+        setSendError(`Send failed (HTTP ${r.status}). Try again — your text is preserved below.`);
+        return;
+      }
+      await open(sel.id);
+      load();
+    } catch {
+      setSendError('Network error. Try again — your text is preserved below.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (forbidden) {
@@ -143,6 +157,7 @@ export default function AdminTicketsPage() {
                   {busy ? 'Sending…' : reply.trim() ? 'Send reply + update' : 'Update status'}
                 </button>
               </div>
+              {sendError && <div className="text-[12px] font-medium text-[var(--color-cat-pdf)]">{sendError}</div>}
             </div>
           )}
         </div>

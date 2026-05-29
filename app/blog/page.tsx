@@ -1,12 +1,36 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { POSTS } from '@/lib/blog/posts';
-import { BRAND } from '@/lib/brand';
+import { BRAND, BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
+import { buildMeta } from '@/lib/seo/meta';
+import { structuredDataToScript } from '@/lib/seo/jsonld';
 
-export const metadata: Metadata = {
-  title: 'Blog',
-  description: `Guides and notes from ${BRAND} — file formats, privacy-first tools, and how to get more done in your browser.`,
-};
+export const metadata: Metadata = buildMeta({
+  path: '/blog',
+  title: IS_OIOXO ? `${BRAND} Blog — on-device AI guides, notes, releases` : `${BRAND} Blog — guides and notes`,
+  description: IS_OIOXO
+    ? `Notes from ${BRAND}: how on-device AI works, model release notes, browser AI capability guides, privacy deep-dives.`
+    : `Guides and notes from ${BRAND} — file formats, privacy-first tools, and how to get more done in your browser.`,
+  keywords: IS_OIOXO
+    ? ['on-device ai blog', 'webgpu ai guides', 'private ai notes', 'browser ai release notes']
+    : ['file format guides', 'privacy-first tools', 'browser productivity', 'convert tools blog'],
+});
+
+function buildBlogItemList() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Blog',
+    name: `${BRAND} Blog`,
+    url: `https://${BRAND_DOMAIN}/blog`,
+    blogPost: POSTS.map((p) => ({
+      '@type': 'BlogPosting',
+      headline: p.title,
+      url: `https://${BRAND_DOMAIN}/blog/${p.slug}`,
+      datePublished: p.date,
+      description: p.excerpt,
+    })),
+  };
+}
 
 export default function BlogPage() {
   const posts = [...POSTS].sort((a, b) => +new Date(b.date) - +new Date(a.date));
@@ -23,6 +47,10 @@ export default function BlogPage() {
           </Link>
         ))}
       </div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: structuredDataToScript(buildBlogItemList()) }}
+      />
     </div>
   );
 }

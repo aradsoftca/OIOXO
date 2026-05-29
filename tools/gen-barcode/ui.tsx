@@ -45,7 +45,9 @@ export default function Tool() {
       const a = document.createElement('a');
       a.href = url; a.download = `barcode-${format}.svg`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      // 60s defer — mobile browsers abort the saved file if the blob URL
+      // is torn down before the download dialog actually starts streaming.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       return;
     }
 

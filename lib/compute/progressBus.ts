@@ -6,32 +6,48 @@
 
 export interface ProgressState { active: boolean; phase: string; ratio: number }
 
-let state: ProgressState = { active: false, phase: '', ratio: 0 };
-let activeJobs = 0;
+// A stack of in-flight jobs. The bus surfaces the top of stack so a nested
+// job (e.g. ffmpeg starting while an audio encode is finishing) shows its
+// own progress and the earlier job is restored when the nested one ends.
+// Previously a single mutable `state` clobbered earlier jobs on start, and
+// endJob just blanked it — so the user saw the bar flash between phases.
+interface Job { phase: string; ratio: number }
+const stack: Job[] = [];
+let lastEmitted: ProgressState = { active: false, phase: '', ratio: 0 };
 const listeners = new Set<(s: ProgressState) => void>();
 
-function emit() { for (const l of listeners) l(state); }
+function currentState(): ProgressState {
+  const top = stack[stack.length - 1];
+  return top
+    ? { active: true, phase: top.phase, ratio: top.ratio }
+    : { active: false, phase: '', ratio: 0 };
+}
+
+function emit() {
+  lastEmitted = currentState();
+  for (const l of listeners) l(lastEmitted);
+}
 
 export function subscribeProgress(l: (s: ProgressState) => void): () => void {
   listeners.add(l);
-  l(state);
+  l(lastEmitted);
   return () => { listeners.delete(l); };
 }
 
 export function startJob(phase = 'Working'): void {
-  activeJobs++;
-  state = { active: true, phase, ratio: 0 };
+  stack.push({ phase, ratio: 0 });
   emit();
 }
 
 export function updateJob(phase: string, ratio: number): void {
-  if (!activeJobs) return;
-  state = { active: true, phase, ratio: Math.max(0, Math.min(1, ratio)) };
+  const top = stack[stack.length - 1];
+  if (!top) return;
+  top.phase = phase;
+  top.ratio = Math.max(0, Math.min(1, ratio));
   emit();
 }
 
 export function endJob(): void {
-  activeJobs = Math.max(0, activeJobs - 1);
-  if (activeJobs === 0) state = { active: false, phase: '', ratio: 0 };
+  if (stack.length) stack.pop();
   emit();
 }

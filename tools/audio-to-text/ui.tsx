@@ -4,6 +4,11 @@ import * as React from 'react';
 import { Upload, Loader2, Copy, Download, FileText, Languages, Mic, Wand2, Music } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { transcribe, chunksToSrt, chunksToVtt, type TranscribeProgress, type TranscribeResult, type TranscribeSize } from '@/engines/transcribe';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'audio-to-text';
 
 const LANGUAGES: { code: string; label: string }[] = [
   { code: '', label: 'Auto-detect' },
@@ -45,6 +50,8 @@ function formatTime(s: number): string {
 }
 
 export default function AudioToTextTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string>('');
   const [language, setLanguage] = React.useState<string>('');
@@ -59,6 +66,8 @@ export default function AudioToTextTool() {
   React.useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
   const run = React.useCallback(async (target: File) => {
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', target.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     setRunning(true);
     setResult(null);
     setProgress({ phase: 'Preparing', ratio: 0 });
@@ -76,7 +85,7 @@ export default function AudioToTextTool() {
       setRunning(false);
       setProgress(null);
     }
-  }, [size, language, translate]);
+  }, [size, language, translate, isPro, policyGate]);
 
   const loadFile = React.useCallback(async (next: File) => {
     if (!next.type.startsWith('audio/') && !next.type.startsWith('video/')) return;
@@ -94,9 +103,14 @@ export default function AudioToTextTool() {
 
   const copyText = async () => {
     if (!result) return;
-    await navigator.clipboard.writeText(result.text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(result.text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard write can reject (iframe / cross-origin / permissions);
+      // user can still see the transcript on screen.
+    }
   };
 
   const download = (kind: 'txt' | 'srt' | 'vtt') => {
@@ -108,16 +122,18 @@ export default function AudioToTextTool() {
     if (kind === 'vtt') { body = chunksToVtt(result.chunks); mime = 'text/vtt'; }
     const blob = new Blob([body], { type: mime });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = `${base}.${kind}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      {policyGate.element}
       <div className="space-y-4">
         {!file ? (
           <div

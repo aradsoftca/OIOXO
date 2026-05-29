@@ -14,7 +14,17 @@ export default function ImageSplitTool() {
   const [format, setFormat] = React.useState<Format>('png');
   const [busy, setBusy] = React.useState(false);
 
-  React.useEffect(() => () => { bitmap?.close(); if (url) URL.revokeObjectURL(url); }, [bitmap, url]);
+  // Unmount-only. With [bitmap, url] there was an intermediate render where
+  // url had been replaced but bitmap had not (or vice versa), and the cleanup
+  // freed the newly-set resource still in use. loadFile already releases the
+  // prior resources inline.
+  const bitmapRef = React.useRef<ImageBitmap | null>(null);
+  const urlRef = React.useRef('');
+  React.useEffect(() => { bitmapRef.current = bitmap; urlRef.current = url; }, [bitmap, url]);
+  React.useEffect(() => () => {
+    bitmapRef.current?.close();
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+  }, []);
 
   const loadFile = async (next: File) => {
     if (!next.type.startsWith('image/')) return;
@@ -58,10 +68,14 @@ export default function ImageSplitTool() {
       for (const t of tiles) zip.file(t.name, await t.blob.arrayBuffer());
       const blob = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = file.name.replace(/\.[^.]+$/, '') + `-${cols}x${rows}.zip`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke: a.click() returns synchronously but the download
+      // dialog/stream may still be initializing. Mobile Safari/Firefox abort
+      // the download if the blob URL is torn down too early.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } finally { setBusy(false); }
   };
 
@@ -132,7 +146,15 @@ export default function ImageSplitTool() {
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
               Split & download ZIP
             </button>
-            <button type="button" onClick={() => { setFile(null); bitmap?.close(); setBitmap(null); }}
+            <button type="button" onClick={() => {
+              // Revoke the preview URL too — without this every "Replace
+              // image" leaked a blob URL until tab close.
+              if (url) URL.revokeObjectURL(url);
+              setUrl('');
+              setFile(null);
+              bitmap?.close();
+              setBitmap(null);
+            }}
               className="flex w-full items-center justify-center gap-2 border border-black/[0.08] py-2.5 text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)]">
               Replace image
             </button>

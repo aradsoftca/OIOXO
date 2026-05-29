@@ -8,10 +8,17 @@ import { Waveform } from '@/components/tool/Waveform';
 import { encodeWav, encodeMp3, downloadBlob } from '@/engines/audio';
 import { encodeAudio } from '@/lib/compute/audioMerge';
 import { denoise, type DenoiseProgress } from '@/engines/audio/denoise';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'audio-remove-noise';
 
 type Format = 'wav' | 'mp3';
 
 export default function AudioRemoveNoiseTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<AudioFileItem | null>(null);
   const [strength, setStrength] = React.useState(1);
   const [format, setFormat] = React.useState<Format>('wav');
@@ -21,8 +28,16 @@ export default function AudioRemoveNoiseTool() {
   const [resultBuffer, setResultBuffer] = React.useState<AudioBuffer | null>(null);
   const [resultUrl, setResultUrl] = React.useState<string>('');
 
+  // Revoke the prior preview URL on replace AND on unmount. Without this the
+  // final denoised-audio URL leaked on navigation away.
+  React.useEffect(() => () => { if (resultUrl) URL.revokeObjectURL(resultUrl); }, [resultUrl]);
+
   const run = async () => {
     if (!item) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', item.file.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
+    const durHit = checkLever(POLICY_KEY, 'input-duration', item.info.duration, isPro);
+    if (durHit) { policyGate.fire(durHit); return; }
     setBusy(true); setError(''); setProgress({ phase: 'Preparing', ratio: 0 });
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     setResultBuffer(null);
@@ -53,6 +68,7 @@ export default function AudioRemoveNoiseTool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <AudioDrop loaded={false} onLoad={setItem} />}
 
       {item && (

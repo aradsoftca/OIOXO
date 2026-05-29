@@ -3,6 +3,7 @@ import { Geist, JetBrains_Mono } from 'next/font/google';
 import { AppShell } from '@/components/layout/AppShell';
 import { Providers } from '@/components/Providers';
 import { BRAND, BRAND_TITLE, BRAND_DESC, BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
+import { organizationJsonLd, webSiteJsonLd, structuredDataToScript } from '@/lib/seo/jsonld';
 import './globals.css';
 
 // Modern type system, self-hosted by next/font (no runtime request):
@@ -15,14 +16,53 @@ export const metadata: Metadata = {
   title: { default: BRAND_TITLE, template: `%s · ${BRAND}` },
   description: BRAND_DESC,
   metadataBase: new URL(`https://${BRAND_DOMAIN}`),
-  icons: { icon: '/icon.png', apple: '/apple-icon.png' },
+  applicationName: BRAND,
+  generator: BRAND,
+  authors: [{ name: BRAND, url: `https://${BRAND_DOMAIN}` }],
+  publisher: BRAND,
+  creator: BRAND,
+  formatDetection: { email: false, address: false, telephone: false },
+  alternates: { canonical: `https://${BRAND_DOMAIN}` },
+  icons: IS_OIOXO
+    ? {
+        icon: [
+          { url: '/oioxo-favicon.ico', sizes: 'any' },
+          { url: '/oioxo-icon.svg', type: 'image/svg+xml' },
+          { url: '/oioxo-icon.png', type: 'image/png', sizes: '512x512' },
+        ],
+        apple: '/oioxo-apple-icon.png',
+        shortcut: '/oioxo-favicon.ico',
+      }
+    : { icon: '/icon.png', apple: '/apple-icon.png' },
+  manifest: '/manifest.webmanifest',
   openGraph: {
     title: BRAND_TITLE,
     description: BRAND_DESC,
     url: `https://${BRAND_DOMAIN}`,
+    siteName: BRAND,
     type: 'website',
+    locale: 'en_US',
+    images: [{ url: `https://${BRAND_DOMAIN}/og-default.png`, width: 1200, height: 630, alt: BRAND_TITLE }],
   },
-  robots: { index: true, follow: true },
+  twitter: {
+    card: 'summary_large_image',
+    title: BRAND_TITLE,
+    description: BRAND_DESC,
+    images: [`https://${BRAND_DOMAIN}/og-default.png`],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+      'max-video-preview': -1,
+    },
+  },
+  referrer: 'strict-origin-when-cross-origin',
+  category: IS_OIOXO ? 'productivity' : 'utilities',
 };
 
 export const viewport: Viewport = {
@@ -38,6 +78,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${geist.variable} ${jetbrains.variable}${IS_OIOXO ? ' brand-oioxo' : ''}`}>
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: structuredDataToScript(organizationJsonLd()) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: structuredDataToScript(webSiteJsonLd()) }}
+        />
+      </head>
       <body className="bg-[var(--color-canvas)] text-[var(--color-fg)] antialiased">
         <Providers>
           <AppShell>{children}</AppShell>

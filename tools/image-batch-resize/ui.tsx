@@ -64,5 +64,5 @@ export default function ImageBatchResizeTool() {
     </div>
   );
 
-  return <BatchImage controls={controls} process={process} zipName="resized-images.zip" cta="Resize all → ZIP" />;
+  return <BatchImage controls={controls} process={process} zipName="resized-images.zip" cta="Resize all → ZIP" policyKey="image-batch-resize" />;
 }

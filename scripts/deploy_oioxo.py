@@ -47,6 +47,17 @@ def ensure_oioxo_secrets():
         # re-upload every deploy); rotate per model RELEASE by re-running
         # encrypt_model.mjs with a fresh key + re-uploading the .enc.
         add.append(("OIOXO_CODE_KEY", base64.b64encode(os.urandom(32)).decode()))
+    if "OIOXO_AI_SECRET" not in have:
+        # MASTER key for the MAIN-AI models (the answer-engine reranker + future
+        # encoder heads) — /api/ai-key derives per-asset keys from this. MUST match
+        # the key the served .enc was encrypted with. Seed from _ai_secret.txt (the
+        # value scripts/encrypt_model.ts used) so the served ciphertext decrypts;
+        # if absent, generate (then the model MUST be re-encrypted with it before
+        # serving — see the hosting step). STABLE; rotate per OIOXO_AI_RELEASE by
+        # re-encrypting + re-uploading the .enc.
+        seed = (PROJECT / "_ai_secret.txt")
+        val = seed.read_text(encoding="utf-8").strip() if seed.exists() else base64.b64encode(os.urandom(32)).decode()
+        add.append(("OIOXO_AI_SECRET", val))
     if add:
         with secrets_file.open("a", encoding="utf-8") as f:
             if existing and not existing.endswith("\n"):
@@ -135,10 +146,22 @@ def write_env(sftp):
         "NEXT_PUBLIC_BRAND_DOMAIN": PUBLIC_HOST,
         "ICELAND_GPU_URL": "",
         "ICELAND_GPU_TOKEN": "",
+        # Model-unlock release tag (unlock.ts ECDHE context). Bump it to invalidate
+        # old unlock grants. NOTE: a TRUE key rotation that kills leaked keys also
+        # requires re-encrypting the model asset with a fresh OIOXO_CODE_KEY
+        # (scripts/encrypt_model.mjs) + re-upload — do that per MODEL release, not
+        # per deploy (the 250MB+ asset is too big to re-encrypt every ship).
+        "OIOXO_CODE_RELEASE": os.environ.get("OIOXO_CODE_RELEASE", time.strftime("r%Y%m%d")),
+        # Main-AI model release tag (/api/ai-key ECDHE context + per-asset key
+        # derivation). Bump + re-encrypt the .enc to truly rotate. Keep STABLE
+        # between model re-encryptions, else the served ciphertext won't decrypt.
+        "OIOXO_AI_RELEASE": os.environ.get("OIOXO_AI_RELEASE", "v1"),
     }
     merged = {**base, **load_deploy_secrets()}
     if deploy.ROTATED_KEY:  # this deploy's fresh WASM key wins over the stored one
         merged["BRAIN_WASM_KEY"] = deploy.ROTATED_KEY
+    if deploy.TOOL_KEY:  # fresh tool-worker key (matches what the server build encrypts with)
+        merged["TOOL_WASM_KEY"] = deploy.TOOL_KEY
     body = ("\n".join(f"{k}={v}" for k, v in merged.items()) + "\n").encode("utf-8")
     remote_env = posixpath.join(REMOTE_DIR, ".env")
     with sftp.open(remote_env, "wb") as f:
@@ -168,6 +191,19 @@ def ensure_caddy(ssh, sftp):
     run(ssh, "systemctl reload caddy", label="reload caddy")
 
 
+def ensure_ai_model(ssh, sftp):
+    """The main-AI reranker is now hosted ENCRYPTED on Hugging Face
+    (payam1394/oioxo-reranker): HF's CDN serves the ~23MB .enc + public
+    config/tokenizer, and rerank.ts fetches them straight from there. Our server
+    no longer stores or serves the weights — it only mints the per-session decrypt
+    key via /api/ai-key (OIOXO_AI_SECRET → deriveAssetKey('models/oioxo-reranker')).
+    A stolen HF download is inert ciphertext; the key never leaves our origin.
+    So there is nothing to upload here. (The Caddy /models/* block stays for the
+    coder WASM brain, which is still served same-origin.)"""
+    print("\n========== AI MODEL (reranker hosted ENCRYPTED on HF — key only on server) ==========")
+    print("      skip: payam1394/oioxo-reranker on HF; server mints /api/ai-key only.")
+
+
 def main():
     print("=" * 70)
     print(" DEPLOY: oioxo -> Iceland (isolated :3002, oioxo.com) ")
@@ -181,6 +217,7 @@ def main():
 
     ensure_oioxo_secrets()     # provision entitlement signing key + Pro content key (stable)
     deploy.rotate_brain_key()  # mint a fresh WASM key + re-encrypt BEFORE upload
+    deploy.mint_tool_key()     # fresh tool-worker key; server build encrypts with it
 
     print("\n========== UPLOADING SOURCE ==========")
     mkdir_p(sftp, REMOTE_DIR)
@@ -189,7 +226,8 @@ def main():
 
     print("\n========== INSTALL + BUILD ==========")
     install_cmd = "npm ci" if remote_exists(sftp, posixpath.join(REMOTE_DIR, "package-lock.json")) else "npm install"
-    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && {install_cmd} --no-audit --no-fund", t=1200, label=install_cmd)
+    # --include=dev: prebuild's encrypt-workers.mjs needs esbuild (a devDependency).
+    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && {install_cmd} --include=dev --no-audit --no-fund", t=1200, label=install_cmd)
     if rc != 0:
         print("      ! install failed"); sys.exit(1)
     rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && npx prisma db push --skip-generate", t=180, label="prisma db push")
@@ -199,7 +237,8 @@ def main():
     if rc != 0:
         print("      ! prisma generate failed"); sys.exit(1)
     run(ssh, f"rm -rf {REMOTE_DIR}/.next-build", label="clean stale .next-build")
-    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && OBFUSCATE=1 NEXT_BASE_PATH= NEXT_DIST_DIR=.next-build "
+    tool_key_env = f"TOOL_WASM_KEY={deploy.TOOL_KEY} " if deploy.TOOL_KEY else ""
+    rc, _, _ = run(ssh, f"cd {REMOTE_DIR} && {tool_key_env}OBFUSCATE=1 NEXT_BASE_PATH= NEXT_DIST_DIR=.next-build "
                         f"NEXT_PUBLIC_BRAND=oioxo NEXT_PUBLIC_BRAND_DOMAIN={PUBLIC_HOST} npm run build",
                    t=3000, label="next build (side dir, brand=oioxo)")  # CPU box + obfuscation > 20min
     if rc != 0:
@@ -215,6 +254,7 @@ def main():
     run(ssh, "pm2 save", label="pm2 save")
 
     ensure_caddy(ssh, sftp)
+    ensure_ai_model(ssh, sftp)
 
     print("\n========== SMOKE TEST ==========")
     time.sleep(3)

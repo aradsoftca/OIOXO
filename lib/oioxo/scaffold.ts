@@ -74,9 +74,9 @@ const WEB = (title: string): CodeFile[] => [
   { path: 'README.md', content: `# ${title}\n\nA web app scaffolded by oioxo. The preview serves index.html (HTML, CSS and JS all in one file).\n` },
 ];
 
-// One file, and NO placeholder gameplay — the old scaffold drew a bouncing circle,
-// so a model that failed to replace it left "a circle" on screen. A neutral
-// "building…" message makes an unfinished build obvious instead of misleading.
+// A minimal, runnable canvas starter — an honest STARTING POINT (it animates so the
+// preview shows life, but it's clearly a stub the agent replaces with the real game).
+// We do NOT canin a finished game: the system must actually build what was asked.
 const GAME = (title: string): CodeFile[] => [
   {
     path: 'index.html',
@@ -94,13 +94,13 @@ const GAME = (title: string): CodeFile[] => [
 <body>
   <canvas id="game" width="480" height="320"></canvas>
   <script>
-    // ${title} — a canvas game. The agent builds the full game loop here, in this one file.
+    // ${title} — the agent builds the real game loop here, in this one file.
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#9aa0aa';
     ctx.font = '16px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('Building your game…', canvas.width / 2, canvas.height / 2);
+    ctx.fillText('Starting…', canvas.width / 2, canvas.height / 2);
   </script>
 </body>
 </html>

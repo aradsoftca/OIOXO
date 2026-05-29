@@ -26,9 +26,11 @@ export default function Tool() {
   }, [type, angle, stops]);
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(`background: ${css};`);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(`background: ${css};`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   const downloadPng = () => {

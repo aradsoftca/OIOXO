@@ -35,7 +35,11 @@ import { getCached, putCached } from './search-cache';
 import { capturePreference, remember, recallLanguage, recallName } from './user-memory';
 import { detectFormat, renderFormat } from './format';
 import { tryCheck } from './check-ops';
-import { planTurn } from './conductor';
+// v3: SmolVLM-256M-Brain (165MB int8, under the 180MB budget) supersedes the
+// 360M conductor. Same planTurn() shape; the brain emits the 8-slot plan
+// (added style + remember) that the engine already partially consumes.
+// Conductor stays as backup — flip the import back if v3 needs rollback.
+import { planTurn } from './brain-runtime';
 import { findImages } from './image-search';
 import { funReply } from '../ai-magic';
 import { getTool, TOOLS } from '../registry';

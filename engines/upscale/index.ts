@@ -30,6 +30,12 @@ export interface UpscaleOptions {
   /** JPEG/WebP quality 0..1. Default 0.92. */
   encodeQuality?: number;
   onProgress?: (p: UpscaleProgress) => void;
+  /** Per-action permission ticket — when set, engine asserts server-side
+   *  before any work. Bypass requires the server's HMAC secret (it isn't in
+   *  the client bundle), so a clone has no path here. */
+  permission?: import('@/lib/limits/permission').Permission | null;
+  toolKey?: string;
+  inputHash?: string;
 }
 
 function pickModel(factor: UpscaleFactor, quality: UpscaleQuality): string {
@@ -50,6 +56,13 @@ let cached: { key: string; pipeline: Pipeline; lib: LibType } | null = null;
 async function getPipeline(factor: UpscaleFactor, quality: UpscaleQuality, onProgress?: (p: UpscaleProgress) => void): Promise<{ pipeline: Pipeline; lib: LibType }> {
   const model = pickModel(factor, quality);
   if (cached && cached.key === model) return { pipeline: cached.pipeline, lib: cached.lib };
+  // Dispose the previously cached pipeline before loading a new one. ESRGAN
+  // model bundles + their ONNX sessions can each pin tens of MB; switching
+  // factor/quality without disposing leaked one copy per switch.
+  if (cached) {
+    try { (cached.pipeline as unknown as { dispose?: () => Promise<void> | void }).dispose?.(); } catch { /* */ }
+    cached = null;
+  }
 
   const lib = await import('@xenova/transformers');
   lib.env.allowLocalModels = false;
@@ -74,6 +87,10 @@ async function getPipeline(factor: UpscaleFactor, quality: UpscaleQuality, onPro
 }
 
 export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Blob> {
+  if (opts.permission?.ticket && opts.toolKey) {
+    const { assertPermission } = await import('@/lib/limits/permission');
+    await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
+  }
   const factor = opts.factor ?? 2;
   const quality = opts.quality ?? 'fast';
   const tile = Math.max(64, Math.min(512, opts.tile ?? 192));

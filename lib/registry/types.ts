@@ -23,7 +23,9 @@ export type Category =
   | 'ip'
   | 'social'
   | 'font'
-  | 'subtitle';
+  | 'subtitle'
+  | 'test'
+  | 'code';
 
 export type TileSize = 'S' | 'M' | 'L' | 'W';
 
@@ -89,4 +91,8 @@ export const CATEGORIES: Record<Category, CategoryMeta> = {
   social:    { id: 'social',    name: 'Social',    blurb: 'Avatars, banners, OG images',      colorVar: '--color-cat-social' },
   font:      { id: 'font',      name: 'Font',      blurb: 'Inspect, convert, subset fonts',   colorVar: '--color-cat-font' },
   subtitle:  { id: 'subtitle',  name: 'Subtitle',  blurb: 'SRT, VTT — clean, sync, translate', colorVar: '--color-cat-subtitle' },
+  test:      { id: 'test',      name: 'Test',      blurb: 'Test your mic, keyboard, screen, speed & more', colorVar: '--color-cat-test' },
+  // oioxo AI coding agent — not a tool category (no tiles); used to meter the
+  // on-device coder's build/run action through the freemium permission gate.
+  code:      { id: 'code',      name: 'AI Coding',  blurb: 'On-device AI coding agent',        colorVar: '--color-cat-dev' },
 };

@@ -31,8 +31,26 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (body.plan && PLANS.includes(body.plan)) data.plan = body.plan;
   if (body.role && ROLES.includes(body.role)) data.role = body.role;
   if (body.subscriptionStatus && SUB.includes(body.subscriptionStatus)) data.subscriptionStatus = body.subscriptionStatus;
-  if (body.dailyConversionLimit !== undefined) data.dailyConversionLimit = body.dailyConversionLimit;
-  if (body.maxFileSize !== undefined) data.maxFileSize = body.maxFileSize;
+  // Numeric limits: accept null (= use default) or a finite non-negative
+  // integer within a sane ceiling. Previously any number went through, so a
+  // fat-finger could set a multi-TB cap or a negative daily limit.
+  const isValidLimit = (v: unknown) =>
+    v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
+  if (body.dailyConversionLimit !== undefined) {
+    if (!isValidLimit(body.dailyConversionLimit) ||
+        (typeof body.dailyConversionLimit === 'number' && body.dailyConversionLimit > 100_000)) {
+      return NextResponse.json({ error: 'dailyConversionLimit must be 0–100000 or null' }, { status: 400 });
+    }
+    data.dailyConversionLimit = body.dailyConversionLimit;
+  }
+  if (body.maxFileSize !== undefined) {
+    // Cap at 10 GiB.
+    if (!isValidLimit(body.maxFileSize) ||
+        (typeof body.maxFileSize === 'number' && body.maxFileSize > 10 * 1024 * 1024 * 1024)) {
+      return NextResponse.json({ error: 'maxFileSize must be 0–10 GiB or null' }, { status: 400 });
+    }
+    data.maxFileSize = body.maxFileSize;
+  }
 
   if (Object.keys(data).length === 0) {
     return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });

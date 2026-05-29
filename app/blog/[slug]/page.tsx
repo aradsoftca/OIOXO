@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { POSTS, getPost } from '@/lib/blog/posts';
 import { BRAND } from '@/lib/brand';
+import { buildMeta } from '@/lib/seo/meta';
+import { articleJsonLd, structuredDataToScript } from '@/lib/seo/jsonld';
 
 interface Props { params: Promise<{ slug: string }> }
 
@@ -15,11 +17,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const post = getPost(slug);
   if (!post) return {};
-  return {
-    title: post.title,
+  return buildMeta({
+    path: `/blog/${slug}`,
+    title: `${post.title}`,
     description: post.excerpt,
-    openGraph: { title: `${post.title} · ${BRAND}`, description: post.excerpt, type: 'article' },
-  };
+    ogType: 'article',
+    publishedTime: new Date(post.date).toISOString(),
+    modifiedTime: new Date(post.date).toISOString(),
+    keywords: [post.title.toLowerCase(), `${BRAND} blog`, 'browser tools', 'privacy-first'],
+  });
 }
 
 export default async function BlogPostPage({ params }: Props) {
@@ -46,6 +52,19 @@ export default async function BlogPostPage({ params }: Props) {
       <div className="mt-10 border-t border-black/[0.06] pt-5 text-[13px] text-[var(--color-fg-muted)]">
         Try it now — <Link href="/convert" className="font-semibold text-[var(--brand-1)] hover:underline">open the converter</Link>.
       </div>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: structuredDataToScript(
+            articleJsonLd({
+              title: post.title,
+              description: post.excerpt,
+              url: `/blog/${slug}`,
+              datePublished: new Date(post.date).toISOString(),
+            }),
+          ),
+        }}
+      />
     </div>
   );
 }

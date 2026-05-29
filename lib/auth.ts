@@ -19,9 +19,18 @@ const providers: NextAuthOptions['providers'] = [
     async authorize(credentials) {
       if (!credentials?.email || !credentials.password) return null;
       const user = await prisma.user.findUnique({ where: { email: credentials.email } });
-      if (!user?.password) return null;
-      const ok = await bcrypt.compare(credentials.password, user.password);
-      if (!ok) return null;
+      // Always run bcrypt.compare — including against a dummy hash when no
+      // user / no password — so response time is constant regardless of
+      // whether the email exists. Otherwise an attacker times the response
+      // (~100ms with bcrypt vs ~1ms without) to enumerate registered emails.
+      // The dummy must be a structurally valid bcrypt hash — `bcrypt.compare`
+      // throws on a malformed prefix, which would itself create a timing
+      // signal. This one is a real hash of an arbitrary string that no real
+      // password will ever match.
+      const DUMMY_HASH = '$2a$10$DidcYOGX/AZsHDBveDEtd.Iw0oYZOV8e76fxDGJoDetKAlDhuR2Qy';
+      const hash = user?.password || DUMMY_HASH;
+      const ok = await bcrypt.compare(credentials.password, hash);
+      if (!user?.password || !ok) return null;
       return { id: user.id, email: user.email, name: user.name, image: user.image };
     },
   }),
@@ -48,13 +57,19 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) token.uid = user.id;
       // Keep plan fresh on the token so the UI reflects upgrades/downgrades.
+      // Also pull subscriptionEndsAt so the session callback can apply the
+      // same fail-safe the API gates use (Pass 73): if Stripe's deletion
+      // webhook never lands, the stored plan stays PRO forever — past-period
+      // users must gate as FREE in the client UI too, otherwise they see
+      // Pro features that the server then denies.
       if (token.uid) {
         const u = await prisma.user.findUnique({
           where: { id: token.uid as string },
-          select: { plan: true, role: true },
+          select: { plan: true, role: true, subscriptionEndsAt: true },
         });
         token.plan = u?.plan ?? 'FREE';
         token.role = u?.role ?? 'USER';
+        token.subEndsAt = u?.subscriptionEndsAt ? u.subscriptionEndsAt.getTime() : null;
       }
       return token;
     },
@@ -62,7 +77,11 @@ export const authOptions: NextAuthOptions = {
       if (token.uid) {
         const u = session.user as { id?: string; plan?: string; role?: string };
         u.id = token.uid as string;
-        u.plan = (token.plan as string) ?? 'FREE';
+        const subEndsAt = token.subEndsAt as number | null | undefined;
+        // 24h buffer matches the API-side fail-safe so a webhook running a
+        // few hours late doesn't strand a paying user.
+        const expired = typeof subEndsAt === 'number' && subEndsAt + 24 * 60 * 60 * 1000 < Date.now();
+        u.plan = expired ? 'FREE' : ((token.plan as string) ?? 'FREE');
         u.role = (token.role as string) ?? 'USER';
       }
       return session;

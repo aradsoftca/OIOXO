@@ -43,7 +43,14 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
   // Side channel for in-call text/emoji. Offerer creates it; answerer receives it.
   const wireChannel = (dc: RTCDataChannel) => {
     chan = dc;
-    dc.onmessage = (e) => { if (typeof e.data === 'string') h.onMessage?.(e.data); };
+    dc.onmessage = (e) => {
+      if (typeof e.data !== 'string') return;
+      // Cap inbound text — a hostile peer could ship a multi-MB string and
+      // freeze the receiver's UI rendering it. In-call chat messages are
+      // short by nature; 8KB is generous for an emoji-and-text line.
+      if (e.data.length > 8_000) return;
+      h.onMessage?.(e.data);
+    };
   };
 
   const markConnected = () => { connected = true; clearTimeout(watchdog); h.onState?.('connected'); };
@@ -90,7 +97,12 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
       if (!pc) return;
       if (pc.connectionState === 'connected') markConnected();
       else if (pc.connectionState === 'failed') { clearTimeout(watchdog); h.onState?.('failed'); }
-      else if (pc.connectionState === 'disconnected' || pc.connectionState === 'closed') { if (!stopped) h.onState?.('closed'); }
+      // `disconnected` is transient — a brief network blip that often
+      // recovers to `connected` within seconds. Emitting 'closed' here
+      // would tear down the viewer's player on every Wi-Fi micro-outage.
+      // Only `closed` (terminal) maps to onState('closed'); 'failed' has
+      // its own branch above.
+      else if (pc.connectionState === 'closed') { if (!stopped) h.onState?.('closed'); }
     };
 
     if (role === 's') {
@@ -101,14 +113,21 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
       } catch { h.onState?.('failed'); }
     }
 
+    let backoff = 900;
     while (!stopped) {
       try {
         const r = await fetch(`/api/signal/${encodeURIComponent(room)}?from=${role}&after=${cursor}&_=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`signal ${r.status}`);
         const j = (await r.json()) as { messages?: { seq: number; data: any }[]; cursor?: number };
         for (const m of j.messages ?? []) await handle(m.data);
         if (j.cursor) cursor = j.cursor;
-      } catch { /* keep polling */ }
-      await sleep(900);
+        backoff = 900;
+      } catch {
+        // Exponential backoff so a failing signal endpoint doesn't get
+        // hammered at 900ms forever by every media session in flight.
+        backoff = Math.min(backoff * 2, 15_000);
+      }
+      await sleep(backoff);
     }
   })();
 

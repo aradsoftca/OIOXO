@@ -52,10 +52,11 @@ export default function ImageAddShadowTool() {
     canvasRef.current.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = file.name.replace(/\.[^.]+$/, '') + '-shadow.png';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
 

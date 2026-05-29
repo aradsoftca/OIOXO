@@ -102,13 +102,21 @@ export default function Tool() {
   const [align, setAlign] = React.useState<'left' | 'center'>('left');
   const [url, setUrl] = React.useState('');
 
+  // Track the latest URL in a ref so the unmount cleanup can revoke it.
+  // Previously the last-generated blob URL leaked on every navigation away.
+  const urlRef = React.useRef('');
+  React.useEffect(() => { urlRef.current = url; }, [url]);
+  React.useEffect(() => () => {
+    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+  }, []);
+
   React.useEffect(() => {
     const c = document.createElement('canvas');
     c.width = size.w; c.height = size.h;
     draw(c, { w: size.w, h: size.h, title, subtitle, eyebrow, from: palette.from, to: palette.to, textColor, align });
     c.toBlob((blob) => {
       if (!blob) return;
-      if (url) URL.revokeObjectURL(url);
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       setUrl(URL.createObjectURL(blob));
     }, 'image/png');
     // eslint-disable-next-line react-hooks/exhaustive-deps

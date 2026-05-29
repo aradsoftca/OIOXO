@@ -1,4 +1,5 @@
 'use client';
+import { stampPdfFooter } from '@/engines/pdf';
 
 import * as React from 'react';
 import { Download, Loader2, Upload, X, ArrowUp, ArrowDown } from 'lucide-react';
@@ -23,13 +24,20 @@ const PAPER: Record<Exclude<PaperSize, 'fit'>, { w: number; h: number; label: st
 
 async function fileToImage(file: File): Promise<ImageItem> {
   const url = URL.createObjectURL(file);
-  const img = new Image();
-  img.src = url;
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error('Could not read image'));
-  });
-  return { file, url, width: img.naturalWidth, height: img.naturalHeight };
+  try {
+    const img = new Image();
+    img.src = url;
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Could not read image'));
+    });
+    return { file, url, width: img.naturalWidth, height: img.naturalHeight };
+  } catch (e) {
+    // The caller never gets the URL when we throw — revoke here so the blob
+    // doesn't leak until tab close on every failed import attempt.
+    URL.revokeObjectURL(url);
+    throw e;
+  }
 }
 
 export default function ImagesToPdfTool() {
@@ -42,7 +50,13 @@ export default function ImagesToPdfTool() {
   const [error, setError] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { items.forEach((i) => URL.revokeObjectURL(i.url)); }, [items]);
+  // Unmount-only. Previous [items] dep revoked thumbnail URLs of items still
+  // on screen whenever the list changed.
+  const itemsRef = React.useRef<typeof items>([]);
+  React.useEffect(() => { itemsRef.current = items; }, [items]);
+  React.useEffect(() => () => {
+    itemsRef.current.forEach((i) => URL.revokeObjectURL(i.url));
+  }, []);
 
   const add = async (files: FileList | File[]) => {
     setError('');
@@ -142,17 +156,18 @@ export default function ImagesToPdfTool() {
         page.drawImage(embed, { x, y, width: drawW, height: drawH });
       }
 
-      const bytes = await doc.save();
+      await stampPdfFooter(doc); const bytes = await doc.save();
       const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = items.length === 1
         ? items[0].file.name.replace(/\.[^.]+$/, '') + '.pdf'
         : `images-${items.length}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally {

@@ -44,9 +44,11 @@ export default function DevBase64ImageTool() {
 
   const copy = async () => {
     if (!output) return;
-    await navigator.clipboard.writeText(output);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* iframe / permission denied — output still visible in textarea */ }
   };
 
   const decodedSrc = React.useMemo(() => {

@@ -4,11 +4,19 @@ import * as Slider from '@radix-ui/react-slider';
 import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { seekTo, captureFrame, framesToGif, downloadBlob, fmtDuration } from '@/engines/video';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { ProBadge } from '@/components/limits/ProBadge';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'video-to-gif';
 
 const WIDTHS = [320, 480, 640, 800];
 const FPS_OPTIONS = [10, 15, 20, 24];
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
   const [range, setRange] = React.useState<[number, number]>([0, 0]);
   const [fps, setFps] = React.useState(15);
@@ -31,6 +39,11 @@ export default function Tool() {
 
   const run = async () => {
     if (!item) return;
+    const clipDur = range[1] - range[0];
+    const durHit = checkLever(POLICY_KEY, 'input-duration', clipDur, isPro);
+    if (durHit) { policyGate.fire(durHit); return; }
+    const resHit = checkLever(POLICY_KEY, 'output-resolution', width, isPro);
+    if (resHit) { policyGate.fire(resHit); return; }
     setBusy(true); setError(''); setProgress(0);
     try {
       const duration = range[1] - range[0];
@@ -61,6 +74,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <VideoDrop loaded={false} onLoad={load} />}
 
       {item && (
@@ -113,7 +127,8 @@ export default function Tool() {
                 <div className="grid grid-cols-4 gap-1.5">
                   {WIDTHS.map((w) => (
                     <button key={w} type="button" onClick={() => setWidth(w)}
-                      className={`border py-2 text-[11px] font-mono tabular-nums transition ${width === w ? 'border-[var(--color-cat-video)] bg-[var(--color-cat-video)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                      className={`relative border py-2 text-[11px] font-mono tabular-nums transition ${width === w ? 'border-[var(--color-cat-video)] bg-[var(--color-cat-video)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                      <div className="absolute right-0.5 top-0.5"><ProBadge toolKey={POLICY_KEY} lever="output-resolution" value={w} isPro={isPro} compact /></div>
                       {w}px
                     </button>
                   ))}

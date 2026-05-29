@@ -38,6 +38,11 @@ export interface TranscribeOptions {
   /** Return per-word timestamps when true; otherwise per-sentence chunks. */
   wordTimestamps?: boolean;
   onProgress?: (p: TranscribeProgress) => void;
+  /** Per-action permission ticket. Engine asserts server-side before loading
+   *  the (large) model — a clone gets denied before any download. */
+  permission?: import('@/lib/limits/permission').Permission | null;
+  toolKey?: string;
+  inputHash?: string;
 }
 
 const MODEL_ID: Record<TranscribeSize, string> = {
@@ -62,6 +67,13 @@ let cached: PipelineCache | null = null;
 
 async function getPipeline(size: TranscribeSize, onProgress?: (p: TranscribeProgress) => void): Promise<Pipeline> {
   if (cached && cached.size === size) return cached.pipeline;
+  // Release the previous model BEFORE loading a new one. Whisper checkpoints
+  // are 40–150 MB each; previously switching sizes orphaned the prior
+  // pipeline and its ONNX session + WASM heap, leaking that much memory.
+  if (cached) {
+    try { (cached.pipeline as unknown as { dispose?: () => Promise<void> | void }).dispose?.(); } catch { /* */ }
+    cached = null;
+  }
 
   const lib = await import('@xenova/transformers');
   // Make sure models load from the HF CDN, not local /models.
@@ -129,6 +141,10 @@ export async function audioToWhisperInput(blob: Blob): Promise<{ samples: Float3
 }
 
 export async function transcribe(blob: Blob, opts: TranscribeOptions = {}): Promise<TranscribeResult> {
+  if (opts.permission?.ticket && opts.toolKey) {
+    const { assertPermission } = await import('@/lib/limits/permission');
+    await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
+  }
   const size = opts.size ?? 'tiny';
   opts.onProgress?.({ phase: 'Reading audio', ratio: 0 });
   const { samples, duration } = await audioToWhisperInput(blob);

@@ -30,16 +30,23 @@ export default function AdminUsersPage() {
 
   async function update(id: string, patch: Partial<Pick<U, 'plan' | 'role' | 'subscriptionStatus'>>) {
     setSavingId(id);
-    const res = await fetch(`/api/admin/users/${id}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-    });
-    setSavingId(null);
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      alert(d?.error || 'Update failed');
-      return;
+    try {
+      const res = await fetch(`/api/admin/users/${id}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d?.error || 'Update failed');
+        return;
+      }
+      setUsers((prev) => prev?.map((u) => (u.id === id ? { ...u, ...patch } : u)) ?? prev);
+    } catch {
+      // Without this catch a network blip surfaced as an unhandled promise
+      // rejection and the row stayed greyed out indefinitely.
+      alert('Network error — change not saved.');
+    } finally {
+      setSavingId(null);
     }
-    setUsers((prev) => prev?.map((u) => (u.id === id ? { ...u, ...patch } : u)) ?? prev);
   }
 
   if (forbidden) {

@@ -15,13 +15,19 @@ export default function Tool() {
           const re = new RegExp(pattern, flags.includes('g') ? flags : flags + 'g');
           const matches: Array<{ index: number; match: string; groups: string[] }> = [];
           let m: RegExpExecArray | null;
+          // Cap iterations: a zero-width match against a long input can loop
+          // pathologically even with the lastIndex bump below, and rendering
+          // 100k+ matches would freeze the textarea anyway.
+          const LIMIT = 10_000;
+          let truncated = false;
           while ((m = re.exec(input)) !== null) {
             matches.push({ index: m.index, match: m[0], groups: m.slice(1) });
             if (m.index === re.lastIndex) re.lastIndex++;
+            if (matches.length >= LIMIT) { truncated = true; break; }
           }
           if (matches.length === 0) return 'No matches.';
           const lines = [
-            `${matches.length} match${matches.length === 1 ? '' : 'es'}`,
+            `${matches.length} match${matches.length === 1 ? '' : 'es'}${truncated ? ` (stopped at ${LIMIT.toLocaleString()})` : ''}`,
             '',
             ...matches.map((m, i) => {
               const groups = m.groups.length

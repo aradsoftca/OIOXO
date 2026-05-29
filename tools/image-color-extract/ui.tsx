@@ -155,16 +155,20 @@ export default function ImageColorExtractTool() {
 
   const copyHex = async (c: ColorBucket) => {
     const h = hex(c.r, c.g, c.b);
-    await navigator.clipboard.writeText(h);
-    setCopied(h);
-    setTimeout(() => setCopied(null), 1200);
+    try {
+      await navigator.clipboard.writeText(h);
+      setCopied(h);
+      setTimeout(() => setCopied(null), 1200);
+    } catch { /* iframe / permission denied — user can still read the hex */ }
   };
 
   const copyAll = async () => {
     const lines = sortedColors.map((c) => hex(c.r, c.g, c.b)).join('\n');
-    await navigator.clipboard.writeText(lines);
-    setCopied('all');
-    setTimeout(() => setCopied(null), 1200);
+    try {
+      await navigator.clipboard.writeText(lines);
+      setCopied('all');
+      setTimeout(() => setCopied(null), 1200);
+    } catch { /* iframe / permission denied — user can still read the list */ }
   };
 
   const downloadJson = () => {
@@ -180,12 +184,13 @@ export default function ImageColorExtractTool() {
     });
     const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = file.name.replace(/\.[^.]+$/, '') + '.palette.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   return (

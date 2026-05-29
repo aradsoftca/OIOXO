@@ -40,10 +40,17 @@ function noStore(body: unknown, status = 200) {
   });
 }
 
-function getRoom(code: string): Room {
+function getRoom(code: string): Room | null {
   let room = rooms.get(code);
   if (!room) {
-    if (rooms.size > MAX_ROOMS) sweep();
+    if (rooms.size >= MAX_ROOMS) {
+      sweep();
+      // If the sweep freed nothing (every room is still active), REFUSE the
+      // new allocation. Previously `if (rooms.size > MAX_ROOMS) sweep()`
+      // followed by an unconditional set made MAX_ROOMS a sweep trigger,
+      // not an actual cap — memory grew without bound under spam.
+      if (rooms.size >= MAX_ROOMS) return null;
+    }
     room = { log: [], seq: 0, ts: Date.now() };
     rooms.set(code, room);
   }
@@ -55,6 +62,10 @@ function getRoom(code: string): Room {
 export async function GET(req: Request, ctx: { params: Promise<{ room: string }> }) {
   sweep();
   const { room: code } = await ctx.params;
+  // Validate the room code on GET too — without this a malicious client
+  // could probe with arbitrarily long codes (no allocation involved, but
+  // each request still spends time hitting the Map's hashing).
+  if (!/^[A-Za-z0-9-]{4,32}$/.test(code)) return noStore({ messages: [], cursor: 0 }, 400);
   const url = new URL(req.url);
   const from = url.searchParams.get('from') === 'r' ? 'r' : 's';
   const after = Number(url.searchParams.get('after') || 0) || 0;
@@ -80,6 +91,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ room: string }
   }
   const from = body.from === 'r' ? 'r' : 's';
   const room = getRoom(code);
+  if (!room) return noStore({ error: 'server busy, try again' }, 503);
   room.seq += 1;
   room.log.push({ seq: room.seq, from, data: body.data });
   if (room.log.length > MAX_LOG) room.log.splice(0, room.log.length - MAX_LOG);

@@ -17,7 +17,8 @@ import { detectLanguage } from './translate';
 
 let _asr: Promise<any | null> | null = null;
 async function whisper(model = 'Xenova/whisper-tiny'): Promise<any | null> {
-  _asr ??= (async () => {
+  if (_asr) return _asr;
+  const p = (async () => {
     try {
       const lib: any = await import('@xenova/transformers');
       lib.env.allowLocalModels = false;
@@ -25,7 +26,11 @@ async function whisper(model = 'Xenova/whisper-tiny'): Promise<any | null> {
       return await lib.pipeline('automatic-speech-recognition', model, { quantized: true });
     } catch { return null; }
   })();
-  return _asr;
+  _asr = p;
+  // Drop the cache on null/reject — same rationale as the other model loaders.
+  p.then((v) => { if (v == null && _asr === p) _asr = null; })
+   .catch(() => { if (_asr === p) _asr = null; });
+  return p;
 }
 
 /** Whether voice input is possible on this device. */
@@ -37,7 +42,15 @@ export function canListen(): boolean {
 async function toMono16k(blob: Blob): Promise<Float32Array | null> {
   try {
     const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
-    const decoded = await new AC().decodeAudioData(await blob.arrayBuffer());
+    // Decode-only context — must be closed or we burn one of the browser's
+    // ~6 concurrent AudioContext slots on every voice-input action.
+    const tempCtx = new AC();
+    let decoded: AudioBuffer;
+    try {
+      decoded = await tempCtx.decodeAudioData(await blob.arrayBuffer());
+    } finally {
+      try { await tempCtx.close(); } catch { /* */ }
+    }
     const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * 16000)), 16000);
     const src = off.createBufferSource();
     src.buffer = decoded;

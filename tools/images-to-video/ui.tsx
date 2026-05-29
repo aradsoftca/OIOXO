@@ -37,7 +37,13 @@ export default function ImagesToVideoTool() {
   const [error, setError] = React.useState('');
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { items.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); }, [items]);
+  // Unmount-only. Previous [items] dep tore down URLs+bitmaps of every still-
+  // visible item on each add/remove.
+  const itemsRef = React.useRef<typeof items>([]);
+  React.useEffect(() => { itemsRef.current = items; }, [items]);
+  React.useEffect(() => () => {
+    itemsRef.current.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); });
+  }, []);
 
   const add = async (files: FileList | File[]) => {
     const list = Array.from(files).filter((f) => f.type.startsWith('image/'));

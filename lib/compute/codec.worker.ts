@@ -5,7 +5,7 @@
  * *Local variants so there's no re-routing back into a worker.
  */
 
-import { decodeLocal, encodeLocal } from '../../engines/image/codec';
+import { decodeLocal, encodeLocal, setWatermark } from '../../engines/image/codec';
 import type { EncodeOptions, ImageFormat } from '../../engines/image/types';
 
 type In =
@@ -17,6 +17,9 @@ const post = (m: Record<string, unknown>, t: Transferable[] = []) => ctx.postMes
 
 ctx.onmessage = async (e: MessageEvent<In>) => {
   const m = e.data;
+  // Init from the loader: Pro session → turn the engine's brand stamp OFF (encodeLocal
+  // watermarks by default, so free works with no message). Produces no output.
+  if ((m as { __wmInit?: boolean }).__wmInit) { if ((m as { pro?: boolean }).pro) setWatermark(null); return; }
   try {
     if (m.type === 'decode') {
       const { data, format } = await decodeLocal(m.blob);

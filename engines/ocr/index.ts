@@ -33,6 +33,10 @@ export interface OcrOptions {
   /** Language code(s) — single ISO 639 code (e.g. "eng") or array (e.g. ["eng","fra"]). */
   language?: string | string[];
   onProgress?: (p: OcrProgress) => void;
+  /** Per-action permission ticket — asserted server-side before any work. */
+  permission?: import('@/lib/limits/permission').Permission | null;
+  toolKey?: string;
+  inputHash?: string;
 }
 
 export const OCR_LANGUAGES: { code: string; label: string }[] = [
@@ -60,6 +64,7 @@ export const OCR_LANGUAGES: { code: string; label: string }[] = [
 
 type TesseractWorker = Awaited<ReturnType<typeof createTesseractWorker>>;
 let cachedWorker: { worker: TesseractWorker; lang: string } | null = null;
+let pendingWorker: { promise: Promise<TesseractWorker>; lang: string } | null = null;
 
 async function createTesseractWorker(lang: string | string[], onProgress?: (p: OcrProgress) => void) {
   const { createWorker } = await import('tesseract.js');
@@ -81,19 +86,37 @@ async function createTesseractWorker(lang: string | string[], onProgress?: (p: O
 async function getWorker(language: string | string[], onProgress?: (p: OcrProgress) => void): Promise<TesseractWorker> {
   const langKey = Array.isArray(language) ? language.join('+') : language;
   if (cachedWorker && cachedWorker.lang === langKey) return cachedWorker.worker;
+  // Share an in-flight create when two callers race for the same language —
+  // previously both would call createTesseractWorker, only one ended up in
+  // cachedWorker, and the other became an orphan Tesseract worker (each ~5 MB
+  // WASM + held language traineddata) leaked for the rest of the page.
+  if (pendingWorker && pendingWorker.lang === langKey) return pendingWorker.promise;
   if (cachedWorker) {
     try { await cachedWorker.worker.terminate(); } catch { /* noop */ }
     cachedWorker = null;
   }
-  const worker = await createTesseractWorker(language, onProgress);
-  cachedWorker = { worker, lang: langKey };
-  return worker;
+  const promise = (async () => {
+    const worker = await createTesseractWorker(language, onProgress);
+    cachedWorker = { worker, lang: langKey };
+    return worker;
+  })();
+  pendingWorker = { promise, lang: langKey };
+  // Drop the in-flight slot once it settles either way so subsequent
+  // language switches aren't blocked.
+  promise.finally(() => {
+    if (pendingWorker && pendingWorker.promise === promise) pendingWorker = null;
+  });
+  return promise;
 }
 
 export async function recognize(
   input: Blob | HTMLCanvasElement | ImageData | string,
   opts: OcrOptions = {},
 ): Promise<OcrResult> {
+  if (opts.permission?.ticket && opts.toolKey) {
+    const { assertPermission } = await import('@/lib/limits/permission');
+    await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
+  }
   const language = opts.language ?? 'eng';
   const worker = await getWorker(language, opts.onProgress);
   const { data } = await worker.recognize(input as Parameters<typeof worker.recognize>[0]);

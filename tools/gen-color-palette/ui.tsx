@@ -23,9 +23,11 @@ export default function Tool() {
   const colors = harmonySet ? harmonySet[scheme] : [];
 
   const copy = async (hex: string) => {
-    await navigator.clipboard?.writeText(hex);
-    setCopied(hex);
-    setTimeout(() => setCopied(null), 1400);
+    try {
+      await navigator.clipboard?.writeText(hex);
+      setCopied(hex);
+      setTimeout(() => setCopied(null), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   return (

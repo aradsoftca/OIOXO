@@ -7,6 +7,7 @@
  */
 
 import * as dsp from './dsp';
+import { watermarkOnSync, WM_DOMAIN, WM_MADE_WITH } from '@/lib/watermark/config';
 
 let _ctx: AudioContext | null = null;
 function ctx(): AudioContext {
@@ -54,11 +55,16 @@ export function concat(buffers: AudioBuffer[]): AudioBuffer {
   if (buffers.length === 0) throw new Error('Need at least one buffer.');
   const sr = buffers[0].sampleRate;
   const channels = Math.max(...buffers.map((b) => b.numberOfChannels));
-  const totalLen = buffers.reduce((s, b) => s + b.length, 0);
+  // Size the output using the RESAMPLED length, not the raw source length —
+  // without this, a 44.1kHz buffer concat'd into a 48kHz target wrote
+  // length*1.088 samples into length-sized space, overflowing into the next
+  // file's region (or off the end entirely).
+  const totalLen = buffers.reduce((s, b) => s + Math.round(b.length * (sr / b.sampleRate)), 0);
   const out = newBuffer(channels, totalLen, sr);
   let offset = 0;
   for (const b of buffers) {
     const ratio = sr / b.sampleRate;
+    const writeLen = Math.round(b.length * ratio);
     // Naive sample-rate handling: if mismatched, linear resample.
     for (let c = 0; c < channels; c++) {
       const src = c < b.numberOfChannels ? b.getChannelData(c) : b.getChannelData(b.numberOfChannels - 1);
@@ -66,7 +72,7 @@ export function concat(buffers: AudioBuffer[]): AudioBuffer {
       if (ratio === 1) {
         dst.set(src, offset);
       } else {
-        for (let i = 0; i < b.length * ratio; i++) {
+        for (let i = 0; i < writeLen; i++) {
           const j = i / ratio;
           const i0 = Math.floor(j);
           const t = j - i0;
@@ -74,7 +80,7 @@ export function concat(buffers: AudioBuffer[]): AudioBuffer {
         }
       }
     }
-    offset += Math.round(b.length * ratio);
+    offset += writeLen;
   }
   return out;
 }
@@ -334,6 +340,15 @@ function clamp(v: number): number {
 }
 
 // --- WAV encoder ---
+/**
+ * Sync WAV encoder used by ~17 audio tools. Embeds a RIFF LIST/INFO metadata
+ * chunk with the brand on free sessions; Pro sessions get a clean header. The
+ * branding is byte-level + synchronous so callers don't need to change.
+ *
+ * Builds: RIFF header + fmt chunk + (optional LIST/INFO chunk) + data chunk.
+ * The LIST chunk goes BEFORE data so legacy decoders that stop at the data
+ * chunk still see the metadata.
+ */
 export function encodeWav(ab: AudioBuffer): Blob {
   const channels = ab.numberOfChannels;
   const sr = ab.sampleRate;
@@ -342,12 +357,20 @@ export function encodeWav(ab: AudioBuffer): Blob {
   const blockAlign = channels * bytesPerSample;
   const byteRate = sr * blockAlign;
   const dataSize = len * blockAlign;
-  const buf = new ArrayBuffer(44 + dataSize);
+
+  // Optional LIST/INFO chunk (free → branded, Pro → none).
+  const listChunk = watermarkOnSync() ? buildWavListInfo() : null;
+  const listSize = listChunk ? listChunk.length : 0;
+
+  const headerSize = 12 + 24 + listSize + 8; // RIFF+WAVE + fmt + LIST + data header
+  const buf = new ArrayBuffer(headerSize + dataSize);
   const view = new DataView(buf);
+  const bytes = new Uint8Array(buf);
 
   writeStr(view, 0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
+  view.setUint32(4, headerSize + dataSize - 8, true); // RIFF size = file size - 8
   writeStr(view, 8, 'WAVE');
+  // fmt chunk
   writeStr(view, 12, 'fmt ');
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
@@ -356,10 +379,18 @@ export function encodeWav(ab: AudioBuffer): Blob {
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
   view.setUint16(34, 16, true);
-  writeStr(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
+  let cursor = 36;
+  // LIST/INFO chunk (optional)
+  if (listChunk) {
+    bytes.set(listChunk, cursor);
+    cursor += listChunk.length;
+  }
+  // data chunk
+  writeStr(view, cursor, 'data');
+  view.setUint32(cursor + 4, dataSize, true);
+  cursor += 8;
 
-  let offset = 44;
+  let offset = cursor;
   const tmp = new Float32Array(channels);
   for (let i = 0; i < len; i++) {
     for (let c = 0; c < channels; c++) tmp[c] = ab.getChannelData(c)[i];
@@ -370,6 +401,42 @@ export function encodeWav(ab: AudioBuffer): Blob {
     }
   }
   return new Blob([buf], { type: 'audio/wav' });
+}
+
+/** Build the LIST/INFO chunk bytes synchronously. Mirrors the async helper
+ *  in lib/watermark/audio.ts but keeps encodeWav sync-only so existing
+ *  callers don't have to change. */
+function buildWavListInfo(): Uint8Array {
+  const enc = new TextEncoder();
+  const fields: Array<[string, string]> = [
+    ['INAM', WM_MADE_WITH],
+    ['IART', WM_DOMAIN],
+    ['ICMT', WM_MADE_WITH],
+    ['ISFT', WM_DOMAIN],
+  ];
+  const parts: Uint8Array[] = [];
+  for (const [id, val] of fields) {
+    const payload = enc.encode(val + '\0');
+    const padded = payload.length % 2 ? new Uint8Array(payload.length + 1) : payload;
+    if (padded !== payload) padded.set(payload, 0);
+    const head = new Uint8Array(8);
+    for (let i = 0; i < 4; i++) head[i] = id.charCodeAt(i);
+    new DataView(head.buffer).setUint32(4, padded.length, true);
+    parts.push(head, padded);
+  }
+  let total = 0;
+  for (const p of parts) total += p.length;
+  const inner = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { inner.set(p, off); off += p.length; }
+  const listHead = new Uint8Array(12);
+  for (let i = 0; i < 4; i++) listHead[i] = 'LIST'.charCodeAt(i);
+  new DataView(listHead.buffer).setUint32(4, inner.length + 4, true);
+  for (let i = 0; i < 4; i++) listHead[8 + i] = 'INFO'.charCodeAt(i);
+  const out = new Uint8Array(12 + inner.length);
+  out.set(listHead, 0);
+  out.set(inner, 12);
+  return out;
 }
 
 function writeStr(v: DataView, off: number, s: string) {
@@ -388,11 +455,25 @@ type LameStatic = new (channels: number, sampleRate: number, kbps: number) => {
  * with no change of its own. Falls back to the main thread if Workers aren't.
  */
 export async function encodeMp3(ab: AudioBuffer, kbps = 192): Promise<Blob> {
-  if (typeof Worker !== 'undefined') {
-    const { mergeAudio } = await import('@/lib/compute/audioMerge');
-    return mergeAudio([ab], 'mp3', kbps);
-  }
-  return encodeMp3Main(ab, kbps);
+  const raw = typeof Worker !== 'undefined'
+    ? await (async () => { const { mergeAudio } = await import('@/lib/compute/audioMerge'); return mergeAudio([ab], 'mp3', kbps); })()
+    : await encodeMp3Main(ab, kbps);
+  // Apply file-level brand watermark (ID3v1 tag) on free sessions. Pro → unchanged.
+  try {
+    const { brandAudioBlob } = await import('@/lib/watermark/audio');
+    return await brandAudioBlob(raw);
+  } catch { return raw; }
+}
+
+/** Branded WAV variant. Use this from tools to ensure the file-level metadata
+ *  brand layer is applied on free sessions (in addition to the filename suffix
+ *  from the download interceptor). */
+export async function encodeWavBranded(ab: AudioBuffer): Promise<Blob> {
+  const raw = encodeWav(ab);
+  try {
+    const { brandAudioBlob } = await import('@/lib/watermark/audio');
+    return await brandAudioBlob(raw);
+  } catch { return raw; }
 }
 
 async function encodeMp3Main(ab: AudioBuffer, kbps = 192): Promise<Blob> {
@@ -432,6 +513,8 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.href = url;
   a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  // Deferred so the usage-gate download interceptor can still read the blob URL.
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  // 60s defer matches the rest of the codebase — 10s was tight on slow mobile
+  // networks where the download dialog opens after a few seconds and aborts
+  // the save when the blob URL is already revoked.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

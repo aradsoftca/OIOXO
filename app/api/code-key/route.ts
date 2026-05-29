@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/db';
+import { mintUnlock, isDenied, type UnlockRequest } from '@/lib/oioxo/unlock';
+import { keyFromB64 } from '@/lib/oioxo/protect';
+import { preCheckRequest } from '@/lib/oioxo/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -19,40 +19,43 @@ export const dynamic = 'force-dynamic';
  * can extract them once. This raises cost + gives a rate-limitable, per-account
  * chokepoint; the durable moat is the loop + the retraining flywheel.
  */
-const ALLOWED_HOSTS = new Set([
-  'oioxo.com', 'www.oioxo.com',
-  'xonvert.com', 'www.xonvert.com', 'new.xonvert.com',
-  'localhost:3000', 'localhost:3001', '127.0.0.1:3001',
-]);
 
-function hostOf(value: string | null): string | null {
-  if (!value) return null;
-  try { return new URL(value).host.toLowerCase(); } catch { return null; }
+/**
+ * The legacy GET handed the raw key to any same-origin caller — a soft door. It is
+ * now CLOSED: the only way to the key is the POST ECDHE handshake below, which
+ * requires a live, device-bound entitlement. (No live callers used GET — the
+ * protected model isn't served yet — so closing it is zero-risk.)
+ */
+export async function GET() {
+  return NextResponse.json({ error: 'gone', use: 'POST /api/code-key (unlock handshake)' }, { status: 410 });
 }
 
-export async function GET(req: Request) {
-  const reqHost = (req.headers.get('host') || '').toLowerCase();
-  const originHost = hostOf(req.headers.get('origin'));
-  // Reject only a PRESENT cross-site Origin (same-origin GETs omit it).
-  if (originHost && originHost !== reqHost && !ALLOWED_HOSTS.has(originHost)) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+/**
+ * HARD gate (the "rock"): POST the unlock handshake. Unlike the legacy GET (which
+ * hands the raw key to any same-origin caller), this returns the content key only
+ * WRAPPED under a fresh per-session ECDHE secret, and ONLY after verifying a live,
+ * device-bound, server-signed entitlement. No entitlement / wrong device / expired
+ * → a 403 denial, never the key. A captured response is useless (bound to the
+ * caller's ephemeral key). Body: { entitlement, device, assetId, clientPubB64 }.
+ */
+export async function POST(req: Request) {
+  // Shared rate-limit + UA + origin/referer pre-check (lib/oioxo/gate).
+  const pre = preCheckRequest(req);
+  if (pre) return pre;
+  const keyB64 = process.env.OIOXO_CODE_KEY;
+  const secret = process.env.OIOXO_ENTITLEMENT_SECRET;
+  if (!keyB64 || !secret) return NextResponse.json({ denied: true, reason: 'unconfigured' }, { status: 503 });
+
+  let body: Partial<UnlockRequest>;
+  try { body = await req.json(); } catch { return NextResponse.json({ denied: true, reason: 'malformed' }, { status: 400 }); }
+  if (!body.entitlement || !body.device || !body.assetId || !body.clientPubB64) {
+    return NextResponse.json({ denied: true, reason: 'missing-fields' }, { status: 400 });
   }
 
-  const key = process.env.OIOXO_CODE_KEY;
-  if (!key) return NextResponse.json({ error: 'unconfigured' }, { status: 503 });
-
-  // Tier so the client knows whether to meter runs (Pro = unlimited). The KEY is
-  // the anti-copy gate (all valid sessions get it); run-count metering is separate
-  // (/api/usage). PRO/BUSINESS bypass the run meter.
-  let pro = false;
-  try {
-    const session = await getServerSession(authOptions);
-    const id = (session?.user as { id?: string } | undefined)?.id;
-    if (id) {
-      const u = await prisma.user.findUnique({ where: { id }, select: { plan: true } });
-      pro = u?.plan === 'PRO' || u?.plan === 'BUSINESS';
-    }
-  } catch { /* anon → free */ }
-
-  return NextResponse.json({ key, pro }, { headers: { 'Cache-Control': 'no-store' } });
+  const grant = await mintUnlock(
+    { entitlement: body.entitlement, device: body.device, assetId: body.assetId, clientPubB64: body.clientPubB64 },
+    { secret, assetKey: keyFromB64(keyB64), release: process.env.OIOXO_CODE_RELEASE || 'v1' },
+  );
+  if (isDenied(grant)) return NextResponse.json(grant, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json(grant, { headers: { 'Cache-Control': 'no-store' } });
 }

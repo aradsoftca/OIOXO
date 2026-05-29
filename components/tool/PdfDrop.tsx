@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Upload, X, FileText } from 'lucide-react';
 import { useStagedInput } from '@/lib/ai/handoff';
+import { checkFreeSize } from '@/lib/usage/size-gate';
 
 export interface PdfFileItem {
   file: File;
@@ -44,6 +45,12 @@ export function PdfDrop(props: Props) {
         setError('Drop a PDF file.');
         return;
       }
+      // Free size gate — block on the largest PDF, show the upgrade prompt.
+      // Iterate; Math.max(...arr) on a huge arr (folder-drop) overflows V8's
+      // argument-count stack.
+      let pdfMax = 0;
+      for (const f of list) if (f.size > pdfMax) pdfMax = f.size;
+      if (!(await checkFreeSize('pdf', pdfMax))) return;
       const items = await Promise.all(list.map(loadFile));
       if (props.multiple) {
         props.onItemsChange([...props.items, ...items]);

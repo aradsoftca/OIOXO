@@ -5,6 +5,13 @@ import { Upload, Loader2, Download, Image as ImageIcon, ArrowLeftRight, Wand2, M
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { upscale, type UpscaleFactor, type UpscaleQuality, type UpscaleProgress } from '@/engines/upscale';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { ProBadge } from '@/components/limits/ProBadge';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+import { enforcePolicy } from '@/lib/limits/server-check';
+
+const POLICY_KEY = 'image-upscale';
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 B';
@@ -26,6 +33,8 @@ const QUALITIES: { v: UpscaleQuality; label: string; hint: string }[] = [
 ];
 
 export default function ImageUpscaleTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [sourceUrl, setSourceUrl] = React.useState<string>('');
   const [outputBlob, setOutputBlob] = React.useState<Blob | null>(null);
@@ -43,10 +52,16 @@ export default function ImageUpscaleTool() {
   const stageRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef(false);
 
+  // Unmount-only cleanup driven by refs. The previous version used `[]` deps
+  // and read sourceUrl/outputUrl by closure — but those captured the INITIAL
+  // values (empty strings), so the URLs current at unmount were never freed.
+  const sourceUrlRef = React.useRef(sourceUrl);
+  const outputUrlRef = React.useRef(outputUrl);
+  React.useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+  React.useEffect(() => { outputUrlRef.current = outputUrl; }, [outputUrl]);
   React.useEffect(() => () => {
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    if (outputUrl) URL.revokeObjectURL(outputUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
+    if (outputUrlRef.current) URL.revokeObjectURL(outputUrlRef.current);
   }, []);
 
   // Real-world is only valid at 4×
@@ -55,6 +70,12 @@ export default function ImageUpscaleTool() {
   }, [factor, quality]);
 
   const run = React.useCallback(async (target: File) => {
+    const specs: { type: 'lever'; lever: 'input-size' | 'output-resolution'; value: number }[] = [
+      { type: 'lever', lever: 'input-size', value: target.size },
+    ];
+    if (srcDims) specs.push({ type: 'lever', lever: 'output-resolution', value: Math.max(srcDims.w, srcDims.h) * factor });
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, specs);
+    if (!ok) return;
     setRunning(true);
     setProgress({ phase: 'Preparing', ratio: 0 });
     try {
@@ -82,7 +103,7 @@ export default function ImageUpscaleTool() {
       setRunning(false);
       setProgress(null);
     }
-  }, [factor, quality, outputUrl]);
+  }, [factor, quality, outputUrl, isPro, policyGate, srcDims]);
 
   const loadFile = React.useCallback(async (next: File) => {
     if (!next.type.startsWith('image/')) return;
@@ -112,12 +133,13 @@ export default function ImageUpscaleTool() {
     if (!outputBlob || !file) return;
     const base = file.name.replace(/\.[^.]+$/, '');
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(outputBlob);
+    const href = URL.createObjectURL(outputBlob);
+    a.href = href;
     a.download = `${base}-${factor}x.png`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   const onComparePointerDown = (e: React.PointerEvent) => {
@@ -140,6 +162,7 @@ export default function ImageUpscaleTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      {policyGate.element}
       <div
         ref={stageRef}
         onDrop={onDrop}
@@ -246,22 +269,26 @@ export default function ImageUpscaleTool() {
               Scale
             </div>
             <div className="mt-2 grid grid-cols-2 gap-1.5">
-              {FACTORS.map((f) => (
-                <button
-                  key={f.v}
-                  type="button"
-                  disabled={running}
-                  onClick={() => setFactor(f.v)}
-                  className={cn(
-                    'border px-2 py-2 text-[12px] font-bold uppercase tracking-wider transition disabled:opacity-60',
-                    factor === f.v
-                      ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)] text-white'
-                      : 'border-black/[0.08] text-[var(--color-fg-muted)] hover:border-black/20',
-                  )}
-                >
-                  {f.label}
-                </button>
-              ))}
+              {FACTORS.map((f) => {
+                const projected = srcDims ? Math.max(srcDims.w, srcDims.h) * f.v : 0;
+                return (
+                  <button
+                    key={f.v}
+                    type="button"
+                    disabled={running}
+                    onClick={() => setFactor(f.v)}
+                    className={cn(
+                      'relative border px-2 py-2 text-[12px] font-bold uppercase tracking-wider transition disabled:opacity-60',
+                      factor === f.v
+                        ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)] text-white'
+                        : 'border-black/[0.08] text-[var(--color-fg-muted)] hover:border-black/20',
+                    )}
+                  >
+                    <div className="absolute right-0.5 top-0.5"><ProBadge toolKey={POLICY_KEY} lever="output-resolution" value={projected} isPro={isPro} compact /></div>
+                    {f.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

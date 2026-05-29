@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Upload } from 'lucide-react';
 import { getVideoInfo, type VideoInfo } from '@/engines/video';
 import { useStagedInput } from '@/lib/ai/handoff';
+import { checkFreeSize } from '@/lib/usage/size-gate';
 
 export interface VideoFileItem {
   file: File;
@@ -29,6 +30,7 @@ export function VideoDrop({ onLoad, loaded, fileName }: Props) {
 
   const handle = async (file: File) => {
     if (!isVideo(file)) { setError('Drop a video file.'); return; }
+    if (!(await checkFreeSize('video', file.size))) return; // free size gate → upgrade prompt
     setBusy(true); setError('');
     try {
       const { info, video, url } = await getVideoInfo(file);

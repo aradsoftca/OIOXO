@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -14,19 +15,27 @@ export async function GET(req: Request) {
 
   if (!token) return NextResponse.redirect(`${base}/auth/sign-in?error=missing_token`);
 
-  const vt = await prisma.verificationToken.findUnique({ where: { token } });
+  // The DB stores SHA-256(token), not the plaintext — match by hash. Without
+  // this, a DB read leak (backup, mis-permissioned replica, SQL injection
+  // elsewhere) reveals every pending verification token, letting an attacker
+  // verify arbitrary accounts. Mirrors the same defense in /forgot-password.
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const vt = await prisma.verificationToken.findUnique({ where: { token: tokenHash } });
   if (!vt) return NextResponse.redirect(`${base}/auth/sign-in?error=invalid_token`);
 
   if (vt.expires < new Date()) {
-    await prisma.verificationToken.deleteMany({ where: { token } });
+    await prisma.verificationToken.deleteMany({ where: { token: tokenHash } });
     return NextResponse.redirect(`${base}/auth/sign-in?error=expired_token`);
   }
 
-  await prisma.user.update({
+  // updateMany so a deleted-account race (user removed between sign-up and
+  // clicking the email link) doesn't 500 this handler and leak the token
+  // sitting in the DB.
+  await prisma.user.updateMany({
     where: { email: vt.identifier },
     data: { emailVerified: new Date() },
   });
-  await prisma.verificationToken.deleteMany({ where: { token } });
+  await prisma.verificationToken.deleteMany({ where: { token: tokenHash } });
 
   return NextResponse.redirect(`${base}/auth/sign-in?verified=1`);
 }

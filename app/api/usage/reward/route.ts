@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies, headers } from 'next/headers';
-import type { Category } from '@/lib/registry/types';
-import { isGated, REWARD_WAIT_SECONDS } from '@/lib/usage/config';
+import { isGatedKey, REWARD_WAIT_SECONDS } from '@/lib/usage/config';
 import { fingerprints, newCookieId, USAGE_COOKIE, COOKIE_MAX_AGE } from '@/lib/usage/identity';
 import { completeReward, startReward } from '@/lib/usage/service';
 
@@ -16,9 +15,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: 'bad request' }, { status: 400 });
   }
-  const category = body.category as Category | undefined;
+  const category = body.category as string | undefined;
   const action: Action = body.action === 'complete' ? 'complete' : 'start';
-  if (!category || !isGated(category)) {
+  if (!category || !isGatedKey(category)) {
     return NextResponse.json({ error: 'invalid category' }, { status: 400 });
   }
 

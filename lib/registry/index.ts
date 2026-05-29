@@ -421,6 +421,78 @@ import { manifest as videoReframe }      from '@/tools/video-reframe/manifest';
 // --- Phase 2 wave 36 — AI segmentation ---
 import { manifest as imageSmartCutout }  from '@/tools/image-smart-cutout/manifest';
 
+// --- Phase 2 wave 37 — high-end AI media + editors (all on-device) ---
+import { manifest as videoAutoSubtitle } from '@/tools/video-auto-subtitle/manifest';
+import { manifest as audioVoiceStudio }  from '@/tools/audio-voice-studio/manifest';
+import { manifest as textTranslate }     from '@/tools/text-translate/manifest';
+import { manifest as imageStudio }       from '@/tools/image-studio/manifest';
+import { manifest as videoStudio }       from '@/tools/video-studio/manifest';
+
+// --- Phase 2 wave 40 — music ---
+import { manifest as audioMusicStudio } from '@/tools/audio-music-studio/manifest';
+
+// --- Phase 2 wave 41 — layout-preserving document translation ---
+import { manifest as docTranslate } from '@/tools/doc-translate/manifest';
+
+// --- Phase 2 wave 42 — translation studio (edit + multi-format export) ---
+import { manifest as translateStudio } from '@/tools/translate-studio/manifest';
+
+// --- Wave 50 — Pro studios ---
+import { manifest as subtitleStudio } from '@/tools/subtitle-studio/manifest';
+import { manifest as officeStudio } from '@/tools/office-studio/manifest';
+import { manifest as officeDocs } from '@/tools/office-docs/manifest';
+import { manifest as officeSlides } from '@/tools/office-slides/manifest';
+
+// --- Phase 2 wave 38 — Test/diagnostics category + PDF Studio ---
+import { manifest as testTyping }    from '@/tools/test-typing/manifest';
+import { manifest as testReaction }  from '@/tools/test-reaction/manifest';
+import { manifest as testCps }       from '@/tools/test-cps/manifest';
+import { manifest as testKeyboard }  from '@/tools/test-keyboard/manifest';
+import { manifest as testMouse }     from '@/tools/test-mouse/manifest';
+import { manifest as testMonitor }   from '@/tools/test-monitor/manifest';
+import { manifest as testMic }       from '@/tools/test-mic/manifest';
+import { manifest as testSpeaker }   from '@/tools/test-speaker/manifest';
+import { manifest as testHearing }   from '@/tools/test-hearing/manifest';
+import { manifest as testGamepad }   from '@/tools/test-gamepad/manifest';
+import { manifest as testTouch }     from '@/tools/test-touch/manifest';
+import { manifest as testBrowser }   from '@/tools/test-browser/manifest';
+import { manifest as pdfStudio }     from '@/tools/pdf-studio/manifest';
+
+// --- Phase 2 wave 39 — on-device creator combos + deterministic high-value ---
+import { manifest as videoAutoDub }   from '@/tools/video-auto-dub/manifest';
+import { manifest as videoToShorts }  from '@/tools/video-to-shorts/manifest';
+import { manifest as videoBoomerang } from '@/tools/video-boomerang/manifest';
+import { manifest as audioRingtone }  from '@/tools/audio-ringtone/manifest';
+import { manifest as imageEnhance }   from '@/tools/image-enhance/manifest';
+import { manifest as imageAutoBlur }  from '@/tools/image-auto-blur/manifest';
+import { manifest as imagePassport }  from '@/tools/image-passport/manifest';
+import { manifest as pdfNup }         from '@/tools/pdf-nup/manifest';
+
+// --- Phase 2 wave 43 — 11 Premium Studios ---
+import { manifest as studioResume } from '@/tools/studio-resume/manifest';
+import { manifest as studioInvoice } from '@/tools/studio-invoice/manifest';
+import { manifest as studioBackground } from '@/tools/studio-background/manifest';
+import { manifest as studioQr } from '@/tools/studio-qr/manifest';
+import { manifest as studioThumbnail } from '@/tools/studio-thumbnail/manifest';
+import { manifest as studioMeme } from '@/tools/studio-meme/manifest';
+import { manifest as studioCollage } from '@/tools/studio-collage/manifest';
+import { manifest as studioPoster } from '@/tools/studio-poster/manifest';
+import { manifest as studioGif } from '@/tools/studio-gif/manifest';
+import { manifest as studioSticker } from '@/tools/studio-sticker/manifest';
+import { manifest as studioAvatar } from '@/tools/studio-avatar/manifest';
+import { manifest as studioSheets } from '@/tools/studio-sheets/manifest';
+import { manifest as studioDocs } from '@/tools/studio-docs/manifest';
+import { manifest as studioSlides } from '@/tools/studio-slides/manifest';
+import { manifest as studioChart } from '@/tools/studio-chart/manifest';
+import { manifest as audioRecord } from '@/tools/audio-record/manifest';
+import { manifest as videoWebcamRecord } from '@/tools/video-webcam-record/manifest';
+import { manifest as scanQr } from '@/tools/scan-qr/manifest';
+import { manifest as studioDiagram } from '@/tools/studio-diagram/manifest';
+import { manifest as studioMockup } from '@/tools/studio-mockup/manifest';
+import { manifest as studioRedact } from '@/tools/studio-redact/manifest';
+import { manifest as devEncrypt } from '@/tools/dev-encrypt/manifest';
+
+
 /**
  * Central registry. Manifests live next to their `ui.tsx` so the unit of
  * migration is one folder. New tools get appended here + a dynamic loader
@@ -795,6 +867,53 @@ export const TOOLS: ToolManifest[] = [
   videoReframe,
   // wave 36 — AI segmentation
   imageSmartCutout,
+  // wave 37 — high-end AI media + editors
+  videoAutoSubtitle,
+  audioVoiceStudio,
+  textTranslate,
+  imageStudio,
+  videoStudio,
+  // wave 38 — Test/diagnostics + PDF Studio
+  testTyping, testReaction, testCps, testKeyboard, testMouse, testMonitor,
+  testMic, testSpeaker, testHearing, testGamepad, testTouch, testBrowser,
+  pdfStudio,
+  // wave 39 — on-device creator combos + deterministic high-value
+  videoAutoDub, videoToShorts, videoBoomerang, audioRingtone,
+  imageEnhance, imageAutoBlur, imagePassport, pdfNup,
+  // wave 40 — music
+  audioMusicStudio,
+  // wave 41 — layout-preserving document translation
+  docTranslate,
+  // wave 42 — translation studio
+  translateStudio,
+  // wave 50 — Pro studios (subtitle + office suite)
+  subtitleStudio,
+  officeStudio,
+  officeDocs,
+  officeSlides,
+  // wave 43 — 11 Premium Studios
+  studioResume,
+  studioInvoice,
+  studioBackground,
+  studioQr,
+  studioThumbnail,
+  studioSheets,
+  studioDocs,
+  studioSlides,
+  studioChart,
+  audioRecord,
+  videoWebcamRecord,
+  scanQr,
+  studioDiagram,
+  studioMockup,
+  studioRedact,
+  devEncrypt,
+  studioMeme,
+  studioCollage,
+  studioPoster,
+  studioGif,
+  studioSticker,
+  studioAvatar,
 ];
 
 export const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));

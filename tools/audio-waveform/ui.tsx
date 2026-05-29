@@ -131,12 +131,13 @@ export default function AudioWaveformTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = item.file.name.replace(/\.[^.]+$/, '') + '-waveform.png';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
 
@@ -145,12 +146,13 @@ export default function AudioWaveformTool() {
     const svg = renderToSvg(item, style, fg, bg, width, height, barWidth, gap);
     const blob = new Blob([svg], { type: 'image/svg+xml' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = item.file.name.replace(/\.[^.]+$/, '') + '-waveform.svg';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   return (

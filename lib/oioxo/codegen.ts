@@ -6,8 +6,9 @@
  * proves. Parsing is pure + Node-testable; only the model call needs the browser.
  */
 import type { Edit, GenContext, GenerateFn } from './codeloop';
-import { chat } from './runtime';
+import { chat, chatStream } from './runtime';
 import { retrieveContext, type RetrievedContext } from './retrieve';
+import { applyPatchReply } from './patch';
 
 // The skill model match (resolved against web-llm's live catalog by substring).
 const CODER = ['Qwen2.5-Coder', 'Coder', 'Qwen2.5'];
@@ -19,7 +20,27 @@ export const SYSTEM =
   'You are a coding agent in a sandbox. You write and fix code so the tests pass.\n' +
   'Reply with ONLY code — no explanation, no prose. Output the COMPLETE new contents\n' +
   'of each source file you change. Never output or edit a test file. Keep the file\'s\n' +
-  'existing module style (ES `import`/`export` vs CommonJS `require`) and language.';
+  'existing module style (ES `import`/`export` vs CommonJS `require`) and language.\n' +
+  'For a web page or browser GAME: put ALL the HTML, CSS and JavaScript in index.html\n' +
+  'using PLAIN browser JavaScript inside a <script> tag — do NOT create separate .js/.ts\n' +
+  'files, do NOT use TypeScript or imports, so it runs immediately with no build step.';
+
+// DIFF-NOT-REWRITE (patch.ts): on a REPAIR the model edits, it doesn't re-author.
+// A search/replace block costs a handful of tokens instead of a whole file — the
+// difference between seconds and minutes on a weak device. The device locates and
+// applies the edit (exact → fuzzy), so the small model only has to point at the
+// bug and say what it should be.
+// Gem 1 — CONSTRAINED REPAIR. The repair reply is a JSON edit list, and the
+// decoder is constrained to json_object (runtime ChatOpts.responseFormat), so a
+// weak model CANNOT answer in prose (the failure that corrupted a file in the
+// live test). Each edit = the exact lines to find + their replacement; the device
+// locates + applies them (exact→fuzzy via patch.ts). Tiny output, impossible to
+// mis-shape. The SEARCH/REPLACE markers still parse as a fallback (parseAnyPatch).
+export const PATCH_SYSTEM =
+  'You are a coding agent fixing a bug. Do NOT reprint the whole file. Reply with\n' +
+  'ONLY a JSON object of edits, nothing else:\n' +
+  '{"edits":[{"find":"<exact lines copied from the file, incl. the buggy line>","replace":"<those lines, corrected>"}]}\n' +
+  'Copy the "find" text EXACTLY as it appears in the file. Change as little as possible.';
 
 const isTest = (p: string) => /(\.|^)(test|spec)\.[a-z]+$|(^|\/)(tests?|__tests__)\//i.test(p);
 
@@ -70,7 +91,7 @@ function renderFiles(files: { path: string; content: string }[], cap = 8000): st
  *    and refuses to overwrite source with test code.
  *  - MANY files → the labelled-block prompt (a COMPLETE example, not a fill-in slot).
  */
-export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extApis?: string): string {
+export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extApis?: string, bricks?: string): string {
   const shown = retrieved?.relevantFiles ?? ctx.files;
   const src = editableSources(shown);
   const tests = shown.filter((f) => isTest(f.path));
@@ -78,6 +99,10 @@ export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extAp
     ? `Project APIs (exact signatures — call these, do NOT invent names):\n${retrieved.symbolIndex.slice(0, 4000)}\n\n`
     : '';
   const ext = extApis ? `External libraries (fetched — use these REAL APIs, do NOT guess):\n${extApis.slice(0, 4000)}\n\n` : '';
+  // VERIFIED-BRICK CORPUS (bricks.ts): proven building blocks for this task. A weak
+  // model adapts these instead of authoring from nothing — fewer tokens, far higher
+  // first-draft correctness. Empty when nothing relevant, so no bloat.
+  const brk = bricks ? `${bricks}\n\n` : '';
 
   // ── Single-file: no path choices, no labels, just "here is the file, fix it".
   // We deliberately do NOT paste the test source: a tiny model parrots the most
@@ -91,7 +116,7 @@ export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extAp
     const head = `SOURCE — edit this file (${f.path}):\n${fence(f.content)}\n\n`;
     const tail = `Output ONLY the complete corrected contents of ${f.path} as code. Do not output the test. Do not explain.`;
     if (ctx.attempt === 0 || !ctx.error) {
-      return `Task: ${ctx.task}\n\n${ext}${apis}${head}${tail}`;
+      return `Task: ${ctx.task}\n\n${brk}${ext}${apis}${head}${tail}`;
     }
     return `Task: ${ctx.task}\n\n${ext}${apis}${head}Running the tests FAILED with:\n${ctx.error}\n\nThe bug is in ${f.path}. Make the smallest change that fixes it. ${tail}`;
   }
@@ -106,9 +131,39 @@ export function buildPrompt(ctx: GenContext, retrieved?: RetrievedContext, extAp
     '(e.g. three backticks then index.html on the same line), then the file\'s COMPLETE real code, ' +
     'then closing triple backticks. Write the real code for THIS task — do not copy any example. No prose.';
   if (ctx.attempt === 0 || !ctx.error) {
-    return `Task: ${ctx.task}\n\n${ext}${apis}${srcBlock}${testBlock}Write or edit the SOURCE file(s) to do this.\n${fmt}`;
+    return `Task: ${ctx.task}\n\n${brk}${ext}${apis}${srcBlock}${testBlock}Write or edit the SOURCE file(s) to do this.\n${fmt}`;
   }
   return `Task: ${ctx.task}\n\n${ext}${apis}${srcBlock}${testBlock}It FAILED with:\n${ctx.error}\n\nFix the bug in a SOURCE file (not the tests).\n${fmt}`;
+}
+
+/** Build the REPAIR prompt that asks for a search/replace PATCH (not a rewrite).
+ *  Shows the current source + the run error; the model points at the bug. Single
+ *  target → path-less edits (parser maps them to it); many files → ask for a
+ *  `*** path` line before each edit so the patch lands on the right file. */
+export function buildPatchRepairPrompt(ctx: GenContext, retrieved?: RetrievedContext, extApis?: string): string {
+  const shown = retrieved?.relevantFiles ?? ctx.files;
+  const src = editableSources(shown);
+  const apis = retrieved?.symbolIndex
+    ? `Project APIs (exact signatures — call these, do NOT invent names):\n${retrieved.symbolIndex.slice(0, 4000)}\n\n`
+    : '';
+  const ext = extApis ? `External libraries (fetched — use these REAL APIs):\n${extApis.slice(0, 4000)}\n\n` : '';
+  const target = singleTarget(shown);
+  if (target) {
+    const f = src.find((s) => s.path === target)!;
+    return (
+      `Task: ${ctx.task}\n\n${ext}${apis}` +
+      `Current contents of ${f.path}:\n${fence(f.content)}\n\n` +
+      `Running the tests FAILED with:\n${ctx.error}\n\n` +
+      `Return JSON edits that fix ${f.path}: {"edits":[{"find":"…","replace":"…"}]}. Do not reprint the whole file.`
+    );
+  }
+  return (
+    `Task: ${ctx.task}\n\n${ext}${apis}` +
+    `SOURCE files:\n${renderFiles(src)}\n\n` +
+    `It FAILED with:\n${ctx.error}\n\n` +
+    `Return JSON edits that fix it: {"edits":[{"path":"<file>","find":"…","replace":"…"}]}. ` +
+    `Include "path" for each edit. Do not edit tests. Do not reprint whole files.`
+  );
 }
 
 const LANG_EXT: Record<string, string> = {
@@ -142,15 +197,25 @@ const looksLikeTest = (s: string) =>
 
 /** Pull the one source body out of a single-target reply: the largest fenced
  *  block, else the whole reply. Strips a leading `path`/`lang` info line and
- *  rejects placeholder echoes (e.g. "<full file contents>"). */
+ *  rejects placeholder echoes (e.g. "<full file contents>").
+ *
+ *  CRITICAL: a weak model often answers a REPAIR in PROSE ("Replace `ms` with a
+ *  number") instead of code. With no fence we must NOT treat that prose as the new
+ *  file — that overwrites working code with an explanation. So when there's no
+ *  fenced block, we only accept the reply if it actually looks like source
+ *  (structural chars / a tag), else return '' so the caller makes no edit and the
+ *  loop retries. (Found by the live 0.5B-coder run, which corrupted a file this way.) */
 function extractSingleBody(reply: string): string {
   let best = '';
+  let sawFence = false;
   let m: RegExpExecArray | null;
   const fence = /```[^\n`]*\n([\s\S]*?)```/g;
-  while ((m = fence.exec(reply))) if (m[1].length > best.length) best = m[1];
+  while ((m = fence.exec(reply))) { sawFence = true; if (m[1].length > best.length) best = m[1]; }
   const body = (best || reply).trim();
   if (!body) return '';
   if (/^<[^>]*>$/.test(body)) return ''; // copied a "<full file contents>" placeholder
+  // No fence + not code-shaped → it's prose, not a file. Don't overwrite with it.
+  if (!sawFence && !/[{};]|=>|<\/?[a-z]/i.test(body)) return '';
   return body;
 }
 
@@ -167,23 +232,46 @@ function extractSingleBody(reply: string): string {
  * (```js, ```html) mapped to the project file it targets; or, as a last resort,
  * an unfenced whole-file reply mapped to the single relevant project file. Pure.
  */
+const looksPath = (s: string) => /[/.]/.test(s) && !/\s/.test(s) && /[a-z0-9]/i.test(s) && !(s.toLowerCase() in LANG_EXT) && !/^(sh|bash|txt|shell|console|bnf)$/i.test(s);
+
+/** Pull a filename out of a possibly-messy fence info line: "typescript // index.html",
+ *  "ts src/game.ts", "index.html" → the path token, else null. (A weak model often
+ *  jams the language AND a path/comment onto the ``` line.) */
+function pathFromInfo(info: string): string | null {
+  const m = info.match(/[\w./-]+\.[a-z0-9]+/i);
+  return m && looksPath(m[0]) ? m[0] : null;
+}
+
+/** Strip stray markdown code fences a model may wrap content in — a leading
+ *  ```lang line and a trailing ``` (with anything after). This is the fix for the
+ *  "```typescript // index.html" garbage leaking in as the file's contents when a
+ *  fence is malformed/incomplete and the raw reply is used. */
+function stripFences(s: string): string {
+  return s.replace(/^\s*```[^\n]*\n/, '').replace(/\n```[\s\S]*$/, '').replace(/^\s*```\s*$/m, '').trim();
+}
+
 export function parseEdits(reply: string, project: { path: string }[] = [], target?: string): Edit[] {
   if (target) {
     const body = extractSingleBody(reply);
     if (!body || looksLikeTest(body)) return [];
-    return [{ path: target, content: body.replace(/\n+$/, '\n') }];
+    return [{ path: target, content: stripFences(body).replace(/\n+$/, '\n') + '\n' }];
   }
   const edits: Edit[] = [];
   const seen = new Set<string>();
   const fence = /```([^\n`]*)\n([\s\S]*?)```/g;
-  const looksPath = (s: string) => /[/.]/.test(s) && !/\s/.test(s) && /[a-z0-9]/i.test(s) && !(s.toLowerCase() in LANG_EXT) && !/^(sh|bash|txt|shell|console|bnf)$/i.test(s);
   let m: RegExpExecArray | null;
   let sawFence = false;
   while ((m = fence.exec(reply))) {
     sawFence = true;
-    let path = (m[1] || '').trim();
+    const info = (m[1] || '').trim();
+    let path = '';
     let content = m[2];
-    if (!looksPath(path)) {
+    if (looksPath(info)) {
+      path = info;
+    } else if (pathFromInfo(info)) {
+      // messy info line ("typescript // index.html") → take the filename token.
+      path = pathFromInfo(info)!;
+    } else {
       const head = content.split('\n')[0].trim();
       const hm = head.match(/^(?:\/\/|#|<!--)\s*(?:file:\s*|path:\s*)?([\w./-]+\.[\w]+)/i);
       if (hm && looksPath(hm[1])) {
@@ -191,20 +279,22 @@ export function parseEdits(reply: string, project: { path: string }[] = [], targ
         content = content.split('\n').slice(1).join('\n');
       } else {
         // language-only / blank fence → infer the target file from the project
-        const inferred = pathForLang(path || guessLang(content), project);
+        const inferred = pathForLang(info.split(/\s+/)[0] || guessLang(content), project);
         if (!inferred) continue;
         path = inferred;
       }
     }
-    if (seen.has(path)) continue;
+    content = stripFences(content);
+    if (seen.has(path) || !content) continue;
     seen.add(path);
-    edits.push({ path, content: content.replace(/\n+$/, '\n') });
+    edits.push({ path, content: content.replace(/\n+$/, '\n') + '\n' });
   }
-  // No fences at all but the reply is clearly a whole file → map to the one
-  // relevant project file (weak models sometimes skip fences entirely).
+  // No COMPLETE fence (maybe an incomplete/cut-off one) but the reply is clearly a
+  // whole file → strip any stray fence and map it to the relevant project file.
   if (!sawFence && /<!doctype|<html|function |const |class |def |=>|import /i.test(reply) && reply.trim().length > 40) {
     const path = pathForLang(guessLang(reply), project);
-    if (path) edits.push({ path, content: reply.trim().replace(/\n+$/, '\n') });
+    const content = stripFences(reply);
+    if (path && content) edits.push({ path, content: content.replace(/\n+$/, '\n') + '\n' });
   }
   return edits;
 }
@@ -224,20 +314,73 @@ function guessLang(s: string): string {
  *  fetched mid-loop reach the next draft. */
 export function makeCoderGenerate(
   match: string[] = CODER,
-  opts: { onProgress?: (p: number) => void; getExtApis?: () => string } = {},
+  opts: {
+    onProgress?: (p: number) => void;
+    getExtApis?: () => string;
+    /** VERIFIED-BRICK CORPUS (brick-store.recallBricks): proven blocks for the task,
+     *  folded into the DRAFT so a weak model adapts instead of authoring. Injected
+     *  (async, IndexedDB) so codegen stays pure + Node-testable. */
+    recallBricks?: (query: string) => Promise<string>;
+    /** VISIBILITY: stream the DRAFT as the model writes it (delta + running text +
+     *  the file it's writing) so the UI shows live progress instead of a frozen
+     *  spinner. Repairs stay on the constrained (non-streaming) JSON path. */
+    onToken?: (info: { delta: string; full: string; path?: string; attempt: number }) => void;
+  } = {},
 ): GenerateFn {
   return async (ctx: GenContext): Promise<Edit[]> => {
     const retrieved = await retrieveContext(ctx.task, ctx.files).catch(() => undefined);
-    const reply = await chat(
-      match,
-      [
-        { role: 'system', content: SYSTEM },
-        { role: 'user', content: buildPrompt(ctx, retrieved, opts.getExtApis?.()) },
-      ],
-      // Enough spread that best-of-N candidates genuinely differ (a near-greedy
-      // repair just reprints the source) — the proven weak-model recipe.
-      { onProgress: opts.onProgress, maxTokens: 1400, temperature: ctx.attempt === 0 ? 0.5 : 0.4 },
-    );
-    return parseEdits(reply, ctx.files, singleTarget(retrieved?.relevantFiles ?? ctx.files));
+    const shown = retrieved?.relevantFiles ?? ctx.files;
+    const target = singleTarget(shown);
+    const extApis = opts.getExtApis?.();
+
+    // First draft → author whole files (there's nothing to patch yet). Repairs →
+    // DIFF-NOT-REWRITE: ask for a search/replace edit, far cheaper on a weak
+    // device. maxTokens shrinks to match (a patch is small), so the model can't
+    // burn minutes reprinting the file.
+    const repair = ctx.attempt > 0 && !!ctx.error;
+    // Pull relevant verified bricks only for the draft (where authoring happens).
+    const bricks = repair ? '' : await opts.recallBricks?.(ctx.task).catch(() => '') ?? '';
+    const messages = [
+      { role: 'system' as const, content: repair ? PATCH_SYSTEM : SYSTEM },
+      {
+        role: 'user' as const,
+        content: repair
+          ? buildPatchRepairPrompt(ctx, retrieved, extApis)
+          : buildPrompt(ctx, retrieved, extApis, bricks),
+      },
+    ];
+    const genOpts = {
+      onProgress: opts.onProgress,
+      maxTokens: repair ? 512 : 1400,
+      // Gem 2: when the loop is stuck (ctx.effort climbs), sample hotter so the
+      // extra candidates genuinely diverge instead of reprinting the same miss.
+      temperature: Math.min(0.9, (ctx.attempt === 0 ? 0.5 : 0.4) + 0.12 * (ctx.effort ?? 0)),
+    };
+
+    let reply: string;
+    if (!repair && opts.onToken) {
+      // VISIBILITY: stream the draft token-by-token so the UI fills in live.
+      reply = '';
+      for await (const delta of chatStream(match, messages, genOpts)) {
+        reply += delta;
+        opts.onToken({ delta, full: reply, path: target, attempt: ctx.attempt });
+      }
+    } else {
+      reply = await chat(match, messages, {
+        ...genOpts,
+        // Gem 1: constrain repairs to a JSON edit list so a weak model can't emit
+        // prose-as-a-file. Engines without json mode ignore it; the parsers stay safe.
+        responseFormat: repair ? { type: 'json_object' } : undefined,
+      });
+    }
+
+    if (repair) {
+      // Apply the patch against the real current files. If it located + applied,
+      // use it. If the model ignored the format (no hunks applied), fall back to
+      // parsing a whole-file reply — the patch is an optimization, never a wall.
+      const patched = applyPatchReply(reply, ctx.files, target);
+      if (patched.edits.length) return patched.edits;
+    }
+    return parseEdits(reply, ctx.files, target);
   };
 }

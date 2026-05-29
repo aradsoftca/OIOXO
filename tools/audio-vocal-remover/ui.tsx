@@ -7,11 +7,19 @@ import { AudioDrop, type AudioFileItem } from '@/components/tool/AudioDrop';
 import { Waveform } from '@/components/tool/Waveform';
 import { removeVocals, isolateVocals, encodeWav, encodeMp3, downloadBlob } from '@/engines/audio';
 import { encodeAudio } from '@/lib/compute/audioMerge';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+import { enforcePolicy } from '@/lib/limits/server-check';
+
+const POLICY_KEY = 'audio-vocal-remover';
 
 type Mode = 'instrumental' | 'acapella';
 type Format = 'wav' | 'mp3';
 
 export default function AudioVocalRemoverTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<AudioFileItem | null>(null);
   const [mode, setMode] = React.useState<Mode>('instrumental');
   const [amount, setAmount] = React.useState(1);
@@ -42,6 +50,11 @@ export default function AudioVocalRemoverTool() {
 
   const download = async () => {
     if (!item) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'input-size', value: item.file.size },
+      { type: 'lever', lever: 'input-duration', value: item.info.duration },
+    ]);
+    if (!ok) return;
     setBusy(true); setError('');
     try {
       const out = build(); if (!out) return;
@@ -53,6 +66,7 @@ export default function AudioVocalRemoverTool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <AudioDrop loaded={false} onLoad={setItem} />}
 
       {item && (

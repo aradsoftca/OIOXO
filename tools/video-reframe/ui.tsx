@@ -4,6 +4,11 @@ import * as React from 'react';
 import { Upload, Download, Loader2, Crop, FileVideo } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { runFfmpeg } from '@/engines/ffmpeg';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'video-reframe';
 
 const RATIOS: { id: string; label: string; w: number; h: number }[] = [
   { id: '9:16', label: '9:16 · Reels/Shorts', w: 1080, h: 1920 },
@@ -19,6 +24,8 @@ const FOCUS: { id: string; label: string; v: number }[] = [
 ];
 
 export default function ReframeTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [srcUrl, setSrcUrl] = React.useState('');
   const [ratio, setRatio] = React.useState(RATIOS[0]);
@@ -28,7 +35,18 @@ export default function ReframeTool() {
   const [outUrl, setOutUrl] = React.useState('');
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { if (srcUrl) URL.revokeObjectURL(srcUrl); if (outUrl) URL.revokeObjectURL(outUrl); }, [srcUrl, outUrl]);
+  // Unmount-only. With [srcUrl, outUrl] deps, changing srcUrl after running
+  // would revoke the OUT preview URL still on screen (and vice versa). The
+  // inline `URL.revokeObjectURL(srcUrl)` in load() handles the per-change
+  // case; this just covers the unmount.
+  const srcUrlRef = React.useRef('');
+  const outUrlRef = React.useRef('');
+  React.useEffect(() => { srcUrlRef.current = srcUrl; }, [srcUrl]);
+  React.useEffect(() => { outUrlRef.current = outUrl; }, [outUrl]);
+  React.useEffect(() => () => {
+    if (srcUrlRef.current) URL.revokeObjectURL(srcUrlRef.current);
+    if (outUrlRef.current) URL.revokeObjectURL(outUrlRef.current);
+  }, []);
 
   const load = (f: File) => {
     if (!f.type.startsWith('video/')) return;
@@ -38,6 +56,8 @@ export default function ReframeTool() {
 
   const run = async () => {
     if (!file) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, []);
+    if (!ok) return;
     setBusy(true); setProgress(0); setOutUrl('');
     try {
       const { w, h } = ratio;
@@ -66,6 +86,7 @@ export default function ReframeTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      {policyGate.element}
       <div className="space-y-3">
         {!file ? (
           <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) load(f); }} onDragOver={(e) => e.preventDefault()}

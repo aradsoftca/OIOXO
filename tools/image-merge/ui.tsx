@@ -18,7 +18,13 @@ export default function ImageMergeTool() {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { items.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); }, [items]);
+  // Unmount-only. With [items] the cleanup fired on every add/remove and tore
+  // down the URLs+bitmaps of items still on screen.
+  const itemsRef = React.useRef<typeof items>([]);
+  React.useEffect(() => { itemsRef.current = items; }, [items]);
+  React.useEffect(() => () => {
+    itemsRef.current.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); });
+  }, []);
 
   const add = async (files: FileList | File[]) => {
     const list = Array.from(files).filter((f) => f.type.startsWith('image/'));
@@ -77,10 +83,13 @@ export default function ImageMergeTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `merged-${items.length}.${format === 'jpeg' ? 'jpg' : 'png'}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke — mobile Safari/Firefox can abort the download if the
+      // blob URL is torn down before the stream is established.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.95);
   };
 

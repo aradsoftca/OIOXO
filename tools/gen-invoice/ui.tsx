@@ -21,7 +21,17 @@ export default function Tool() {
   const subtotal = items.reduce((s, i) => s + i.quantity * i.rate, 0);
   const tax = subtotal * taxRate / 100;
   const total = subtotal + tax;
-  const fmt = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency, maximumFractionDigits: 2 });
+  // toLocaleString throws RangeError on an invalid currency code (e.g. user
+  // types "ABC"). Without the fallback, every total/subtotal cell threw and
+  // the whole invoice failed to render — they had no way to recover except
+  // typing a valid code, which they couldn't see because the UI was broken.
+  const fmt = (n: number) => {
+    try {
+      return n.toLocaleString(undefined, { style: 'currency', currency, maximumFractionDigits: 2 });
+    } catch {
+      return `${currency || ''} ${n.toFixed(2)}`.trim();
+    }
+  };
 
   return (
     <div className="space-y-4">

@@ -24,10 +24,15 @@ export function parseTime(s: string): number {
 /** Format seconds → SRT timestamp (HH:MM:SS,mmm). */
 export function formatSrt(sec: number): string {
   if (sec < 0) sec = 0;
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  const ms = Math.round((sec - Math.floor(sec)) * 1000);
+  // Round to the nearest millisecond FIRST so we never emit 4-digit ms (e.g.
+  // sec=12.9999 → ms=Math.round(999.9)=1000 would produce "00:00:12,1000",
+  // which strict subtitle parsers reject).
+  const total = Math.round(sec * 1000);
+  const ms = total % 1000;
+  const sTotal = Math.floor(total / 1000);
+  const h = Math.floor(sTotal / 3600);
+  const m = Math.floor((sTotal % 3600) / 60);
+  const s = sTotal % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
 }
 

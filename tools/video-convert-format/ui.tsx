@@ -4,6 +4,14 @@ import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { fmtDuration } from '@/engines/video';
 import { runFfmpeg, downloadBlob } from '@/engines/ffmpeg';
+import { checkLever, checkFormat } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { FormatProBadge } from '@/components/limits/ProBadge';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { requestPermission, hashInputFingerprint } from '@/lib/limits/permission';
+
+const POLICY_KEY = 'video-convert-format';
 
 type Target = 'mp4' | 'webm' | 'mov' | 'mkv';
 
@@ -29,6 +37,8 @@ function argsFor(target: Target, crf: number): string[] {
 }
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
   const [target, setTarget] = React.useState<Target>('mp4');
   const [quality, setQuality] = React.useState(QUALITIES[1]);
@@ -40,6 +50,25 @@ export default function Tool() {
 
   const run = async () => {
     if (!item) return;
+    const specs = [
+      { type: 'lever' as const, lever: 'input-size' as const, value: item.file.size },
+      { type: 'lever' as const, lever: 'input-duration' as const, value: item.info.duration },
+      { type: 'format' as const, format: target },
+    ];
+    // PERMISSION GATE — same shape as the AI/coding handshake, applied per
+    // action. Mint a server-attested ticket bound to this exact (toolKey,
+    // input file, device, 30s, nonce). Engines refuse to run without it.
+    const inputHash = await hashInputFingerprint(POLICY_KEY, {
+      file: item.file, duration: item.info.duration, extra: target + ':' + quality.crf,
+    });
+    const { permission, denial } = await requestPermission(POLICY_KEY, inputHash, specs);
+    if (denial) {
+      // Lever failed server-side — show the paywall using the local hit object
+      // for the friendliest message.
+      const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, specs);
+      if (!ok) return;
+      return;
+    }
     setBusy(true); setError(''); setProgress(0);
     try {
       const inputName = 'in.' + (item.file.name.match(/\.([a-z0-9]+)$/i)?.[1] || 'mp4');
@@ -52,6 +81,7 @@ export default function Tool() {
         args: (i, o) => ['-i', i, ...codecArgs, o],
         mimeType: TARGETS.find((t) => t.id === target)!.mime,
         onProgress: (p) => setProgress(Math.round(p * 100)),
+        permission, toolKey: POLICY_KEY, inputHash,
       });
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '.' + target);
     } catch (e) {
@@ -61,6 +91,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <VideoDrop loaded={false} onLoad={setItem} />}
 
       {item && (
@@ -79,7 +110,8 @@ export default function Tool() {
                 <div className="grid grid-cols-2 gap-1.5">
                   {TARGETS.map((t) => (
                     <button key={t.id} type="button" onClick={() => setTarget(t.id)}
-                      className={`border py-3 text-left px-3 transition ${target === t.id ? 'border-[var(--color-cat-video)] bg-[var(--color-cat-video)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                      className={`relative border py-3 text-left px-3 transition ${target === t.id ? 'border-[var(--color-cat-video)] bg-[var(--color-cat-video)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
+                      <div className="absolute right-1.5 top-1.5"><FormatProBadge toolKey={POLICY_KEY} format={t.id} isPro={isPro} compact /></div>
                       <div className="text-[14px] font-bold uppercase tracking-wider">{t.label}</div>
                       <div className="text-[10px] opacity-80">{t.sub}</div>
                     </button>

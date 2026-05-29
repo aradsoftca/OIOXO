@@ -93,12 +93,13 @@ export default function GenLoremImageTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `placeholder-${w}x${h}.${format === 'jpeg' ? 'jpg' : 'png'}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92);
   };
 

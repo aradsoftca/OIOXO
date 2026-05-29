@@ -23,7 +23,13 @@ export default function PdfToImagesTool() {
   const [progress, setProgress] = React.useState<{ page: number; total: number } | null>(null);
   const [error, setError] = React.useState('');
 
-  React.useEffect(() => () => { previews.forEach((p) => URL.revokeObjectURL(p.url)); }, [previews]);
+  // Unmount-only. Previous [previews] dep revoked URLs of previews still on
+  // screen each time the list grew.
+  const previewsRef = React.useRef<typeof previews>([]);
+  React.useEffect(() => { previewsRef.current = previews; }, [previews]);
+  React.useEffect(() => () => {
+    previewsRef.current.forEach((p) => URL.revokeObjectURL(p.url));
+  }, []);
 
   const mime = format === 'png' ? 'image/png' : format === 'jpeg' ? 'image/jpeg' : 'image/webp';
 
@@ -74,12 +80,13 @@ export default function PdfToImagesTool() {
       }
       const blob = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `${base}-pages.zip`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally {

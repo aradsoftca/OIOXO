@@ -4,10 +4,17 @@ import { Download, Loader2 } from 'lucide-react';
 import { AudioDrop, type AudioFileItem } from '@/components/tool/AudioDrop';
 import { downloadBlob } from '@/engines/audio';
 import { mergeAudio, type AudioProgress } from '@/lib/compute/audioMerge';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'audio-merge';
 
 type Format = 'wav' | 'mp3';
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [items, setItems] = React.useState<AudioFileItem[]>([]);
   const [format, setFormat] = React.useState<Format>('wav');
   const [name, setName] = React.useState('merged');
@@ -17,6 +24,10 @@ export default function Tool() {
 
   const run = async () => {
     if (items.length < 2) { setError('Add at least 2 files.'); return; }
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'batch', value: items.length },
+    ]);
+    if (!ok) return;
     setBusy(true); setError(''); setProg({ phase: 'Merging', ratio: 0.05 });
     try {
       // Heavy work runs in a Web Worker — the page stays responsive.
@@ -31,6 +42,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       <AudioDrop multiple items={items} onItemsChange={setItems} />
 
       {items.length > 0 && (

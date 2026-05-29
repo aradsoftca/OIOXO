@@ -73,21 +73,24 @@ export default function ImageAsciiArtTool() {
 
   const copy = async () => {
     if (!ascii) return;
-    await navigator.clipboard.writeText(ascii);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    try {
+      await navigator.clipboard.writeText(ascii);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* iframe / permission denied — text still selectable on screen */ }
   };
 
   const downloadTxt = () => {
     if (!ascii || !file) return;
     const blob = new Blob([ascii], { type: 'text/plain' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
+    const href = URL.createObjectURL(blob);
+    a.href = href;
     a.download = file.name.replace(/\.[^.]+$/, '') + '-ascii.txt';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(href), 60_000);
   };
 
   const downloadPng = () => {
@@ -117,12 +120,13 @@ export default function ImageAsciiArtTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = file.name.replace(/\.[^.]+$/, '') + '-ascii.png';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
 

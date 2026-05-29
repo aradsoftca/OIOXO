@@ -77,20 +77,28 @@ async function activate(orderId: string, payload: Record<string, unknown>) {
   if (pending.planType === 'yearly') endDate.setFullYear(endDate.getFullYear() + 1);
   else endDate.setMonth(endDate.getMonth() + 1);
 
+  // Atomic transition guard: NOWPayments retries on failure / timeout, and two
+  // concurrent webhook deliveries for the same order would both see status !=
+  // 'completed', both run the transaction, and both create a Payment row →
+  // double-billing in the user's history. Use updateMany with the not-completed
+  // filter so only ONE webhook actually flips status; if the update affected
+  // zero rows, another worker beat us and we exit without creating a payment.
+  const claimed = await prisma.cryptoPayment.updateMany({
+    where: { id: pending.id, status: { not: 'completed' } },
+    data: {
+      status: 'completed',
+      providerStatus: String(payload.payment_status ?? ''),
+      transactionId: payload.payment_id ? String(payload.payment_id) : null,
+      payCurrency: payload.pay_currency ? String(payload.pay_currency) : null,
+      completedAt: new Date(),
+    },
+  });
+  if (claimed.count === 0) return; // lost the race — another worker already activated
+
   await prisma.$transaction([
     prisma.user.update({
       where: { id: pending.userId },
       data: { plan: 'PRO', subscriptionStatus: 'ACTIVE', subscriptionEndsAt: endDate },
-    }),
-    prisma.cryptoPayment.update({
-      where: { id: pending.id },
-      data: {
-        status: 'completed',
-        providerStatus: String(payload.payment_status ?? ''),
-        transactionId: payload.payment_id ? String(payload.payment_id) : null,
-        payCurrency: payload.pay_currency ? String(payload.pay_currency) : null,
-        completedAt: new Date(),
-      },
     }),
     prisma.payment.create({
       data: {

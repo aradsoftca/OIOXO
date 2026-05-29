@@ -6,6 +6,7 @@ import { docxToHtml, htmlToPdf } from '@/engines/document';
 import { officeToContent } from '@/engines/office';
 import { htmlToPlainText } from '@/engines/ebook';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
+import { sanitizeHtml } from '@/lib/safe-html';
 
 type Target = 'pdf' | 'html' | 'txt';
 
@@ -20,6 +21,11 @@ async function readHtml(f: File): Promise<string> {
 export default function DocConvertTool() {
   const [file, setFile] = React.useState<File | null>(null);
   const [html, setHtml] = React.useState('');
+  // Sanitize the converter output before rendering it via
+  // dangerouslySetInnerHTML — the docx/odt → html step does NOT strip script
+  // tags, event handlers, or javascript: URLs by default, so opening an
+  // attacker-controlled file in this tool used to enable XSS.
+  const safeHtml = React.useMemo(() => sanitizeHtml(html), [html]);
   const [target, setTarget] = React.useState<Target>('pdf');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -40,21 +46,29 @@ export default function DocConvertTool() {
 
   const run = async () => {
     if (!file) return;
-    if (!(await guard())) return;
+    if (!(await guard({ bytes: file.size }))) return;
     setBusy(true); setError('');
     try {
       const base = file.name.replace(/\.[^.]+$/, '');
-      const content = html || await readHtml(file);
+      // Sanitize the converter output before BOTH the on-screen preview AND
+      // the HTML/PDF export. Without this, the .html download embedded the
+      // raw mammoth/odt output — opening it in a browser executed any
+      // <script> inside the source document. Also escape the title so a
+      // crafted filename (`evil</title><script>…`) can't break out.
+      const rawHtml = html || await readHtml(file);
+      const content = sanitizeHtml(rawHtml);
+      const escTitle = base.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       let blob: Blob, ext: string;
       if (target === 'pdf') { blob = await htmlToPdf(content, base); ext = 'pdf'; }
       else if (target === 'html') {
-        blob = new Blob([`<!doctype html><meta charset="utf-8"><title>${base}</title><body>${content}</body>`], { type: 'text/html' }); ext = 'html';
+        blob = new Blob([`<!doctype html><meta charset="utf-8"><title>${escTitle}</title><body>${content}</body>`], { type: 'text/html' }); ext = 'html';
       } else { blob = new Blob([htmlToPlainText(content)], { type: 'text/plain' }); ext = 'txt'; }
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `${base}.${ext}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message || 'Conversion failed.');
     } finally { setBusy(false); }
@@ -92,7 +106,7 @@ export default function DocConvertTool() {
               {busy && !html ? (
                 <div className="flex items-center gap-2 text-[13px] text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</div>
               ) : (
-                <div className="prose-sm" dangerouslySetInnerHTML={{ __html: html }} />
+                <div className="prose-sm" dangerouslySetInnerHTML={{ __html: safeHtml }} />
               )}
             </div>
           </div>

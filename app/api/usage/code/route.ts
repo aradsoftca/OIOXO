@@ -42,8 +42,12 @@ async function account(): Promise<{ userId: string | null; pro: boolean }> {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id ?? null;
   if (!userId) return { userId: null, pro: false };
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true } });
-  return { userId, pro: user?.plan === 'PRO' || user?.plan === 'BUSINESS' };
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true, subscriptionEndsAt: true } });
+  // Fail-safe: past-period users gate as FREE in case the Stripe
+  // subscription.deleted webhook never landed (Stripe outage / mis-routed).
+  const expired = user?.subscriptionEndsAt && user.subscriptionEndsAt.getTime() + 24 * 60 * 60 * 1000 < Date.now();
+  const pro = !expired && (user?.plan === 'PRO' || user?.plan === 'BUSINESS');
+  return { userId, pro };
 }
 
 export async function POST(req: Request) {

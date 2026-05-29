@@ -20,7 +20,9 @@ export default function Tool() {
     a.href = url;
     a.download = (outputName || 'font') + '.ttf';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // 60s defer — immediate revoke can abort the download on mobile Safari/
+    // Firefox when the download dialog opens after the URL goes away.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   return (

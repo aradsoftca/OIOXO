@@ -12,10 +12,17 @@ export default function Tool() {
   const [busy, setBusy] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
+  // Mirror current URLs into refs so the unmount cleanup reads the LATEST
+  // values, not the empty initial state. Previously the eslint-ignored empty
+  // deps captured the initial '' / empty Map at mount, so the final loaded
+  // file's preview URLs leaked on every navigation away.
+  const sourceUrlRef = React.useRef('');
+  const previewsRef = React.useRef<Map<number, string>>(new Map());
+  React.useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+  React.useEffect(() => { previewsRef.current = previews; }, [previews]);
   React.useEffect(() => () => {
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    previews.forEach((u) => URL.revokeObjectURL(u));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
+    previewsRef.current.forEach((u) => URL.revokeObjectURL(u));
   }, []);
 
   const loadFile = React.useCallback(async (next: File) => {

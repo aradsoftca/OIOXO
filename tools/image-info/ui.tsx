@@ -64,9 +64,12 @@ export default function ImageInfoTool() {
   const [copied, setCopied] = React.useState<string | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Ref-mirror so unmount cleanup revokes the CURRENT preview URL rather
+  // than the empty initial value captured at mount.
+  const previewRef = React.useRef('');
+  React.useEffect(() => { previewRef.current = preview; }, [preview]);
   React.useEffect(() => () => {
-    if (preview) URL.revokeObjectURL(preview);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
   }, []);
 
   const loadFile = React.useCallback(async (file: File) => {

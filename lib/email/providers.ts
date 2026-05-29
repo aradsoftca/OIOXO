@@ -24,11 +24,28 @@ export interface EmailResult {
 
 export const EMAIL_FROM = process.env.EMAIL_FROM || `${BRAND} <noreply@${BRAND_DOMAIN}>`;
 
+// Hard timeout for transactional API calls. Without this, a provider outage
+// (DNS hang, TCP black-hole, slow read) drags every flow that awaits an email
+// — registration, password reset, ticket confirmation — out to Next.js' 30s
+// request ceiling, freezing those handlers and pile-up-failing under load.
+// 8s leaves headroom for the fallback to try the second provider within 30s.
+const PROVIDER_TIMEOUT_MS = 8000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), PROVIDER_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function sendViaResend(o: EmailOptions): Promise<EmailResult> {
   const key = process.env.RESEND_API_KEY;
   if (!key) return { success: false, provider: 'resend', error: 'RESEND_API_KEY not set' };
   try {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await fetchWithTimeout('https://api.resend.com/emails', {
       method: 'POST',
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: EMAIL_FROM, to: o.to, subject: o.subject, html: o.html, text: o.text }),
@@ -48,7 +65,7 @@ async function sendViaBrevo(o: EmailOptions): Promise<EmailResult> {
   const m = EMAIL_FROM.match(/^\s*(.*?)\s*<(.+)>\s*$/);
   const sender = m ? { name: m[1] || `${BRAND}`, email: m[2] } : { name: `${BRAND}`, email: EMAIL_FROM };
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await fetchWithTimeout('https://api.brevo.com/v3/smtp/email', {
       method: 'POST',
       headers: { 'api-key': key, 'Content-Type': 'application/json' },
       body: JSON.stringify({

@@ -13,13 +13,19 @@
 import type { CodeFile, RunResult, RunFn } from './codeloop';
 import { writeFiles } from './webcontainer';
 import type { Check } from './recipes';
+import { faultWindow, formatFault, type TraceEvent } from './debug-trace';
+import { buildStaticPreview } from './preview';
+import { PROBE_SCRIPT } from './probe';
 
-/** Load the running preview in a hidden iframe, send the goal checks in, and
- *  collect the probe report (runtime errors + failed checks). */
-function probe(url: string, checks: Check[], ms = 4000): Promise<string[]> {
+/** Run a hidden iframe (loaded via `load`), feed it the goal checks, and collect
+ *  the probe report (runtime errors + failed checks + trace). `load` sets src OR
+ *  srcdoc, so the SAME probe drives the WebContainer preview AND the server-free
+ *  srcdoc preview. */
+function probeIframe(load: (f: HTMLIFrameElement) => void, checks: Check[], ms = 4000): Promise<{ errs: string[]; trace: TraceEvent[] }> {
   return new Promise((resolve) => {
-    if (typeof document === 'undefined') { resolve([]); return; }
+    if (typeof document === 'undefined') { resolve({ errs: [], trace: [] }); return; }
     const errs: string[] = [];
+    let trace: TraceEvent[] = [];
     let done = false;
     const iframe = document.createElement('iframe');
     iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
@@ -29,25 +35,36 @@ function probe(url: string, checks: Check[], ms = 4000): Promise<string[]> {
       window.removeEventListener('message', onMsg);
       clearInterval(sender);
       try { iframe.remove(); } catch { /* */ }
-      resolve(errs);
+      resolve({ errs, trace });
     };
     const onMsg = (e: MessageEvent) => {
-      const d = e.data as { __oioxo?: string; errors?: unknown };
+      const d = e.data as { __oioxo?: string; errors?: unknown; trace?: unknown };
       if (d && d.__oioxo === 'probe') {
         if (Array.isArray(d.errors)) for (const x of d.errors) errs.push(String(x));
+        if (Array.isArray(d.trace)) trace = d.trace as TraceEvent[];
         finish();
       }
     };
     window.addEventListener('message', onMsg);
-    // Keep posting the checks to the probe (it may not be listening on the first
-    // tick); harmless once received. Stops when the report arrives or we time out.
     const sendChecks = () => { try { iframe.contentWindow?.postMessage({ __oioxoSetChecks: checks }, '*'); } catch { /* */ } };
     const sender = setInterval(sendChecks, 250);
     iframe.addEventListener('load', sendChecks);
-    iframe.src = url + (url.includes('?') ? '&' : '?') + '__oioxo_probe=' + Date.now(); // bust cache → latest files
+    load(iframe);
     document.body.appendChild(iframe);
-    setTimeout(finish, ms); // no report in time = treat as clean (don't block the loop)
+    setTimeout(finish, ms);
   });
+}
+
+const probe = (url: string, checks: Check[], ms = 4000) =>
+  probeIframe((f) => { f.src = url + (url.includes('?') ? '&' : '?') + '__oioxo_probe=' + Date.now(); }, checks, ms);
+
+/** Shape a probe report into a loop RunResult (green, or errors + the fault window). */
+function toResult(errs: string[], trace: TraceEvent[], onData?: (s: string) => void): RunResult {
+  const ok = errs.length === 0;
+  onData?.(ok ? '\n✓ runs clean — all checks pass\n' : '\n● not done yet:\n' + errs.map((e) => '  - ' + e).join('\n') + '\n');
+  if (ok) return { ok: true, output: 'Runs; all checks pass.', errors: '' };
+  const fault = trace.length ? formatFault(faultWindow(trace)) : '';
+  return { ok: false, output: errs.join('\n'), errors: errs.join('\n') + (fault ? `\n\n${fault}` : '') };
 }
 
 /**
@@ -65,9 +82,22 @@ export function makePreviewRun(
     try { await writeFiles(files); } catch { /* container may not be mounted yet */ }
     const url = getUrl();
     if (!url) return { ok: true, output: 'preview not ready — runtime check skipped', errors: '' };
-    const errs = await probe(url, getChecks());
-    const ok = errs.length === 0;
-    onData?.(ok ? '\n✓ runs clean — all checks pass\n' : '\n● not done yet:\n' + errs.map((e) => '  - ' + e).join('\n') + '\n');
-    return { ok, output: ok ? 'Runs; all checks pass.' : errs.join('\n'), errors: ok ? '' : errs.join('\n') };
+    const { errs, trace } = await probe(url, getChecks());
+    return toResult(errs, trace, onData);
+  };
+}
+
+/**
+ * The SERVER-FREE oracle (weak-device gem): verify a STATIC project by rendering it
+ * directly in a hidden iframe via `srcdoc` — NO WebContainer, ~0 memory, instant —
+ * with the same probe + goal checks + fault window. This lets a static project's
+ * whole generate→run→repair loop run on ANY device without booting Node. Use it as
+ * the loop's `run` when `previewKind(files) === 'static'`.
+ */
+export function makeStaticPreviewRun(getChecks: () => Check[], onData?: (s: string) => void): RunFn {
+  return async (files: CodeFile[]): Promise<RunResult> => {
+    const doc = buildStaticPreview(files, { headInject: PROBE_SCRIPT });
+    const { errs, trace } = await probeIframe((f) => { f.srcdoc = doc; }, getChecks());
+    return toResult(errs, trace, onData);
   };
 }

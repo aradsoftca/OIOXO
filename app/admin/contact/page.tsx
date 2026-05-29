@@ -16,6 +16,7 @@ export default function AdminContactPage() {
   const [sel, setSel] = React.useState<CM | null>(null);
   const [reply, setReply] = React.useState('');
   const [busy, setBusy] = React.useState(false);
+  const [actError, setActError] = React.useState('');
 
   const load = React.useCallback(() => {
     fetch('/api/admin/contact')
@@ -29,13 +30,24 @@ export default function AdminContactPage() {
   async function act(patch: { status?: string; response?: string }) {
     if (!sel) return;
     setBusy(true);
-    await fetch(`/api/admin/contact/${sel.id}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
-    });
-    setBusy(false);
-    setReply('');
-    load();
-    setSel((s) => (s ? { ...s, ...patch } : s));
+    setActError('');
+    try {
+      const r = await fetch(`/api/admin/contact/${sel.id}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(patch),
+      });
+      if (!r.ok) {
+        // Without an error path the admin silently lost their response.
+        setActError(`Update failed (HTTP ${r.status}). Try again — your text is preserved.`);
+        return;
+      }
+      setReply('');
+      load();
+      setSel((s) => (s ? { ...s, ...patch } : s));
+    } catch {
+      setActError('Network error. Try again — your text is preserved.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (forbidden) {
@@ -101,6 +113,7 @@ export default function AdminContactPage() {
                   {busy ? 'Sending…' : 'Send response'}
                 </button>
               </div>
+              {actError && <div className="text-[12px] font-medium text-[var(--color-cat-pdf)]">{actError}</div>}
             </div>
           )}
         </div>

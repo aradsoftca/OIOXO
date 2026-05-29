@@ -24,5 +24,8 @@ export async function downloadFilesZip(files: CodeFile[], name = 'oioxo-project.
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Defer revoke — mobile Safari/Firefox can abort the download if the blob
+  // URL is torn down before the stream starts. 60s is plenty for any zip
+  // size; the URL is GC'd at tab close anyway.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

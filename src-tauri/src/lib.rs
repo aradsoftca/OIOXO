@@ -54,6 +54,36 @@ fn write_files(files: Vec<FileSpec>, dir: Option<String>) -> Result<String, Stri
   Ok(base.to_string_lossy().to_string())
 }
 
+/// Fetch ANY url directly from the user's machine — the native superpower that
+/// makes a real on-device web reader possible. The browser can't read an arbitrary
+/// cross-origin page (CORS); native code has no such limit, so this is exactly like
+/// curl / the address bar: no proxy, no key, no third-party index, no rate cap.
+/// Used by the AI engine (via lib/oioxo/native.ts → lib/ai/fetch-page.ts) to run
+/// the "search → open the top 10 results → read them → answer" loop entirely on the
+/// device. Follows redirects, decompresses, returns the final url + status + body.
+#[tauri::command]
+async fn http_get(
+  url: String,
+  headers: Option<std::collections::HashMap<String, String>>,
+) -> Result<serde_json::Value, String> {
+  let client = reqwest::Client::builder()
+    .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+    .timeout(std::time::Duration::from_secs(20))
+    .build()
+    .map_err(|e| e.to_string())?;
+  let mut req = client.get(&url);
+  if let Some(h) = headers {
+    for (k, v) in h {
+      req = req.header(k, v);
+    }
+  }
+  let resp = req.send().await.map_err(|e| e.to_string())?;
+  let status = resp.status().as_u16();
+  let final_url = resp.url().to_string();
+  let body = resp.text().await.unwrap_or_default();
+  Ok(serde_json::json!({ "status": status, "url": final_url, "body": body }))
+}
+
 // ─────────────────────────── COMPUTE MESH (native) ───────────────────────────
 // The mesh's native superpowers (OIOXO_NATIVE_MESH.md). Reached from the web app via
 // lib/oioxo/native-bridge.ts. The verify oracle reuses exec + write_files above; the

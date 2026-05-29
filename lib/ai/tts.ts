@@ -76,14 +76,19 @@ async function browserSpeak(text: string, lang: string): Promise<boolean> {
 const ttsPipes = new Map<string, Promise<any | null>>();
 async function mmsPipe(iso3: string): Promise<any | null> {
   if (!ttsPipes.has(iso3)) {
-    ttsPipes.set(iso3, (async () => {
+    const p = (async () => {
       try {
         const lib: any = await import('@xenova/transformers');
         lib.env.allowLocalModels = false;
         lib.env.allowRemoteModels = true;
         return await lib.pipeline('text-to-speech', `Xenova/mms-tts-${iso3}`, { quantized: true });
       } catch { return null; }
-    })());
+    })();
+    ttsPipes.set(iso3, p);
+    // Drop the cache on null/reject so a transient model-download failure
+    // doesn't permanently disable TTS for this language until reload.
+    p.then((v) => { if (v == null) ttsPipes.delete(iso3); })
+     .catch(() => { ttsPipes.delete(iso3); });
   }
   return ttsPipes.get(iso3)!;
 }

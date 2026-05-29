@@ -1,4 +1,5 @@
 'use client';
+import { stampPdfFooter } from '@/engines/pdf';
 
 import * as React from 'react';
 import { Download, Loader2, LockOpen, Eye, EyeOff, AlertTriangle } from 'lucide-react';
@@ -19,15 +20,18 @@ export default function PdfUnlockTool() {
       const { PDFDocument } = await import('@cantoo/pdf-lib');
       // Loading with the password decrypts; saving without encrypt() drops protection.
       const doc = await PDFDocument.load(item.buffer, { password: password || undefined, ignoreEncryption: false });
-      const bytes = await doc.save();
+      await stampPdfFooter(doc); const bytes = await doc.save();
       const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = item.file.name.replace(/\.[^.]+$/, '') + '-unlocked.pdf';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke — mobile Safari/Firefox can abort the download if the
+      // blob URL is torn down before the stream starts.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
       setDone(true);
     } catch (e) {
       const msg = (e as Error).message || '';

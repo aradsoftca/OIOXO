@@ -33,9 +33,11 @@ export default function Tool() {
   }, [tex]);
 
   const copyTex = async () => {
-    await navigator.clipboard?.writeText(tex);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(tex);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   const downloadPng = async () => {
@@ -80,10 +82,16 @@ ${html}
         const a = document.createElement('a');
         a.href = u; a.download = 'equation.png';
         document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(u);
+        // Defer revoke — mobile Safari/Firefox can abort the download if the
+        // blob URL is torn down before the stream starts.
+        setTimeout(() => URL.revokeObjectURL(u), 60_000);
       }, 'image/png');
       URL.revokeObjectURL(url);
     };
+    // Without an error path, a corrupt SVG (or one the platform can't render
+    // because foreignObject is blocked) never fires onload — the blob URL
+    // would leak until tab close.
+    img.onerror = () => URL.revokeObjectURL(url);
     img.src = url;
   };
 
@@ -126,7 +134,7 @@ ${html}
 
       <div className="grid grid-cols-2 gap-3">
         <button type="button" onClick={copyTex}
-          className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-bg)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
+          className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
           {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy LaTeX</>}
         </button>
         <button type="button" onClick={downloadPng}

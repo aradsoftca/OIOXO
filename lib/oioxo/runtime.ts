@@ -98,7 +98,7 @@ const CODER_WASM = 'onnx-community/Qwen2.5-Coder-0.5B-Instruct';
 
 /** The CPU/WASM engine running the same call shape — the fallback when WebGPU is
  *  absent or fails. Slower, but it works on any device. */
-async function wasmCreate(messages: ChatMsg[], opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number }, stream: boolean): Promise<any> {
+async function wasmCreate(messages: ChatMsg[], opts: ChatOpts, stream: boolean): Promise<any> {
   let eng;
   try { eng = await loadWasmEngine(opts.onProgress, CODER_WASM); }
   catch { eng = await loadWasmEngine(opts.onProgress); } // coder unavailable → general
@@ -106,8 +106,19 @@ async function wasmCreate(messages: ChatMsg[], opts: { onProgress?: (p: number) 
     messages,
     temperature: opts.temperature ?? 0.3,
     max_tokens: opts.maxTokens ?? 640,
+    response_format: opts.responseFormat, // Gem 1: constrained decoding (e.g. json_object)
     stream,
   });
+}
+
+/** Shared chat options. `responseFormat` constrains decoding (MLC supports
+ *  `{type:'json_object'}` and `{type:'grammar',grammar}`) — used to force a weak
+ *  coder's REPAIR into a parseable edit list so it can't emit prose-as-a-file. */
+export interface ChatOpts {
+  onProgress?: (p: number) => void;
+  maxTokens?: number;
+  temperature?: number;
+  responseFormat?: { type: 'json_object' } | { type: 'grammar'; grammar: string };
 }
 
 /** One-shot chat against a skill model. WebGPU fast path; on no-WebGPU or a
@@ -116,13 +127,13 @@ async function wasmCreate(messages: ChatMsg[], opts: { onProgress?: (p: number) 
 export async function chat(
   match: string[],
   messages: ChatMsg[],
-  opts: { onProgress?: (p: number) => void; maxTokens?: number; temperature?: number } = {},
+  opts: ChatOpts = {},
 ): Promise<string> {
   const viaWasm = async () => (await wasmCreate(messages, opts, false))?.choices?.[0]?.message?.content ?? '';
   if (!(await hasWebGPU())) return viaWasm();
   const run = async () => {
     const { engine } = await loadModel(match, opts.onProgress);
-    const res = await engine.chat.completions.create({ messages, temperature: opts.temperature ?? 0.3, max_tokens: opts.maxTokens ?? 640 });
+    const res = await engine.chat.completions.create({ messages, temperature: opts.temperature ?? 0.3, max_tokens: opts.maxTokens ?? 640, response_format: opts.responseFormat });
     return res?.choices?.[0]?.message?.content ?? '';
   };
   try {

@@ -26,9 +26,19 @@ export async function POST(req: Request) {
 
   try {
     const result = await new Promise<Record<string, unknown>>((resolve, reject) => {
+      // Hard connect timeout — `tls.connect`'s `timeout` option only fires on
+      // INACTIVITY after the connection succeeds, so a dead/unreachable host
+      // would otherwise wait for the kernel TCP timeout (~60-75s) and tie up
+      // server resources past the request deadline.
+      let settled = false;
+      const settle = (fn: () => void) => { if (!settled) { settled = true; fn(); } };
+      const connectTimer = setTimeout(() => {
+        settle(() => { try { socket.destroy(); } catch { /* */ } reject(new Error('TLS connect timed out.')); });
+      }, 8000);
       const socket = tls.connect(
         { host: addr, servername: host, port, rejectUnauthorized: false, timeout: 8000 },
         () => {
+          clearTimeout(connectTimer);
           const c = socket.getPeerCertificate(true) as tls.DetailedPeerCertificate;
           const chain: string[] = [];
           let cur: tls.DetailedPeerCertificate | undefined = c;
@@ -40,7 +50,7 @@ export async function POST(req: Request) {
           }
           const validTo = new Date(c.valid_to);
           const daysLeft = Math.round((validTo.getTime() - Date.now()) / 86400000);
-          resolve({
+          settle(() => resolve({
             host, port,
             authorized: socket.authorized,
             authError: socket.authorizationError ? String(socket.authorizationError) : null,
@@ -55,12 +65,12 @@ export async function POST(req: Request) {
             serialNumber: c.serialNumber,
             fingerprint256: c.fingerprint256,
             chain,
-          });
+          }));
           socket.end();
         },
       );
-      socket.on('timeout', () => { socket.destroy(); reject(new Error('Connection timed out — no TLS service on that port?')); });
-      socket.on('error', (e) => reject(e));
+      socket.on('timeout', () => settle(() => { socket.destroy(); reject(new Error('Connection timed out — no TLS service on that port?')); }));
+      socket.on('error', (e) => settle(() => { clearTimeout(connectTimer); reject(e); }));
     });
     return NextResponse.json(result);
   } catch (e) {

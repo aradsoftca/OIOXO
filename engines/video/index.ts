@@ -32,12 +32,24 @@ export function loadVideoElement(file: File): Promise<{ video: HTMLVideoElement;
     video.playsInline = true;
     video.crossOrigin = 'anonymous';
     video.src = url;
+    let done = false;
     const cleanup = () => {
+      done = true;
       video.removeEventListener('loadedmetadata', onMeta);
       video.removeEventListener('error', onErr);
+      clearTimeout(timer);
     };
-    const onMeta = () => { cleanup(); resolve({ video, url }); };
-    const onErr = () => { cleanup(); URL.revokeObjectURL(url); reject(new Error('Could not load this video.')); };
+    const onMeta = () => { if (done) return; cleanup(); resolve({ video, url }); };
+    const onErr = () => { if (done) return; cleanup(); URL.revokeObjectURL(url); reject(new Error('Could not load this video.')); };
+    // Hard timeout. Without this, a corrupt or unsupported video would leave
+    // the promise pending forever (no `loadedmetadata`, no `error`), hanging
+    // every video tool's loading spinner indefinitely.
+    const timer = setTimeout(() => {
+      if (done) return;
+      cleanup();
+      URL.revokeObjectURL(url);
+      reject(new Error('Video metadata took too long — file may be corrupt or unsupported.'));
+    }, 30_000);
     video.addEventListener('loadedmetadata', onMeta);
     video.addEventListener('error', onErr);
   });
@@ -73,11 +85,25 @@ function simplifyRatio(w: number, h: number): string {
 export function seekTo(video: HTMLVideoElement, t: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const target = Math.min(Math.max(0, t), video.duration);
-    const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
-    const onErr = () => { video.removeEventListener('error', onErr); reject(new Error('Seek failed.')); };
+    // If duration is NaN (metadata not yet loaded) or the playhead is already
+    // within a frame of target, browsers may not fire `seeked` — the promise
+    // would hang forever. Resolve quickly in those cases.
+    if (!Number.isFinite(target)) { resolve(); return; }
+    if (Math.abs(video.currentTime - target) < 0.001) { resolve(); return; }
+    let done = false;
+    const cleanup = () => {
+      done = true;
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onErr);
+      clearTimeout(timer);
+    };
+    const onSeeked = () => { if (done) return; cleanup(); resolve(); };
+    const onErr = () => { if (done) return; cleanup(); reject(new Error('Seek failed.')); };
+    // 4-second hard cap so a stalled decoder doesn't deadlock the caller.
+    const timer = setTimeout(() => { if (done) return; cleanup(); resolve(); }, 4000);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('error', onErr);
-    video.currentTime = target;
+    try { video.currentTime = target; } catch { cleanup(); resolve(); }
   });
 }
 
@@ -206,10 +232,22 @@ export async function recordRange(
 
   await seekTo(video, startSec);
   return new Promise<Blob>((resolve, reject) => {
-    rec.onstop = () => resolve(new Blob(chunks, { type: chosen }));
-    rec.onerror = (e) => reject(new Error('Recorder error: ' + (e as unknown as { error: { message: string } }).error?.message));
-
     let raf = 0;
+    // Tear down the recorder + RAF + captureStream on any exit path. Without
+    // this, a rec.onerror or a rejected video.play() would leave the
+    // MediaRecorder running and the captureStream tracks live until GC.
+    const teardown = () => {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      try { if (rec.state !== 'inactive') rec.stop(); } catch { /* */ }
+      try { video.pause(); } catch { /* */ }
+    };
+    rec.onstop = () => resolve(new Blob(chunks, { type: chosen }));
+    rec.onerror = (e) => {
+      teardown();
+      reject(new Error('Recorder error: ' + (e as unknown as { error: { message: string } }).error?.message));
+    };
+
     const tick = () => {
       onProgress?.(video.currentTime - startSec);
       if (video.currentTime >= endSec || video.ended) {
@@ -224,7 +262,10 @@ export async function recordRange(
     rec.start(100);
     video.play().then(() => {
       raf = requestAnimationFrame(tick);
-    }).catch((err) => reject(err));
+    }).catch((err) => {
+      teardown();
+      reject(err);
+    });
   });
 }
 
@@ -234,8 +275,10 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.href = url;
   a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  // Deferred so the usage-gate download interceptor can still read the blob URL.
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  // 60s defer matches the rest of the codebase — 10s was tight on slow mobile
+  // networks where the system download dialog opens after a few seconds and
+  // aborts the save when the blob URL is already revoked.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 export async function blobsToZip(items: { name: string; blob: Blob }[]): Promise<Blob> {

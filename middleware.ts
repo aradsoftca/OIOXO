@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { take, type Bucket as RlBucket } from '@/lib/rate-limit';
 
 /**
  * Origin lock for our own API.
@@ -46,7 +47,7 @@ const RL_EXEMPT = ['/api/signal', '/api/turn', ...PUBLIC_API];
 const RL_MAX = 240; // requests
 const RL_WINDOW_MS = 60_000; // per minute, per IP
 
-const rlHits = new Map<string, { count: number; reset: number }>();
+const rlHits = new Map<string, RlBucket>();
 
 function clientIp(req: NextRequest): string {
   const h = req.headers;
@@ -59,23 +60,29 @@ function clientIp(req: NextRequest): string {
 }
 
 function rateLimited(ip: string): boolean {
-  const now = Date.now();
-  // Opportunistic cleanup so the map can't grow unbounded under a flood.
-  if (rlHits.size > 10_000) {
-    for (const [k, v] of rlHits) if (now > v.reset) rlHits.delete(k);
-  }
-  const e = rlHits.get(ip);
-  if (!e || now > e.reset) {
-    rlHits.set(ip, { count: 1, reset: now + RL_WINDOW_MS });
-    return false;
-  }
-  if (e.count >= RL_MAX) return true;
-  e.count++;
-  return false;
+  return !take(rlHits, ip, { max: RL_MAX, windowMs: RL_WINDOW_MS, maxEntries: 10_000 });
 }
 
 function isRateLimitExempt(path: string): boolean {
   return RL_EXEMPT.some((p) => path === p || path.startsWith(p + '/'));
+}
+
+// ---------------------------------------------------------------------------
+// Credentials-login brute-force gate.
+//
+// `/api/auth/*` is exempted from the global rate limit so OAuth provider
+// redirects keep working — but that also exempts the credentials sign-in
+// callback, which is the password-brute-force entry point. NextAuth itself
+// has no built-in rate limit; `authorize()` happily runs a bcrypt.compare on
+// every POST. The dummy-hash trick (lib/auth.ts) closes the timing-enumeration
+// channel, but does NOT prevent a botnet from grinding common passwords.
+// 10 attempts / 5 min / IP — same window as forgot-password — is generous
+// for a forgetful real user, and turns a 4-req/s brute force into 2/min.
+const SIGNIN_RL_MAX = 10;
+const SIGNIN_RL_WINDOW_MS = 5 * 60_000;
+const signinHits = new Map<string, RlBucket>();
+function signinRateLimited(ip: string): boolean {
+  return !take(signinHits, ip, { max: SIGNIN_RL_MAX, windowMs: SIGNIN_RL_WINDOW_MS, maxEntries: 10_000 });
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +93,17 @@ function isRateLimitExempt(path: string): boolean {
 // `/api/pow` itself is NOT protected — that's where you earn the token.
 // ---------------------------------------------------------------------------
 const POW_PROTECTED = ['/api/net', '/api/seo', '/api/speedtest', '/api/fx', '/api/gpu', '/api/stock'];
-const POW_SECRET = process.env.POW_SECRET || 'dev-insecure-pow-secret-change-me';
+// Hard-fail at boot in production if POW_SECRET isn't provisioned — with a
+// hardcoded fallback, the PoW lock becomes trivially bypassable (anyone
+// running the open-source code knows the fallback and can mint valid tokens
+// for the live deployment). Dev keeps the placeholder for local convenience.
+const POW_SECRET = (() => {
+  const v = process.env.POW_SECRET;
+  if (!v && process.env.NODE_ENV === 'production') {
+    throw new Error('POW_SECRET must be set in production — see middleware.ts');
+  }
+  return v || 'dev-insecure-pow-secret-change-me';
+})();
 const POW_TOKEN_PREFIX = 'powtok:';
 
 function isPowProtected(path: string): boolean {
@@ -117,6 +134,19 @@ async function clientFingerprint(req: NextRequest): Promise<string> {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
 }
 
+/** Constant-time string compare. `===` short-circuits on the first differing
+ *  byte, leaking a tiny timing signal that lets an attacker recover the HMAC
+ *  byte-by-byte (BREACH-style oracle, slow but real). XOR every byte and
+ *  collapse at the end so the work done is independent of where the mismatch
+ *  is. Length mismatch is still an early return — the token signature length
+ *  is a public constant (HMAC-SHA256 → 64 hex), so no info leaks from that. */
+function timingSafeStrEq(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 // (1) Token binding: the token's HMAC covers the fingerprint, so a token lifted
 // from our site can't be replayed from a different client.
 async function verifyPowToken(token: string | null, fp: string): Promise<boolean> {
@@ -126,7 +156,7 @@ async function verifyPowToken(token: string | null, fp: string): Promise<boolean
   const exp = Number(token.slice(0, i));
   if (!Number.isFinite(exp) || exp < Date.now()) return false;
   const expected = await hmacHexEdge(`${POW_TOKEN_PREFIX}${exp}:${fp}`);
-  return expected === token.slice(i + 1);
+  return timingSafeStrEq(expected, token.slice(i + 1));
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +174,16 @@ const tokQuota = new Map<string, { burst: number; burstReset: number; hour: numb
 function tokenQuotaExceeded(token: string): boolean {
   const key = token.slice(token.indexOf('.') + 1); // the signature — unique per session
   const now = Date.now();
-  if (tokQuota.size > 20_000) for (const [k, v] of tokQuota) if (now > v.hourReset) tokQuota.delete(k);
+  // Same bounded-sweep: under a token-rotating scraper, all entries can be
+  // fresh and the expired-sweep frees nothing. Drop oldest half by hourReset
+  // when we exceed the cap so the map stays bounded.
+  if (tokQuota.size > 20_000) {
+    for (const [k, v] of tokQuota) if (now > v.hourReset) tokQuota.delete(k);
+    if (tokQuota.size > 20_000) {
+      const sorted = [...tokQuota.entries()].sort((a, b) => a[1].hourReset - b[1].hourReset);
+      for (let i = 0; i < sorted.length / 2; i++) tokQuota.delete(sorted[i][0]);
+    }
+  }
   let e = tokQuota.get(key);
   if (!e) { e = { burst: 0, burstReset: now + TOK_BURST_MS, hour: 0, hourReset: now + TOK_HOUR_MS }; tokQuota.set(key, e); }
   if (now > e.burstReset) { e.burst = 0; e.burstReset = now + TOK_BURST_MS; }
@@ -199,6 +238,19 @@ export async function middleware(req: NextRequest) {
       { error: 'Too many requests — slow down.' },
       { status: 429, headers: { 'Retry-After': '60' } },
     );
+  }
+
+  // 2b) Credentials-login brute-force backstop. NextAuth's authorize() runs
+  // bcrypt.compare on every POST; without a focused limit, a botnet can grind
+  // password lists at whatever the network sustains. Only POST counts as an
+  // attempt (the GET on this URL is the CSRF-token fetch).
+  if (req.method === 'POST' && pathname === '/api/auth/callback/credentials') {
+    if (signinRateLimited(clientIp(req))) {
+      return NextResponse.json(
+        { error: 'Too many sign-in attempts. Please try again in a few minutes.' },
+        { status: 429, headers: { 'Retry-After': '300' } },
+      );
+    }
   }
 
   // 3) Proof-of-Work — the costly endpoints need a valid, client-bound token,

@@ -52,9 +52,15 @@ export async function docxToText(file: File): Promise<string> {
 /** Render an HTML string to a PDF Blob (rasterized, faithful layout). */
 export async function htmlToPdf(html: string, title = 'document'): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
+  const { sanitizeHtml } = await import('@/lib/safe-html');
   const holder = document.createElement('div');
   holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;color:#000;padding:48px;font:14px/1.5 system-ui,Arial,sans-serif;';
-  holder.innerHTML = html;
+  // Defence-in-depth: callers include converted-document content (docx/pptx/
+  // office) whose authors are untrusted. Without sanitising, attaching the
+  // node to document.body would execute any inline event handlers like
+  // <img onerror=…> during the html→canvas walk. Sanitise here so every
+  // caller is safe even if it skipped the step.
+  holder.innerHTML = sanitizeHtml(html);
   document.body.appendChild(holder);
   try {
     const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
@@ -65,6 +71,7 @@ export async function htmlToPdf(html: string, title = 'document'): Promise<Blob>
       windowWidth: 794,  // CSS px width of the source
       html2canvas: { scale: 0.72, useCORS: true, backgroundColor: '#ffffff' },
     });
+    try { const { brandJsPdf } = await import('@/lib/watermark/download'); brandJsPdf(pdf); } catch { /* never break export */ }
     return pdf.output('blob');
   } finally {
     document.body.removeChild(holder);

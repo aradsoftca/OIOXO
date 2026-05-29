@@ -73,9 +73,13 @@ export default function Tool() {
   const [previews, setPreviews] = React.useState<Map<string, string>>(new Map());
   const inputRef = React.useRef<HTMLInputElement>(null);
 
+  // Ref-mirror the previews so the unmount cleanup reads the LATEST set,
+  // not the empty initial Map captured at mount. Each render generates ~12
+  // social-size variants; without this the whole set leaked on every nav.
+  const previewsRef = React.useRef<Map<string, string>>(new Map());
+  React.useEffect(() => { previewsRef.current = previews; }, [previews]);
   React.useEffect(() => () => {
-    previews.forEach((u) => URL.revokeObjectURL(u));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    previewsRef.current.forEach((u) => URL.revokeObjectURL(u));
   }, []);
 
   const render = React.useCallback(async (bm: ImageBitmap) => {

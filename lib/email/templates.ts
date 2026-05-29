@@ -4,6 +4,20 @@ import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
  * styles only — no external images or web fonts (those hurt deliverability).
  */
 
+/** HTML-escape user-controlled strings before they hit any innerHTML interpolation
+ *  inside an email body. Without this, an admin-typed ticket reply could ship
+ *  arbitrary HTML (incl. tracking-pixel `<img>`) to the requester's inbox, and a
+ *  display name from OAuth metadata could carry markup. Email clients are
+ *  inconsistent about what they execute; better to be uniformly strict. */
+function escHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function shell(title: string, bodyHtml: string): string {
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -35,10 +49,11 @@ function fallbackLink(url: string): string {
 
 export const emailTemplates = {
   verification(url: string, name?: string) {
+    const safeName = name ? ' ' + escHtml(name) : '';
     return {
       subject: `Verify your email — ${BRAND}`,
       html: shell('Verify your email', [
-        p(`Hi${name ? ' ' + name : ''}, welcome to ${BRAND}. Confirm your email to activate your account.`),
+        p(`Hi${safeName}, welcome to ${BRAND}. Confirm your email to activate your account.`),
         button(url, 'Verify email'),
         p('<br>This link expires in 24 hours.'),
         fallbackLink(url),
@@ -48,10 +63,11 @@ export const emailTemplates = {
   },
 
   passwordReset(url: string, name?: string) {
+    const safeName = name ? ' ' + escHtml(name) : '';
     return {
       subject: `Reset your password — ${BRAND}`,
       html: shell('Reset your password', [
-        p(`Hi${name ? ' ' + name : ''}, we received a request to reset your ${BRAND} password.`),
+        p(`Hi${safeName}, we received a request to reset your ${BRAND} password.`),
         button(url, 'Reset password'),
         p('<br>This link expires in 1 hour. If you didn\'t request this, ignore this email — your password stays the same.'),
         fallbackLink(url),
@@ -61,10 +77,11 @@ export const emailTemplates = {
   },
 
   welcome(name?: string) {
+    const safeName = name ? ' ' + escHtml(name) : '';
     return {
       subject: `Welcome to ${BRAND}`,
       html: shell('Welcome aboard', [
-        p(`Hi${name ? ' ' + name : ''}, your ${BRAND} account is ready. Convert files, edit images, and more — right in your browser.`),
+        p(`Hi${safeName}, your ${BRAND} account is ready. Convert files, edit images, and more — right in your browser.`),
         button(`https://${BRAND_DOMAIN}/tools`, 'Explore tools'),
       ].join('')),
       text: `Welcome to ${BRAND}! Explore tools: https://${BRAND_DOMAIN}/tools`,
@@ -72,11 +89,13 @@ export const emailTemplates = {
   },
 
   ticketReply(ticketNumber: string | number, name: string, message: string, url: string) {
+    const safeName = name ? ' ' + escHtml(name) : '';
+    const safeMsg = escHtml(message);
     return {
       subject: `Re: your support request #${ticketNumber} — ${BRAND}`,
       html: shell(`Reply to ticket #${ticketNumber}`, [
-        p(`Hi${name ? ' ' + name : ''}, our team replied to your support request:`),
-        `<div style="background:#0f1115;border:1px solid #232733;border-radius:8px;padding:14px 16px;margin:0 0 16px;font-size:14px;line-height:1.6;color:#e7e9ee;white-space:pre-wrap">${message}</div>`,
+        p(`Hi${safeName}, our team replied to your support request:`),
+        `<div style="background:#0f1115;border:1px solid #232733;border-radius:8px;padding:14px 16px;margin:0 0 16px;font-size:14px;line-height:1.6;color:#e7e9ee;white-space:pre-wrap">${safeMsg}</div>`,
         button(url, 'View conversation'),
       ].join('')),
       text: `Reply to your ${BRAND} ticket #${ticketNumber}:\n\n${message}\n\nView: ${url}`,

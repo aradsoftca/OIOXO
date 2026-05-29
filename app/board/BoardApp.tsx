@@ -34,7 +34,12 @@ export default function BoardApp() {
   const link = typeof window !== 'undefined' ? `${window.location.origin}/board?r=${room}` : '';
 
   const drawSeg = React.useCallback((s: Seg, store = true) => {
-    if (store) historyRef.current.push(s);
+    // Cap total history (local + peer) — without this, a long session
+    // OOMs the tab: every pointer move pushes a Seg, never freed.
+    if (store) {
+      if (historyRef.current.length >= 50_000) return;
+      historyRef.current.push(s);
+    }
     const c = canvasRef.current; if (!c) return;
     const ctx = c.getContext('2d'); if (!ctx) return;
     ctx.globalCompositeOperation = s.erase ? 'destination-out' : 'source-over';
@@ -73,7 +78,25 @@ export default function BoardApp() {
       onState: setState,
       onRoster: setRoster,
       onMessage: (data) => {
-        if (data?.type === 'draw') drawSeg(data.seg, true);
+        if (data?.type === 'draw') {
+          // Sanitize peer-supplied segment — without this a hostile peer
+          // could blow up memory (size: 999999) or corrupt the canvas by
+          // sending NaN coords, and history would grow unbounded.
+          const s = data.seg;
+          if (!s || typeof s !== 'object') return;
+          const num = (v: unknown, lo: number, hi: number) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : 0;
+          };
+          const clean: Seg = {
+            x0: num(s.x0, 0, 1), y0: num(s.y0, 0, 1),
+            x1: num(s.x1, 0, 1), y1: num(s.y1, 0, 1),
+            color: typeof s.color === 'string' ? s.color.slice(0, 32) : '#000',
+            size: num(s.size, 1, 50),
+            erase: !!s.erase,
+          };
+          drawSeg(clean, true); // drawSeg enforces the 50k history cap
+        }
         else if (data?.type === 'clear') { historyRef.current = []; redrawAll(); }
       },
     });
@@ -90,6 +113,9 @@ export default function BoardApp() {
 
   const pos = (e: React.PointerEvent) => {
     const c = canvasRef.current!; const r = c.getBoundingClientRect();
+    // Guard against a 0-sized rect (parent collapsed during a CSS transition) —
+    // dividing by 0 produces NaN, which corrupts history and the peer's canvas.
+    if (r.width <= 0 || r.height <= 0) return { x: 0, y: 0 };
     return { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
   };
   const down = (e: React.PointerEvent) => { drawing.current = true; last.current = pos(e); (e.target as HTMLElement).setPointerCapture(e.pointerId); };
@@ -105,7 +131,10 @@ export default function BoardApp() {
   const up = () => { drawing.current = false; last.current = null; };
 
   const clearAll = () => { historyRef.current = []; redrawAll(); groupRef.current?.send({ type: 'clear' }); };
-  const copyLink = () => { void navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const copyLink = () => {
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
+    setCopied(true); setTimeout(() => setCopied(false), 1600);
+  };
 
   const connected = state === 'connected';
 

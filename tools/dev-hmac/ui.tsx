@@ -7,18 +7,27 @@ type Algo = 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512';
 
 export default function Tool() {
   const [output, setOutput] = React.useState('');
+  // Track which (key, algo, message) combination is in-flight so we don't
+  // fire a new compute on every render — without this guard, every state
+  // update from setOutput would re-enter transform and kick off another
+  // HMAC, and we'd race the previous result back into view.
+  const lastKey = React.useRef('');
   return (
     <TextTool
       toolId="dev-hmac"
       colorVar="--color-cat-dev"
       inputPlaceholder="Message to sign…"
       transform={(s, o) => {
-        // Compute async — return the cached output, kick off the new sign.
         const key = String(o.key ?? '');
         const algo = String(o.algo ?? 'SHA-256') as Algo;
         if (!s || !key) return '';
-        // Fire-and-forget HMAC compute; component re-renders when state updates.
-        hmac(key, s, algo).then((sig) => setOutput(sig)).catch((e) => setOutput(`Error: ${e}`));
+        const cacheKey = `${algo}\0${key}\0${s}`;
+        if (cacheKey !== lastKey.current) {
+          lastKey.current = cacheKey;
+          hmac(key, s, algo)
+            .then((sig) => { if (lastKey.current === cacheKey) setOutput(sig); })
+            .catch((e) => { if (lastKey.current === cacheKey) setOutput(`Error: ${e}`); });
+        }
         return output;
       }}
       controls={[

@@ -108,12 +108,19 @@ export function ImageFilterTool({
   const draggingRef = React.useRef(false);
   const { guard, gate } = useUsageGate('image');
 
+  // The unmount cleanup captures `sourceUrl` from the closure, but the deps
+  // are empty — so it always saw the INITIAL empty string and never revoked
+  // the URL of the most-recently-loaded file. Mirror sourceUrl into a ref so
+  // the cleanup reads the current value.
+  const sourceUrlRef = React.useRef('');
+  React.useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+
   React.useEffect(() => {
     if (useWorker && !sessionRef.current) sessionRef.current = new ImageSession();
     return () => {
       sessionRef.current?.dispose();
       sessionRef.current = null;
-      if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+      if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -194,7 +201,7 @@ export function ImageFilterTool({
 
   const download = async () => {
     if (!ready || !file) return;
-    if (!(await guard())) return;
+    if (!(await guard({ bytes: file.size }))) return;
     setExportProg({ phase: 'Processing', ratio: 0.05 });
     try {
       let blob: Blob;
@@ -222,7 +229,10 @@ export function ImageFilterTool({
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      // 60s defer matches the rest of the codebase — 4s was too short on
+      // slow mobile networks where the download dialog opens late and the
+      // browser aborts the download when the blob URL goes away.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
       try { setRecent(toolId, await makeThumb(blob, 192)); } catch { /* ignore */ }
     } catch (err) {
       console.error(`${toolId} export failed`, err);
@@ -332,7 +342,7 @@ export function ImageFilterTool({
         )}
 
         <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
       </div>
 
       <aside className="space-y-5">
@@ -461,15 +471,21 @@ function ControlRow({
 
 async function makeThumb(blob: Blob, maxEdge: number): Promise<string> {
   const bm = await createImageBitmap(blob);
-  const scale = Math.min(1, maxEdge / Math.max(bm.width, bm.height));
-  const w = Math.max(1, Math.round(bm.width * scale));
-  const h = Math.max(1, Math.round(bm.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-  ctx.drawImage(bm, 0, 0, w, h);
-  bm.close();
-  return canvas.toDataURL('image/jpeg', 0.6);
+  try {
+    const scale = Math.min(1, maxEdge / Math.max(bm.width, bm.height));
+    const w = Math.max(1, Math.round(bm.width * scale));
+    const h = Math.max(1, Math.round(bm.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+    ctx.drawImage(bm, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.6);
+  } finally {
+    // Always release — the previous code only closed on the success path,
+    // so a `ctx === null` return (rare but possible) or any throw leaked
+    // the bitmap.
+    try { bm.close(); } catch { /* */ }
+  }
 }

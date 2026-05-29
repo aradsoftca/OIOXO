@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 import { TOOLS, CATEGORIES } from '@/lib/registry';
 import { CONVERT_PAIRS } from '@/lib/convert/pairs';
 import { POSTS } from '@/lib/blog/posts';
-import { BRAND_DOMAIN } from '@/lib/brand';
+import { BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
 
 const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -11,54 +11,140 @@ function url(path: string): string {
   return `${SITE}${BASE}${path}`;
 }
 
+const SUITE_HUBS_XONVERT: string[] = [
+  '/',
+  '/tools',
+  '/studios',
+  '/convert',
+  '/apps',
+  '/blog',
+  '/help',
+  '/pricing',
+  '/formats',
+];
+
+const SUITE_HUBS_OIOXO: string[] = [
+  '/',
+  '/ai',
+  '/studios',
+  '/tools',
+  '/apps',
+  '/convert',
+  '/blog',
+  '/help',
+  '/pricing',
+];
+
+const PRO_STUDIO_PAGES: string[] = [
+  '/tools/image-studio',
+  '/tools/video-studio',
+  '/tools/audio-voice-studio',
+  '/tools/audio-music-studio',
+  '/tools/subtitle-studio',
+  '/tools/pdf-studio',
+  '/tools/office-studio',
+  '/tools/office-docs',
+  '/tools/office-slides',
+];
+
+const APP_PAGES: string[] = [
+  '/chat',
+  '/call',
+  '/watch',
+  '/send',
+  '/clipboard',
+  '/note',
+  '/board',
+  '/summarize',
+  '/ai',
+];
+
+const POLICY_PAGES = ['/privacy', '/terms', '/cookies', '/refund'];
+
+function isHighQualityPair(p: { popular?: boolean }): boolean {
+  return !!p.popular;
+}
+
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
+  const entries: MetadataRoute.Sitemap = [];
 
-  return [
-    { url: url('/'), lastModified: now, changeFrequency: 'weekly', priority: 1 },
-    { url: url('/tools'), lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
-    { url: url('/convert'), lastModified: now, changeFrequency: 'weekly', priority: 0.8 },
-    { url: url('/viewer'), lastModified: now, changeFrequency: 'monthly', priority: 0.7 },
-    { url: url('/formats'), lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
-    { url: url('/pricing'), lastModified: now, changeFrequency: 'monthly', priority: 0.6 },
-    { url: url('/blog'), lastModified: now, changeFrequency: 'weekly', priority: 0.6 },
-    { url: url('/help'), lastModified: now, changeFrequency: 'monthly', priority: 0.5 },
-    ...['/privacy', '/terms', '/cookies', '/refund'].map((p) => ({
-      url: url(p), lastModified: now, changeFrequency: 'yearly' as const, priority: 0.3,
-    })),
-
-    // Blog posts
-    ...POSTS.map((p) => ({
-      url: url(`/blog/${p.slug}`),
-      lastModified: new Date(p.date),
-      changeFrequency: 'monthly' as const,
-      priority: 0.5,
-    })),
-
-    // Convert pairs (high-value SEO landing pages)
-    ...CONVERT_PAIRS.map((p) => ({
-      url: url(`/convert/${p.from}-to-${p.to}`),
+  const hubs = IS_OIOXO ? SUITE_HUBS_OIOXO : SUITE_HUBS_XONVERT;
+  for (const path of hubs) {
+    entries.push({
+      url: url(path),
       lastModified: now,
-      changeFrequency: 'monthly' as const,
+      changeFrequency: path === '/' ? 'daily' : 'weekly',
+      priority: path === '/' ? 1.0 : (IS_OIOXO && (path === '/ai' || path === '/studios')) ? 0.95 : 0.8,
+    });
+  }
+
+  for (const path of PRO_STUDIO_PAGES) {
+    entries.push({
+      url: url(path),
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: IS_OIOXO ? 0.85 : 0.9,
+    });
+  }
+
+  for (const path of APP_PAGES) {
+    if (hubs.includes(path)) continue;
+    entries.push({
+      url: url(path),
+      lastModified: now,
+      changeFrequency: 'weekly',
+      priority: IS_OIOXO ? 0.8 : 0.7,
+    });
+  }
+
+  for (const post of POSTS) {
+    entries.push({
+      url: url(`/blog/${post.slug}`),
+      lastModified: new Date(post.date),
+      changeFrequency: 'monthly',
       priority: 0.6,
-    })),
+    });
+  }
 
-    // Tool pages — only the ones marked as having real content get prioritized.
-    // Stubs default to lower priority. Per SEO strategy doc, in production
-    // we will gate `index: true` behind a `seo.ready` manifest flag.
-    ...TOOLS.map((t) => ({
-      url: url(`/tools/${t.id}`),
+  for (const tool of TOOLS) {
+    if (PRO_STUDIO_PAGES.some((p) => p.endsWith(`/${tool.id}`))) continue;
+    const basePri = tool.pinDefault ? 0.7 : 0.5;
+    entries.push({
+      url: url(`/tools/${tool.id}`),
       lastModified: now,
-      changeFrequency: 'monthly' as const,
-      priority: t.pinDefault ? 0.7 : 0.5,
-    })),
+      changeFrequency: 'monthly',
+      priority: IS_OIOXO ? basePri - 0.05 : basePri,
+    });
+  }
 
-    // Category landing pages
-    ...Object.values(CATEGORIES).map((c) => ({
-      url: url(`/tools?cat=${c.id}`),
+  for (const cat of Object.values(CATEGORIES)) {
+    entries.push({
+      url: url(`/tools/c/${cat.id}`),
       lastModified: now,
-      changeFrequency: 'weekly' as const,
-      priority: 0.6,
-    })),
-  ];
+      changeFrequency: 'weekly',
+      priority: 0.75,
+    });
+  }
+
+  for (const pair of CONVERT_PAIRS) {
+    if (!isHighQualityPair(pair)) continue;
+    entries.push({
+      url: url(`/convert/${pair.from}-to-${pair.to}`),
+      lastModified: now,
+      changeFrequency: 'monthly',
+      priority: IS_OIOXO ? 0.55 : 0.65,
+    });
+  }
+
+  for (const path of POLICY_PAGES) {
+    entries.push({
+      url: url(path),
+      lastModified: now,
+      changeFrequency: 'yearly',
+      priority: 0.2,
+    });
+  }
+
+  return entries;
 }

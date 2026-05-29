@@ -21,11 +21,16 @@ export interface RasterizedPage {
 let pdfjsReady: Promise<typeof import('pdfjs-dist')> | null = null;
 async function pdfjs(): Promise<typeof import('pdfjs-dist')> {
   if (!pdfjsReady) {
-    pdfjsReady = (async () => {
+    const p = (async () => {
       const mod = await import('pdfjs-dist');
       mod.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
       return mod;
     })();
+    // Clear the cache on rejection so a transient module-load failure (e.g.
+    // dynamic chunk fetch blocked by a brief network drop) doesn't memoise a
+    // broken promise that breaks every later PDF op for the rest of the page.
+    p.catch(() => { pdfjsReady = null; });
+    pdfjsReady = p;
   }
   return pdfjsReady;
 }
@@ -81,18 +86,23 @@ export async function rasterizePdf(
   }
   } finally {
     endJob();
+    // ALWAYS release the PDFDocumentProxy + its worker resources, even when a
+    // page render throws. Previously these calls lived after the try/finally,
+    // so any thrown render leaked the document + worker forever.
+    try { doc.cleanup(); } catch { /* */ }
+    try { doc.destroy(); } catch { /* */ }
   }
-  doc.cleanup();
-  doc.destroy();
   return out;
 }
 
 export async function getPdfPageCount(buffer: ArrayBuffer): Promise<number> {
   const lib = await pdfjs();
   const doc = await lib.getDocument({ data: buffer }).promise;
-  const count = doc.numPages;
-  doc.destroy();
-  return count;
+  try {
+    return doc.numPages;
+  } finally {
+    try { doc.destroy(); } catch { /* */ }
+  }
 }
 
 export interface ExtractedPage {
@@ -147,8 +157,8 @@ export async function extractPdfText(buffer: ArrayBuffer, opts: ExtractTextOptio
   }
   } finally {
     endJob();
+    try { doc.cleanup(); } catch { /* */ }
+    try { doc.destroy(); } catch { /* */ }
   }
-  doc.cleanup();
-  doc.destroy();
   return pages;
 }

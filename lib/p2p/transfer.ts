@@ -161,6 +161,7 @@ class Signal {
   }
 
   start(onMessage: (data: unknown) => void): void {
+    let backoff = POLL_MS;
     const tick = async () => {
       if (this.stopped) return;
       try {
@@ -170,11 +171,17 @@ class Signal {
           `/api/signal/${encodeURIComponent(this.room)}?from=${this.role}&after=${this.cursor}&_=${Date.now()}`,
           { cache: 'no-store' },
         );
+        if (!res.ok) throw new Error(`signal ${res.status}`);
         const json = await res.json() as { messages: { seq: number; data: unknown }[]; cursor: number };
         for (const m of json.messages) onMessage(m.data);
         if (typeof json.cursor === 'number') this.cursor = Math.max(this.cursor, json.cursor);
-      } catch { /* ignore, retry */ }
-      if (!this.stopped) this.timer = setTimeout(tick, POLL_MS);
+        backoff = POLL_MS; // reset on success
+      } catch {
+        // Exponential backoff so a failing signal endpoint doesn't get hit
+        // every POLL_MS forever by every Send/Receive pair in flight.
+        backoff = Math.min(backoff * 2, 15_000);
+      }
+      if (!this.stopped) this.timer = setTimeout(tick, backoff);
     };
     void tick();
   }
@@ -213,8 +220,23 @@ function randomCode(): string {
 async function drain(dc: RTCDataChannel): Promise<void> {
   if (dc.bufferedAmount <= BUFFER_HIGH) return;
   await new Promise<void>((resolve) => {
-    const handler = () => { dc.removeEventListener('bufferedamountlow', handler); resolve(); };
-    dc.addEventListener('bufferedamountlow', handler);
+    // Resolve on EITHER bufferedamountlow OR close — without the close path
+    // a channel that died mid-send would hang the sender forever waiting for
+    // an event the dead channel will never emit.
+    const cleanup = () => {
+      dc.removeEventListener('bufferedamountlow', onLow);
+      dc.removeEventListener('close', onClose);
+      dc.removeEventListener('error', onClose);
+      resolve();
+    };
+    const onLow = () => cleanup();
+    const onClose = () => cleanup();
+    dc.addEventListener('bufferedamountlow', onLow);
+    dc.addEventListener('close', onClose);
+    dc.addEventListener('error', onClose);
+    // Safety check: if the channel state already changed before we attached
+    // the listeners, resolve immediately.
+    if (dc.readyState !== 'open' || dc.bufferedAmount <= BUFFER_HIGH) cleanup();
   });
 }
 
@@ -293,8 +315,14 @@ export function startSend(files: File[], handlers: Handlers): { code: string; tr
         dc.send(JSON.stringify({ t: 'fileend', i }));
       }
       // Wait for the buffer to flush before signalling end + closing.
-      while (dc.bufferedAmount > 0 && !cancelled) await new Promise((r) => setTimeout(r, 100));
-      dc.send(JSON.stringify({ t: 'end' }));
+      // Bail if the channel dies mid-drain — a dead channel can hold bytes
+      // in bufferedAmount forever, hanging the sender on a useless poll.
+      const drainStart = performance.now();
+      while (dc.bufferedAmount > 0 && !cancelled && dc.readyState === 'open') {
+        if (performance.now() - drainStart > 30_000) break; // hard 30s drain cap
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      if (dc.readyState === 'open') dc.send(JSON.stringify({ t: 'end' }));
       handlers.onPhase?.('done');
       void totalBytes;
     } catch (err) {
@@ -364,6 +392,10 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
   let meta: FileMeta[] = [];
   let cur = -1;
   let chunks: ArrayBuffer[] = [];
+  // Running per-file byte count. Used to be `chunks.reduce(...)` recomputed on
+  // every chunk and every progress event — O(n²) over a 1 GB transfer
+  // (16384 chunks × 16384 iters = 268M ops). A counter makes it O(1) per chunk.
+  let curBytes = 0;
   let received = 0;
   let filesDone = 0;
   const t0 = { v: 0 };
@@ -389,13 +421,57 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
     dc.onopen = () => { markConnected(); handlers.onPhase?.('transferring'); };
     dc.onmessage = (e) => {
       if (typeof e.data === 'string') {
-        const msg = JSON.parse(e.data) as { t: string; files?: FileMeta[]; i?: number };
-        if (msg.t === 'meta') { meta = msg.files || []; if (!t0.v) t0.v = performance.now(); }
-        else if (msg.t === 'file') { cur = msg.i ?? 0; chunks = []; }
+        let msg: { t: string; files?: FileMeta[]; i?: number };
+        try {
+          msg = JSON.parse(e.data) as { t: string; files?: FileMeta[]; i?: number };
+        } catch {
+          // A malformed control message would otherwise throw out of the
+          // handler and silently desync the receiver state. Surface and bail.
+          handlers.onPhase?.('error', 'protocol error');
+          cleanup();
+          return;
+        }
+        // Validate the shape of msg.files defensively — a hostile peer could
+        // send {"t":"meta","files":"oops"} which would otherwise be assigned
+        // to `meta` as a string and confuse every later access.
+        if (msg.t === 'meta') {
+          // Cap declared size at 10 GiB per file — anything beyond is almost
+          // certainly a hostile peer trying to make the receiver allocate
+          // unbounded buffers ahead of fileend. Also clamp name length so a
+          // 1MB filename can't be used as a download-path attack.
+          const MAX_DECL = 10 * 1024 * 1024 * 1024;
+          // Sanitize the peer-supplied filename. Browsers' <a download> attribute
+          // SHOULD strip path separators per spec, but coverage isn't uniform —
+          // and the name also feeds tools/listings that don't go through that
+          // sanitizer. Strip path separators, NULs, and control chars; collapse
+          // to "file" if the result is empty.
+          const safeName = (raw: string): string => {
+            const trimmed = raw
+              .replace(/[\\/\x00-\x1f]/g, '_')
+              // Reject leading dots that some OS hide / interpret specially.
+              .replace(/^\.+/, '')
+              .slice(0, 255)
+              .trim();
+            return trimmed || 'file';
+          };
+          meta = Array.isArray(msg.files) ? msg.files.filter((f): f is FileMeta =>
+            !!f && typeof (f as FileMeta).name === 'string' && typeof (f as FileMeta).size === 'number'
+            && (f as FileMeta).size >= 0 && (f as FileMeta).size <= MAX_DECL
+          ).map((f) => ({ ...f, name: safeName(f.name as string) })) : [];
+          if (!t0.v) t0.v = performance.now();
+        }
+        else if (msg.t === 'file') {
+          const i = typeof msg.i === 'number' ? msg.i : 0;
+          cur = i >= 0 && i < meta.length ? i : -1;
+          chunks = [];
+          curBytes = 0;
+        }
         else if (msg.t === 'fileend') {
+          if (cur < 0) { chunks = []; curBytes = 0; return; }
           const fm = meta[cur];
           const blob = new Blob(chunks, { type: fm?.mime || 'application/octet-stream' });
           chunks = [];
+          curBytes = 0;
           filesDone += 1;
           handlers.onFile?.({ name: fm?.name || `file-${cur + 1}`, blob });
         } else if (msg.t === 'end') {
@@ -403,14 +479,28 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
           signal.stop();
         }
       } else {
+        // Binary chunk arrived before any valid 'file' control message — drop
+        // it rather than push into a phantom file the user never sees. Without
+        // this, a peer that skips the meta/file header would silently leak
+        // chunks into chunks[] indefinitely (memory blow-up on a bad peer).
+        if (cur < 0) return;
         const buf = e.data as ArrayBuffer;
+        const fm0 = meta[cur];
+        // Reject overrun: a peer claiming a 100KB file then streaming 100GB
+        // would otherwise buffer all of it in memory before fileend.
+        const max = (fm0?.size || 0) + 64 * 1024; // allow one chunk of slack
+        if (curBytes + buf.byteLength > max) {
+          handlers.onPhase?.('error', 'sender exceeded declared size');
+          cleanup();
+          return;
+        }
         chunks.push(buf);
+        curBytes += buf.byteLength;
         received += buf.byteLength;
         const fm = meta[cur];
         const secs = (performance.now() - t0.v) / 1000;
-        const fileBytes = chunks.reduce((s, c) => s + c.byteLength, 0);
         handlers.onProgress?.({
-          index: cur, name: fm?.name || '', bytes: fileBytes, total: fm?.size || 0,
+          index: cur, name: fm?.name || '', bytes: curBytes, total: fm?.size || 0,
           filesDone, filesTotal: meta.length, bytesPerSec: secs > 0 ? received / secs : 0,
         });
       }

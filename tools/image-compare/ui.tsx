@@ -41,7 +41,16 @@ export default function ImageCompareTool() {
   const stageRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef(false);
 
-  React.useEffect(() => () => { if (a) URL.revokeObjectURL(a.url); if (b) URL.revokeObjectURL(b.url); }, [a, b]);
+  // Unmount-only. With [a, b] changing a revoked b (and vice versa) even
+  // though the untouched slot was still on screen. loadA/loadB already
+  // revoke the replaced URL inline.
+  const aRef = React.useRef<Slot | null>(null);
+  const bRef = React.useRef<Slot | null>(null);
+  React.useEffect(() => { aRef.current = a; bRef.current = b; }, [a, b]);
+  React.useEffect(() => () => {
+    if (aRef.current) URL.revokeObjectURL(aRef.current.url);
+    if (bRef.current) URL.revokeObjectURL(bRef.current.url);
+  }, []);
 
   const loadA = (f: File) => { if (a) URL.revokeObjectURL(a.url); setA({ url: URL.createObjectURL(f), name: f.name }); };
   const loadB = (f: File) => { if (b) URL.revokeObjectURL(b.url); setB({ url: URL.createObjectURL(f), name: f.name }); };
@@ -76,7 +85,14 @@ export default function ImageCompareTool() {
             </button>
           ))}
         </div>
-        <button type="button" onClick={() => { setA(null); setB(null); }}
+        <button type="button" onClick={() => {
+          // Revoke both URLs before clearing state — the unmount effect
+          // doesn't fire here (the component stays mounted), so without
+          // this both blobs leak until the tab closes.
+          if (a) URL.revokeObjectURL(a.url);
+          if (b) URL.revokeObjectURL(b.url);
+          setA(null); setB(null);
+        }}
           className="ml-auto flex items-center gap-1.5 border border-black/[0.08] px-2.5 py-1.5 text-[11px] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]">
           <RefreshCw className="h-3 w-3" /> New pair
         </button>

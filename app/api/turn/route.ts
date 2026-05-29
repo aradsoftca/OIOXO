@@ -43,6 +43,11 @@ async function cloudflareTurn(): Promise<RTCIceServer[] | null> {
   const keyId = process.env.TURN_KEY_ID;
   const token = process.env.TURN_KEY_API_TOKEN;
   if (!keyId || !token) return null;
+  // Hard timeout: without this, a hung Cloudflare API blocks every Send/Call/
+  // Watch session start until next.js' default request timeout (~30s),
+  // cascading into site-wide UI freezes on the connect step.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 3500);
   try {
     const res = await fetch(
       `https://rtc.live.cloudflare.com/v1/turn/keys/${keyId}/credentials/generate`,
@@ -50,6 +55,7 @@ async function cloudflareTurn(): Promise<RTCIceServer[] | null> {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ttl: 86400 }), // 24h is plenty for a transfer
+        signal: ctrl.signal,
       },
     );
     if (!res.ok) return null;
@@ -58,6 +64,8 @@ async function cloudflareTurn(): Promise<RTCIceServer[] | null> {
     return Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers];
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

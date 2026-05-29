@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Video, VideoOff, Mic, MicOff, Phone, Copy, Check, Loader2, ShieldCheck, Smartphone, Send, MessageSquare, Square, Sparkles } from 'lucide-react';
 import { connectMedia, type MediaPeer, type MediaState } from '@/lib/p2p/media';
+import { useUsageGate } from '@/components/usage/use-usage-gate';
 
 /** Draw a video frame into a box, preserving aspect ratio (letterboxed). */
 function drawContain(ctx: CanvasRenderingContext2D, v: HTMLVideoElement, x: number, y: number, w: number, h: number) {
@@ -49,6 +50,8 @@ export default function CallApp() {
   const remoteRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const peerRef = React.useRef<MediaPeer | null>(null);
+  const wmStopRef = React.useRef<(() => void) | null>(null);
+  const { guard, gate } = useUsageGate('call');
 
   const link = typeof window !== 'undefined' ? `${window.location.origin}/call?r=${room}${audioOnly ? '&audio=1' : ''}` : '';
 
@@ -60,6 +63,7 @@ export default function CallApp() {
   }, [role, link]);
 
   React.useEffect(() => () => {
+    try { wmStopRef.current?.(); } catch { /* */ }
     peerRef.current?.close();
     streamRef.current?.getTracks().forEach((t) => t.stop());
     try { recorderRef.current?.stop(); } catch { /* */ }
@@ -69,19 +73,35 @@ export default function CallApp() {
   }, []);
 
   const start = async () => {
+    // Count lever: only the HOST who creates the call is metered (joining a call
+    // is always free). Joiners (role 'r') fall straight through.
+    if (role === 's' && !(await guard())) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: !audioOnly, audio: true });
       streamRef.current = stream;
       if (localRef.current) { localRef.current.srcObject = stream; localRef.current.muted = true; void localRef.current.play().catch(() => {}); }
       setStarted(true);
+      // Free → composite "Powered by xonvert.com" into the outgoing video (shows on
+      // the other side + recordings). Defensive: raw stream back on any issue.
+      const { isWatermarkOn } = await import('@/lib/watermark/config');
+      const { watermarkVideoStream } = await import('@/lib/watermark/stream-overlay');
+      const wrapped = await watermarkVideoStream(stream, await isWatermarkOn());
+      wmStopRef.current = wrapped.stop;
       peerRef.current = connectMedia(role, room, {
-        localStream: stream,
+        localStream: wrapped.stream,
         onState: setState,
         onRemoteStream: (rs) => { if (remoteRef.current) { remoteRef.current.srcObject = rs; void remoteRef.current.play().catch(() => {}); } },
         onMessage: (t) => {
           // Control messages (recording status) aren't chat — surface a badge.
           if (t === 'rec:1' || t === 'rec:0') { setRemoteRecording(t === 'rec:1'); return; }
-          setChat((c) => [...c, { mine: false, text: t }]);
+          // Cap inbound chat text: a peer can otherwise send a 10MB string
+          // that freezes the receiver UI rendering it. Same defense already
+          // in ChatApp/ChatStudio. Drop non-strings defensively, and trim
+          // the buffer to the last 200 messages so an attacker cannot OOM
+          // the tab by spamming.
+          if (typeof t !== 'string') return;
+          const text = t.length > 10000 ? t.slice(0, 10000) + '...' : t;
+          setChat((c) => [...c, { mine: false, text }].slice(-200));
         },
       });
     } catch { /* permission denied */ }
@@ -140,7 +160,9 @@ export default function CallApp() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a'); a.href = url; a.download = `xonvert-${audioOnly ? 'voice' : 'call'}-${Date.now()}.webm`;
         document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 5000);
+        // 60s defer — recording downloads can take a moment to start streaming
+        // on mobile, and the browser aborts when the blob URL goes away early.
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
       };
       recorderRef.current = rec; rec.start(); setRecording(true);
       peerRef.current?.send('rec:1'); // let the other person know
@@ -185,17 +207,30 @@ export default function CallApp() {
   const pickBgImage = (file: File) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => { bgImgRef.current = img; vbgRef.current?.setImage(img); void applyBg('image'); };
+    // Revoke after the Image is decoded into bgImgRef — keeping the URL alive
+    // longer was a slow leak: every BG-image change spawned a fresh blob URL
+    // that lived until tab close, and the user can swap many times.
+    img.onload = () => {
+      bgImgRef.current = img;
+      vbgRef.current?.setImage(img);
+      void applyBg('image');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); };
     img.src = url;
   };
 
   const toggleCam = () => { const t = streamRef.current?.getVideoTracks()[0]; if (t) { t.enabled = !t.enabled; setCamOn(t.enabled); } };
   const toggleMic = () => { const t = streamRef.current?.getAudioTracks()[0]; if (t) { t.enabled = !t.enabled; setMicOn(t.enabled); } };
   const hangup = () => { peerRef.current?.close(); streamRef.current?.getTracks().forEach((t) => t.stop()); window.location.href = '/call'; };
-  const copy = () => { void navigator.clipboard?.writeText(link); setCopied(true); setTimeout(() => setCopied(false), 1600); };
+  const copy = () => {
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
+    setCopied(true); setTimeout(() => setCopied(false), 1600);
+  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
+      {gate}
       <header className="flex items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-video)] text-white">{audioOnly ? <Phone className="h-5 w-5" /> : <Video className="h-5 w-5" />}</div>
         <div>

@@ -31,7 +31,10 @@ export default function Tool() {
 
   const css = layers.map((l) => `${l.x}px ${l.y}px ${l.blur}px ${rgba(l.color, l.alpha)}`).join(', ');
   const upd = (id: number, p: Partial<Layer>) => setLayers((ls) => ls.map((l) => l.id === id ? { ...l, ...p } : l));
-  const copy = async () => { await navigator.clipboard?.writeText(`text-shadow: ${css};`); setCopied(true); setTimeout(() => setCopied(false), 1400); };
+  const copy = async () => {
+    try { await navigator.clipboard?.writeText(`text-shadow: ${css};`); setCopied(true); setTimeout(() => setCopied(false), 1400); }
+    catch { /* iframe / permission denied */ }
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_340px]">

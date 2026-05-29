@@ -35,10 +35,13 @@ export default function ArchiveExtractTool() {
     try {
       const f = await entry.extract();
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(f);
+      const href = URL.createObjectURL(f);
+      a.href = href;
       a.download = f.name;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke — mobile Safari/Firefox can abort the download if the
+      // blob URL is torn down before the stream starts.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -55,10 +58,13 @@ export default function ArchiveExtractTool() {
       }
       const zip = await zipFiles(files);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(zip);
+      const href = URL.createObjectURL(zip);
+      a.href = href;
       a.download = file.name.replace(/\.[^.]+$/, '') + '-extracted.zip';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      // Defer revoke — mobile Safari/Firefox can abort the download if the
+      // blob URL is torn down before the stream starts.
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message);
     } finally {

@@ -22,20 +22,26 @@ export default function Tool() {
     }
   }, [first, second, offset, format]);
 
+  const isError = output.startsWith('Error:');
   const copy = async () => {
     if (!output) return;
-    await navigator.clipboard?.writeText(output);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(output);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* clipboard denied */ }
   };
   const download = () => {
+    if (!output || isError) return;
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `merged.${format}`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Defer revoke — mobile Safari/Firefox can abort the download if the
+    // blob URL is torn down before the stream starts.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   return (
@@ -63,7 +69,7 @@ export default function Tool() {
         <button type="button" onClick={copy} disabled={!output} className="ml-auto flex items-center gap-2 border border-black/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)] disabled:text-[var(--color-fg-subtle)]">
           {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} Copy
         </button>
-        <button type="button" onClick={download} disabled={!output} className="flex items-center gap-2 bg-[var(--color-cat-subtitle)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
+        <button type="button" onClick={download} disabled={!output || isError} className="flex items-center gap-2 bg-[var(--color-cat-subtitle)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
           <Download className="h-3.5 w-3.5" /> Download
         </button>
       </div>

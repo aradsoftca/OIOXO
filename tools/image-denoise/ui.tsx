@@ -59,7 +59,15 @@ export default function ImageDenoiseTool() {
   const stageRef = React.useRef<HTMLDivElement>(null);
   const dragRef = React.useRef(false);
 
-  React.useEffect(() => () => { if (srcUrl) URL.revokeObjectURL(srcUrl); if (outUrl) URL.revokeObjectURL(outUrl); }, [srcUrl, outUrl]);
+  // Unmount-only. With [srcUrl, outUrl] generating an output revoked srcUrl
+  // (still in use as the left-half of the slider) — the source image vanished.
+  const srcUrlRef = React.useRef('');
+  const outUrlRef = React.useRef('');
+  React.useEffect(() => { srcUrlRef.current = srcUrl; outUrlRef.current = outUrl; }, [srcUrl, outUrl]);
+  React.useEffect(() => () => {
+    if (srcUrlRef.current) URL.revokeObjectURL(srcUrlRef.current);
+    if (outUrlRef.current) URL.revokeObjectURL(outUrlRef.current);
+  }, []);
 
   const loadFile = async (next: File) => {
     if (!next.type.startsWith('image/')) return;

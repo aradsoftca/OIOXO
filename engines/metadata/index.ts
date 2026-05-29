@@ -14,21 +14,39 @@ const JPEG = [0xff, 0xd8];
 /** Drop APP1 (Exif/XMP), APP13 (IPTC/Photoshop) and COM (comments) from a JPEG. */
 function stripJpeg(bytes: Uint8Array): Uint8Array {
   if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new Error('Not a JPEG');
-  const out: number[] = [...JPEG];
+  // Collect Uint8Array slices instead of individual bytes — pushing every byte
+  // into a JS array balloons memory ~8× (each JS number takes ~8B vs 1B in a
+  // typed array) and is seconds slower on a 50MB+ JPEG.
+  const parts: Uint8Array[] = [bytes.subarray(0, 2)];
+  let outLen = 2;
   let i = 2;
   while (i < bytes.length - 1) {
     if (bytes[i] !== 0xff) break;
     const marker = bytes[i + 1];
     // Start of Scan: copy the rest (entropy-coded image data) verbatim.
-    if (marker === 0xda) { for (let j = i; j < bytes.length; j++) out.push(bytes[j]); return new Uint8Array(out); }
+    if (marker === 0xda) {
+      const tail = bytes.subarray(i);
+      parts.push(tail); outLen += tail.length;
+      break;
+    }
     // Standalone markers without a length payload.
-    if (marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) { out.push(0xff, marker); i += 2; continue; }
+    if (marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) {
+      parts.push(bytes.subarray(i, i + 2)); outLen += 2; i += 2; continue;
+    }
+    // Bounds-check length bytes — a truncated JPEG would otherwise return
+    // NaN and cause an infinite loop / negative seg.
+    if (i + 3 >= bytes.length) break;
     const len = (bytes[i + 2] << 8) | bytes[i + 3];
+    const segEnd = i + 2 + len;
+    if (len < 2 || segEnd > bytes.length) break; // malformed segment
     const drop = marker === 0xe1 /* APP1 Exif/XMP */ || marker === 0xed /* APP13 IPTC */ || marker === 0xfe /* COM */;
-    if (!drop) for (let j = i; j < i + 2 + len; j++) out.push(bytes[j]);
-    i += 2 + len;
+    if (!drop) { parts.push(bytes.subarray(i, segEnd)); outLen += segEnd - i; }
+    i = segEnd;
   }
-  return new Uint8Array(out);
+  const out = new Uint8Array(outLen);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
 }
 
 const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -37,17 +55,25 @@ const PNG_DROP = new Set(['tEXt', 'zTXt', 'iTXt', 'eXIf', 'tIME']);
 /** Drop text / EXIF / timestamp ancillary chunks from a PNG; keep colour chunks. */
 function stripPng(bytes: Uint8Array): Uint8Array {
   for (let i = 0; i < 8; i++) if (bytes[i] !== PNG_SIG[i]) throw new Error('Not a PNG');
-  const out: number[] = [...PNG_SIG];
+  // Same fix as stripJpeg: slice into a typed-array list, single concat at end.
+  const parts: Uint8Array[] = [bytes.subarray(0, 8)];
+  let outLen = 8;
   let i = 8;
-  while (i < bytes.length) {
-    const len = (bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3];
+  while (i + 8 <= bytes.length) {
+    // Unsigned 32-bit length — `<<` is signed, so chunks ≥ 2GB would go
+    // negative and the loop would either infinite-loop or read backwards.
+    const len = ((bytes[i] << 24) | (bytes[i + 1] << 16) | (bytes[i + 2] << 8) | bytes[i + 3]) >>> 0;
     const type = String.fromCharCode(bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]);
     const total = 12 + len; // length(4) + type(4) + data(len) + crc(4)
-    if (!PNG_DROP.has(type)) for (let j = i; j < i + total; j++) out.push(bytes[j]);
+    if (i + total > bytes.length) break; // truncated chunk — bail
+    if (!PNG_DROP.has(type)) { parts.push(bytes.subarray(i, i + total)); outLen += total; }
     i += total;
     if (type === 'IEND') break;
   }
-  return new Uint8Array(out);
+  const out = new Uint8Array(outLen);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
 }
 
 async function reencode(blob: Blob): Promise<Blob> {
@@ -67,6 +93,9 @@ export async function stripMetadata(file: File): Promise<StripResult> {
   const buf = new Uint8Array(await file.arrayBuffer());
   const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
   const isPng = PNG_SIG.every((b, i) => buf[i] === b);
+  // `new Uint8Array(o)` wrappers below are not a copy — they're an identity
+  // re-wrap to satisfy TS's strict ArrayBuffer vs SharedArrayBuffer typing on
+  // Blob constructor inputs. The underlying bytes are the same allocation.
   if (isJpeg) { const o = stripJpeg(buf); return { blob: new Blob([new Uint8Array(o)], { type: 'image/jpeg' }), lossless: true, outBytes: o.length }; }
   if (isPng)  { const o = stripPng(buf);  return { blob: new Blob([new Uint8Array(o)], { type: 'image/png'  }), lossless: true, outBytes: o.length }; }
   const blob = await reencode(file);

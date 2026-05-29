@@ -25,7 +25,10 @@ export default function Tool() {
   }, [vals]);
 
   const reset = () => setVals(Object.fromEntries(PROPS.map((p) => [p.key, p.def])));
-  const copy = async () => { await navigator.clipboard?.writeText(`transform: ${css};`); setCopied(true); setTimeout(() => setCopied(false), 1400); };
+  const copy = async () => {
+    try { await navigator.clipboard?.writeText(`transform: ${css};`); setCopied(true); setTimeout(() => setCopied(false), 1400); }
+    catch { /* iframe / permission denied */ }
+  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_340px]">

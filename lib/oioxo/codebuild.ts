@@ -6,14 +6,19 @@
 import { runCodeLoop, type CodeFile, type GenerateFn, type LoopResult, type RunFn, type RunResult } from './codeloop';
 import { makeCoderGenerate } from './codegen';
 import { makeWebContainerRun, runSupported } from './coderun';
-import { typeCheckFiles, formatDiags } from './typecheck';
+import { typeCheckFiles, formatDiags, makeTypeCheckRun } from './typecheck';
 import { grabForErrors } from './grab';
 import { makeNativeRun } from './nativerun';
 import { makeOllamaGenerate } from './bigcoder';
+import { makeOioxoWebGenerate } from './oioxo-coder-web';
 import { isDesktop } from './native';
 import { makePythonRun } from './pyodide';
 import { makeSqlRun } from './sqljs';
 import { makeFrontierGenerate } from './frontier';
+import { recallBricks, rememberVerifiedBuild } from './brick-store';
+import { rememberSolution, recallSolution } from './solution-store';
+import { RegressionGuard, makeRegressionRun } from './regression';
+import { replayOrBuild, type ReplayOutcome } from './solutions';
 
 export { runSupported };
 export type { CodeFile, LoopResult };
@@ -51,10 +56,24 @@ export interface BuildOptions {
    *  machine; 'frontier' = the user's own frontier API key (BYOK, browser-direct). */
   coder?:
     | { kind: 'ollama'; model: string; base?: string }
-    | { kind: 'frontier'; config: import('./frontier').FrontierConfig };
+    | { kind: 'frontier'; config: import('./frontier').FrontierConfig }
+    /** 'oioxo' = OUR encrypted on-device coder, already unlocked + loaded into wllama by the
+     *  UI (loadOioxoCoder); the loop runs it via makeOioxoWebGenerate. */
+    | { kind: 'oioxo'; coder: import('./oioxo-coder-web').OioxoWebCoder };
+  /** Override the generator entirely — how a no-WebGPU device plugs in a REMOTE
+   *  coder (peer GPU / server HTTP, see remote-coder.ts): the verified loop runs
+   *  locally, only generation is borrowed. Wins over `coder`/`match`. */
+  generate?: GenerateFn;
   /** Verification-guided best-of-N per attempt (the conductor's RANK role, done by
    *  the oracle). >1 trades compute for correctness — a natural Pro "thorough" mode. */
   candidates?: number;
+  /** Gem 2 — adaptive search cap: candidates ramp from `candidates` to this when
+   *  stuck on the same error. Defaults to max(candidates, 4). */
+  maxCandidates?: number;
+  /** Gem 6b — regression safety: the names of the behavioral checks being run.
+   *  When provided, the oracle is wrapped so breaking a once-passing check is a
+   *  loop-fixable failure (never silently regress). Off when omitted. */
+  getCheckNames?: () => string[];
   /** P6: capture each attempt so verified red→green repairs become conductor
    *  training data (surfaced as LoopResult.trajectory). Off by default. */
   record?: boolean;
@@ -73,6 +92,9 @@ export interface BuildOptions {
   recall?: (query: string) => Promise<string>;
   /** Human narration of what the agent is doing (the "watch it think" stream). */
   onNote?: (s: string) => void;
+  /** VISIBILITY: stream the coder's DRAFT as it's written (live code in the editor)
+   *  so the user always sees motion, even on a slow device. */
+  onToken?: (info: { delta: string; full: string; path?: string; attempt: number }) => void;
 }
 
 /**
@@ -143,21 +165,37 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
       await run(opts.files, 'npm install').catch(() => {});
     }
   }
-  // The writer: bigger local Ollama coder if requested, else the small WebGPU
-  // coder. Either way the SAME grounded prompt + grab closure + verified loop.
+  // The writer. A caller-supplied generate WINS — that's how a no-WebGPU device
+  // plugs in a REMOTE coder (peer GPU / server HTTP, see remote-coder.ts): the loop
+  // + oracle run locally, only generation is borrowed. Else: bigger local Ollama,
+  // BYOK frontier, or the small on-device coder (fed the verified-brick corpus so
+  // the DRAFT adapts proven blocks instead of authoring from nothing).
   const generate: GenerateFn =
-    opts.coder?.kind === 'ollama'
-      ? makeOllamaGenerate(opts.coder.model, { base: opts.coder.base, getExtApis })
-      : opts.coder?.kind === 'frontier'
-        ? makeFrontierGenerate(opts.coder.config, { getExtApis })
-        : makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis });
+    opts.generate
+      ? opts.generate
+      : opts.coder?.kind === 'ollama'
+        ? makeOllamaGenerate(opts.coder.model, { base: opts.coder.base, getExtApis })
+        : opts.coder?.kind === 'frontier'
+          ? makeFrontierGenerate(opts.coder.config, { getExtApis })
+          : opts.coder?.kind === 'oioxo'
+            ? makeOioxoWebGenerate(opts.coder.coder, { getExtApis })
+            : makeCoderGenerate(opts.match, { onProgress: opts.onProgress, getExtApis, recallBricks, onToken: opts.onToken });
 
-  return runCodeLoop({
+  // Gem 6b — wrap the oracle so a regression (a once-passing check now broken) is
+  // surfaced as a failure the loop must fix. Opt-in via getCheckNames; default off.
+  if (opts.getCheckNames) {
+    run = makeRegressionRun(run, new RegressionGuard(), opts.getCheckNames);
+  }
+
+  const result = await runCodeLoop({
     task: opts.task,
     files: opts.files,
     testCmd,
     maxIters: opts.maxIters,
     candidates: opts.candidates,
+    // Gem 2 — adaptive search: ramp candidates when stuck (up to 4) so the device
+    // searches harder only where a single shot keeps failing.
+    maxCandidates: opts.maxCandidates ?? Math.max(opts.candidates ?? 1, 4),
     record: opts.record,
     signal: opts.signal,
     search: opts.search,
@@ -167,4 +205,39 @@ export async function buildOrFix(opts: BuildOptions): Promise<LoopResult> {
     run,
     onStep: opts.onStep,
   });
+
+  // GROW THE CORPUS: a green build is an oracle-verified unit — harvest it so the
+  // next similar task can reuse it. Guarded + no-op in Node/SSR, never throws.
+  if (result.ok) {
+    void rememberVerifiedBuild(opts.task, result.files).catch(() => {});
+    // Gem 3 — memoize the whole solved goal so a near-identical request can REPLAY
+    // it (zero model calls) or warm-start from it. No-op in Node/SSR, never throws.
+    void rememberSolution(opts.task, result.files, { runtime: opts.runtime, testCmd }).catch(() => {});
+  }
+  return result;
+}
+
+/**
+ * Gem 3 — replay-aware build entry. Checks the solved-goal cache FIRST: an exact
+ * match replays the cached project (re-verified, ~0 model calls), a similar one
+ * warm-starts the loop from it, else builds from scratch. Drop-in for the agent's
+ * per-goal build; `verify` re-checks cached files with the caller's oracle (or a
+ * quick type-check). Returns the replay outcome + the underlying loop result.
+ */
+export async function buildWithMemory(opts: BuildOptions & { goal?: string }): Promise<ReplayOutcome & { loop?: LoopResult }> {
+  const goal = (opts.goal ?? opts.task).trim();
+  const verifier = opts.run ?? makeTypeCheckRun(opts.libFiles);
+  let loop: LoopResult | undefined;
+  const outcome = await replayOrBuild({
+    goal,
+    scratchFiles: opts.files,
+    recall: (g) => recallSolution(g),
+    verify: (files) => verifier(files, opts.testCmd ?? 'verify'),
+    build: async (startFiles) => {
+      loop = await buildOrFix({ ...opts, files: startFiles });
+      return { files: loop.files, ok: loop.ok, iters: loop.iters, modelCalls: loop.iters };
+    },
+    onNote: opts.onNote,
+  });
+  return { ...outcome, loop };
 }

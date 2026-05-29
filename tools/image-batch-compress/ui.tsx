@@ -58,5 +58,5 @@ export default function ImageBatchCompressTool() {
     </div>
   );
 
-  return <BatchImage controls={controls} process={process} zipName="compressed-images.zip" cta="Compress all → ZIP" />;
+  return <BatchImage controls={controls} process={process} zipName="compressed-images.zip" cta="Compress all → ZIP" policyKey="image-batch-compress" />;
 }

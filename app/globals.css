@@ -48,6 +48,7 @@
   --color-cat-social:    oklch(60% 0.20 355);  /* pink */
   --color-cat-font:      oklch(58% 0.18 280);  /* purple */
   --color-cat-subtitle:  oklch(60% 0.16 100);  /* mustard */
+  --color-cat-test:      oklch(58% 0.19 195);  /* bright cyan-teal */
 
   /* Brand — the logo's indigo→purple X. Primary accent for CTAs / account. */
   --brand-1: #4f46e5;

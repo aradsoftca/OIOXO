@@ -24,10 +24,21 @@ const ERRORS: Record<string, string> = {
   expired_token: 'That verification link expired. Register again to get a new one.',
 };
 
+// Open-redirect guard: only accept callback URLs that point back at our own
+// site. Without this, `/auth/sign-in?callbackUrl=https://evil.com` redirects
+// the user off-site after a successful sign-in (classic phishing chain).
+function safeCallback(raw: string | null): string {
+  if (!raw) return '/';
+  // Same-origin relative paths only. A leading "//" is a protocol-relative
+  // URL that browsers treat as cross-origin — reject those too.
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  return '/';
+}
+
 function SignInInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const callbackUrl = params.get('callbackUrl') ?? '/';
+  const callbackUrl = safeCallback(params.get('callbackUrl'));
   const notice = NOTICES[params.get('verified') ? 'verified' : params.get('reset') ? 'reset' : ''];
   const urlError = ERRORS[params.get('error') ?? ''];
   const [email, setEmail] = React.useState('');

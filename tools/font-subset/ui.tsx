@@ -39,7 +39,9 @@ export default function Tool() {
     a.href = url;
     a.download = (fileName.replace(/\.[^.]+$/, '') || 'font') + '-subset.ttf';
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // 60s defer — immediate revoke aborts the download on mobile Safari/Firefox
+    // if the download dialog opens after the URL goes away.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   const uniqueChars = new Set(chars).size;

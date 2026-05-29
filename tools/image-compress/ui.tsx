@@ -42,10 +42,16 @@ export default function CompressTool() {
   const draggingCompareRef = React.useRef(false);
   const renderToken = React.useRef(0);
 
+  // Mirror current URLs into refs so the unmount cleanup reads the LATEST
+  // values, not the empty initial state. With empty deps + closure capture,
+  // the loaded source/output URLs leaked on every navigation away.
+  const sourceUrlRef = React.useRef('');
+  const outputUrlRef = React.useRef('');
+  React.useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+  React.useEffect(() => { outputUrlRef.current = outputUrl; }, [outputUrl]);
   React.useEffect(() => () => {
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    if (outputUrl) URL.revokeObjectURL(outputUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
+    if (outputUrlRef.current) URL.revokeObjectURL(outputUrlRef.current);
   }, []);
 
   const loadFile = React.useCallback(async (next: File) => {

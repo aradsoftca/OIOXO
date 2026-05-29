@@ -5,6 +5,7 @@ import { Upload, Download, Loader2, Presentation, AlertTriangle } from 'lucide-r
 import { officeToContent } from '@/engines/office';
 import { htmlToPdf } from '@/engines/document';
 import { htmlToPlainText } from '@/engines/ebook';
+import { sanitizeHtml } from '@/lib/safe-html';
 
 type Target = 'pdf' | 'html' | 'txt';
 const EXT = (f: File) => (f.name.split('.').pop() || '').toLowerCase();
@@ -34,15 +35,22 @@ export default function SlidesConvertTool() {
     setBusy(true); setError('');
     try {
       const base = file.name.replace(/\.[^.]+$/, '');
+      // Sanitize the PPTX/ODP body for PDF and HTML exports — a hostile
+      // presentation could otherwise smuggle inline event handlers into the
+      // downloaded HTML. Title is HTML-escaped so a crafted slide title
+      // (`</title><script>…`) can't break out of <title>.
+      const safeBody = sanitizeHtml(content.html);
+      const escTitle = content.title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       let blob: Blob, ext: string;
-      if (target === 'pdf') { blob = await htmlToPdf(`<h1>${content.title}</h1>${content.html}`, base); ext = 'pdf'; }
-      else if (target === 'html') { blob = new Blob([`<!doctype html><meta charset="utf-8"><title>${content.title}</title><body>${content.html}</body>`], { type: 'text/html' }); ext = 'html'; }
+      if (target === 'pdf') { blob = await htmlToPdf(`<h1>${escTitle}</h1>${safeBody}`, base); ext = 'pdf'; }
+      else if (target === 'html') { blob = new Blob([`<!doctype html><meta charset="utf-8"><title>${escTitle}</title><body>${safeBody}</body>`], { type: 'text/html' }); ext = 'html'; }
       else { blob = new Blob([htmlToPlainText(content.html)], { type: 'text/plain' }); ext = 'txt'; }
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `${base}.${ext}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) {
       setError((e as Error).message || 'Conversion failed.');
     } finally { setBusy(false); }
@@ -77,7 +85,7 @@ export default function SlidesConvertTool() {
               {busy && !content ? (
                 <div className="flex items-center gap-2 text-[13px] text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Reading…</div>
               ) : content ? (
-                <div dangerouslySetInnerHTML={{ __html: content.html }} />
+                <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(content.html) }} />
               ) : null}
             </div>
           </div>

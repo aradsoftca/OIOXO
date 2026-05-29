@@ -6,10 +6,16 @@ import { Upload, Download, Loader2, Eraser, Wand2, Undo2, Image as ImageIcon } f
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { loadOpenCv } from '@/engines/opencv';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
 
+const POLICY_KEY = 'image-object-remove';
 const MAX_EDGE = 1600;
 
 export default function ObjectRemoveTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [hasImage, setHasImage] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [brush, setBrush] = React.useState(36);
@@ -26,6 +32,8 @@ export default function ObjectRemoveTool() {
 
   const load = React.useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', file.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
     const bm = await createImageBitmap(file);
     const scale = Math.min(1, MAX_EDGE / Math.max(bm.width, bm.height));
     const w = Math.round(bm.width * scale), h = Math.round(bm.height * scale);
@@ -35,7 +43,7 @@ export default function ObjectRemoveTool() {
     mask.getContext('2d')!.clearRect(0, 0, w, h);
     bm.close();
     setHasImage(true); setResultUrl(''); setDirty(false);
-  }, []);
+  }, [isPro, policyGate]);
 
   const pos = (e: React.PointerEvent) => {
     const c = maskRef.current!; const r = c.getBoundingClientRect();
@@ -119,6 +127,7 @@ export default function ObjectRemoveTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      {policyGate.element}
       <div className="space-y-3">
         <div className={cn('relative border border-black/[0.08] bg-[oklch(20%_0.008_250)]', !hasImage && 'flex aspect-[4/3] items-center justify-center')}>
           {!hasImage && (
@@ -192,10 +201,11 @@ export default function ObjectRemoveTool() {
 
 function saveBlob(blob: Blob, ext: string) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
+  const href = URL.createObjectURL(blob);
+  a.href = href;
   a.download = `cleaned.${ext}`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(href), 60_000);
 }
 
 async function makeThumb(blob: Blob): Promise<string> {

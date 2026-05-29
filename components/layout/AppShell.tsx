@@ -25,6 +25,7 @@ const NAV_LINKS = [
   { href: '/', label: 'Home' },
   { href: '/convert', label: 'Convert' },
   { href: '/apps', label: 'Apps' },
+  { href: '/studios', label: 'Studios' },
   { href: '/tools', label: 'All tools' },
   { href: '/pricing', label: 'Pricing' },
 ];
@@ -129,6 +130,10 @@ export function AppShell({ children }: AppShellProps) {
               <Link href="/terms" className="transition hover:text-[var(--color-fg)]">Terms</Link>
               <Link href="/cookies" className="transition hover:text-[var(--color-fg)]">Cookies</Link>
               <Link href="/refund" className="transition hover:text-[var(--color-fg)]">Refund</Link>
+              <Link href="/security" className="transition hover:text-[var(--color-fg)]">Security</Link>
+              <Link href="/acceptable-use" className="transition hover:text-[var(--color-fg)]">Use policy</Link>
+              <Link href="/dmca" className="transition hover:text-[var(--color-fg)]">DMCA</Link>
+              <Link href="/subprocessors" className="transition hover:text-[var(--color-fg)]">Subprocessors</Link>
               <span className="font-mono">v0.3</span>
             </div>
           </div>

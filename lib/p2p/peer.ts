@@ -64,7 +64,15 @@ export function connectPeer(role: 's' | 'r', room: string, h: PeerHandlers): Pee
     dc.onopen = () => markConnected();
     dc.onclose = () => { if (!stopped) h.onState?.('closed'); };
     dc.onmessage = (e) => {
-      if (typeof e.data === 'string') { try { h.onMessage?.(JSON.parse(e.data)); } catch { /* ignore */ } }
+      if (typeof e.data === 'string') {
+        // Cap inbound text — a hostile peer could ship a multi-MB JSON
+        // payload to OOM us via JSON.parse, or just hand the receiver an
+        // unbounded blob to render. WebRTC's own SCTP cap is ~256KB per
+        // message in Chrome, but a peer could still send right at that
+        // ceiling repeatedly; bound the parsed payload anyway.
+        if (e.data.length > 256_000) return;
+        try { h.onMessage?.(JSON.parse(e.data)); } catch { /* ignore */ }
+      }
       else h.onBinary?.(e.data as ArrayBuffer);
     };
   };
@@ -91,6 +99,10 @@ export function connectPeer(role: 's' | 'r', room: string, h: PeerHandlers): Pee
     const iceServers = await getIceServers();
     if (stopped) return;
     pc = new RTCPeerConnection({ iceServers });
+    // If close() ran between the await above and now, the close() call
+    // earlier saw pc=null and skipped — we must tear down the just-created
+    // RTCPeerConnection so it doesn't leak with open ICE candidates.
+    if (stopped) { try { pc.close(); } catch { /* */ } pc = null; return; }
 
     pc.onicecandidate = (e) => { if (e.candidate) void post({ kind: 'ice', cand: e.candidate.toJSON() }); };
     pc.onconnectionstatechange = () => {
@@ -110,22 +122,40 @@ export function connectPeer(role: 's' | 'r', room: string, h: PeerHandlers): Pee
       pc.ondatachannel = (e) => wireChannel(e.channel);
     }
 
+    let backoff = 900;
     while (!stopped) {
       try {
         const r = await fetch(`/api/signal/${encodeURIComponent(room)}?from=${role}&after=${cursor}&_=${Date.now()}`, { cache: 'no-store' });
+        if (!r.ok) throw new Error(`signal ${r.status}`);
         const j = (await r.json()) as { messages?: { seq: number; data: any }[]; cursor?: number };
         for (const m of j.messages ?? []) await handle(m.data);
         if (j.cursor) cursor = j.cursor;
-      } catch { /* keep polling */ }
-      await sleep(900);
+        backoff = 900; // reset on success
+      } catch {
+        // Back off on errors so a 500ing signal endpoint doesn't get
+        // hammered at 900ms forever by every browser in every room.
+        backoff = Math.min(backoff * 2, 15_000);
+      }
+      await sleep(backoff);
     }
   })();
 
   h.onState?.('connecting');
 
   return {
-    send: (data) => { if (dc && dc.readyState === 'open') { dc.send(JSON.stringify(data)); return true; } return false; },
-    sendBinary: (buf) => { if (dc && dc.readyState === 'open') { dc.send(buf); return true; } return false; },
+    // Wrap send in try/catch — dc.send throws synchronously on oversize
+    // payloads (SCTP message > ~256KB) or when bufferedAmount is past the
+    // SCTP queue limit. Without the catch, a single oversize push surfaces
+    // as an unhandled exception in the caller's onClick / onMessage handler
+    // instead of a simple `false` return.
+    send: (data) => {
+      if (!dc || dc.readyState !== 'open') return false;
+      try { dc.send(JSON.stringify(data)); return true; } catch { return false; }
+    },
+    sendBinary: (buf) => {
+      if (!dc || dc.readyState !== 'open') return false;
+      try { dc.send(buf); return true; } catch { return false; }
+    },
     close: () => { stopped = true; clearTimeout(watchdog); try { dc?.close(); } catch { /* */ } try { pc?.close(); } catch { /* */ } },
   };
 }

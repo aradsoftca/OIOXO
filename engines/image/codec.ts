@@ -9,6 +9,18 @@
 import { detectFormat } from './format';
 import type { EncodeOptions, ImageFormat } from './types';
 import { FORMAT_TO_MIME } from './types';
+import { stampImageData } from './watermark';
+import { BRAND_DOMAIN } from '@/lib/brand';
+
+/**
+ * Brand watermark applied to EVERY encoded image (this is the single chokepoint —
+ * main thread and both compute workers all encode through encodeLocal). Defaults to
+ * ON (free); the app calls setWatermark(null) only once a Pro/Team session is
+ * confirmed (main thread via WatermarkInit, workers via the __wmInit message). The
+ * free-default means an image is never accidentally shipped UNbranded.
+ */
+let _wmText: string | null = BRAND_DOMAIN;
+export function setWatermark(text: string | null): void { _wmText = text; }
 
 export interface DecodeResult {
   data: ImageData;
@@ -62,14 +74,22 @@ export async function decodeLocal(blob: Blob): Promise<DecodeResult> {
     default: {
       // Fall back to platform decoder (handles GIF, BMP, TIFF, SVG-rasterized, etc.)
       const bm = await createImageBitmap(blob);
-      const canvas = typeof OffscreenCanvas !== 'undefined'
-        ? new OffscreenCanvas(bm.width, bm.height)
-        : Object.assign(document.createElement('canvas'), { width: bm.width, height: bm.height });
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas 2D unavailable');
-      ctx.drawImage(bm, 0, 0);
-      data = (ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D).getImageData(0, 0, bm.width, bm.height);
-      bm.close();
+      try {
+        const canvas = typeof OffscreenCanvas !== 'undefined'
+          ? new OffscreenCanvas(bm.width, bm.height)
+          : Object.assign(document.createElement('canvas'), { width: bm.width, height: bm.height });
+        const ctx = canvas.getContext('2d') as
+          | CanvasRenderingContext2D
+          | OffscreenCanvasRenderingContext2D
+          | null;
+        if (!ctx) throw new Error('Canvas 2D unavailable');
+        ctx.drawImage(bm, 0, 0);
+        data = ctx.getImageData(0, 0, bm.width, bm.height);
+      } finally {
+        // Always release the bitmap — getImageData can throw on a tainted
+        // canvas or hit a browser bug, leaking the bitmap until GC.
+        try { bm.close(); } catch { /* */ }
+      }
       format = 'bitmap';
     }
   }
@@ -102,22 +122,25 @@ export async function encodeLocal(
 ): Promise<EncodeResult> {
   const t0 = performance.now();
   const q = opts.quality ?? 90;
+  // Brand stamp (free) — applied here so every encode path is covered. Pro →
+  // setWatermark(null) makes this a no-op. Stamping is itself crash-safe.
+  const src = _wmText ? stampImageData(data, _wmText) : data;
 
   let buf: ArrayBuffer;
   switch (format) {
     case 'jpeg': {
       const m = await import('@jsquash/jpeg');
-      buf = await m.encode(data, { quality: q });
+      buf = await m.encode(src, { quality: q });
       break;
     }
     case 'png': {
       const m = await import('@jsquash/png');
-      buf = await m.encode(data);
+      buf = await m.encode(src);
       break;
     }
     case 'webp': {
       const m = await import('@jsquash/webp');
-      buf = await m.encode(data, {
+      buf = await m.encode(src, {
         quality: q,
         method: Math.max(0, Math.min(6, opts.effort ?? 4)),
       });
@@ -125,7 +148,7 @@ export async function encodeLocal(
     }
     case 'avif': {
       const m = await import('@jsquash/avif');
-      buf = await m.encode(data, {
+      buf = await m.encode(src, {
         quality: q,
         speed: Math.max(0, Math.min(10, 10 - (opts.effort ?? 6))),
         lossless: opts.lossless ?? false,

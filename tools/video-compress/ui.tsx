@@ -4,6 +4,11 @@ import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
 import { fmtDuration } from '@/engines/video';
 import { runFfmpeg, downloadBlob } from '@/engines/ffmpeg';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'video-compress';
 
 const LEVELS = [
   { id: 'visually-lossless', label: 'Visually Lossless', crf: 18, preset: 'medium', sub: 'Tiny difference from source' },
@@ -13,6 +18,8 @@ const LEVELS = [
 ];
 
 export default function Tool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
   const [level, setLevel] = React.useState(LEVELS[2]);
   const [busy, setBusy] = React.useState(false);
@@ -24,6 +31,10 @@ export default function Tool() {
 
   const run = async () => {
     if (!item) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', item.file.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
+    const durHit = checkLever(POLICY_KEY, 'input-duration', item.info.duration, isPro);
+    if (durHit) { policyGate.fire(durHit); return; }
     setBusy(true); setError(''); setProgress(0); setResultSize(null);
     try {
       const blob = await runFfmpeg({
@@ -45,6 +56,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <VideoDrop loaded={false} onLoad={setItem} />}
 
       {item && (

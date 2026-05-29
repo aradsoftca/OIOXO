@@ -6,6 +6,11 @@ import { Upload, Download, Loader2, ScanLine, FileText } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { loadOpenCv } from '@/engines/opencv';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'image-doc-scan';
 
 type Pt = { x: number; y: number }; // fractions of the source image (0..1)
 type Mode = 'color' | 'gray' | 'bw';
@@ -15,6 +20,8 @@ const DEFAULT_CORNERS: Pt[] = [
 ];
 
 export default function DocScanTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [img, setImg] = React.useState<HTMLImageElement | null>(null);
   const [corners, setCorners] = React.useState<Pt[]>(DEFAULT_CORNERS);
   const [mode, setMode] = React.useState<Mode>('bw');
@@ -30,6 +37,8 @@ export default function DocScanTool() {
 
   const load = React.useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, []);
+    if (!ok) return;
     setBusy(true); setResultUrl('');
     const url = URL.createObjectURL(file);
     const image = new Image();
@@ -44,7 +53,7 @@ export default function DocScanTool() {
       if (detected) setCorners(detected);
     } catch { /* manual corners */ }
     setBusy(false);
-  }, []);
+  }, [isPro, policyGate]);
 
   const onMove = (e: React.PointerEvent) => {
     if (drag < 0 || !stageRef.current) return;
@@ -76,10 +85,11 @@ export default function DocScanTool() {
     canvas.toBlob((blob) => {
       if (!blob) return;
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = `scan.${type === 'image/png' ? 'png' : 'jpg'}`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, type, 0.92);
   };
 
@@ -97,6 +107,7 @@ export default function DocScanTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+      {policyGate.element}
       <div className="space-y-3">
         {!img ? (
           <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }} onDragOver={(e) => e.preventDefault()}

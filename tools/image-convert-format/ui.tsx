@@ -37,10 +37,15 @@ export default function ConvertFormatTool() {
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
+  // Ref-mirror the URLs so the unmount cleanup reads CURRENT values rather
+  // than the empty strings captured at first render.
+  const sourceUrlRef = React.useRef('');
+  const outputUrlRef = React.useRef('');
+  React.useEffect(() => { sourceUrlRef.current = sourceUrl; }, [sourceUrl]);
+  React.useEffect(() => { outputUrlRef.current = outputUrl; }, [outputUrl]);
   React.useEffect(() => () => {
-    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
-    if (outputUrl) URL.revokeObjectURL(outputUrl);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
+    if (outputUrlRef.current) URL.revokeObjectURL(outputUrlRef.current);
   }, []);
 
   const loadFile = React.useCallback(async (next: File) => {

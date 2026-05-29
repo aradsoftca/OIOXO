@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { signEntitlement, type Tier } from '@/lib/oioxo/entitlement';
+import { preCheckRequest } from '@/lib/oioxo/gate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -20,16 +21,6 @@ export const dynamic = 'force-dynamic';
  * served per-user; v1 returns the per-release master key + logs issuance.
  */
 
-const ALLOWED_HOSTS = new Set([
-  'oioxo.com', 'www.oioxo.com', 'xonvert.com', 'www.xonvert.com', 'new.xonvert.com',
-  'localhost:3000', 'localhost:3001', 'localhost:3002', 'localhost:3210', '127.0.0.1:3001',
-]);
-
-function hostOf(value: string | null): string | null {
-  if (!value) return null;
-  try { return new URL(value).host.toLowerCase(); } catch { return null; }
-}
-
 const PRO_FEATURES = ['pro-coder', 'big-models', 'frontier-byok', 'search', 'sync', 'tools', 'ai'];
 
 /** Map the account plan to an entitlement tier + unlocked features. */
@@ -40,12 +31,9 @@ function entitlementFor(plan: string | null | undefined): { tier: Tier; features
 }
 
 export async function POST(req: Request) {
-  // Origin gate (same reasoning as /api/brain-key): reject a present cross-site Origin.
-  const reqHost = (req.headers.get('host') || '').toLowerCase();
-  const originHost = hostOf(req.headers.get('origin'));
-  if (originHost && originHost !== reqHost && !ALLOWED_HOSTS.has(originHost)) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-  }
+  // Shared rate-limit + UA + origin/referer pre-check (lib/oioxo/gate).
+  const pre = preCheckRequest(req);
+  if (pre) return pre;
 
   let body: { device?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad request' }, { status: 400 }); }
@@ -63,8 +51,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ tier: 'free', entitlement, contentKey: null }, { headers: { 'Cache-Control': 'no-store' } });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true } });
-  const { tier, features } = entitlementFor(user?.plan);
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true, subscriptionEndsAt: true } });
+  // Fail-safe in case the `customer.subscription.deleted` webhook never lands
+  // (Stripe outage, mis-routed endpoint, replication lag). If the period end
+  // is firmly in the past, treat as FREE regardless of stored plan — the
+  // entitlement signs Pro otherwise and the encrypted Pro assets stay
+  // unlocked. Buffer of 1 day so a webhook running a few hours late doesn't
+  // strand a paying user.
+  const periodEnded = user?.subscriptionEndsAt && (user.subscriptionEndsAt.getTime() + 24 * 60 * 60 * 1000) < Date.now();
+  const effectivePlan = periodEnded ? 'FREE' : user?.plan;
+  const { tier, features } = entitlementFor(effectivePlan);
   const entitlement = await signEntitlement({ sub: userId, device, tier, features }, secret);
 
   // Paying tiers get the per-release Pro content key (decrypts the protected brain).

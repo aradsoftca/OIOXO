@@ -125,7 +125,7 @@ export function isUsable(
   const grace = opts.graceMs ?? 24 * 3600_000;
   if (opts.device && claims.device !== opts.device) return { ok: false, reason: 'device-mismatch' };
   if (now > claims.exp + grace) return { ok: false, reason: 'expired-past-grace' };
-  if (opts.feature && !claims.features.includes(opts.feature)) return { ok: false, reason: 'missing-feature' };
+  if (opts.feature && !(claims.features ?? []).includes(opts.feature)) return { ok: false, reason: 'missing-feature' };
   return { ok: true };
 }
 
@@ -133,4 +133,13 @@ export function isUsable(
  *  web). Binding the entitlement to it stops one unlocked token being shared. */
 export function newDeviceId(): string {
   return b64urlFromBytes(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+/** Read claims WITHOUT verifying (client-side convenience — the client has no
+ *  secret). Use only to read `sub`/`device` for the unlock handshake; never trust
+ *  it for security (the server re-verifies the signature on every call). */
+export function decodeClaims(token: string): EntitlementClaims | null {
+  const dot = token.indexOf('.');
+  if (dot < 1) return null;
+  try { return JSON.parse(dec.decode(bytesFromB64url(token.slice(0, dot)))) as EntitlementClaims; } catch { return null; }
 }

@@ -35,7 +35,10 @@ export default function Tool() {
       if (cancelled) return;
       setDataUrl(url);
       setError('');
-      setRecent('gen-qr-code', url);
+      // Only persist a small thumbnail — the live data URL grows with size
+      // and gets written on every keystroke; a 1024px QR is ~80KB and would
+      // thrash localStorage for the home-screen tile.
+      if (url.length < 20000) setRecent('gen-qr-code', url);
     }).catch((e) => {
       if (cancelled) return;
       setError(e instanceof Error ? e.message : String(e));
@@ -64,8 +67,12 @@ export default function Tool() {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      });
+        // Defer revoke: a.click() doesn't block on the download dialog and
+        // some browsers (mobile Safari/Firefox) abort the download if the
+        // blob URL is torn down before the stream starts.
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
 
   return (

@@ -9,10 +9,27 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: '/',
-        disallow: ['/api/', '/auth/', '/dashboard/'],
+        allow: ['/'],
+        disallow: [
+          '/api/',
+          '/auth/',
+          '/dashboard/',
+          '/admin/',
+          '/account/',
+          '/_next/',
+          '/static/',
+          '/limits/',
+          '/*?',
+        ],
       },
+      { userAgent: 'GPTBot', disallow: ['/'] },
+      { userAgent: 'CCBot', disallow: ['/'] },
+      { userAgent: 'anthropic-ai', disallow: ['/'] },
+      { userAgent: 'Google-Extended', disallow: ['/'] },
+      { userAgent: 'PerplexityBot', disallow: ['/'] },
+      { userAgent: 'ClaudeBot', disallow: ['/'] },
     ],
-    sitemap: `${SITE}${BASE}/sitemap.xml`,
+    sitemap: [`${SITE}${BASE}/sitemap.xml`],
+    host: SITE,
   };
 }

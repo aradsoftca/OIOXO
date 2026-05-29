@@ -19,14 +19,23 @@ interface SendArgs extends EmailOptions {
 }
 
 export async function sendEmail(args: SendArgs): Promise<{ success: boolean; messageId?: string; provider?: string }> {
+  // Chokepoint defense: collapse `args.to` to a single address. Migrated user
+  // rows (France import) predate Pass 91's EMAIL_RE tightening, so any caller
+  // pulling `user.email` straight from the DB could pass "a@evil.com,b@victim.com"
+  // — SMTP libraries parse comma-lists as multi-recipient, exfiltrating the
+  // payload to an attacker-owned address. Call-sites also split (Pass 98/99),
+  // but this layer guarantees the invariant for any new caller that forgets.
+  const to = args.to.split(/[,;]/)[0].trim();
+  if (!to) return { success: false, provider: 'skipped-empty-to' };
+
   // Honour marketing opt-out (essential/transactional mail always sends).
   if (args.type === 'MARKETING') {
-    const u = await prisma.user.findUnique({ where: { email: args.to }, select: { marketingOptOut: true } });
+    const u = await prisma.user.findUnique({ where: { email: to }, select: { marketingOptOut: true } });
     if (u?.marketingOptOut) return { success: false, provider: 'skipped-optout' };
   }
 
   const result = await sendEmailWithFallback({
-    to: args.to,
+    to,
     subject: args.subject,
     html: args.html,
     text: args.text,
@@ -37,7 +46,7 @@ export async function sendEmail(args: SendArgs): Promise<{ success: boolean; mes
     await prisma.email.create({
       data: {
         from: EMAIL_FROM,
-        to: args.to,
+        to,
         subject: args.subject,
         body: args.text || '',
         html: args.html,
@@ -59,13 +68,17 @@ export async function sendEmail(args: SendArgs): Promise<{ success: boolean; mes
 
 export async function sendVerificationEmail(email: string, token: string, name?: string) {
   // Link straight to the API route — it verifies then redirects to sign-in.
-  const url = `${process.env.NEXTAUTH_URL}/api/auth/verify?token=${token}`;
+  // encodeURIComponent so a token containing `+`, `&`, `#`, etc. survives the
+  // round-trip; the verify route reads it via URLSearchParams which decodes
+  // automatically, so plain `crypto.randomBytes(...).toString('hex')` tokens
+  // work identically while non-hex tokens stay intact.
+  const url = `${process.env.NEXTAUTH_URL}/api/auth/verify?token=${encodeURIComponent(token)}`;
   const t = emailTemplates.verification(url, name);
   return sendEmail({ to: email, subject: t.subject, html: t.html, text: t.text, type: 'VERIFICATION' });
 }
 
 export async function sendPasswordResetEmail(email: string, token: string, name?: string) {
-  const url = `${process.env.NEXTAUTH_URL}/auth/reset-password?token=${token}`;
+  const url = `${process.env.NEXTAUTH_URL}/auth/reset-password?token=${encodeURIComponent(token)}`;
   const t = emailTemplates.passwordReset(url, name);
   return sendEmail({ to: email, subject: t.subject, html: t.html, text: t.text, type: 'PASSWORD_RESET' });
 }

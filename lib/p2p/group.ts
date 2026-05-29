@@ -43,7 +43,16 @@ export function joinGroup(room: string, isHost: boolean, name: string, h: GroupH
       const peer = connectPeer('s', `${room}-${peerId}`, {
         onState: (s) => {
           if (s === 'connected') { connectedIds.add(peerId); h.onState?.('connected'); h.onRoster?.(peers.size + 1); }
-          else if (s === 'failed') { if (connectedIds.size === 0) h.onState?.('failed'); }
+          else if (s === 'failed') {
+            // Remove the dead peer so the roster doesn't keep counting a
+            // guest that never actually arrived. Previously the failed
+            // peer stayed in the map forever, inflating the count by 1
+            // per failed join attempt.
+            try { peers.get(peerId)?.close(); } catch { /* */ }
+            peers.delete(peerId);
+            if (connectedIds.size === 0) h.onState?.('failed');
+            h.onRoster?.(peers.size + 1);
+          }
           else if (s === 'closed') { peers.delete(peerId); connectedIds.delete(peerId); h.onRoster?.(peers.size + 1); }
         },
         // Relay every message (chat + file metadata) and binary chunk to the OTHER guests.
@@ -61,17 +70,32 @@ export function joinGroup(room: string, isHost: boolean, name: string, h: GroupH
     };
 
     (async () => {
+      let backoff = 900;
       while (!stopped) {
         try {
           const r = await fetch(`/api/signal/${encodeURIComponent(room)}?from=s&after=${cursor}&_=${Date.now()}`, { cache: 'no-store' });
+          if (!r.ok) throw new Error(`signal ${r.status}`);
           const j = (await r.json()) as { messages?: { seq: number; data: any }[]; cursor?: number };
           for (const m of j.messages ?? []) {
             const d = m.data;
-            if (d?.kind === 'join' && d.peerId && !peers.has(d.peerId)) addGuest(d.peerId);
+            // Validate peerId shape: a hostile client could post 1MB ids or
+            // thousands of distinct ids to make the host spawn unbounded
+            // RTCPeerConnections (each ~1-5 MB of buffers + ICE sockets).
+            // Same DoS class fixed in mesh.ts on Pass 66.
+            if (d?.kind !== 'join' || typeof d.peerId !== 'string') continue;
+            if (d.peerId.length === 0 || d.peerId.length > 64) continue;
+            if (peers.has(d.peerId)) continue;
+            if (peers.size >= 32) continue; // hard guest cap
+            addGuest(d.peerId);
           }
           if (j.cursor) cursor = j.cursor;
-        } catch { /* keep polling */ }
-        await sleep(900);
+          backoff = 900;
+        } catch {
+          // Exponential backoff so a failing signal endpoint doesn't get
+          // hit every 900ms by every host browser forever.
+          backoff = Math.min(backoff * 2, 15_000);
+        }
+        await sleep(backoff);
       }
     })();
 

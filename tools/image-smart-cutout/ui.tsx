@@ -6,8 +6,16 @@ import { Upload, Download, Loader2, Wand2, Scissors, Plus, Minus, RotateCcw, Ima
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { prepare, segment, type SamSession, type SamPoint } from '@/engines/sam';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+import { enforcePolicy } from '@/lib/limits/server-check';
+
+const POLICY_KEY = 'image-smart-cutout';
 
 export default function SmartCutoutTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [imgUrl, setImgUrl] = React.useState('');
   const [status, setStatus] = React.useState<'idle' | 'loading' | 'ready' | 'working'>('idle');
   const [loadText, setLoadText] = React.useState('');
@@ -23,10 +31,24 @@ export default function SmartCutoutTool() {
   const fileRef = React.useRef<File | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
-  React.useEffect(() => () => { if (imgUrl) URL.revokeObjectURL(imgUrl); if (outUrl) URL.revokeObjectURL(outUrl); }, [imgUrl, outUrl]);
+  // Unmount-only cleanup. Previous deps `[imgUrl, outUrl]` caused setting the
+  // cutout result `outUrl` to revoke the source `imgUrl` (and vice-versa),
+  // breaking the displayed image after each operation.
+  const imgUrlRef = React.useRef(imgUrl);
+  const outUrlRef = React.useRef(outUrl);
+  React.useEffect(() => { imgUrlRef.current = imgUrl; }, [imgUrl]);
+  React.useEffect(() => { outUrlRef.current = outUrl; }, [outUrl]);
+  React.useEffect(() => () => {
+    if (imgUrlRef.current) URL.revokeObjectURL(imgUrlRef.current);
+    if (outUrlRef.current) URL.revokeObjectURL(outUrlRef.current);
+  }, []);
 
   const load = React.useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'input-size', value: file.size },
+    ]);
+    if (!ok) return;
     setErr(''); setStatus('loading'); setPoints([]); setOutUrl(''); setLoadText('Loading AI model…');
     if (imgUrl) URL.revokeObjectURL(imgUrl);
     fileRef.current = file;
@@ -43,7 +65,7 @@ export default function SmartCutoutTool() {
       setErr('Could not load the segmentation model. Needs a modern desktop browser.');
       setStatus('idle');
     }
-  }, [imgUrl]);
+  }, [imgUrl, isPro, policyGate]);
 
   const runSegment = React.useCallback(async (pts: SamPoint[]) => {
     const s = sessionRef.current;
@@ -128,6 +150,7 @@ export default function SmartCutoutTool() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
+      {policyGate.element}
       <div className="space-y-3">
         <div className={cn('relative border border-black/[0.08] bg-[oklch(20%_0.008_250)]', !imgUrl && 'flex aspect-[4/3] items-center justify-center')}>
           {!imgUrl && (

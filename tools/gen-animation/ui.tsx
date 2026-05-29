@@ -60,9 +60,11 @@ export default function Tool() {
 }`;
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(fullCss);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
+    try {
+      await navigator.clipboard?.writeText(fullCss);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   const replay = () => setVersion((v) => v + 1);
@@ -82,7 +84,7 @@ export default function Tool() {
           </button>
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[11px] whitespace-pre-wrap">{fullCss}</div>
           <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-bg)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
+            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
             {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
           </button>
         </div>
@@ -143,7 +145,7 @@ export default function Tool() {
             <label className="block">
               <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Keyframes</div>
               <textarea value={keyframes} onChange={(e) => setKeyframes(e.target.value)} rows={4}
-                className="mt-1 w-full bg-[var(--color-bg)] border border-black/[0.08] p-2 font-mono text-[10px] outline-none focus:border-[var(--color-cat-gen)]" />
+                className="mt-1 w-full bg-[var(--color-canvas)] border border-black/[0.08] p-2 font-mono text-[10px] outline-none focus:border-[var(--color-cat-gen)]" />
             </label>
           </div>
         </aside>

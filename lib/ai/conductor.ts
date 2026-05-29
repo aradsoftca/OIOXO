@@ -70,7 +70,8 @@ export function conductorEnabled(): boolean { return _enabled; }
 let _gen: Promise<{ gen: any } | null> | null = null;
 async function load(): Promise<{ gen: any } | null> {
   if (!_enabled) return null;
-  _gen ??= (async () => {
+  if (_gen) return _gen;
+  const p = (async () => {
     try {
       const lib: any = await import('@xenova/transformers');
       const MODEL = isBrowser ? HF_REPO : ASSET_ID;
@@ -96,7 +97,14 @@ async function load(): Promise<{ gen: any } | null> {
       return null; // not deployed / cold / not entitled → engine uses the regex floor
     }
   })();
-  return _gen;
+  _gen = p;
+  // Drop the cache on null/reject. Previously a one-time load failure
+  // (CDN blip, entitlement service hiccup) memoised `null` for the rest
+  // of the session — the conductor was silently disabled until the user
+  // reloaded the page, with the engine falling back to the regex floor.
+  p.then((v) => { if (v == null && _gen === p) _gen = null; })
+   .catch(() => { if (_gen === p) _gen = null; });
+  return p;
 }
 
 /** Whether the trained conductor is available this session. */

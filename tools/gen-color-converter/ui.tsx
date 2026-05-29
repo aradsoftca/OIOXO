@@ -22,9 +22,11 @@ export default function Tool() {
   ] : [];
 
   const copy = async (v: string) => {
-    await navigator.clipboard?.writeText(v);
-    setCopied(v);
-    setTimeout(() => setCopied(null), 1400);
+    try {
+      await navigator.clipboard?.writeText(v);
+      setCopied(v);
+      setTimeout(() => setCopied(null), 1400);
+    } catch { /* iframe / permission denied */ }
   };
 
   return (

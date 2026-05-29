@@ -73,11 +73,21 @@ export default function Tool() {
         }
         if (points.length === 0) return `Found ${featureCount} feature(s). No coordinates to summarize.`;
 
-        const lngs = points.map((p) => p[0]);
-        const lats = points.map((p) => p[1]);
-        const bbox = [Math.min(...lngs), Math.min(...lats), Math.max(...lngs), Math.max(...lats)];
-        const centroidLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
-        const centroidLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+        // Fold-based bbox — a real-world GeoJSON (country borders, OSM
+        // extract) can hold millions of points; Math.min/max(...arr) blows
+        // V8's argument-count stack on arrays > ~120k entries. One pass
+        // computes both extrema for both axes without spreading.
+        let minLng = points[0][0], maxLng = minLng;
+        let minLat = points[0][1], maxLat = minLat;
+        let sumLng = 0, sumLat = 0;
+        for (const [lng, lat] of points) {
+          if (lng < minLng) minLng = lng; else if (lng > maxLng) maxLng = lng;
+          if (lat < minLat) minLat = lat; else if (lat > maxLat) maxLat = lat;
+          sumLng += lng; sumLat += lat;
+        }
+        const bbox = [minLng, minLat, maxLng, maxLat];
+        const centroidLng = sumLng / points.length;
+        const centroidLat = sumLat / points.length;
 
         return [
           `Features: ${featureCount}`,

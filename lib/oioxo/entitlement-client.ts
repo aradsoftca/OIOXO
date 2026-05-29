@@ -62,7 +62,17 @@ let _mem: Entitlement | null = null;
  * needs to come online to re-obtain it.
  */
 export async function getEntitlement(opts: { force?: boolean } = {}): Promise<Entitlement> {
-  if (_mem && !opts.force) return _mem;
+  // Re-fetch when the cached entitlement has expired. Without this check the
+  // in-memory cache stuck around for the page's lifetime — a long-running tab
+  // (multi-day work session) kept showing Pro UI even after the underlying
+  // entitlement passed its `exp`, because nothing here triggered a refresh
+  // until something else called force=true. The server is the source of
+  // truth (Pass 85's heartbeat + Pass 73's API gates), so this is cosmetic
+  // only, but mismatched UI is confusing.
+  if (_mem && !opts.force) {
+    const exp = _mem.claims?.exp;
+    if (typeof exp === 'number' && Date.now() < exp) return _mem;
+  }
   const device = deviceId();
   try {
     const r = await fetch('/api/entitlement', {

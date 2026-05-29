@@ -5,7 +5,8 @@ import { getServerSession } from 'next-auth';
 import { Crown, Receipt } from 'lucide-react';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
-import { ManageBillingButton, SignOutButton } from '@/components/account/AccountActions';
+import { ManageBillingButton, CancelSubscription, SignOutButton } from '@/components/account/AccountActions';
+import { getStripe } from '@/lib/stripe';
 
 export const metadata: Metadata = { title: 'Account' };
 
@@ -25,15 +26,40 @@ export default async function AccountPage() {
   const user = uid
     ? await prisma.user.findUnique({
         where: { id: uid },
-        select: { email: true, name: true, plan: true, subscriptionStatus: true, subscriptionEndsAt: true, stripeCustomerId: true, createdAt: true },
+        select: { email: true, name: true, plan: true, subscriptionStatus: true, subscriptionEndsAt: true, stripeCustomerId: true, stripeSubscriptionId: true, createdAt: true },
       })
     : null;
   if (!user) redirect('/auth/sign-in?callbackUrl=/account');
 
-  const isPro = user.plan === 'PRO' || user.plan === 'BUSINESS';
+  // Apply the same fail-safe as the API gates (Pass 73) + the session
+  // callback (Pass 95) so a past-period user sees "Upgrade" instead of the
+  // Pro-management UI if Stripe's deletion webhook missed.
+  const expiredPlan = user.subscriptionEndsAt && user.subscriptionEndsAt.getTime() + 24 * 60 * 60 * 1000 < Date.now();
+  const isPro = !expiredPlan && (user.plan === 'PRO' || user.plan === 'BUSINESS');
 
-  // Account-bound billing history (Stripe + crypto), newest first.
-  const [payments, cryptos] = await Promise.all([
+  // Live cancellation state from Stripe (so we can show "won't renew — Pro until X"
+  // + a Cancel/Resume control). Cancellation is at period end, enforced via
+  // /api/stripe/cancel. Best-effort: falls back to stored data if Stripe is unreachable.
+  // Run Stripe + DB queries in parallel + race the Stripe call against a 4s
+  // timeout — otherwise a slow/down Stripe blocks the entire account page
+  // render until next.js' default request timeout. The catch already handles
+  // the timeout-as-fallback case (line below).
+  let cancelAtPeriodEnd = false;
+  let subEndsAt: string | null = user.subscriptionEndsAt ? new Date(user.subscriptionEndsAt).toISOString() : null;
+
+  const stripeSubP: Promise<{ cancel_at_period_end?: boolean; pe?: number } | null> = (isPro && user.stripeSubscriptionId)
+    ? (async () => {
+        try {
+          const timeoutP = new Promise<never>((_, rej) => setTimeout(() => rej(new Error('stripe-timeout')), 4000));
+          const sub = await Promise.race([getStripe().subscriptions.retrieve(user.stripeSubscriptionId!), timeoutP]);
+          const pe = (sub as unknown as { current_period_end?: number }).current_period_end
+            ?? (sub.items.data[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
+          return { cancel_at_period_end: sub.cancel_at_period_end ?? false, pe };
+        } catch { return null; }
+      })()
+    : Promise.resolve(null);
+
+  const [payments, cryptos, stripeSub] = await Promise.all([
     prisma.payment.findMany({
       where: { userId: uid },
       orderBy: { createdAt: 'desc' },
@@ -46,7 +72,13 @@ export default async function AccountPage() {
       take: 20,
       select: { id: true, amount: true, currency: true, status: true, planType: true, createdAt: true },
     }),
+    stripeSubP,
   ]);
+
+  if (stripeSub) {
+    cancelAtPeriodEnd = stripeSub.cancel_at_period_end ?? false;
+    if (stripeSub.pe) subEndsAt = new Date(stripeSub.pe * 1000).toISOString();
+  }
 
   const history = [
     ...payments.map((p) => ({ id: p.id, date: p.createdAt, amount: p.amount, currency: p.currency, status: p.status as string, label: `${p.plan} · card`, link: p.receiptUrl || p.invoiceUrl || null })),
@@ -76,14 +108,19 @@ export default async function AccountPage() {
           </span>
         </div>
         {isPro && <Row label="Status" value={(user.subscriptionStatus || 'ACTIVE').toLowerCase()} />}
-        {isPro && user.subscriptionEndsAt && (
-          <Row label="Renews / ends" value={new Date(user.subscriptionEndsAt).toLocaleDateString()} />
+        {isPro && subEndsAt && (
+          <Row label={cancelAtPeriodEnd ? 'Pro until' : 'Renews'} value={new Date(subEndsAt).toLocaleDateString()} />
         )}
 
         <div className="border-t border-black/[0.06] pt-4">
           {isPro ? (
             user.stripeCustomerId ? (
-              <ManageBillingButton />
+              <>
+                <ManageBillingButton />
+                {user.stripeSubscriptionId && (
+                  <CancelSubscription cancelAtPeriodEnd={cancelAtPeriodEnd} endsAt={subEndsAt} />
+                )}
+              </>
             ) : (
               <p className="text-[13px] text-[var(--color-fg-muted)]">
                 Your Pro plan was activated via crypto. To renew, return to{' '}

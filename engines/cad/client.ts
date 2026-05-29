@@ -4,12 +4,13 @@
  * aren't available.
  */
 import { workerOnce, canUseWorker } from '@/lib/compute/workerOnce';
+import { loadProtectedWorker } from '@/lib/protect/protected-worker';
 import { convertCadBuffer, type CadConvertResult, type CadInputKind, type CadTarget } from './index';
 
 export async function convertCadInWorker(file: File, kind: CadInputKind, target: CadTarget): Promise<CadConvertResult> {
   const buffer = await file.arrayBuffer();
   if (!canUseWorker()) return convertCadBuffer(new Uint8Array(buffer), kind, target);
-  const worker = new Worker(new URL('./cad.worker.ts', import.meta.url));
+  const worker = await loadProtectedWorker('cad');
   const { text, stats } = await workerOnce<{ text: string; stats: CadConvertResult['stats'] }>(
     worker, { buffer, kind, target }, [buffer],
   );

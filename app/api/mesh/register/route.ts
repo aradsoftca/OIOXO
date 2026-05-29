@@ -32,6 +32,11 @@ export async function POST(req: Request) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad request' }, { status: 400 }); }
   const { deviceId, publicKeyJwk, label } = body;
   if (!deviceId || !publicKeyJwk) return NextResponse.json({ error: 'deviceId + publicKeyJwk required' }, { status: 400 });
+  // Sanity-cap user inputs so a hostile caller can't inflate the DB row
+  // with a multi-megabyte "JWK". A real P-256 / Ed25519 JWK is <500 bytes;
+  // 4KB is generous and rejects anything pathological before we even hash.
+  if (typeof deviceId !== 'string' || deviceId.length > 256) return NextResponse.json({ error: 'invalid deviceId' }, { status: 400 });
+  if (JSON.stringify(publicKeyJwk).length > 4096) return NextResponse.json({ error: 'jwk too large' }, { status: 400 });
 
   // The deviceId must be the fingerprint of the submitted key (self-authenticating).
   let derived: string;
@@ -41,6 +46,18 @@ export async function POST(req: Request) {
   // Don't let one account claim a deviceId already registered to another.
   const existing = await prisma.deviceKey.findUnique({ where: { deviceId }, select: { userId: true } });
   if (existing && existing.userId !== userId) return NextResponse.json({ error: 'device already registered' }, { status: 409 });
+
+  // Per-user device cap. Without this, a malicious signed-in user can generate
+  // arbitrary keypairs locally and call register in a loop — each unique key
+  // hashes to a unique deviceId so the upsert path stamps a new row every time,
+  // growing the DeviceKey table without bound. 50 is generous for a real user
+  // (phone + laptop + a few household devices); blocks the abuse cleanly.
+  if (!existing) {
+    const owned = await prisma.deviceKey.count({ where: { userId } });
+    if (owned >= 50) {
+      return NextResponse.json({ error: 'Too many devices on this account — remove unused ones first.' }, { status: 409 });
+    }
+  }
 
   await prisma.deviceKey.upsert({
     where: { deviceId },

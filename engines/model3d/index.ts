@@ -31,12 +31,16 @@ interface AssimpModule {
 let cached: Promise<AssimpModule> | null = null;
 async function getAssimp(): Promise<AssimpModule> {
   if (!cached) {
-    cached = (async () => {
+    const p = (async () => {
       const mod = await import('assimpjs');
       const factory = (mod as unknown as { default?: (o?: unknown) => Promise<AssimpModule> }).default
         ?? (mod as unknown as (o?: unknown) => Promise<AssimpModule>);
       return factory({ locateFile: (f: string) => `/assimpjs/${f}` });
     })();
+    // Clear the cache on rejection so a transient WASM load failure doesn't
+    // memoise a broken promise forever.
+    p.catch(() => { cached = null; });
+    cached = p;
   }
   return cached;
 }

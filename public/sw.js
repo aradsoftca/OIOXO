@@ -1,67 +1,84 @@
-/*
- * Xonvert asset cache — deliberately tiny and SAFE.
- *
- * It ONLY intercepts the big, immutable WASM cores + worker glue (30 MB+ files
- * that browsers may evict from the HTTP cache under pressure). It serves those
- * cache-first so the second use of any heavy tool is instant and works offline.
- *
- * It never caches HTML, app JS/CSS, or API calls — for every other request it
- * does not call respondWith at all, so the browser behaves exactly as if no
- * service worker existed. That means it can never serve a stale app shell.
+/* PR47 — oioxo service worker.
+ * Strategy: cache-first for the app shell (search.html + search/), stale-while-revalidate
+ * for fonts/CDN assets, and bypass for all third-party CORS API calls (which must always
+ * be live and respect their own cache headers). Zero-server philosophy preserved.
  */
-
-const CACHE = 'xonvert-wasm-v1';
-
-// Path prefixes we cache. Keep in sync with the immutable dirs in next.config.
-const CACHEABLE = [
-  '/ffmpeg/',
-  '/ffmpeg-mt/',
-  '/occt/',
-  '/mediapipe/',
-  '/assimpjs/',
-  '/libarchive/',
-  '/pdf.worker.min.mjs',
-  '/gif.worker.js',
+const VERSION = 'oioxo-v97';
+// Note: /wrapped is rewritten to /search.html server-side (serve.json), and the
+// SW already cache-firsts /search.html for every HTML navigation, so the new
+// path needs no additional handling here — only this version bump to evict v7.
+const SHELL = [
+  '/',
+  '/search',
+  '/search.html',
+  '/index.html',
+  '/manifest.webmanifest',
+  '/icon.svg',
 ];
 
-self.addEventListener('install', () => {
-  // Activate immediately; we don't precache (assets are fetched on first use).
-  self.skipWaiting();
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(VERSION).then((c) => c.addAll(SHELL).catch(() => null)).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    (async () => {
-      // Drop old cache versions.
-      const keys = await caches.keys();
-      await Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)));
-      await self.clients.claim();
-    })(),
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
 });
-
-function isCacheable(url) {
-  return url.origin === self.location.origin && CACHEABLE.some((p) => url.pathname.startsWith(p));
-}
 
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   let url;
-  try { url = new URL(req.url); } catch { return; }
-  if (!isCacheable(url)) return; // hands control back to the browser — no interception
+  try { url = new URL(req.url); } catch (_) { return; }
 
-  event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE);
-      const hit = await cache.match(req);
-      if (hit) return hit;
-      const res = await fetch(req);
-      // Only store complete, OK responses (skip opaque/partial).
-      if (res && res.ok && res.status === 200) {
-        cache.put(req, res.clone());
-      }
-      return res;
-    })(),
-  );
+  // Only intercept same-origin shell requests + Xenova model assets on jsDelivr/HF
+  const sameOrigin = url.origin === self.location.origin;
+  const isModelAsset = /xenova|huggingface|jsdelivr/i.test(url.hostname);
+
+  if (sameOrigin) {
+    // For HTML navigation, cache-first with network fallback (offline shell)
+    if (req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html')) {
+      event.respondWith(
+        caches.match('/search.html').then((cached) => cached || fetch(req).then((r) => {
+          const copy = r.clone();
+          caches.open(VERSION).then((c) => c.put('/search.html', copy)).catch(() => null);
+          return r;
+        }).catch(() => caches.match('/')))
+      );
+      return;
+    }
+    // Static assets — stale-while-revalidate
+    event.respondWith(
+      caches.match(req).then((cached) => {
+        const network = fetch(req).then((r) => {
+          if (r && r.status === 200) {
+            const copy = r.clone();
+            caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => null);
+          }
+          return r;
+        }).catch(() => cached);
+        return cached || network;
+      })
+    );
+    return;
+  }
+
+  if (isModelAsset) {
+    // Embedder/cross-encoder weights — heavy, cache aggressively (immutable hashes)
+    event.respondWith(
+      caches.match(req).then((cached) => cached || fetch(req).then((r) => {
+        if (r && r.status === 200) {
+          const copy = r.clone();
+          caches.open(VERSION).then((c) => c.put(req, copy)).catch(() => null);
+        }
+        return r;
+      }))
+    );
+  }
+  // All other (Wikipedia, Wikidata, etc.) — let through untouched.
 });

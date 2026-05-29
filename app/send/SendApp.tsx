@@ -9,6 +9,7 @@ import {
   type Phase, type Progress, type Transfer, type Stat, type SelfTest,
 } from '@/lib/p2p/transfer';
 import { useStagedInput } from '@/lib/ai/handoff';
+import { useUsageGate } from '@/components/usage/use-usage-gate';
 
 const PHASE_LABEL: Record<Phase, string> = {
   waiting: 'Waiting for the other device…',
@@ -36,6 +37,7 @@ function SendSide() {
   const [qr, setQr] = React.useState('');
   const transferRef = React.useRef<Transfer | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const { guard, gate } = useUsageGate('send');
 
   const link = code && typeof window !== 'undefined' ? `${window.location.origin}/send?r=${code}` : '';
 
@@ -49,8 +51,11 @@ function SendSide() {
     return () => { alive = false; };
   }, [link]);
 
-  const begin = (picked: File[]) => {
+  const begin = async (picked: File[]) => {
     if (!picked.length) return;
+    // Two-lever app gate: total transfer SIZE (free up to the cap) + transfers/day.
+    const bytes = picked.reduce((s, f) => s + f.size, 0);
+    if (!(await guard({ bytes }))) return;
     setFiles(picked);
     const { code: c, transfer } = startSend(picked, {
       onPhase: (p, d) => { setPhase(p); if (d) setDetail(d); },
@@ -78,7 +83,7 @@ function SendSide() {
 
   const copy = () => {
     if (!link) return;
-    void navigator.clipboard?.writeText(link);
+    navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
     setCopied(true); setTimeout(() => setCopied(false), 1600);
   };
 
@@ -87,6 +92,7 @@ function SendSide() {
   if (!files.length) {
     return (
       <Shell>
+        {gate}
         <div
           onDrop={(e) => { e.preventDefault(); begin(Array.from(e.dataTransfer.files)); }}
           onDragOver={(e) => e.preventDefault()}
@@ -107,6 +113,7 @@ function SendSide() {
 
   return (
     <Shell>
+      {gate}
       <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
         <div className="space-y-3">
           <div className="flex items-center justify-between border border-black/[0.08] bg-[var(--color-surface-1)] px-4 py-3">
@@ -195,7 +202,12 @@ function Receive({ code }: { code: string }) {
     return () => transfer.cancel();
   }, [code]);
 
-  React.useEffect(() => () => { done.forEach((d) => URL.revokeObjectURL(d.url)); }, [done]);
+  // Unmount-only cleanup driven by a ref. Previous version had `[done]` deps,
+  // which made EVERY new received file revoke the URLs of files received
+  // earlier — breaking download links the moment the second file arrived.
+  const doneRef = React.useRef(done);
+  React.useEffect(() => { doneRef.current = done; }, [done]);
+  React.useEffect(() => () => { doneRef.current.forEach((d) => URL.revokeObjectURL(d.url)); }, []);
 
   if (phase === 'error') {
     return (

@@ -14,8 +14,18 @@ const MODEL = 'Xenova/slimsam-77-uniform';
 async function getModel(onProgress?: (p: any) => void) {
   const t = await import('@xenova/transformers');
   t.env.allowLocalModels = false;
-  if (!modelP) modelP = t.SamModel.from_pretrained(MODEL, { quantized: true, progress_callback: onProgress });
-  if (!procP) procP = t.AutoProcessor.from_pretrained(MODEL);
+  if (!modelP) {
+    const p = t.SamModel.from_pretrained(MODEL, { quantized: true, progress_callback: onProgress });
+    // Drop the cache on rejection so a transient model-download failure
+    // doesn't permanently break smart-cutout until the page reloads.
+    p.catch(() => { modelP = null; });
+    modelP = p;
+  }
+  if (!procP) {
+    const p = t.AutoProcessor.from_pretrained(MODEL);
+    p.catch(() => { procP = null; });
+    procP = p;
+  }
   return { t, model: await modelP, processor: await procP };
 }
 

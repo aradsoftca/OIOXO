@@ -1,13 +1,21 @@
 'use client';
+import { stampPdfFooter } from '@/engines/pdf';
 
 import * as React from 'react';
 import { Upload, Download, Loader2, Pen, Type, Trash2, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { rasterizePdf, type RasterizedPage } from '@/engines/pdf/rasterize';
+import { enforcePolicy } from '@/lib/limits/server-check';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'pdf-sign';
 
 type Mode = 'draw' | 'type';
 
 export default function SignPdfTool() {
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
   const [buffer, setBuffer] = React.useState<ArrayBuffer | null>(null);
   const [pages, setPages] = React.useState<RasterizedPage[]>([]);
   const [pageIdx, setPageIdx] = React.useState(0);
@@ -30,6 +38,10 @@ export default function SignPdfTool() {
 
   const loadFile = React.useCallback(async (file: File) => {
     if (file.type !== 'application/pdf') return;
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'input-size', value: file.size },
+    ]);
+    if (!ok) return;
     setBusy(true); setPages([]); setPlaced(false);
     try {
       const buf = await file.arrayBuffer();
@@ -39,7 +51,7 @@ export default function SignPdfTool() {
       setPageIdx(0);
     } catch (e) { console.error('pdf load failed', e); }
     finally { setBusy(false); }
-  }, []);
+  }, [isPro, policyGate]);
 
   // ---- signature pad (draw) ----
   const padPos = (e: React.PointerEvent) => {
@@ -114,19 +126,21 @@ export default function SignPdfTool() {
       const x = box.fx * pw;
       const yTop = box.fy * ph;
       target.drawImage(png, { x, y: ph - yTop - h, width: w, height: h });
-      const bytes = await doc.save();
+      await stampPdfFooter(doc); const bytes = await doc.save();
       const blob = new Blob([new Uint8Array(bytes)], { type: 'application/pdf' });
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      const href = URL.createObjectURL(blob);
+      a.href = href;
       a.download = 'signed.pdf';
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      URL.revokeObjectURL(a.href);
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } catch (e) { console.error('sign failed', e); }
     finally { setBusy(false); }
   };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+      {policyGate.element}
       <div className="space-y-3">
         {!buffer ? (
           <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }} onDragOver={(e) => e.preventDefault()}

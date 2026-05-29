@@ -42,6 +42,9 @@ export interface Slots {
   attribute: string | null;
   /** Content keywords (lowercased, de-stopworded) for query building. */
   keywords: string[];
+  /** Set for "define X" / "what does X mean" — the single term to look up in a
+   *  dictionary (so we return the DEFINITION, not a sentence that merely uses it). */
+  defineTerm?: string | null;
 }
 
 export interface SearchPlan {
@@ -134,7 +137,12 @@ export function classifyNature(question: string): { nature: Nature; slots: Slots
   const attribute = extractAttribute(q);
   const future = FUTURE_RE.test(q);
   const kw = keywords(q);
-  const slots: Slots = { lang, location, future, entity: kw[0] ?? null, attribute, keywords: kw };
+  // The term to define = the prompt minus the define framing ("meaning of X",
+  // "what does X mean", "define X"), reduced to its content word(s).
+  const defineTerm = isDefine
+    ? (q.toLowerCase().replace(/^\s*(define|what(?:'s| is| does)|meaning of|definition of)\s+/i, '').replace(/\b(mean|meaning|definition|do|does)\b.*$/i, '').trim() || kw[kw.length - 1] || null)
+    : null;
+  const slots: Slots = { lang, location, future, entity: kw[0] ?? null, attribute, keywords: kw, defineTerm };
 
   // Order matters: define + speculative BEFORE factual (they LOOK like fact asks but
   // aren't), local BEFORE factual (commerce intent), then the rest.
@@ -312,9 +320,29 @@ async function searchHop(queries: string[], hop: number, perQuery = 6): Promise<
  * step reads. Pure orchestration over the live engine; best-effort (a dead source
  * contributes nothing, never throws).
  */
+async function lookupDefinition(term: string): Promise<EvidenceItem | null> {
+  try {
+    const r = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(term)}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const d = await r.json() as { word?: string; meanings?: { partOfSpeech?: string; definitions?: { definition?: string }[] }[] }[];
+    const entry = Array.isArray(d) ? d[0] : null;
+    const def = entry?.meanings?.[0]?.definitions?.[0]?.definition;
+    if (!def) return null;
+    const pos = entry?.meanings?.[0]?.partOfSpeech;
+    return { query: `define:${term}`, hop: 1, title: `${term}${pos ? ` (${pos})` : ''}`, url: `https://www.dictionary.com/browse/${encodeURIComponent(term)}`, text: `${term} means: ${def}`, source: 'dictionary' };
+  } catch { return null; }
+}
+
 export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBundle> {
   const items: EvidenceItem[] = [];
   let hops = 0;
+
+  // DEFINITION fast-path: a real dictionary definition (not a sentence that merely
+  // USES the word). Goes in first so the synthesis picks it as the answer.
+  if (plan.slots.defineTerm) {
+    const def = await lookupDefinition(plan.slots.defineTerm);
+    if (def) items.push(def);
+  }
 
   // HOP 1 — the planned queries.
   hops++;
@@ -379,6 +407,30 @@ export interface Answer {
 }
 
 const sentences = (t: string) => (t || '').replace(/\s+/g, ' ').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 25);
+
+/** Reject low-quality "sentences": code/markup fragments, image captions, and
+ *  repetitive boilerplate ("A different domestic cat purring A different domestic
+ *  cat purring"). This is the anti-dumb gate for extractive synthesis — it's why
+ *  "why do cats purr" was returning caption fragments and "best languages" returned
+ *  "y = 1 var z = 0". General, not per-case. */
+function looksJunk(s: string): boolean {
+  const t = s.trim();
+  if (t.length < 30) return true;
+  // Code / markup: assignment, lots of symbols, camelCase tokens, braces.
+  if (/[{}<>]|=\s*\d|\bvar\b|\+=|;\s*$|^\s*[a-z]+\s*=/.test(t)) return true;
+  const words = t.split(/\s+/);
+  const alpha = words.filter((w) => /[a-zA-ZÀ-￿]{2,}/.test(w));
+  if (alpha.length / Math.max(1, words.length) < 0.6) return true;     // too much non-text
+  // Repetition: a 3-word shingle that repeats (caption boilerplate).
+  const low = t.toLowerCase();
+  for (let i = 0; i + 2 < words.length; i++) {
+    const tri = words.slice(i, i + 3).join(' ').toLowerCase();
+    if (tri.length > 10 && low.indexOf(tri) !== low.lastIndexOf(tri)) return true;
+  }
+  // A real sentence has a verb-ish lowercase function word; pure Title Case = caption.
+  if (!/\b(is|are|was|were|the|a|an|to|of|in|for|and|that|with|by|on|has|have|can|do|does|refers|means|used)\b/i.test(t)) return true;
+  return false;
+}
 /** Headline stat for a speculative ask — ONLY a number that sits in a sentence
  *  actually about the asked attribute (e.g. a number near "goal"), so we never
  *  inject a random scraped figure. Returns null if we can't tie a number to the
@@ -408,6 +460,7 @@ function bestSentences(bundle: EvidenceBundle, n = 2): { text: string; src: Evid
   const scored: { text: string; src: EvidenceItem; score: number }[] = [];
   for (const it of bundle.items) {
     for (const s of sentences(it.text)) {
+      if (looksJunk(s)) continue;                  // anti-dumb gate
       const l = s.toLowerCase();
       let score = kw.reduce((a, w) => a + (l.includes(w) ? 1 : 0), 0);
       if (wantNum && NUM_RE.test(s)) score += 2;

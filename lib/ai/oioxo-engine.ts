@@ -773,7 +773,17 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
       // Wikipedia (fr "capitale du japon" → Tokyo, not Akita on en.wiki) and answers
       // in that language. English unchanged.
       const qLang = (() => { try { return classifyNature(text).slots.lang; } catch { return 'en'; } })();
-      const arts = await wikipediaBestArticles(text, 4, qLang);
+      // For a non-English query, strip the leading interrogative framing so the
+      // foreign Wikipedia search finds the TOPIC article ("warum ist der himmel
+      // blau" → "himmel blau" surfaces Rayleigh-Streuung; en is left whole because
+      // the full question helps en.wiki pick the explanation article).
+      const wikiQuery = qLang === 'en' ? text : text.toLowerCase()
+        .replace(/^\s*(cuál es|qué es|cómo es|por qué|dónde está|quién es|cuántos?|cuántas?|cuál|qué)\s+(el|la|los|las|un|una)?\s*/i, '')
+        .replace(/^\s*(quelle est|qu'est-ce que|qu'est|c'est quoi|pourquoi|comment|où est|qui est|combien de)\s+(le|la|les|un|une|l'|du|de la|de)?\s*/i, '')
+        .replace(/^\s*(warum ist|warum|was ist|wie ist|wo ist|wer ist|wie viele?)\s+(der|die|das|ein|eine)?\s*/i, '')
+        .replace(/^\s*(qual è|cos'è|che cosa è|che cosa|perché|come|dove è|chi è|quanti?)\s+(il|la|i|le|un|una|l')?\s*/i, '')
+        .replace(/[?¿!.]+$/, '').trim() || text;
+      const arts = await wikipediaBestArticles(wikiQuery, 4, qLang);
       if (arts.length) {
         const leads = arts.map((a) => firstSentences(a.text, 3));
         const scores = (await scorePassages(text, leads)) ?? leads.map(() => 0);

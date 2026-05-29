@@ -30,10 +30,23 @@ const NAV_LINKS = [
   { href: '/pricing', label: 'Pricing' },
 ];
 
+// Pages where the AppsBar + ToolsBar strips stay always visible (top-level
+// browse surfaces). Everywhere else is an "internal" page (an individual tool,
+// app, studio, converter, etc.) where the strips collapse and only drop down
+// when the user hovers the top nav.
+function isMainPage(pathname: string): boolean {
+  if (pathname === '/' || pathname === '/apps' || pathname === '/studios' || pathname === '/tools') return true;
+  if (pathname === '/pricing' || pathname === '/account') return true;
+  if (pathname.startsWith('/auth/')) return true;
+  return false;
+}
+
 export function AppShell({ children }: AppShellProps) {
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
+  const [navHover, setNavHover] = React.useState(false);
   const pathname = usePathname();
+  const showStripsAlways = isMainPage(pathname);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -63,7 +76,19 @@ export function AppShell({ children }: AppShellProps) {
       <React.Suspense fallback={null}><NavProgress /></React.Suspense>
       <GlobalProgress />
       <div className="app-stack min-h-screen">
-        <header className="sticky top-0 z-40 border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/80 backdrop-blur-xl">
+        {/*
+         * Hover zone wraps BOTH the header and the strips so the cursor can
+         * cross from one into the other without the strips closing mid-cross.
+         * onMouseLeave only fires when the cursor exits the union of both,
+         * which is exactly the gesture that should collapse the menu.
+         */}
+        <div
+          onMouseEnter={() => setNavHover(true)}
+          onMouseLeave={() => setNavHover(false)}
+        >
+        <header
+          className="sticky top-0 z-40 border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/80 backdrop-blur-xl"
+        >
           <div className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-4 sm:px-6">
             <Link href="/" className="flex items-center transition hover:opacity-80">
               {IS_OIOXO ? (
@@ -108,11 +133,27 @@ export function AppShell({ children }: AppShellProps) {
           </div>
         </header>
 
-        {/* Apps row sits directly above the tools row; the two pin together. */}
-        <div className="sticky top-14 z-30 hidden md:block">
-          <AppsBar />
-          <ToolsBar />
+        {/*
+         * Apps + Tools strips. On main browse pages (home, /apps, /studios,
+         * /tools, /pricing, /account, /auth/*) they sit always-visible right
+         * under the header. On every other (internal) page they collapse to
+         * zero height and only drop down when the user hovers anywhere in the
+         * top nav zone — header OR the strips themselves, so moving the mouse
+         * down through them doesn't trigger a snap-close. The grid-rows trick
+         * gives a smooth, jank-free height animation without measuring DOM.
+         */}
+        <div
+          className={`sticky top-14 z-30 hidden md:block ${
+            showStripsAlways ? '' : 'overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-out grid'
+          }`}
+          style={showStripsAlways ? undefined : { gridTemplateRows: navHover ? '1fr' : '0fr', opacity: navHover ? 1 : 0 }}
+        >
+          <div className={showStripsAlways ? '' : 'min-h-0 overflow-hidden'}>
+            <AppsBar />
+            <ToolsBar />
+          </div>
         </div>
+        </div>{/* /hover zone */}
 
         <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-10">{children}</main>
 

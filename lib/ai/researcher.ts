@@ -219,3 +219,99 @@ export function crossLingualTargets(plan: SearchPlan): string[] {
   if (!plan.crossLingual) return [];
   return NON_EN.filter((l) => l !== plan.slots.lang && l !== 'en');
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 2 — multi-HOP gather + WORKING MEMORY. Search the planned queries, hold the
+// raw evidence, REFLECT (did we get the target fact?), and if not, do a second hop
+// — read the top pages deeply (the tuition/price number lives in the page, not the
+// snippet) or refine from what hop 1 found. Bounded for speed (≤2 hops by default).
+// ─────────────────────────────────────────────────────────────────────────────
+import { webSearch } from './metasearch';
+import { gatherPassages } from './web-read';
+
+export interface EvidenceItem {
+  query: string; hop: number; title: string; url: string; text: string; source: string;
+}
+export interface EvidenceBundle {
+  plan: SearchPlan;
+  items: EvidenceItem[];
+  hops: number;
+  /** Did the working memory end up containing the target fact (a number for an
+   *  attribute ask, or any solid passage otherwise)? Drives synthesis confidence. */
+  foundTarget: boolean;
+}
+
+const NUM_RE = /(?:[$€£]\s?\d[\d,.]*|\d[\d,.]*\s?(?:%|usd|cad|eur|dollars?|per year|\/year|\/yr|goals?|points?|km|kg|million|billion))/i;
+/** Does the working memory contain the target fact? For an attribute ask we need
+ *  the attribute, a number, AND (when the ask is place-grounded) the place — all in
+ *  the SAME passage. This is what stops "University of Sydney tuition" from
+ *  satisfying a question about ONTARIO tuition (a real false-positive we saw). */
+function hasTarget(items: EvidenceItem[], plan: SearchPlan): boolean {
+  if (!items.length) return false;
+  if (plan.slots.attribute) {
+    const loc = plan.slots.location?.toLowerCase();
+    return items.some((i) => {
+      const t = `${i.title} ${i.text}`.toLowerCase();
+      return t.includes(plan.slots.attribute!) && NUM_RE.test(t) && (!loc || t.includes(loc));
+    });
+  }
+  return items.some((i) => (i.text || '').length > 120);   // any substantial passage
+}
+
+const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'web'; } };
+
+/** Run ONE hop: federated web search for each query, collect the top hits. */
+async function searchHop(queries: string[], hop: number, perQuery = 6): Promise<EvidenceItem[]> {
+  const out: EvidenceItem[] = [];
+  const seen = new Set<string>();
+  const batches = await Promise.all(queries.map((q) => webSearch(q, perQuery).catch(() => [])));
+  batches.forEach((hits, qi) => {
+    for (const h of hits) {
+      if (!h.url || seen.has(h.url)) continue; seen.add(h.url);
+      out.push({ query: queries[qi], hop, title: h.title || '', url: h.url, text: h.extract || '', source: h.engine || host(h.url) });
+    }
+  });
+  return out;
+}
+
+/**
+ * Gather evidence for a plan, multi-hop. Returns the working memory the synthesis
+ * step reads. Pure orchestration over the live engine; best-effort (a dead source
+ * contributes nothing, never throws).
+ */
+export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBundle> {
+  const items: EvidenceItem[] = [];
+  let hops = 0;
+
+  // HOP 1 — the planned queries.
+  hops++;
+  items.push(...await searchHop(plan.queries, hops));
+
+  // REFLECT → HOP 2. If we still don't have the target fact and the plan expects a
+  // multi-hop answer (e.g. tuition: find the colleges in hop 1, READ their fee pages
+  // in hop 2), read the most promising pages deeply — the number is in the page body.
+  if (plan.multiHop && hops < maxHops && !hasTarget(items, plan)) {
+    hops++;
+    const top = items.slice(0, 3);
+    const reads = await Promise.all(top.map((it) =>
+      gatherPassages(`${it.title} ${plan.slots.attribute || ''}`.trim(), 2).catch(() => [])));
+    reads.forEach((passages, i) => {
+      for (const p of passages) {
+        if (!p.text) continue;
+        items.push({ query: `read:${top[i].url}`, hop: hops, title: top[i].title, url: top[i].url, text: p.text, source: p.source?.site || host(top[i].url) });
+      }
+    });
+    // If deep-read still found nothing, refine the query from hop-1 titles + attribute.
+    if (!hasTarget(items, plan) && top[0]) {
+      const refined = `${top[0].title} ${plan.slots.attribute || plan.slots.keywords.slice(0, 2).join(' ')}`.trim();
+      items.push(...await searchHop([refined], hops));
+    }
+  }
+
+  return { plan, items, hops, foundTarget: hasTarget(items, plan) };
+}
+
+/** One-call convenience: plan + gather. */
+export async function research(question: string, maxHops = 2): Promise<EvidenceBundle> {
+  return gather(planQueries(question), maxHops);
+}

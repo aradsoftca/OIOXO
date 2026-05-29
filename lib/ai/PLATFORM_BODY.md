@@ -63,11 +63,20 @@ the highest-leverage *architecture* task after the brain is reliable.
 - ✅ Foreign-card noise (PR223/226) — translated cards no longer top results.
 - ✅ Entity-panel on non-lookup queries (PR221).
 - ✅ How-question misclassification (PR227).
+- ✅ **Non-Latin "who is X" entity resolution (PR228)** — postposed-interrogative
+  langs (Persian/Urdu/Hindi/Turkish/Japanese: "اردوغان کیست", "Erdoğan kimdir")
+  fed the raw query to wbsearchentities (prefix-matcher) so the subject never
+  resolved. Shared `_stripQWords()` now cleans leading AND trailing question words
+  for both the bridge probe and labelBoost. Verified: "اردوغان کیست" Fattahi→Erdoğan.
 
 ### B. Search organ — STILL OPEN (ranking/answer quality)
-- ⬜ **Card-list relevance**: academic/token junk ranks high ("AK-47" under a math
-  result, "Scaling QA to the Web" for "tallest mountain"). → the warmed cross-encoder
-  reranker is the fix; needs a reliable warm-on-load path.
+- ⬜ **Card-list relevance**: academic/token junk ranks high. CONFIRMED 2026-05-29
+  headless: "how to make sourdough bread" → top card a hexaploid-wheat genetics paper
+  (OpenAlex/DOAJ outrank the recipe); "best laptop for programming 2026" cards are fine
+  (top = Framework Computer) but AI overview grabbed a lithium-battery snippet. → the
+  warmed cross-encoder reranker is the fix; needs a reliable warm-on-load path. Likely a
+  source-class prior too (down-weight academic corpora for how-to/product/recommendation
+  intents; keep them for research/definitional intents).
 - ⬜ **Recommendation queries** ("best X 2026") surface noise — needs the
   community/forum tail (Reddit/SearXNG are CORS-blocked; route via on-device
   JSONP/Common-Crawl per `project_oioxo_web_sources`).
@@ -122,8 +131,14 @@ conductor v1→v2 (82/82/100 → 94/84/100).
 ---
 
 ## 5. What was done this pass (toward the trigger)
-- Search organ: 8 render/ranking fixes (committed).
-- Brain serve reliability: `parsePlan` repair pass (JSON + chain + honesty).
+- Search organ: 9 render/ranking/resolution fixes (committed), incl. PR228 non-Latin entity.
+- Brain serve reliability: `parsePlan` repair pass (JSON + chain + honesty), mirrored to
+  `oioxo/router/brain-v3.js` so the in-SERP brain is as robust as the chat shell.
 - Diagnosis tooling: per-role confusion matrix in `eval_smolvlm_brain.py`.
 - v4 data prep: role-balance boost phase in `slot-enumerator.ts`.
+- Headless multilingual verification (`_oioxo_diag.mjs`): EN/Persian/Spanish, lookup +
+  how-to + recommendation. Search organ healed (18-31 cards every query incl. the exact
+  "بهترین هاست ۲۰۲۶" that was the original Kevin-Hart corruption → now superhost.ir).
+- Remaining-bug evidence captured (§3 B): academic-corpus over-ranking, AI-overview
+  source selection — both quality, not crashes.
 - This map.

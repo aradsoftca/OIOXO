@@ -510,13 +510,40 @@ export function enumerate(opts: EnumerateOpts = {}): Spec[] {
   // dialogues under-produce the structurally-RARE roles (correction /
   // confirmation / append-step / outcome / mid-chain parameter). Over-sample
   // them here with MULTI-TURN flows so each role is the dialogue's crux and the
-  // brain sees enough per-turn examples. Counts are a prior — tune them from the
-  // per-role recall the confusion matrix in eval_smolvlm_brain.py now prints,
-  // BEFORE the v4 arad run. (Discipline: diagnose → expand the weak class →
-  // retrain; never guess-and-pray.)
-  const ROLE_BOOST: Partial<Record<TurnRole, number>> = {
-    'correction': 35, 'confirmation': 35, 'append-step': 35, 'outcome': 35, 'parameter': 25,
+  // brain sees enough per-turn examples.
+  //
+  // TUNED from the v3 confusion matrix (eval_smolvlm_brain.py, brain-final, 207
+  // rows, 2026-05-29). Per-role recall + dominant confusion target:
+  //   outcome     0%  → chitchat   (catastrophic; outcome↔chitchat swap both ways)
+  //   parameter  35%  → new-goal   (was UNDER-boosted at 25 despite 2nd-worst)
+  //   correction 50%  → new-goal
+  //   append-step 58% → new-goal
+  //   question   76%  → new-goal   (was NOT boosted at all)
+  //   confirmation 77% → new-goal
+  //   chitchat   80%  → outcome
+  //   new-goal   89%  (the runaway prior EVERY other role collapses into)
+  // The signal: the 256M has a runaway new-goal prior — it ignores the running
+  // goal and re-states a fresh one each turn. Counts are now inverse-recall
+  // weighted; outcome/chitchat get paired multi-turn flows so the teacher draws
+  // the result-report (outcome) vs social (chitchat) contrast the model misses.
+  // (Architecture half of the fix — a dedicated turn-role classifier head — is
+  // tracked separately in PLATFORM_BODY.md §3C; this is the data half.)
+  // Budget-PROPORTIONAL fractions, not fixed counts: a fixed count gets swamped
+  // by Phase 4's proportional fill at the real training budget (~18k), leaving
+  // outcome at 5% and chitchat at 0.7% — exactly the two roles the matrix says
+  // are most broken. outcome+chitchat get the heaviest share because Phase 4
+  // structurally SUPPRESSES them (shape guards, lines ~606-607) AND they swap
+  // with each other; parameter/correction/append-step get solid multi-turn
+  // shares because Phase 4 only ever emits them SINGLE-turn, so this loop is the
+  // only place the model sees them as continuations that MODIFY a running goal.
+  const ROLE_BOOST_FRAC: Partial<Record<TurnRole, number>> = {
+    'outcome': 0.08, 'chitchat': 0.08, 'parameter': 0.05, 'correction': 0.05,
+    'append-step': 0.04, 'confirmation': 0.03, 'question': 0.03,
   };
+  const ROLE_BOOST: Partial<Record<TurnRole, number>> = {};
+  for (const role of Object.keys(ROLE_BOOST_FRAC) as TurnRole[]) {
+    ROLE_BOOST[role] = Math.round(budget * (ROLE_BOOST_FRAC[role] ?? 0));
+  }
   const MULTI_TURN_FLOWS: Flow[] = ['multi-turn-refine', 'clarify-loop'];
   for (const role of Object.keys(ROLE_BOOST) as TurnRole[]) {
     for (let i = 0; i < (ROLE_BOOST[role] ?? 0); i++) {

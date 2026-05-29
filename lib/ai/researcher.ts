@@ -226,7 +226,7 @@ export function crossLingualTargets(plan: SearchPlan): string[] {
 // — read the top pages deeply (the tuition/price number lives in the page, not the
 // snippet) or refine from what hop 1 found. Bounded for speed (≤2 hops by default).
 // ─────────────────────────────────────────────────────────────────────────────
-import { webSearch } from './metasearch';
+import { webSearch, WIKI_UA } from './metasearch';
 import { gatherPassages } from './web-read';
 
 export interface EvidenceItem {
@@ -260,6 +260,25 @@ function hasTarget(items: EvidenceItem[], plan: SearchPlan): boolean {
 
 const host = (u: string) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return 'web'; } };
 
+/** Fetch the lead passage of a topic from a specific-language Wikipedia (CORS-open).
+ *  This is the cross-lingual reach: raw data from the corpora Google under-indexes. */
+async function wikiInLang(topic: string, lang: string): Promise<{ title: string; url: string; text: string } | null> {
+  try {
+    const s = await fetch(`https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(topic)}&format=json&origin=*&srlimit=1`, { cache: 'no-store', headers: WIKI_UA });
+    if (!s.ok) return null;
+    const sj = await s.json() as { query?: { search?: { title?: string }[] } };
+    const title = sj.query?.search?.[0]?.title;
+    if (!title) return null;
+    const e = await fetch(`https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=${encodeURIComponent(title)}&format=json&origin=*`, { cache: 'no-store', headers: WIKI_UA });
+    if (!e.ok) return null;
+    const ej = await e.json() as { query?: { pages?: Record<string, { extract?: string }> } };
+    const page = Object.values(ej.query?.pages ?? {})[0];
+    const text = (page?.extract ?? '').replace(/\s+/g, ' ').trim().slice(0, 600);
+    if (!text) return null;
+    return { title, url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`, text };
+  } catch { return null; }
+}
+
 /** Run ONE hop: federated web search for each query, collect the top hits. */
 async function searchHop(queries: string[], hop: number, perQuery = 6): Promise<EvidenceItem[]> {
   const out: EvidenceItem[] = [];
@@ -286,6 +305,18 @@ export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBun
   // HOP 1 — the planned queries.
   hops++;
   items.push(...await searchHop(plan.queries, hops));
+
+  // CROSS-LINGUAL reach. For knowledge-gap topics (history/war/culture), English
+  // alone is thin — pull the SAME topic from other-language Wikipedias so we cover
+  // what Google's English index misses ("WW1 from Bengali/German sources"). The
+  // passages enter working memory as raw evidence; the browser translate layer
+  // renders them in the user's language at answer time.
+  if (plan.crossLingual) {
+    const core = plan.slots.keywords.join(' ').trim() || plan.queries[0] || '';
+    const langs = crossLingualTargets(plan).slice(0, 3);
+    const xl = await Promise.all(langs.map((lg) => wikiInLang(core, lg).catch(() => null)));
+    xl.forEach((hit, i) => { if (hit) items.push({ query: `xlang:${langs[i]}:${core}`, hop: hops, title: hit.title, url: hit.url, text: hit.text, source: `wikipedia:${langs[i]}` }); });
+  }
 
   // REFLECT → HOP 2. If we still don't have the target fact and the plan expects a
   // multi-hop answer (e.g. tuition: find the colleges in hop 1, READ their fee pages

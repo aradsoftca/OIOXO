@@ -45,9 +45,13 @@ async function mwmbl(query: string, signal?: AbortSignal): Promise<WebResult[]> 
 
 // Wikipedia full-text search (CORS-open, origin=*) — authoritative breadth that
 // mwmbl alone lacks. Snippet HTML stripped to plain text.
+// Wikipedia throttles UA-less clients (429); a descriptive UA is its API policy.
+// (In the browser this header is ignored/forbidden but harmless; the browser UA +
+// per-user rate is accepted. This matters for SSR/Node and is good citizenship.)
+export const WIKI_UA = { 'User-Agent': 'oioxo/1.0 (https://oioxo.com; search)', 'Api-User-Agent': 'oioxo/1.0 (https://oioxo.com)' };
 async function wikipedia(query: string, signal?: AbortSignal): Promise<WebResult[]> {
   const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&origin=*&srlimit=8&srprop=snippet`,
-    { signal, cache: 'no-store' });
+    { signal, cache: 'no-store', headers: WIKI_UA });
   if (!r.ok) return [];
   const d = await r.json() as { query?: { search?: { title: string; snippet?: string }[] } };
   return (d.query?.search ?? []).map((h) => ({
@@ -73,9 +77,38 @@ async function duckduckgo(query: string, signal?: AbortSignal): Promise<WebResul
   return out;
 }
 
+// Hacker News via Algolia (CORS-open) — the tech/builder discussion tail, great
+// for "best X", tooling, and how-to where forum experience beats encyclopedias.
+async function hackernews(query: string, signal?: AbortSignal): Promise<WebResult[]> {
+  const r = await fetch(`https://hn.algolia.com/api/v1/search?query=${encodeURIComponent(query)}&tags=story&hitsPerPage=6`,
+    { signal, cache: 'no-store' });
+  if (!r.ok) return [];
+  const d = await r.json() as { hits?: { title?: string; url?: string; objectID?: string; points?: number; num_comments?: number }[] };
+  return (d.hits ?? []).filter((h) => h.title).map((h) => ({
+    url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+    title: h.title!,
+    extract: `Hacker News discussion — ${h.points ?? 0} points, ${h.num_comments ?? 0} comments`,
+    engine: 'hn',
+  }));
+}
+
+// StackExchange (CORS-open) — authoritative Q&A for technical/how-to questions.
+async function stackexchange(query: string, signal?: AbortSignal): Promise<WebResult[]> {
+  const r = await fetch(`https://api.stackexchange.com/2.3/search/advanced?order=desc&sort=relevance&q=${encodeURIComponent(query)}&site=stackoverflow&pagesize=6&filter=!nKzQUR3Egv`,
+    { signal, cache: 'no-store' });
+  if (!r.ok) return [];
+  const d = await r.json() as { items?: { title?: string; link?: string; score?: number; is_answered?: boolean }[] };
+  return (d.items ?? []).filter((h) => h.title && h.link).map((h) => ({
+    url: h.link!,
+    title: h.title!.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&'),
+    extract: `Stack Overflow — score ${h.score ?? 0}${h.is_answered ? ', answered' : ''}`,
+    engine: 'stackexchange',
+  }));
+}
+
 // CORS-open engines to federate. Add more here (other independent indexes) for
 // breadth + resilience — the rest of the system doesn't change.
-const ENGINES: ((q: string, signal?: AbortSignal) => Promise<WebResult[]>)[] = [mwmbl, wikipedia, duckduckgo];
+const ENGINES: ((q: string, signal?: AbortSignal) => Promise<WebResult[]>)[] = [mwmbl, wikipedia, duckduckgo, hackernews, stackexchange];
 
 /**
  * General web search from the browser. Fans out to every CORS-open engine,
@@ -87,13 +120,23 @@ export async function webSearch(query: string, limit = 20, timeoutMs = 12000): P
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
     const batches = await Promise.all(ENGINES.map((e) => e(query, ctl.signal).catch(() => [] as WebResult[])));
+    // De-dupe by URL, keeping the richest snippet.
     const byUrl = new Map<string, WebResult>();
     for (const r of batches.flat()) {
       const key = r.url.replace(/[#?].*$/, '').replace(/\/$/, '');
       const prev = byUrl.get(key);
       if (!prev || r.extract.length > prev.extract.length) byUrl.set(key, r);
     }
-    return Array.from(byUrl.values()).slice(0, limit);
+    // ROUND-ROBIN interleave by engine so a prolific index (mwmbl) can't drown out
+    // the others — every source actually contributes to the federated result.
+    const perEngine = new Map<string, WebResult[]>();
+    for (const r of byUrl.values()) { const a = perEngine.get(r.engine) ?? []; a.push(r); perEngine.set(r.engine, a); }
+    const queues = [...perEngine.values()];
+    const out: WebResult[] = [];
+    for (let i = 0; out.length < limit && queues.some((q) => q.length); i++) {
+      for (const q of queues) { const r = q.shift(); if (r) { out.push(r); if (out.length >= limit) break; } }
+    }
+    return out;
   } finally {
     clearTimeout(t);
   }

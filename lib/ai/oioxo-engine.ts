@@ -25,6 +25,7 @@ import { tryCompute } from './compute';
 import { rerank, scorePassages } from './rerank';
 import { buildBrief, briefToDigest, briefHasContent } from './brief';
 import { synthesizeText } from './synth';
+import { classifyNature, answer as researchAnswer } from './researcher';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
@@ -716,6 +717,27 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
     const images = await imagesForPlan(plan, text);
     return { text: tidyAnswer(recalled.answer), images, related: cleanRelated(recalled.related) };
   }
+
+  // ART OF SEARCH (researcher) — the two natures answerFlow's pipeline handles
+  // badly are delegated to the researcher: SPECULATIVE/future (an honest + playful
+  // estimate, NEVER a fabricated fact — "how many goals will Ronaldo score" must
+  // not become a literal number) and LOCAL-commerce (results listed in the user's
+  // own language — "vorrei comprare una bicicletta a Perugia"). Factual / explain /
+  // how-to keep the strong encyclopedic+gather pipeline below. Best-effort: any
+  // failure falls straight through to that pipeline, never a blank turn.
+  try {
+    const nat = classifyNature(text).nature;
+    if (nat === 'speculative' || nat === 'local') {
+      const a = await researchAnswer(text);
+      if (a.text && a.text.trim().length > 10) {
+        const sources: SearchSource[] = a.sources.map((s) => {
+          let site = 'web'; try { site = new URL(s.url).hostname.replace(/^www\./, ''); } catch { /* keep */ }
+          return { title: s.title, url: s.url, site };
+        });
+        return { text: a.text, sources: sources.length ? sources : undefined };
+      }
+    }
+  } catch { /* fall through to the normal answer pipeline */ }
 
   // PRACTICAL / HOW-TO / RECIPE / CODE / "best way" / "substitute" / how-why: a
   // Wikipedia LEAD here gives a DEFINITION ("a bicycle is a vehicle…"), the wrong

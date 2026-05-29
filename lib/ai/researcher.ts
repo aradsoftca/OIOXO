@@ -315,3 +315,116 @@ export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBun
 export async function research(question: string, maxHops = 2): Promise<EvidenceBundle> {
   return gather(planQueries(question), maxHops);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 3 — REGISTER-AWARE SYNTHESIS. The nature decides the SHAPE of the answer,
+// not just the search. Extractive + template (model-free → instant, on-device);
+// the trained brain later rewrites the prose. The cardinal rule: NEVER fabricate —
+// a speculative ask gets an honest+playful estimate, an unfound fact gets an honest
+// "couldn't confirm" with the closest evidence, never an invented number.
+// ─────────────────────────────────────────────────────────────────────────────
+export interface Answer {
+  nature: Nature;
+  text: string;
+  /** Citations the answer rests on. */
+  sources: { title: string; url: string }[];
+  /** False when we could not confirm the fact — the caller can offer alternatives. */
+  confident: boolean;
+  lang: string;
+}
+
+const sentences = (t: string) => (t || '').replace(/\s+/g, ' ').split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length > 25);
+/** Headline stat for a speculative ask — ONLY a number that sits in a sentence
+ *  actually about the asked attribute (e.g. a number near "goal"), so we never
+ *  inject a random scraped figure. Returns null if we can't tie a number to the
+ *  stat — and the synthesis then gives the honest no-number playful answer. */
+function bestStat(items: EvidenceItem[], attribute: string | null): string | null {
+  if (!attribute) return null;
+  const re = /\b(\d{1,3}(?:,\d{3})+|\d{2,4})\b/g;
+  let best: { n: number; raw: string } | null = null;
+  for (const i of items) {
+    for (const s of sentences(`${i.title}. ${i.text}`)) {
+      if (!s.toLowerCase().includes(attribute)) continue;   // number must be about the stat
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(s)) !== null) {
+        const n = parseInt(m[1].replace(/,/g, ''), 10);
+        if (n >= 1900 && n <= 2100) continue;               // skip years
+        if (!best || n > best.n) best = { n, raw: m[1] };
+      }
+    }
+  }
+  return best ? best.raw : null;
+}
+/** Rank sentences by overlap with the query keywords + must contain a number if the
+ *  ask wants an attribute. Returns the best one or two, with their source. */
+function bestSentences(bundle: EvidenceBundle, n = 2): { text: string; src: EvidenceItem }[] {
+  const kw = bundle.plan.slots.keywords;
+  const wantNum = !!bundle.plan.slots.attribute;
+  const scored: { text: string; src: EvidenceItem; score: number }[] = [];
+  for (const it of bundle.items) {
+    for (const s of sentences(it.text)) {
+      const l = s.toLowerCase();
+      let score = kw.reduce((a, w) => a + (l.includes(w) ? 1 : 0), 0);
+      if (wantNum && NUM_RE.test(s)) score += 2;
+      if (bundle.plan.slots.location && l.includes(bundle.plan.slots.location.toLowerCase())) score += 1.5;
+      if (score > 0) scored.push({ text: s, src: it, score });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const out: { text: string; src: EvidenceItem }[] = []; const seen = new Set<string>();
+  for (const s of scored) { if (seen.has(s.text)) continue; seen.add(s.text); out.push({ text: s.text, src: s.src }); if (out.length >= n) break; }
+  return out;
+}
+
+// Local-result framing per language (model-free; the brain localizes finer later).
+const LOCAL_FRAME: Record<string, (place: string, thing: string) => string> = {
+  it: (p, t) => `Ecco alcune opzioni per ${t}${p ? ` a ${p}` : ''}:`,
+  es: (p, t) => `Aquí tienes algunas opciones para ${t}${p ? ` en ${p}` : ''}:`,
+  fr: (p, t) => `Voici quelques options pour ${t}${p ? ` à ${p}` : ''} :`,
+  de: (p, t) => `Hier einige Optionen für ${t}${p ? ` in ${p}` : ''}:`,
+  en: (p, t) => `Here are some options for ${t}${p ? ` in ${p}` : ''}:`,
+};
+
+/** Synthesize the answer for a gathered bundle, shaped by its nature. */
+export function synthesize(bundle: EvidenceBundle): Answer {
+  const { plan, items } = bundle;
+  const lang = plan.slots.lang;
+  const cite = (xs: EvidenceItem[]) => xs.slice(0, 3).map((i) => ({ title: i.title || host(i.url), url: i.url }));
+
+  switch (plan.nature) {
+    case 'speculative': {
+      // NEVER a fake fact. Ground a light, honest, playful estimate on any current
+      // stat we found; otherwise be honest that it's unknowable, with a wink.
+      const base = bestStat(items, plan.slots.attribute);
+      const subj = plan.slots.keywords.find((w) => !['goal','goals','score','future','many','will'].includes(w)) || 'that';
+      const txt = base
+        ? `Nobody can actually predict the future 🔮 — but going off the numbers (currently around ${base}), at this pace you might see a good deal more before it's all said and done… and knowing ${subj}, probably one cheeky extra just to make us all argue about it. 😄`
+        : `Ha — nobody can really predict that 🔮. It's anyone's guess; the honest answer is "more, until they stop," plus one for the highlight reel. If you want, I can pull the current stats and we can do the fun math together.`;
+      return { nature: 'speculative', text: txt, sources: cite(items), confident: false, lang };
+    }
+    case 'local': {
+      const frame = (LOCAL_FRAME[lang] || LOCAL_FRAME.en);
+      const thing = plan.slots.keywords.filter((w) => w !== (plan.slots.location || '').toLowerCase()).slice(0, 2).join(' ') || 'this';
+      const picks = items.filter((i) => i.title).slice(0, 5);
+      const list = picks.map((p) => `• ${p.title}${p.url ? ` — ${host(p.url)}` : ''}`).join('\n');
+      const txt = picks.length ? `${frame(plan.slots.location || '', thing)}\n${list}` : `${frame(plan.slots.location || '', thing)}\n(— couldn't reach local listings just now; try a maps search for the freshest results.)`;
+      return { nature: 'local', text: txt, sources: cite(picks), confident: picks.length > 0, lang };
+    }
+    default: {
+      // Factual / explain / compare / list / procedural — extractive, SHORT, cited.
+      const best = bestSentences(bundle, plan.nature === 'explain' || plan.nature === 'compare' ? 3 : 2);
+      if (!bundle.foundTarget && plan.slots.attribute && !best.length) {
+        return { nature: plan.nature, text: `I couldn't confirm a precise ${plan.slots.attribute}${plan.slots.location ? ` for ${plan.slots.location}` : ''} from the sources just now — I'd rather not guess a number. I can dig into a specific official page if you name one.`, sources: cite(items), confident: false, lang };
+      }
+      const txt = best.map((b) => b.text).join(' ') || (items[0]?.text ? trimToWords(items[0].text, 40) : 'No clear answer found in the sources.');
+      return { nature: plan.nature, text: txt, sources: cite(best.map((b) => b.src)), confident: bundle.foundTarget, lang };
+    }
+  }
+}
+
+function trimToWords(s: string, n: number): string { const w = (s || '').replace(/\s+/g, ' ').trim().split(' '); return w.length <= n ? w.join(' ') : w.slice(0, n).join(' ') + '…'; }
+
+/** Full art-of-search: plan → gather (multi-hop) → synthesize (register-aware). */
+export async function answer(question: string): Promise<Answer> {
+  return synthesize(await research(question));
+}

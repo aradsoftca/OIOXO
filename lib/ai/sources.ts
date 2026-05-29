@@ -57,9 +57,10 @@ export async function wikipediaExtracts(query: string, limit = 3, full = false):
 /** Full plain-text extract of a SPECIFIC Wikipedia article (the BODY, not just
  *  the intro) — CORS-direct. Used to read the page the reranker picked, so an
  *  explanation/definition comes from the real article body, not a thin snippet. */
-export async function wikipediaFullByTitle(title: string, maxChars = 4000): Promise<string | null> {
+export async function wikipediaFullByTitle(title: string, maxChars = 4000, lang = 'en'): Promise<string | null> {
+  const wiki = /^[a-z]{2,3}$/.test(lang) ? lang : 'en';
   const url =
-    `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*` +
+    `https://${wiki}.wikipedia.org/w/api.php?action=query&format=json&origin=*` +
     `&prop=extracts&explaintext=1&redirects=1&exsectionformat=plain&titles=${encodeURIComponent(title)}`;
   try {
     const r = await fetch(url, { cache: 'no-store', headers: WIKI_HEADERS });
@@ -81,21 +82,25 @@ export async function wikipediaFullByTitle(title: string, maxChars = 4000): Prom
  * extract, which can return a citations slice). This is the authoritative answer
  * source for explain/define/fact — CORS-direct, best-effort.
  */
-export async function wikipediaBestArticles(query: string, n = 2): Promise<RankedEvidence[]> {
+export async function wikipediaBestArticles(query: string, n = 2, lang = 'en'): Promise<RankedEvidence[]> {
+  // Language-aware: a French question must search FRENCH Wikipedia, or it resolves
+  // to the wrong article ("quelle est la capitale du japon" → Akita on en.wiki, but
+  // → Japon→Tokyo on fr.wiki). The in-language lead IS the answer, in-language.
+  const wiki = /^[a-z]{2,3}$/.test(lang) ? lang : 'en';
   const surl =
-    `https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&list=search` +
+    `https://${wiki}.wikipedia.org/w/api.php?action=query&format=json&origin=*&list=search` +
     `&srsearch=${encodeURIComponent(query)}&srlimit=${n}&srnamespace=0`;
   try {
     const r = await fetch(surl, { cache: 'no-store', headers: WIKI_HEADERS });
     const j: any = await r.json(); // eslint-disable-line @typescript-eslint/no-explicit-any
     const titles: string[] = (j?.query?.search ?? []).map((s: any) => s.title).filter(Boolean).slice(0, n); // eslint-disable-line @typescript-eslint/no-explicit-any
-    const bodies = await Promise.all(titles.map((t) => wikipediaFullByTitle(t).then((body) => ({ t, body })).catch(() => ({ t, body: null }))));
+    const bodies = await Promise.all(titles.map((t) => wikipediaFullByTitle(t, 4000, wiki).then((body) => ({ t, body })).catch(() => ({ t, body: null }))));
     return bodies
       .filter((b) => b.body)
       .map((b) => ({
         topic: query,
         text: b.body as string,
-        source: { title: b.t, url: `https://en.wikipedia.org/wiki/${encodeURIComponent(b.t.replace(/\s/g, '_'))}`, site: 'wikipedia.org' },
+        source: { title: b.t, url: `https://${wiki}.wikipedia.org/wiki/${encodeURIComponent(b.t.replace(/\s/g, '_'))}`, site: 'wikipedia.org' },
       }));
   } catch {
     return [];

@@ -769,7 +769,11 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
       // Fetch SEVERAL candidates (the best article may be #3 — "capital of
       // australia" ranks ACT #1 but Canberra #3) and let the reranker pick the
       // article whose LEAD best answers the question.
-      const arts = await wikipediaBestArticles(text, 4);
+      // Language-aware lead: a non-English question resolves on its OWN-language
+      // Wikipedia (fr "capitale du japon" → Tokyo, not Akita on en.wiki) and answers
+      // in that language. English unchanged.
+      const qLang = (() => { try { return classifyNature(text).slots.lang; } catch { return 'en'; } })();
+      const arts = await wikipediaBestArticles(text, 4, qLang);
       if (arts.length) {
         const leads = arts.map((a) => firstSentences(a.text, 3));
         const scores = (await scorePassages(text, leads)) ?? leads.map(() => 0);

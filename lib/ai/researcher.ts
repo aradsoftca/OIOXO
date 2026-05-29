@@ -655,9 +655,21 @@ export function synthesize(bundle: EvidenceBundle): Answer {
         return { nature: plan.nature, text: `I couldn't confirm a precise ${plan.slots.attribute}${plan.slots.location ? ` for ${plan.slots.location}` : ''} from the sources just now — I'd rather not guess a number. I can dig into a specific official page if you name one.`, sources: cite(items), confident: false, lang };
       }
       let txt = best.map((b) => b.text).join(' ') || (items[0]?.text ? trimToWords(items[0].text, 40) : 'No clear answer found in the sources.');
+      // CONFLICT DETECTION (trust > false certainty): for a number ask, if independent
+      // sources give DIFFERENT figures, say so rather than confidently picking one.
+      let confident = bundle.foundTarget;
+      if (plan.slots.attribute && best.length >= 2) {
+        const nums = best.map((b) => (b.text.match(NUM_RE) || [])[0]).filter(Boolean) as string[];
+        const distinct = Array.from(new Set(nums.map((n) => n.replace(/[\s,]/g, '').toLowerCase())));
+        const diffDomain = new Set(best.map((b) => { try { return new URL(b.src.url).hostname; } catch { return b.src.source; } })).size >= 2;
+        if (distinct.length >= 2 && diffDomain) {
+          txt = `Sources differ — I saw ${nums.slice(0, 2).join(' and ')}. ` + txt;
+          confident = false;
+        }
+      }
       // Time-sensitive answers honestly flag that they can change (Google/Gemini do).
       if (plan.fresh && best.length) txt += ' (This can change — double-check for the latest.)';
-      return { nature: plan.nature, text: txt, sources: cite(best.map((b) => b.src)), confident: bundle.foundTarget, lang };
+      return { nature: plan.nature, text: txt, sources: cite(best.map((b) => b.src)), confident, lang };
     }
   }
 }

@@ -94,6 +94,15 @@ function keywords(q: string): string[] {
   return Array.from(new Set(out));
 }
 
+// The "thing" being sought, minus commerce verbs/fillers/place — "buy running
+// shoes in berlin" → "running shoes"; "i would like to buy a bicycle in perugia"
+// (the translation shell turns "vorrei" into "i would like") → "bicycle".
+const COMMERCE_STOP = new Set(['buy','purchase','find','get','rent','hire','shop','shops','store','stores','comprare','negozi','negozio','comprar','acheter','kaufen','want','need','looking','like','please','interested','some','good','best','near','nearby','around','where','would','could','am','looking']);
+function thingOf(kw: string[], location: string | null): string {
+  const loc = (location || '').toLowerCase();
+  return kw.filter((w) => w !== loc && !COMMERCE_STOP.has(w)).slice(0, 3).join(' ').trim();
+}
+
 // ── nature cues (multilingual) ────────────────────────────────────────────────
 const FUTURE_RE = /\b(will|going to|gonna|future|predict|forecast|by 20[2-9]\d|in 20[3-9]\d|next (year|decade)|in the future)\b|آینده|در آینده|خواهد|futuro|avenir|zukunft/i;
 const SPEC_RE = /\b(how many .* (will|going to)|what will|how will|when will|do you think .* will|predict|chance(s)? (of|that)|odds)\b/i;
@@ -196,7 +205,7 @@ export function planQueries(question: string): SearchPlan {
     case 'local': {
       // Local commerce: search in the USER's language AND English, grounded on place.
       const place = slots.location || '';
-      const thing = kw.filter((w) => w !== (place.toLowerCase())).slice(0, 3).join(' ');
+      const thing = thingOf(kw, slots.location);
       if (slots.lang === 'it') queries.push(`negozi ${thing} ${place}`.trim(), `dove comprare ${thing} ${place}`.trim());
       else if (slots.lang === 'es') queries.push(`tiendas ${thing} ${place}`.trim(), `dónde comprar ${thing} ${place}`.trim());
       else if (slots.lang === 'fr') queries.push(`magasins ${thing} ${place}`.trim());
@@ -388,13 +397,7 @@ function osmTagFor(thing: string): string | null {
   return null;
 }
 
-// The "thing" being sought, minus commerce verbs/place — "buy running shoes in
-// berlin" → "running shoes", not "buy running".
-const COMMERCE_STOP = new Set(['buy','purchase','find','get','rent','hire','shop','shops','store','stores','comprare','negozi','negozio','comprar','acheter','kaufen','want','need','looking']);
-function localThing(plan: SearchPlan): string {
-  const loc = (plan.slots.location || '').toLowerCase();
-  return plan.slots.keywords.filter((w) => w !== loc && !COMMERCE_STOP.has(w)).slice(0, 3).join(' ').trim();
-}
+const localThing = (plan: SearchPlan): string => thingOf(plan.slots.keywords, plan.slots.location);
 
 // LOCAL-business source — OpenStreetMap (free, CORS-open, no key). For a known
 // CATEGORY (bike/coffee/…) use Overpass (real shops in the city); otherwise fall

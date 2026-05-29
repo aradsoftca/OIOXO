@@ -457,8 +457,14 @@ export function decideRoute(message: string, fileCat: FileCat = null): Route {
  */
 const INFO_QUESTION =
   /^\s*(what(\s|'|’|s\b)|how (do|does|to|can|could|would|should|might)\b|why\b|when\b|who\b|where\b|which\b|whose\b|explain\b|define\b|describe\b|tell me\b|teach me\b|tutorial\b|guide to\b|difference between\b|can you (explain|tell|describe)\b|is (it|there|a|an)\b)/i;
+// A "PROPERTY of SUBJECT" factoid ("currency of japan", "population of france") is
+// a fact question, not a request to launch a tool — without this, "currency …"
+// hijacks the Currency Converter. General fact-shape, not a per-tool patch.
+const FACTOID_SHAPE =
+  /\b(capital|population|currency|area|continent|official language|languages?|president|prime minister|head of (state|government)|gdp|founded|inception|anthem|highest point|borders?|located)\s+(of|in)\b/i;
 export function looksInformational(text: string): boolean {
-  return INFO_QUESTION.test(text.trim());
+  const t = text.trim();
+  return INFO_QUESTION.test(t) || FACTOID_SHAPE.test(t);
 }
 
 /**

@@ -68,7 +68,7 @@ function detectLang(q: string): string {
   // Latin-script European cues (so we answer Italian/Spanish/French in-language).
   const l = q.toLowerCase();
   if (/\b(vorrei|comprare|biciclett|negozio|dove|migliore|prezzo|come posso)\b/.test(l)) return 'it';
-  if (/\b(quiero|comprar|dónde|mejor|precio|cómo|cuánto)\b/.test(l)) return 'es';
+  if (/\b(quiero|comprar|dónde|mejor|precio|cómo|cuánto|cuántos|cuántas|cuál|qué|habitantes|tiene)\b/.test(l)) return 'es';
   if (/\b(je veux|acheter|où|meilleur|prix|comment|combien|quelle?|capitale|pourquoi|est-ce|qu'est)\b/.test(l)) return 'fr';
   if (/\b(ich möchte|kaufen|wo|beste|preis|wie|wie viel|warum|hauptstadt)\b/.test(l)) return 'de';
   return 'en';
@@ -108,13 +108,18 @@ const LIST_RE = /\b(best|top \d+|top|recommend|good .* for|favou?rite)\b|miglior
 // Users type lowercase, so we DON'T require a capital — we take the 1–2 word noun
 // after the preposition and reject obvious non-places ("the future", "a banana").
 const NOT_PLACE = new Set(['the','future','a','an','order','general','fact','time','case','my','your','it','them','this','that','college','colleges','school','schools','university','universities','domestic','student','students','international','course','courses','program']);
-function extractLocation(q: string): string | null {
+// hasAttr: only then do we trust a topical "of X" as a PLACE ("tuition of ontario",
+// "population of japan"). Without an attribute, "of X" is usually a TOPIC ("tldr of
+// climate change", "symptoms of covid") — not a location — so we use only spatial
+// prepositions (in/at/near/around) and drop "of" to stop those misfires.
+function extractLocation(q: string, hasAttr: boolean): string | null {
+  const preps = hasAttr ? 'in|at|near|around|of|a|à|en' : 'in|at|near|around';
   // Capitalized multi-word place is the most reliable: "New York", "Ontario".
-  const cap = q.match(/\b(?:in|at|near|around|of|a|à|en)\s+([A-ZÀ-Þ][\p{L}.\-]+(?:\s+[A-ZÀ-Þ][\p{L}.\-]+)?)/u);
+  const cap = q.match(new RegExp(`\\b(?:${preps})\\s+([A-ZÀ-Þ][\\p{L}.\\-]+(?:\\s+[A-ZÀ-Þ][\\p{L}.\\-]+)?)`, 'u'));
   if (cap) return cap[1].trim().replace(/[.?!,]+$/, '');
-  // Lowercase fallback: scan ALL prepositional objects, keep the LAST non-filler one
+  // Lowercase fallback: scan prepositional objects, keep the LAST non-filler one
   // (in "tuition of domestic student in college of ontario", the place is last).
-  const re = /\b(?:in|at|near|around|of)\s+([\p{L}][\p{L}\-]{2,24})\b/gu;
+  const re = new RegExp(`\\b(?:${preps})\\s+([\\p{L}][\\p{L}\\-]{2,24})\\b`, 'gu');
   let m: RegExpExecArray | null, last: string | null = null;
   while ((m = re.exec(q.toLowerCase())) !== null) { if (!NOT_PLACE.has(m[1])) last = m[1]; }
   return last;
@@ -132,9 +137,10 @@ export function classifyNature(question: string): { nature: Nature; slots: Slots
   const q = question.trim();
   const lang = detectLang(q);
   const isDefine = DEFINE_RE.test(q);
-  // Definitions don't have a location ("meaning of serendipity" ≠ a place).
-  const location = isDefine ? null : extractLocation(q);
   const attribute = extractAttribute(q);
+  // Definitions don't have a location ("meaning of serendipity" ≠ a place); a
+  // topical "of X" is only a place when an attribute makes it place-grounded.
+  const location = isDefine ? null : extractLocation(q, !!attribute);
   const future = FUTURE_RE.test(q);
   const kw = keywords(q);
   // The term to define = the prompt minus the define framing ("meaning of X",

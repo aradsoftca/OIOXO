@@ -56,6 +56,9 @@ export interface SearchPlan {
   crossLingual: boolean;
   /** Whether the answer needs MULTIPLE hops (gather → refine → gather again). */
   multiHop: boolean;
+  /** Time-sensitive ("latest/newest/current/today") — bias queries to the current
+   *  year and tell the synthesis to flag that the answer can change. */
+  fresh: boolean;
 }
 
 // ── language detection (script-based, cheap, no model) ────────────────────────
@@ -176,6 +179,7 @@ export function classifyNature(question: string): { nature: Nature; slots: Slots
 const NON_EN = ['en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ar', 'hi', 'bn', 'zh', 'ja'];
 
 /** Turn ONE prompt into the focused searches a good researcher would run. */
+const FRESH_RE = /\b(latest|newest|current(ly)?|most recent|right now|today|this (year|month|week)|nowadays|as of|up to date|recent)\b|جدیدترین|آخرین|أحدث/i;
 export function planQueries(question: string): SearchPlan {
   const { nature, slots } = classifyNature(question);
   const kw = slots.keywords;
@@ -183,6 +187,7 @@ export function planQueries(question: string): SearchPlan {
   const queries: string[] = [];
   let crossLingual = false;
   let multiHop = false;
+  const fresh = FRESH_RE.test(question);
 
   switch (nature) {
     case 'local': {
@@ -240,11 +245,18 @@ export function planQueries(question: string): SearchPlan {
     }
   }
 
+  // RECENCY: bias to the current year so we don't answer "latest iphone" from a
+  // stale page. Prepend a year-stamped variant as the top query.
+  if (fresh && nature !== 'speculative') {
+    const yr = new Date().getFullYear();
+    queries.unshift(`${core} ${yr}`);
+  }
+
   // De-dup, drop empties.
   const seen = new Set<string>();
   const uniq = queries.map((s) => s.replace(/\s+/g, ' ').trim()).filter((s) => s && !seen.has(s) && (seen.add(s), true)).slice(0, 4);
 
-  return { nature, slots, queries: uniq, crossLingual, multiHop };
+  return { nature, slots, queries: uniq, crossLingual, multiHop, fresh };
 }
 
 /** Build cross-lingual variants of a query for knowledge-gap fan-out (step 4 uses
@@ -639,7 +651,9 @@ export function synthesize(bundle: EvidenceBundle): Answer {
       if (!bundle.foundTarget && plan.slots.attribute && !best.length) {
         return { nature: plan.nature, text: `I couldn't confirm a precise ${plan.slots.attribute}${plan.slots.location ? ` for ${plan.slots.location}` : ''} from the sources just now — I'd rather not guess a number. I can dig into a specific official page if you name one.`, sources: cite(items), confident: false, lang };
       }
-      const txt = best.map((b) => b.text).join(' ') || (items[0]?.text ? trimToWords(items[0].text, 40) : 'No clear answer found in the sources.');
+      let txt = best.map((b) => b.text).join(' ') || (items[0]?.text ? trimToWords(items[0].text, 40) : 'No clear answer found in the sources.');
+      // Time-sensitive answers honestly flag that they can change (Google/Gemini do).
+      if (plan.fresh && best.length) txt += ' (This can change — double-check for the latest.)';
       return { nature: plan.nature, text: txt, sources: cite(best.map((b) => b.src)), confident: bundle.foundTarget, lang };
     }
   }

@@ -97,9 +97,10 @@ function keywords(q: string): string[] {
 // ── nature cues (multilingual) ────────────────────────────────────────────────
 const FUTURE_RE = /\b(will|going to|gonna|future|predict|forecast|by 20[2-9]\d|in 20[3-9]\d|next (year|decade)|in the future)\b|آینده|در آینده|خواهد|futuro|avenir|zukunft/i;
 const SPEC_RE = /\b(how many .* (will|going to)|what will|how will|when will|do you think .* will|predict|chance(s)? (of|that)|odds)\b/i;
-const LOCAL_RE = /\b(buy|purchase|shops?|stores?|near me|nearby|where can i (buy|get|find)|rent|hire)\b|\b(vorrei comprare|comprare|negozio|negozi|quiero comprar|comprar|acheter|kaufen)\b|بخرم|خرید/i;
+const LOCAL_RE = /\b(buy|purchase|shops?|stores?|near me|nearby|where can i (buy|get|find)|where to (eat|stay|sleep|go|visit|drink)|rent|hire|restaurants?|cafes?)\b|\b(vorrei comprare|comprare|negozio|negozi|quiero comprar|comprar|acheter|kaufen)\b|بخرم|خرید/i;
+const NEAR_RE = /\bnear (me|by)\b|\bnearby\b|\baround here\b/i;
 const PROC_RE = /^\s*(how to|how do i|how can i|steps to)\b|چگونه|چطور|come (posso|si fa)|cómo|comment (faire|je)/i;
-const COMPARE_RE = /\b(vs\.?|versus|difference between|compared? to|which is better|better than)\b/i;
+const COMPARE_RE = /\b(vs\.?|versus|difference between|compared? to|which is better|better than)\b|^\s*compare\b|\bcompare .+\b(and|to|with)\b/i;
 const EXPLAIN_RE = /^\s*(why|how does|how do|how is|how come|explain|tell me about|what is the difference)\b|چرا|왜|为什么|なぜ|perché|por qué|pourquoi|warum/i;
 // Definition asks — "define X", "what does X mean", "meaning of X". Handled as a
 // short explanation, and NOT through location extraction ("meaning of serendipity"
@@ -164,7 +165,9 @@ export function classifyNature(question: string): { nature: Nature; slots: Slots
   // Any future-tense OUTCOME question is speculative — "will X", "is X going to",
   // "who/what/when will", quantity/event predictions. We must never fake the future.
   else if (future && (SPEC_RE.test(q) || /\b(will|going to|gonna)\b/i.test(q) || /\b(how many|how much|when|score|wins?|reach|hit|happen|cost)\b/i.test(q))) nature = 'speculative';
-  else if (LOCAL_RE.test(q)) nature = 'local';
+  // Local-commerce needs a WHERE — a place or "near me". "should i buy bitcoin"
+  // (no place) is advice, not local shopping; it falls through to RECO below.
+  else if (LOCAL_RE.test(q) && (location || NEAR_RE.test(q))) nature = 'local';
   else if (PROC_RE.test(q)) nature = 'procedural';
   // Advice: "should I X or Y" (two options) = compare; "should I X" = recommendation.
   else if (RECO_RE.test(q)) nature = /\bor\b/.test(q) ? 'compare' : 'list';

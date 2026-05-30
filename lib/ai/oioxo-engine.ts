@@ -28,6 +28,7 @@ import { synthesizeText } from './synth';
 import { classifyNature, answer as researchAnswer } from './researcher';
 import { wikiFact } from './wikifact';
 import { weatherAnswer } from './weather';
+import { newsAnswer } from './news';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
@@ -753,6 +754,14 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
   try {
     const w = await weatherAnswer(text);
     if (w) { return { text: w.text, sources: [w.source] }; }
+  } catch { /* fall through */ }
+
+  // LOCAL NEWS FAST-PATH — today's headlines from a CORS-clean feed. We fetch the
+  // RICH English feed (thin languages like Arabic return nothing) and the shell
+  // renders it in the user's language: a Riyadh user gets world news in Arabic.
+  try {
+    const n = await newsAnswer(text);
+    if (n) { return { text: n.text, sources: [n.source] }; }
   } catch { /* fall through */ }
 
   // WIKIDATA FACTOID FAST-PATH — exact answers for "capital/population/currency/…

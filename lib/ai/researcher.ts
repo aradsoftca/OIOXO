@@ -341,11 +341,14 @@ async function wikiInLang(topic: string, lang: string): Promise<{ title: string;
   } catch { return null; }
 }
 
-/** Run ONE hop: federated web search for each query, collect the top hits. */
-async function searchHop(queries: string[], hop: number, perQuery = 6): Promise<EvidenceItem[]> {
+/** Run ONE hop: federated web search for each query, collect the top hits.
+ *  `timeoutMs` bounds each engine call — kept tight for natures whose answer
+ *  doesn't depend on the search (speculative: a missing stat just yields the
+ *  honest playful answer, never a frozen turn). */
+async function searchHop(queries: string[], hop: number, perQuery = 6, timeoutMs = 12000): Promise<EvidenceItem[]> {
   const out: EvidenceItem[] = [];
   const seen = new Set<string>();
-  const batches = await Promise.all(queries.map((q) => webSearch(q, perQuery).catch(() => [])));
+  const batches = await Promise.all(queries.map((q) => webSearch(q, perQuery, timeoutMs).catch(() => [])));
   batches.forEach((hits, qi) => {
     for (const h of hits) {
       if (!h.url || seen.has(h.url)) continue; seen.add(h.url);
@@ -456,15 +459,20 @@ export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBun
     if (def) items.push(def);
   }
 
-  // HOP 1 — the planned queries.
+  // HOP 1 — the planned queries. SPECULATIVE answers don't depend on the search
+  // (the stat only GROUNDS a playful estimate; absent it, the honest no-number
+  // answer is itself correct), so cap it tight — it must land well under the
+  // answerFlow freeze guard, never time out into a generic dead-end.
   hops++;
-  items.push(...await searchHop(plan.queries, hops));
+  items.push(...await searchHop(plan.queries, hops, 6, plan.nature === 'speculative' ? 6000 : 12000));
 
   // COMMUNITY OPINION (Reddit). Subjective asks — recommendations, comparisons,
   // "is X worth it" — are answered best by real people, not SEO pages. This is the
   // tail Google leans on. JSONP (CORS-bypass, in-browser); returns [] in Node/on
   // failure, so it's a safe additive. The opinions carry upvotes → weighted up.
-  if (plan.nature === 'list' || plan.nature === 'compare' || plan.nature === 'speculative') {
+  // NOT speculative: its synthesis reads only the headline stat, never opinions —
+  // fetching Reddit there was pure latency that blew the freeze guard.
+  if (plan.nature === 'list' || plan.nature === 'compare') {
     const core = plan.slots.keywords.join(' ').trim() || plan.queries[0] || '';
     const ops = await redditOpinions(core, { threads: 3, perThread: 3 }).catch(() => []);
     for (const o of ops) items.push({ query: `reddit:${core}`, hop: hops, title: o.source.title, url: o.source.url, text: o.text, source: 'reddit', votes: o.score });

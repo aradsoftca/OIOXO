@@ -71,23 +71,42 @@ function hasBrowser(name: 'Translator' | 'LanguageDetector'): boolean {
 // Unicode-aware word boundary (JS \b breaks on accented letters like "où", so
 // accented function words would never match) — letter/number lookarounds instead.
 const B = (words: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${words})(?![\\p{L}\\p{N}])`, 'giu');
-const LATIN_SIG: [string, RegExp][] = [
-  ['de', /[äöüß]/giu], ['de', B('der|die|das|und|ist|nicht|wie|warum|was|wer|ich|möchte|eine?|mit|auf|für|wo|wieviel|viele|hauptstadt|kaufen')],
-  ['fr', /[œ]/giu], ['fr', B("le|les|est|qui|pour|avec|dans|une|vous|pourquoi|comment|où|quelle?|c'est|qu'est|combien|je|du|des|au|la|acheter")],
-  ['es', /[ñ¿¡]/giu], ['es', B('el|los|las|una|por|qué|cómo|dónde|cuál|cuántos?|quiero|está|para|del|comprar|capital')],
-  ['it', B('il|gli|che|di|perché|vorrei|sono|dove|quale|della|sulla|per|una|come|comprare|qual')],
-  ['pt', /[ãõ]/giu], ['pt', B('você|não|são|está|porque|quero|uma|dos|das|para|qual|comprar')],
+// The word lists lean on HIGH-FREQUENCY, DISTINCTIVE markers that don't collide
+// with English: articulated prepositions (Italian nella/nel/della/sulla, French
+// du/des/au), common verbs, and demonstratives. Breadth here is what lets ANY
+// phrasing be detected — not just the textbook example sentence. Each tuple may
+// carry a WEIGHT (default 1); the score must reach ≥2 to override "English".
+const LATIN_SIG: [string, RegExp, number?][] = [
+  // Weight-1 declaratives — must NOT collide with common English words (so e.g.
+  // German "die"/"was", Italian "fare", Spanish "capital" are deliberately absent;
+  // they'd misread plain English). Diacritics are free, unambiguous signals.
+  ['de', /[äöüß]/giu], ['de', B('der|das|und|ist|nicht|wie|wer|ich|möchte|eine?|mit|auf|für|wieviel|viele|hauptstadt|kaufen|wird|werden|sind|haben|gibt|kann|mehr|auch|sehr|dieser|diese|dieses|diesen')],
+  ['fr', /[œ]/giu], ['fr', B("les|est|qui|pour|avec|dans|une|vous|c'est|qu'est|je|du|des|aux|acheter|sera|seront|cette|ces|aussi|très|sont")],
+  ['es', /[ñ¿¡]/giu], ['es', B('los|las|una|por|quiero|está|están|para|del|comprar|este|esta|estos|será|serán|también|muy|sobre|su|sus|mis?|tus?|nuestr\\w*')],
+  ['it', B('lo|gli|che|vorrei|sono|della|dello|degli|delle|sulla|sullo|nella|nel|nello|nelle|negli|nei|alla|allo|alle|agli|per|una|comprare|più|anche|molto|questo|questa|questi|sarà|saranno|dove')],
+  ['pt', /[ãõ]/giu], ['pt', B('você|não|são|está|estão|quero|uma|dos|das|para|comprar|este|esta|será|serão|também|muito|fazer|sobre')],
+  // STRONG interrogatives — alone they're decisive (no English collision), so each
+  // carries weight 2 to clear the ≥2 bar even in a short one-cue question
+  // ("cuántos goles marcará Messi", "quanti gol segnerà Ronaldo"). These drive the
+  // headline cross-lingual asks (how-many/why/where/which) regardless of phrasing.
+  // Excluded for English collisions: fr "comment"/"quelle"(→quell), it "dove" (kept
+  // at weight 1 above), de "wo".
+  ['de', B('warum|wieso|weshalb'), 2],
+  ['fr', B('pourquoi|combien|où|quels|quelles'), 2],
+  ['es', B('qué|cómo|dónde|cuál|cuáles|cuántos?|cuántas?|cuánto|cuánta|por qué'), 2],
+  ['it', B('perché|quanti|quanto|quanta|quante|quale|quali'), 2],
+  ['pt', B('porque|por que|onde|quantos?|quantas?|quanto'), 2],
 ];
 function latinHeuristic(text: string): string | null {
   const low = ' ' + text.toLowerCase() + ' ';
   const score: Record<string, number> = {};
-  for (const [lang, re] of LATIN_SIG) {
+  for (const [lang, re, w = 1] of LATIN_SIG) {
     const n = (low.match(re) || []).length;
-    if (n) score[lang] = (score[lang] || 0) + n;
+    if (n) score[lang] = (score[lang] || 0) + n * w;
   }
   let best: string | null = null, bestN = 0;
   for (const [lang, n] of Object.entries(score)) if (n > bestN) { bestN = n; best = lang; }
-  return bestN >= 2 ? best : null; // ≥2 distinctive signals to override "English"
+  return bestN >= 2 ? best : null; // ≥2 weighted signals to override "English"
 }
 
 // --- detection -------------------------------------------------------------

@@ -25,6 +25,8 @@ import { isSaveAsPdf } from '@/lib/ai/suggest-next';
 import { candidatesFor, triagePrompt, parseDecision, fallbackDecision, type Decision } from '@/lib/ai/agent';
 import { docById } from '@/lib/ai/tool-index';
 import { detectTranslate } from '@/lib/ai/translate-op';
+import { askImage } from '@/lib/ai/vision';
+import { detectLanguage, fromEnglish } from '@/lib/ai/translate';
 import { composePoster, renderPoster, type PosterSpec } from '@/lib/ai/poster';
 import { planRequest, segment, type Medium } from '@/lib/ai/planner';
 import { runChain, hasRunner } from '@/lib/ai/executor';
@@ -521,8 +523,25 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
     const plan = planConvert(text, fileCat);
 
     switch (plan.kind) {
-      case 'none':
+      case 'none': {
+        // VISION: an image that isn't an edit request + a question → the model's
+        // EYES (SmolVLM). "what is this", "is this safe for X", "read the sign".
+        // Answer in the user's language. Falls through to chat if vision is off.
+        if (fileCat === 'image' && effFile && rawText.trim()) {
+          push({ role: 'assistant', content: 'Looking at the image…' });
+          try {
+            const en = await askImage(effFile, rawText.trim());
+            if (en) {
+              const lang = await detectLanguage(rawText).catch(() => null);
+              const localized = lang && lang !== 'en' ? (await fromEnglish(en, lang).catch(() => null)) || en : en;
+              setMessages((m) => { const c = [...m]; c[c.length - 1] = { role: 'assistant', content: localized }; return c; });
+              return true;
+            }
+          } catch { /* fall through to chat */ }
+          setMessages((m) => m.slice(0, -1)); // remove the placeholder
+        }
         return false;
+      }
       case 'run':
         await runConvertAndShow(effFile!, plan.category, plan.target);
         return true;

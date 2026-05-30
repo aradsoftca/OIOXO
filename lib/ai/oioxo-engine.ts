@@ -27,6 +27,7 @@ import { buildBrief, briefToDigest, briefHasContent } from './brief';
 import { synthesizeText } from './synth';
 import { classifyNature, answer as researchAnswer } from './researcher';
 import { wikiFact } from './wikifact';
+import { weatherAnswer } from './weather';
 import { decideMove, offerPreface, type Turn } from './converse';
 import { findVideos, videoTranscript, wantsVideo, type VideoHit } from './video';
 import { detectGeoIntent, answerGeo, type GeoPoint } from './geo';
@@ -745,6 +746,14 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
       }
     }
   } catch { /* fall through to the normal answer pipeline */ }
+
+  // LOCAL WEATHER FAST-PATH — live forecast (open-meteo, CORS-clean, no key). A
+  // bare "weather" uses the user's OWN city from their timezone (no permission);
+  // output is English, the shell renders it in the user's language (Riyadh → Arabic).
+  try {
+    const w = await weatherAnswer(text);
+    if (w) { return { text: w.text, sources: [w.source] }; }
+  } catch { /* fall through */ }
 
   // WIKIDATA FACTOID FAST-PATH — exact answers for "capital/population/currency/…
   // of X" straight from Wikidata (CORS-clean, works in-browser). Fixes the class

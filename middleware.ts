@@ -221,6 +221,15 @@ export async function middleware(req: NextRequest) {
     url.pathname = '/oioxo';
     return NextResponse.rewrite(url);
   }
+  // Clean /search route → the static search engine (served from public/search.html).
+  // Host-gated to oioxo so xonvert is untouched. Query string (?q=) is preserved
+  // by rewrite. The search engine treats /search as its canonical path already
+  // (it reads ?q= and handles /search?view=settings|bookmarks|notebook).
+  if (host.includes('oioxo.com') && (pathname === '/search' || pathname === '/search/')) {
+    const url = req.nextUrl.clone();
+    url.pathname = '/search.html';
+    return NextResponse.rewrite(url);
+  }
 
   if (!pathname.startsWith('/api/')) return NextResponse.next();
 
@@ -276,5 +285,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/api/:path*'],
+  matcher: ['/', '/search', '/search/', '/api/:path*'],
 };

@@ -287,6 +287,7 @@ export function crossLingualTargets(plan: SearchPlan): string[] {
 import { webSearch, WIKI_UA } from './metasearch';
 import { gatherPassages } from './web-read';
 import { redditOpinions } from './reddit-read';
+import { translate } from './translate';
 
 export interface EvidenceItem {
   query: string; hop: number; title: string; url: string; text: string; source: string;
@@ -517,6 +518,56 @@ export async function gather(plan: SearchPlan, maxHops = 2): Promise<EvidenceBun
 /** One-call convenience: plan + gather. */
 export async function research(question: string, maxHops = 2): Promise<EvidenceBundle> {
   return gather(planQueries(question), maxHops);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CROSS-LINGUAL SOURCING — the headline: "some German, some Italian, answered in
+// Russian". When the English web is THIN on a topic, the knowledge usually exists
+// in ANOTHER language — a regional/cultural topic in the user's OWN language, or a
+// subject English under-indexes. We pull the SAME topic from other-language
+// Wikipedias and TRANSLATE each lead to English, so it joins the English synthesis
+// like any other evidence; the finished answer is then localized to the user's
+// language by the shell. So a Persian question about an Iranian craft is sourced
+// from Persian Wikipedia and answered in Persian. Best-effort + bounded: it only
+// runs when English came up short, and never blocks (timeout → whatever arrived).
+// ─────────────────────────────────────────────────────────────────────────────
+async function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return Promise.race([p, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+}
+
+export async function crossLingualEvidence(
+  englishTopic: string,
+  orig?: { text: string; lang: string },
+  max = 3,
+): Promise<EvidenceItem[]> {
+  const work = (async (): Promise<EvidenceItem[]> => {
+    const probes: { lang: string; query: string }[] = [];
+    // 1) The user's OWN language first, searched with the ORIGINAL (untranslated)
+    //    query — the high-value path for region-native topics ("ماهیگیری سنتی" on
+    //    fa.wikipedia, not en). Skip when the user already wrote English.
+    if (orig?.lang && orig.lang !== 'en' && orig.text.trim()) probes.push({ lang: orig.lang, query: orig.text.trim() });
+    // 2) A cognate spread over high-coverage Wikipedias for the English topic —
+    //    proper nouns / loanwords resolve; the rest simply return nothing. Cheap.
+    for (const l of ['de', 'fr', 'es', 'ru', 'ja']) if (l !== orig?.lang) probes.push({ lang: l, query: englishTopic });
+
+    const hits = await Promise.all(probes.slice(0, 4).map((p) =>
+      wikiInLang(p.query, p.lang).then((h) => ({ lang: p.lang, h })).catch(() => ({ lang: p.lang, h: null }))));
+    // Translate each found lead to English so it integrates with the English reader.
+    const out: EvidenceItem[] = [];
+    const translated = await Promise.all(hits.map(async ({ lang, h }) => {
+      if (!h?.text) return null;
+      const en = await translate(h.text, lang, 'en').catch(() => null);
+      const text = (en && en.length >= 40) ? en : h.text;     // keep original if translate is cold
+      return { lang, title: h.title, url: h.url, text: text.slice(0, 600) };
+    }));
+    for (const t of translated) {
+      if (!t) continue;
+      out.push({ query: `xlang:${t.lang}:${englishTopic}`, hop: 1, title: t.title, url: t.url, text: t.text, source: `wikipedia:${t.lang}` });
+      if (out.length >= max) break;
+    }
+    return out;
+  })();
+  return withTimeout(work, 7000, []);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

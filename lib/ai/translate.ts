@@ -81,9 +81,9 @@ const LATIN_SIG: [string, RegExp, number?][] = [
   // German "die"/"was", Italian "fare", Spanish "capital" are deliberately absent;
   // they'd misread plain English). Diacritics are free, unambiguous signals.
   ['de', /[äöüß]/giu], ['de', B('der|das|und|ist|nicht|wie|wer|ich|möchte|eine?|mit|auf|für|wieviel|viele|hauptstadt|kaufen|wird|werden|sind|haben|gibt|kann|mehr|auch|sehr|dieser|diese|dieses|diesen')],
-  ['fr', /[œ]/giu], ['fr', B("les|est|qui|pour|avec|dans|une|vous|c'est|qu'est|je|du|des|aux|acheter|sera|seront|cette|ces|aussi|très|sont")],
-  ['es', /[ñ¿¡]/giu], ['es', B('los|las|una|por|quiero|está|están|para|del|comprar|este|esta|estos|será|serán|también|muy|sobre|su|sus|mis?|tus?|nuestr\\w*')],
-  ['it', B('lo|gli|che|vorrei|sono|della|dello|degli|delle|sulla|sullo|nella|nel|nello|nelle|negli|nei|alla|allo|alle|agli|per|una|comprare|più|anche|molto|questo|questa|questi|sarà|saranno|dove')],
+  ['fr', /[œ]/giu], ['fr', B("le|la|les|est|qui|pour|avec|dans|une|vous|c'est|qu'est|je|du|des|au|aux|acheter|sera|seront|cette|ces|aussi|très|sont")],
+  ['es', /[ñ¿¡]/giu], ['es', B('el|los|las|una|por|quiero|está|están|para|del|comprar|este|esta|estos|será|serán|también|muy|sobre|su|sus|mis?|tus?|nuestr\\w*')],
+  ['it', B('il|lo|gli|che|di|del|dei|dal|dalla|coi|col|vorrei|sono|della|dello|degli|delle|sulla|sullo|nella|nel|nello|nelle|negli|nei|alla|allo|alle|agli|per|una|comprare|più|anche|molto|questo|questa|questi|sarà|saranno|dove')],
   ['pt', /[ãõ]/giu], ['pt', B('você|não|são|está|estão|quero|uma|dos|das|para|comprar|este|esta|será|serão|também|muito|fazer|sobre')],
   // STRONG interrogatives — alone they're decisive (no English collision), so each
   // carries weight 2 to clear the ≥2 bar even in a short one-cue question

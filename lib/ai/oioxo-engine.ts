@@ -25,7 +25,7 @@ import { tryCompute } from './compute';
 import { rerank, scorePassages } from './rerank';
 import { buildBrief, briefToDigest, briefHasContent } from './brief';
 import { synthesizeText } from './synth';
-import { classifyNature, answer as researchAnswer } from './researcher';
+import { classifyNature, answer as researchAnswer, crossLingualEvidence } from './researcher';
 import { wikiFact } from './wikifact';
 import { weatherAnswer } from './weather';
 import { newsAnswer } from './news';
@@ -708,7 +708,7 @@ function cleanPassage(s: string): string {
  * Answer pipeline driven by the comprehension layer: understand → LEARN (gather
  * the way the concept needs) → ORGANIZE (synthesize the way the shape needs).
  */
-async function answerFlow(text: string, query: string, _fileCat: FileCat): Promise<OioxoReply> {
+async function answerFlow(text: string, query: string, _fileCat: FileCat, xl?: { text: string; lang: string }): Promise<OioxoReply> {
   const plan = comprehendAnswer(text);
 
   // MULTIMODAL: a how-to / explain question is better WITH a video — and we can
@@ -861,6 +861,18 @@ async function answerFlow(text: string, query: string, _fileCat: FileCat): Promi
     ).catch(() => [] as Evidence[]);
     evidence = [...evidence, ...more];
   }
+  // CROSS-LINGUAL SOURCING — still thin after the English web? The knowledge often
+  // lives in ANOTHER language (a region-native topic in the user's own language, or
+  // a subject English under-indexes). Pull the same topic from other-language
+  // Wikipedias, translated to English, so it reads like any other evidence and the
+  // final answer localizes to the user's language. Only when English fell short, so
+  // it never slows the common case; best-effort (bounded internally, never throws).
+  if (evidence.length < 3) {
+    const xlItems = await crossLingualEvidence(plan.concept || text, xl, 3).catch(() => []);
+    if (xlItems.length) {
+      evidence = [...evidence, ...xlItems.map((i) => ({ topic: text, text: i.text, source: { title: i.title, url: i.url, site: i.source } }))];
+    }
+  }
   // Drop navigational/marketing listings ("compare prices … and more") so both
   // the synthesis and any digest read real information, not a sales blurb.
   const informative = evidence.map((e) => ({ ...e, text: cleanPassage(e.text) })).filter((e) => e.text);
@@ -999,6 +1011,11 @@ export interface RespondOpts {
   history?: Turn[];
   /** Coarse locale for "in your area" framing (e.g. a city/country label). */
   locale?: string;
+  /** The user's ORIGINAL (pre-translation) message + its language — so a thin
+   *  English search can fall back to the user's own-language sources (cross-lingual
+   *  sourcing). Set internally by respond(); callers don't pass it. */
+  origText?: string;
+  origLang?: string;
 }
 
 export async function respond(message: string, opts: RespondOpts = {}): Promise<OioxoReply> {
@@ -1020,7 +1037,9 @@ export async function respond(message: string, opts: RespondOpts = {}): Promise<
     const code = pref ? LANG_CODE[pref.toLowerCase()] : null;
     if (code) lang = code;
   }
-  const reply = await respondCore(text, opts);
+  // Carry the original-language query so a thin English search can reach into the
+  // user's own-language sources (cross-lingual sourcing).
+  const reply = await respondCore(text, lang ? { ...opts, origText: original, origLang: lang } : opts);
   return lang ? localizeReply(reply, lang) : reply;
 }
 
@@ -1409,9 +1428,13 @@ async function respondCore(message: string, opts: RespondOpts = {}): Promise<Oio
     // timeout, the graceful fallback. Most good answers land in 1–4s; this only
     // bites a stalled gather (esp. on a weak device / slow network).
     const TIMED_OUT = Symbol('timeout');
+    const xl = opts.origLang && opts.origText ? { text: opts.origText, lang: opts.origLang } : undefined;
+    // 18s cap (was 15s): the common answer still lands in 1–4s; the extra headroom
+    // only covers the rare cross-lingual fallback (own-language sourcing + translate)
+    // so it isn't cut off — still a hard freeze guard, never an open-ended wait.
     const raced = await Promise.race([
-      answerFlow(qText, route.query || qText, fileCat),
-      new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), 15000)),
+      answerFlow(qText, route.query || qText, fileCat, xl),
+      new Promise<typeof TIMED_OUT>((r) => setTimeout(() => r(TIMED_OUT), 18000)),
     ]);
     if (raced === TIMED_OUT) return gracefulFallback(comprehendAnswer(qText).concept);
     const ans = raced;

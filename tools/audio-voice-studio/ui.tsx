@@ -211,6 +211,8 @@ export default function VoiceStudioPro() {
   const [ttsText, setTtsText] = React.useState('Hello, type your script here.');
   const [ttsLang, setTtsLang] = React.useState('en');
   const [ttsStyle, setTtsStyle] = React.useState<VoiceStyle>(VOICE_STYLES[0]);
+  // On-device transcript per clip id (Whisper) → transcript panel + SRT export.
+  const [transcripts, setTranscripts] = React.useState<Record<string, { start: number; end: number; text: string }[]>>({});
 
   const recorderRef = React.useRef<MediaRecorder | null>(null);
   const recChunks = React.useRef<Blob[]>([]);
@@ -535,6 +537,39 @@ export default function VoiceStudioPro() {
     } finally { setBusy(''); }
   };
 
+  // Transcribe a clip ON-DEVICE (Whisper) → store timed lines, offset to the
+  // clip's timeline position. Engine was in the repo but never imported here.
+  const transcribeClip = async (id: string) => {
+    const c = doc.clips.find(x => x.id === id);
+    if (!c) { toastFor('Select a clip first'); return; }
+    const entry = buffers.current.get(c.bufferKey);
+    if (!entry) return;
+    if (!(await guard())) return;
+    setBusy('Transcribing on your device…');
+    setProgress(0);
+    try {
+      const { transcribe } = await import('@/engines/transcribe');
+      const wav = audio.encodeWav(entry.buffer);
+      const res = await transcribe(wav, {
+        size: 'base',
+        onProgress: (p) => { setBusy(p.phase || 'Transcribing…'); setProgress(Math.round((p.ratio || 0) * 100)); },
+      });
+      const lines = res.chunks.map(ch => ({ start: c.start + ch.start, end: c.start + ch.end, text: (ch.text || '').trim() })).filter(l => l.text);
+      setTranscripts(t => ({ ...t, [id]: lines }));
+      toastFor(`Transcribed ${lines.length} lines — nothing left your device`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Transcribe failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
+  const downloadSrt = async () => {
+    const all = Object.values(transcripts).flat().sort((a, b) => a.start - b.start);
+    if (!all.length) { toastFor('Transcribe a clip first'); return; }
+    const { chunksToSrt } = await import('@/engines/transcribe');
+    const blob = new Blob([chunksToSrt(all)], { type: 'application/x-subrip' });
+    downloadBlob(blob, `${safeFilename(doc.name)}.srt`);
+  };
+
   const splitClip = (id: string, t: number) => {
     const c = doc.clips.find(x => x.id === id);
     if (!c) return;
@@ -711,6 +746,8 @@ export default function VoiceStudioPro() {
               {recording ? <><Square className="h-3 w-3" /> {fmtT(recordTime)}</> : <><Mic className="h-3.5 w-3.5" /> Record</>}
             </button>
             <StudioButton variant="ghost" size="sm" onClick={() => setTtsDialog(true)}><Wand2 className="h-3.5 w-3.5" /> TTS</StudioButton>
+            <StudioButton variant="ghost" size="sm" onClick={() => doc.selectedId ? void transcribeClip(doc.selectedId) : toastFor('Select a clip first')} title="Transcribe the selected clip on your device"><FileText className="h-3.5 w-3.5" /> Transcribe</StudioButton>
+            {Object.keys(transcripts).length > 0 && <StudioButton variant="ghost" size="sm" onClick={() => void downloadSrt()} title="Export transcript as SRT subtitles">SRT</StudioButton>}
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
             <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>

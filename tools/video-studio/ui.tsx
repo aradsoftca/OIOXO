@@ -537,6 +537,55 @@ export default function VideoStudioPro() {
     setTextDialogClip(c.id);
   };
 
+  // Auto-captions: transcribe the first video clip's audio ON-DEVICE (Whisper
+  // via engines/subtitle/auto) and drop one styled TextClip per spoken chunk on
+  // the text track, timed to where that clip sits on the timeline. The engine
+  // was already in the repo — the Video Studio just never called it.
+  const autoCaption = async () => {
+    const firstVideo = doc.clips.find(c => c.kind === 'video') as VideoClip | undefined;
+    const item = firstVideo ? mediaMap.get(firstVideo.mediaId) : undefined;
+    if (!firstVideo || !item || item.kind !== 'video') { toastFor('Add a video clip first'); return; }
+    if (!(await guard())) return;
+    setBusy('Listening — transcribing on your device…');
+    setProgress(0);
+    try {
+      const { videoToCaptions } = await import('@/engines/subtitle/auto');
+      const chunks = await videoToCaptions(item.file, {
+        size: device.current.tier === 'low' ? 'tiny' : 'base',
+        onProgress: (p) => { setBusy(p.phase + '…'); setProgress(Math.round(p.ratio * 100)); },
+      });
+      if (!chunks.length) { toastFor('No speech detected'); return; }
+      const next = cloneDoc(doc);
+      const tt = next.tracks.find(t => t.kind === 'text');
+      if (!tt) return;
+      // Map source-time chunks onto timeline time: account for the clip's
+      // srcStart/speed and where it starts on the timeline.
+      const toTimeline = (srcT: number) => firstVideo.start + (srcT - firstVideo.srcStart) / Math.max(0.01, firstVideo.speed);
+      let added = 0;
+      for (const ch of chunks) {
+        const start = Math.max(0, toTimeline(ch.start));
+        const end = toTimeline(ch.end);
+        const dur = Math.max(0.4, end - start);
+        if (!ch.text.trim()) continue;
+        next.clips.push({
+          id: tid(), kind: 'text', trackId: tt.id,
+          start, duration: dur,
+          text: ch.text.trim(), font: FONTS[0], size: 64, color: '#ffffff',
+          weight: 800, italic: false,
+          outline: true, outlineColor: '#000000', outlineWidth: 5,
+          pos: 'bottom', anim: 'fade', align: 'center',
+        });
+        added++;
+      }
+      commit(`auto-caption (${added})`, next);
+      toastFor(`Added ${added} captions — on-device, nothing uploaded`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Captioning failed');
+    } finally {
+      setBusy(''); setProgress(0);
+    }
+  };
+
   const updateClip = (id: string, mut: (c: TimelineClip) => void, label = 'edit clip') => {
     const next = cloneDoc(doc);
     const c = next.clips.find(x => x.id === id);
@@ -1093,6 +1142,7 @@ export default function VideoStudioPro() {
           <StudioPanel title="Add">
             <div className="space-y-1.5">
               <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
             </div>
           </StudioPanel>
           <StudioPanel title="Color grade">

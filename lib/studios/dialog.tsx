@@ -21,11 +21,13 @@ export interface DialogProps {
   closeOnBackdrop?: boolean;
 }
 
+// M3: never exceed the viewport on phones. The fixed px widths clipped the
+// footer/buttons on 360px screens — cap each at calc(100vw - 2rem).
 const WIDTHS = {
-  sm: 'w-[360px]',
-  md: 'w-[460px]',
-  lg: 'w-[600px]',
-  xl: 'w-[820px]',
+  sm: 'w-full max-w-[360px]',
+  md: 'w-full max-w-[460px]',
+  lg: 'w-full max-w-[600px]',
+  xl: 'w-full max-w-[820px]',
   full: 'w-[92vw]',
 };
 

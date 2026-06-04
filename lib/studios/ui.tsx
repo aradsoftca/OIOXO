@@ -6,9 +6,21 @@ import { StudioResponsive, MobilePanelHost, useResponsiveStudio } from './respon
 import { ToastProvider } from './toast';
 import { ShortcutsProvider } from './shortcuts-overlay';
 
+// M4: grabbable slider thumbs. Native range thumbs are ~6-10px; on touch they
+// need ~22-28px. Injected once per shell so every StudioSlider benefits.
+const STUDIO_SHELL_CSS = `
+.studio-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:9999px;background:#fff;border:2px solid #22d3ee;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.studio-range::-moz-range-thumb{width:18px;height:18px;border-radius:9999px;background:#fff;border:2px solid #22d3ee;cursor:pointer}
+@media (pointer:coarse){
+.studio-range::-webkit-slider-thumb{width:26px;height:26px}
+.studio-range::-moz-range-thumb{width:26px;height:26px}
+}
+`;
+
 export function StudioShell({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <StudioResponsive>
+      <style>{STUDIO_SHELL_CSS}</style>
       <ToastProvider>
         <ShortcutsProvider>
           <MobilePanelHost>
@@ -205,7 +217,9 @@ export function StudioButton({
       title={title}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors',
-        size === 'sm' ? 'h-7 px-2 text-xs' : 'h-8 px-3 text-sm',
+        // M4 (mobile): finger-sized on phones, compact on >=sm. Was a flat
+        // h-7/h-8 everywhere — below the 44px touch-target floor.
+        size === 'sm' ? 'h-9 px-2.5 text-xs sm:h-7 sm:px-2' : 'h-10 px-3.5 text-sm sm:h-8 sm:px-3',
         variant === 'ghost'   && 'text-zinc-300 hover:bg-white/5 hover:text-white',
         variant === 'primary' && 'bg-cyan-500 text-zinc-900 hover:bg-cyan-400',
         variant === 'danger'  && 'text-rose-300 hover:bg-rose-500/10',
@@ -253,7 +267,9 @@ export function StudioSlider({
       <input
         type="range" value={value} min={min} max={max} step={step}
         onChange={e => onChange(parseFloat(e.target.value))}
-        className="h-1.5 w-full appearance-none rounded-full bg-white/10 outline-none"
+        // M4: taller track on phones so the thumb is grabbable (was h-1.5 = ~6px,
+        // ungrabbable). M5: touch-action:none so dragging doesn't scroll the page.
+        className="studio-range h-2.5 sm:h-1.5 w-full appearance-none rounded-full bg-white/10 outline-none [touch-action:none]"
         style={{
           background: `linear-gradient(to right, ${color} 0%, ${color} ${((value - min) / (max - min)) * 100}%, rgba(255,255,255,.1) ${((value - min) / (max - min)) * 100}%, rgba(255,255,255,.1) 100%)`,
         }}

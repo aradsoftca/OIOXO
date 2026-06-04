@@ -280,7 +280,16 @@ export async function applyFormFieldsToPdf(srcBytes: ArrayBuffer, fields: PdfFor
   return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
 }
 
-export async function encryptPdfWithMetadata(srcBytes: ArrayBuffer, security: PdfSecurity, watermarkText?: string): Promise<Blob> {
+/**
+ * ⚠️ NOT ENCRYPTION. This only stamps a "password-protected" watermark and
+ * renames the document title/subject — the PDF stays fully readable with no
+ * password. Do NOT surface this as "password protect" / "encrypt" in any UI:
+ * that would be a dangerous, false security claim. Kept only as a visual
+ * "restricted — please don't share" marker. Real AES encryption needs a
+ * qpdf/pdfcpu WASM lib (see STUDIO_ROADMAP.md Wave 0.3) and is not implemented
+ * here. Renamed from `encryptPdfWithMetadata` so the name can't mislead.
+ */
+export async function markPdfRestricted(srcBytes: ArrayBuffer, security: PdfSecurity, watermarkText?: string): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb, degrees } = await import('pdf-lib');
   const pdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
   if (watermarkText) {

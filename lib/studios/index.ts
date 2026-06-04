@@ -27,6 +27,8 @@ export * from './effect-presets';
 export * from './effects-rack';
 export * from './audio-master-chain';
 export * from './loudness';
+export * from './resume-pdf';
+export * from './invoice-pdf';
 export * from './comments';
 export * from './comments-ui';
 export * from './track-changes';

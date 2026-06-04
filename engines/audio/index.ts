@@ -7,6 +7,7 @@
  */
 
 import * as dsp from './dsp';
+import { normalizeLoudness } from '@/lib/studios/loudness';
 import { watermarkOnSync, WM_DOMAIN, WM_MADE_WITH } from '@/lib/watermark/config';
 
 let _ctx: AudioContext | null = null;
@@ -124,6 +125,14 @@ export function echo(ab: AudioBuffer, delaySec = 0.3, decay = 0.4): AudioBuffer 
 export function reverb(ab: AudioBuffer, amount = 0.5): AudioBuffer {
   return applyDsp(ab, (x, sr) => dsp.reverb(x, sr, amount), 0.6);
 }
+/** Real feed-forward compressor (attack/release ballistics), not a static trim. */
+export function compress(ab: AudioBuffer, thresholdDb: number, ratio: number, attackMs = 5, releaseMs = 100, makeupDb = 0): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.compress(x, sr, thresholdDb, ratio, attackMs / 1000, releaseMs / 1000, makeupDb));
+}
+/** Downward noise gate — attenuates below threshold. */
+export function gate(ab: AudioBuffer, thresholdDb: number): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.gate(x, sr, thresholdDb));
+}
 
 /** Per-channel DSP that changes length (pitch/tempo) — output sized to result. */
 function applyResizing(ab: AudioBuffer, fn: (x: Float32Array) => Float32Array): AudioBuffer {
@@ -195,6 +204,20 @@ export function normalize(ab: AudioBuffer, targetDb = -1): AudioBuffer {
   if (peak === 0) return ab;
   const targetLin = Math.pow(10, targetDb / 20);
   return gain(ab, targetLin / peak);
+}
+
+/**
+ * Loudness-normalize to a LUFS target (BS.1770), true-peak limited. This is the
+ * honest "Normalize to −16 LUFS / Broadcast-safe" operation — replaces the old
+ * peak/RMS normalize that didn't measure loudness at all.
+ */
+export function loudnessNormalize(ab: AudioBuffer, targetLufs = -16, truePeakCeilingDb = -1): AudioBuffer {
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < ab.numberOfChannels; c++) channels.push(ab.getChannelData(c));
+  const res = normalizeLoudness(channels, ab.sampleRate, targetLufs, truePeakCeilingDb);
+  const out = newBuffer(ab.numberOfChannels, ab.length, ab.sampleRate);
+  for (let c = 0; c < ab.numberOfChannels; c++) out.getChannelData(c).set(res.channels[c]);
+  return out;
 }
 
 export function reverse(ab: AudioBuffer): AudioBuffer {

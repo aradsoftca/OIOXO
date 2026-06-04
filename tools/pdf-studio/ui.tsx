@@ -1,0 +1,1080 @@
+'use client';
+
+import * as React from 'react';
+import {
+  Loader2, Download, Plus, Trash2, RotateCw, Copy, ChevronLeft, ChevronRight,
+  Type as TypeIcon, SquareDashed, Image as ImageIcon, Hash, FileText, Highlighter,
+  PenTool, Eraser, Minus, Circle as CircleIcon, Save, Upload, Undo2, Redo2, X,
+  MousePointer2, Signature, FileSignature, Sparkles, Shield, ScanText, MessageSquare,
+  Droplets, Scissors, FileCheck2, FileType2,
+} from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useUsageGate } from '@/components/usage/use-usage-gate';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+
+const POLICY_KEY = 'pdf-studio';
+import { rasterizePdf } from '@/engines/pdf/rasterize';
+import { buildPdf, type PageRef, type Annotation } from '@/engines/pdf/studio';
+import {
+  StudioShell, StudioTopBar, StudioBody, StudioToolDock, StudioToolButton,
+  StudioPanel, StudioSidebar, StudioCanvasArea, StudioStatusBar,
+  StudioButton, StudioSlider, StudioDivider,
+  UndoStack, newProject, saveProject, listProjects, loadProject,
+  type StudioProject, downloadBlob, safeFilename,
+  useShortcuts, formatCombo, blankCanvas,
+  deskewCanvas, findPii,
+  ocrCanvas, OCR_LANGUAGES, type OcrResult,
+  usePinchPan, useRafThrottle,
+  CommentsModel, CommentsThread, CommentsBadge, CommentsOverviewPanel,
+  type Comment, type CommentAnchor, pickPeerColor,
+  applyWatermarkToPdf, splitPdf, pdfToDocx, makeSearchablePdf,
+  applyFormFieldsToPdf, type PdfFormField, type PdfWatermark,
+  HelpButton, useRegisterShortcuts,
+  EmptyState, pushToast,
+  SharedDialog,
+} from '@/lib/studios';
+
+type Tool = 'select' | 'text' | 'draw' | 'sign' | 'highlight' | 'line' | 'ellipse' | 'rect' | 'whiteout' | 'image';
+interface RasterPage { canvas: HTMLCanvasElement; w: number; h: number }
+interface DocState {
+  name: string;
+  pages: PageRef[];
+  annotations: Record<string, Annotation[]>;
+  selectedId: string | null;
+  pageNumbers: boolean;
+  watermarkText: string;
+  watermarkEnabled: boolean;
+}
+const cloneDoc = (d: DocState): DocState => ({
+  ...d,
+  pages: d.pages.map(p => ({ ...p })),
+  annotations: Object.fromEntries(Object.entries(d.annotations).map(([k, v]) => [k, v.map(a => ({ ...a }))])),
+});
+const NEW_DOC = (): DocState => ({
+  name: 'Untitled', pages: [], annotations: {}, selectedId: null,
+  pageNumbers: false, watermarkText: '', watermarkEnabled: false,
+});
+
+let _sid = 0, _pid = 0;
+const ptsToStr = (pts: number[]) => { let s = ''; for (let k = 0; k < pts.length; k += 2) s += `${(pts[k] * 100).toFixed(2)},${(pts[k + 1] * 100).toFixed(2)} `; return s.trim(); };
+
+const TOOLS: { tool: Tool; label: string; key: string; icon: React.ReactNode }[] = [
+  { tool: 'select', label: 'Select', key: 'v', icon: <MousePointer2 className="h-4 w-4" /> },
+  { tool: 'text', label: 'Text', key: 't', icon: <TypeIcon className="h-4 w-4" /> },
+  { tool: 'draw', label: 'Draw', key: 'd', icon: <PenTool className="h-4 w-4" /> },
+  { tool: 'sign', label: 'Signature', key: 's', icon: <FileSignature className="h-4 w-4" /> },
+  { tool: 'highlight', label: 'Highlight', key: 'h', icon: <Highlighter className="h-4 w-4" /> },
+  { tool: 'line', label: 'Line', key: 'l', icon: <Minus className="h-4 w-4" /> },
+  { tool: 'ellipse', label: 'Ellipse', key: 'o', icon: <CircleIcon className="h-4 w-4" /> },
+  { tool: 'rect', label: 'Rect / Redact', key: 'r', icon: <SquareDashed className="h-4 w-4" /> },
+  { tool: 'whiteout', label: 'Whiteout', key: 'e', icon: <Eraser className="h-4 w-4" /> },
+  { tool: 'image', label: 'Image', key: 'i', icon: <ImageIcon className="h-4 w-4" /> },
+];
+
+export default function PdfStudioPro() {
+  const { guard, gate } = useUsageGate('pdf');
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
+  const [doc, setDoc] = React.useState<DocState>(() => NEW_DOC());
+  const stack = React.useRef(new UndoStack<DocState>(80));
+  const [, force] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => { stack.current.reset(cloneDoc(doc), 'init'); }, []);
+
+  const [sources, setSources] = React.useState<Record<string, ArrayBuffer>>({});
+  const [raster, setRaster] = React.useState<Record<string, RasterPage[]>>({});
+
+  const commit = React.useCallback((label: string, next: DocState) => {
+    setDoc(next);
+    stack.current.push(label, cloneDoc(next));
+    force();
+  }, []);
+
+  const undo = () => { const p = stack.current.undo(cloneDoc(doc)); if (p) { setDoc(p); force(); } };
+  const redo = () => { const p = stack.current.redo(); if (p) { setDoc(p); force(); } };
+
+  const [compressLevel, setCompressLevel] = React.useState<'none' | 'light' | 'balanced' | 'strong'>('none');
+  const [tool, setTool] = React.useState<Tool>('text');
+  const [textColor, setTextColor] = React.useState('#000000');
+  const [textSize, setTextSize] = React.useState(16);
+  const [penWidth, setPenWidth] = React.useState(3);
+  const [livePts, setLivePts] = React.useState<number[]>([]);
+  const moving = React.useRef<{ pageId: string; idx: number; offX: number; offY: number } | null>(null);
+  const drawing = React.useRef<number[] | null>(null);
+  const dragRect = React.useRef<{ nx: number; ny: number } | null>(null);
+  const pendingImgPos = React.useRef<{ nx: number; ny: number } | null>(null);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const imgRef = React.useRef<HTMLInputElement | null>(null);
+  const editorRef = React.useRef<HTMLDivElement | null>(null);
+  const editorWrapRef = React.useRef<HTMLDivElement | null>(null);
+  const [editorZoom, setEditorZoom] = React.useState(1);
+  const [editorPan, setEditorPan] = React.useState({ x: 0, y: 0 });
+  usePinchPan({ ref: editorWrapRef, zoom: editorZoom, pan: editorPan, setZoom: setEditorZoom, setPan: setEditorPan, minZoom: 0.3, maxZoom: 5 });
+
+  const [busy, setBusy] = React.useState('');
+  const [progress, setProgress] = React.useState(0);
+  const [toast, setToast] = React.useState('');
+  const [exportDialog, setExportDialog] = React.useState(false);
+  const [openDialog, setOpenDialog] = React.useState(false);
+  const [signDialog, setSignDialog] = React.useState(false);
+  const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
+  const [signaturePng, setSignaturePng] = React.useState<ArrayBuffer | null>(null);
+  const commentsModel = React.useRef<CommentsModel>(new CommentsModel());
+  const [comments, setComments] = React.useState<Comment[]>([]);
+  const [showCommentsPanel, setShowCommentsPanel] = React.useState(false);
+  const [commentAuthor, setCommentAuthor] = React.useState('Me');
+  const commentColor = React.useMemo(() => pickPeerColor(commentAuthor), [commentAuthor]);
+
+  React.useEffect(() => {
+    return commentsModel.current.onChange(s => setComments([...s.comments]));
+  }, []);
+
+  const [watermarkDialog, setWatermarkDialog] = React.useState(false);
+  const [splitDialog, setSplitDialog] = React.useState(false);
+  const [formFields, setFormFields] = React.useState<PdfFormField[]>([]);
+
+  const buildSourceBytes = async (): Promise<ArrayBuffer | null> => {
+    if (!doc.pages.length) return null;
+    const blob = await buildPdf({ sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers });
+    return await blob.arrayBuffer();
+  };
+
+  const applyWatermark = async (watermark: PdfWatermark) => {
+    if (!(await guard())) return;
+    setBusy('Applying watermark…');
+    try {
+      const src = await buildSourceBytes();
+      if (!src) return;
+      const wm = await applyWatermarkToPdf(src, watermark);
+      downloadBlob(wm, `${safeFilename(doc.name)}-watermark.pdf`);
+      toastFor('Watermark applied');
+      setWatermarkDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'Watermark failed');
+    } finally { setBusy(''); }
+  };
+
+  const runSplit = async (ranges: Array<{ from: number; to: number; name?: string }>) => {
+    if (!(await guard())) return;
+    setBusy('Splitting…');
+    try {
+      const src = await buildSourceBytes();
+      if (!src) return;
+      const results = await splitPdf(src, ranges);
+      for (const r of results) downloadBlob(r.blob, r.name);
+      toastFor(`Split into ${results.length} files`);
+      setSplitDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'Split failed');
+    } finally { setBusy(''); }
+  };
+
+  const exportAsDocx = async () => {
+    if (!(await guard())) return;
+    setBusy('Converting to Word…');
+    try {
+      const src = await buildSourceBytes();
+      if (!src) return;
+      const blob = await pdfToDocx(src, doc.name);
+      downloadBlob(blob, `${safeFilename(doc.name)}.docx`);
+      toastFor('Exported to Word');
+    } catch (e) {
+      toastFor((e as Error).message || 'Conversion failed');
+    } finally { setBusy(''); }
+  };
+
+  const exportSearchable = async () => {
+    if (!(await guard())) return;
+    setBusy('Running OCR + building searchable PDF…');
+    setProgress(0);
+    try {
+      const src = await buildSourceBytes();
+      if (!src) return;
+      const blob = await makeSearchablePdf(src, (page, total) => {
+        setBusy(`OCR page ${page}/${total}…`);
+        setProgress(Math.round((page / total) * 100));
+      });
+      downloadBlob(blob, `${safeFilename(doc.name)}-searchable.pdf`);
+      toastFor('Searchable PDF saved');
+    } catch (e) {
+      toastFor((e as Error).message || 'Searchable PDF failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
+  const toastFor = (m: string) => { pushToast(m); };
+
+  const selPage = doc.pages.find(p => p.id === doc.selectedId) ?? null;
+  const selRaster = selPage ? raster[selPage.srcId]?.[selPage.srcIndex] : null;
+
+  const addPdf = async (file: File) => {
+    if (!(await guard({ bytes: file.size }))) return;
+    setBusy('Reading PDF…');
+    setProgress(0);
+    try {
+      const bytes = await file.arrayBuffer();
+      const sid = `s${++_sid}`;
+      const rp = await rasterizePdf(bytes.slice(0), {
+        maxEdge: 1200,
+        onProgress: (p) => { setProgress(Math.round((p.page / p.pageCount) * 100)); setBusy(`Rendering page ${p.page}/${p.pageCount}…`); },
+      });
+      const pagesR: RasterPage[] = rp.map(r => ({ canvas: r.canvas, w: r.width, h: r.height }));
+      setSources(s => ({ ...s, [sid]: bytes }));
+      setRaster(r => ({ ...r, [sid]: pagesR }));
+      const next = cloneDoc(doc);
+      const added: PageRef[] = pagesR.map((_, i) => ({ id: `p${++_pid}`, srcId: sid, srcIndex: i, rotation: 0 }));
+      next.pages = [...next.pages, ...added];
+      if (!next.selectedId && added.length) next.selectedId = added[0].id;
+      if (!next.name || next.name === 'Untitled') next.name = file.name.replace(/\.pdf$/i, '');
+      commit('add pdf', next);
+    } catch (e) {
+      toastFor('Could not open PDF — may be password-protected');
+    } finally {
+      setBusy(''); setProgress(0);
+    }
+  };
+
+  const rotatePage = (id: string) => {
+    const next = cloneDoc(doc);
+    const p = next.pages.find(x => x.id === id);
+    if (p) p.rotation = (p.rotation + 90) % 360;
+    commit('rotate', next);
+  };
+  const deletePage = (id: string) => {
+    const next = cloneDoc(doc);
+    next.pages = next.pages.filter(p => p.id !== id);
+    delete next.annotations[id];
+    if (next.selectedId === id) next.selectedId = next.pages[0]?.id ?? null;
+    commit('delete', next);
+  };
+  const duplicatePage = (id: string) => {
+    const next = cloneDoc(doc);
+    const i = next.pages.findIndex(p => p.id === id);
+    if (i < 0) return;
+    const copy = { ...next.pages[i], id: `p${++_pid}` };
+    next.pages.splice(i + 1, 0, copy);
+    commit('duplicate', next);
+  };
+  const movePage = (id: string, dir: -1 | 1) => {
+    const next = cloneDoc(doc);
+    const i = next.pages.findIndex(p => p.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= next.pages.length) return;
+    [next.pages[i], next.pages[j]] = [next.pages[j], next.pages[i]];
+    commit('reorder', next);
+  };
+
+  const addAnno = (pageId: string, a: Annotation) => {
+    const next = cloneDoc(doc);
+    next.annotations[pageId] = [...(next.annotations[pageId] ?? []), a];
+    commit('annotate', next);
+  };
+  const delAnno = (pageId: string, idx: number) => {
+    const next = cloneDoc(doc);
+    next.annotations[pageId] = (next.annotations[pageId] ?? []).filter((_, i) => i !== idx);
+    commit('remove anno', next);
+  };
+
+  const norm = (e: React.PointerEvent) => {
+    const r = editorRef.current!.getBoundingClientRect();
+    return { nx: (e.clientX - r.left) / r.width, ny: (e.clientY - r.top) / r.height };
+  };
+
+  const onEditorDown = (e: React.PointerEvent) => {
+    if (!selPage) return;
+    const p = norm(e);
+    if (tool === 'text') {
+      const text = window.prompt('Text:');
+      if (!text) return;
+      addAnno(selPage.id, { kind: 'text', nx: p.nx, ny: p.ny, text, size: textSize, color: textColor });
+    } else if (['rect', 'highlight', 'line', 'ellipse', 'whiteout'].includes(tool)) {
+      dragRect.current = p;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } else if (tool === 'draw') {
+      drawing.current = [p.nx, p.ny];
+      setLivePts([p.nx, p.ny]);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    } else if (tool === 'sign') {
+      if (!signaturePng) { setSignDialog(true); return; }
+      addAnno(selPage.id, { kind: 'image', nx: p.nx, ny: p.ny, nw: 0.2, nh: 0.08, bytes: signaturePng, png: true });
+    } else if (tool === 'image') {
+      pendingImgPos.current = p;
+      imgRef.current?.click();
+    }
+  };
+
+  const startMoveAnno = (e: React.PointerEvent, idx: number, a: Annotation) => {
+    if (!selPage || a.kind === 'draw') return;
+    e.stopPropagation();
+    const p = norm(e);
+    moving.current = { pageId: selPage.id, idx, offX: p.nx - (a as any).nx, offY: p.ny - (a as any).ny };
+  };
+
+  const onEditorMove = (e: React.PointerEvent) => {
+    if (drawing.current) {
+      const p = norm(e);
+      drawing.current.push(p.nx, p.ny);
+      setLivePts(drawing.current.slice());
+      return;
+    }
+    if (!moving.current) return;
+    const p = norm(e);
+    const { pageId, idx, offX, offY } = moving.current;
+    const cl = (v: number) => Math.max(0, Math.min(1, v));
+    setDoc(d => ({
+      ...d,
+      annotations: {
+        ...d.annotations,
+        [pageId]: (d.annotations[pageId] ?? []).map((an, j) => j === idx ? { ...an, nx: cl(p.nx - offX), ny: cl(p.ny - offY) } as Annotation : an),
+      },
+    }));
+  };
+
+  const onEditorUp = (e: React.PointerEvent) => {
+    if (drawing.current) {
+      if (selPage && drawing.current.length >= 4) {
+        addAnno(selPage.id, { kind: 'draw', pts: drawing.current, color: textColor, width: penWidth });
+      }
+      drawing.current = null;
+      setLivePts([]);
+      return;
+    }
+    if (moving.current) {
+      stack.current.push('move anno', cloneDoc(doc));
+      moving.current = null;
+      return;
+    }
+    if (dragRect.current && selPage) {
+      const s = dragRect.current;
+      const en = norm(e);
+      if (tool === 'line') {
+        if (Math.abs(en.nx - s.nx) > 0.01 || Math.abs(en.ny - s.ny) > 0.01) {
+          addAnno(selPage.id, { kind: 'line', nx: s.nx, ny: s.ny, nx2: en.nx, ny2: en.ny, color: textColor, width: 2 });
+        }
+      } else {
+        const nx = Math.min(s.nx, en.nx), ny = Math.min(s.ny, en.ny);
+        const nw = Math.abs(en.nx - s.nx), nh = Math.abs(en.ny - s.ny);
+        if (nw > 0.01 && nh > 0.01) {
+          if (tool === 'highlight') addAnno(selPage.id, { kind: 'rect', nx, ny, nw, nh, color: '#ffeb3b', opacity: 0.4 });
+          // whiteout & redact DESTROY the content underneath: redact:true makes
+          // buildPdf rasterize+flatten the page so the original text/vectors
+          // are physically gone — not just painted over (extractable).
+          else if (tool === 'whiteout') addAnno(selPage.id, { kind: 'rect', nx, ny, nw, nh, color: '#ffffff', opacity: 1, redact: true });
+          else if (tool === 'ellipse') addAnno(selPage.id, { kind: 'ellipse', nx, ny, nw, nh, color: textColor, width: 2 });
+          else if (tool === 'rect') addAnno(selPage.id, { kind: 'rect', nx, ny, nw, nh, color: '#000000', opacity: 1, redact: true });
+        }
+      }
+    }
+    dragRect.current = null;
+  };
+
+  const onImageFile = async (file: File) => {
+    if (!selPage || !pendingImgPos.current) return;
+    const p = pendingImgPos.current;
+    addAnno(selPage.id, {
+      kind: 'image', nx: p.nx, ny: p.ny, nw: 0.3, nh: 0.3,
+      bytes: await file.arrayBuffer(), png: /png$/i.test(file.type),
+    });
+  };
+
+  const [ocrDialog, setOcrDialog] = React.useState<OcrResult | null>(null);
+  const [ocrLang, setOcrLang] = React.useState('eng');
+
+  const runOcr = async () => {
+    if (!selPage || !selRaster) { toastFor('Open a page first'); return; }
+    if (!(await guard())) return;
+    setBusy('Loading OCR…');
+    setProgress(0);
+    try {
+      const result = await ocrCanvas(selRaster.canvas, ocrLang, (status, ratio) => {
+        setBusy(status || 'Recognizing…');
+        setProgress(Math.round(ratio * 100));
+      });
+      setOcrDialog(result);
+      toastFor(`Found ${result.words.length} words`);
+    } catch (e) {
+      toastFor((e as Error).message || 'OCR failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
+  const runAutoDeskew = async () => {
+    if (!selPage || !selRaster) { toastFor('Open a page first'); return; }
+    setBusy('Auto-deskewing…');
+    try {
+      const { angle, canvas } = deskewCanvas(selRaster.canvas);
+      if (Math.abs(angle) < 0.3) { toastFor('Page already straight'); return; }
+      const ras = { ...raster };
+      const arr = (ras[selPage.srcId] ?? []).slice();
+      arr[selPage.srcIndex] = { canvas, w: canvas.width, h: canvas.height };
+      ras[selPage.srcId] = arr;
+      setRaster(ras);
+      toastFor(`Rotated by ${angle.toFixed(1)}°`);
+    } finally { setBusy(''); }
+  };
+
+  const runSmartRedact = async () => {
+    if (!selPage) { toastFor('Open a page first'); return; }
+    setBusy('Scanning for sensitive info…');
+    try {
+      const bytes = sources[selPage.srcId];
+      if (!bytes) return;
+      const { default: pdfjsLib } = await import(/* webpackIgnore: false */ 'pdfjs-dist') as any;
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
+      const pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+      const page = await pdfDoc.getPage(selPage.srcIndex + 1);
+      const viewport = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      let added = 0;
+      const next = cloneDoc(doc);
+      const list = next.annotations[selPage.id] ?? [];
+      for (const item of content.items as any[]) {
+        const str = item.str ?? '';
+        const hits = findPii(str);
+        if (!hits.length) continue;
+        const [a, b, c, d, e, f] = item.transform as number[];
+        const baseX = e;
+        const baseY = f;
+        const charW = item.width / Math.max(1, str.length);
+        const h = Math.abs(d || item.height || 12);
+        for (const hit of hits) {
+          const x = baseX + hit.start * charW;
+          const w = (hit.end - hit.start) * charW;
+          const nx = x / viewport.width;
+          const ny = 1 - (baseY + h) / viewport.height;
+          const nw = w / viewport.width;
+          const nh = h * 1.4 / viewport.height;
+          list.push({ kind: 'rect', nx, ny, nw, nh, color: '#000000', opacity: 1, redact: true });
+          added++;
+        }
+      }
+      next.annotations[selPage.id] = list;
+      commit('smart redact', next);
+      toastFor(added ? `Found and redacted ${added} item${added === 1 ? '' : 's'}` : 'No sensitive info found');
+    } catch (e) {
+      toastFor('Could not scan this page');
+    } finally { setBusy(''); }
+  };
+
+  const exportPdf = async () => {
+    if (!doc.pages.length) return;
+    const pagesHit = checkLever(POLICY_KEY, 'pages', doc.pages.length, isPro);
+    if (pagesHit) { policyGate.fire(pagesHit); return; }
+    if (!(await guard())) return;
+    const hasRedaction = Object.values(doc.annotations).some(list => list.some(a => a.kind === 'rect' && a.redact));
+    setBusy(hasRedaction ? 'Building PDF — flattening redacted pages…' : 'Building PDF…');
+    setProgress(hasRedaction ? 0 : 50);
+    try {
+      let blob = await buildPdf({
+        sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers,
+        onProgress: hasRedaction ? (r) => setProgress(Math.round(r * 100)) : undefined,
+      });
+      let note = 'Exported';
+      if (compressLevel !== 'none') {
+        setBusy('Reducing file size…'); setProgress(0);
+        const { compressPdf } = await import('@/lib/studios');
+        const buf = await blob.arrayBuffer();
+        const { blob: smaller, ratio } = await compressPdf(buf, compressLevel, (p, t) => setProgress(Math.round((p / t) * 100)));
+        blob = smaller;
+        note = ratio < 1 ? `Exported — ${Math.round((1 - ratio) * 100)}% smaller` : 'Exported (already optimized)';
+      }
+      downloadBlob(blob, `${safeFilename(doc.name)}.pdf`);
+      toastFor(note);
+      setExportDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'Export failed');
+    } finally {
+      setBusy(''); setProgress(0);
+    }
+  };
+
+  const saveCurrent = async () => {
+    setBusy('Saving…');
+    try {
+      const proj = newProject('pdf', doc.name, { doc, sourceIds: Object.keys(sources) });
+      await saveProject(proj);
+      toastFor('Saved (re-import PDFs to reopen)');
+    } finally { setBusy(''); }
+  };
+
+  const openSaved = async () => {
+    const list = await listProjects('pdf');
+    setSavedList(list);
+    setOpenDialog(true);
+  };
+
+  const loadFromLibrary = async (id: string) => {
+    setBusy('Opening…');
+    try {
+      const p = await loadProject<{ doc: DocState; sourceIds: string[] }>(id);
+      if (!p) return;
+      setDoc(p.state.doc);
+      stack.current.reset(cloneDoc(p.state.doc), 'open');
+      toastFor('Re-import source PDFs to render');
+      setOpenDialog(false);
+    } finally { setBusy(''); }
+  };
+
+  useRegisterShortcuts([
+    {
+      label: 'Tools',
+      items: TOOLS.map(t => ({ combo: t.key, description: t.label })),
+    },
+    {
+      label: 'Pages',
+      items: [
+        { combo: 'left', description: 'Move page left' },
+        { combo: 'right', description: 'Move page right' },
+        { combo: 'delete', description: 'Delete page' },
+      ],
+    },
+    {
+      label: 'File',
+      items: [
+        { combo: 'mod+s', description: 'Save' },
+        { combo: 'mod+e', description: 'Export PDF' },
+        { combo: 'mod+o', description: 'Open library' },
+        { combo: 'mod+z', description: 'Undo' },
+        { combo: 'mod+shift+z', description: 'Redo' },
+      ],
+    },
+  ]);
+
+  useShortcuts([
+    ...TOOLS.map(t => ({ combo: t.key, handler: () => setTool(t.tool), description: t.label })),
+    { combo: 'mod+z', handler: undo },
+    { combo: 'mod+shift+z', handler: redo },
+    { combo: 'mod+s', handler: () => { void saveCurrent(); } },
+    { combo: 'mod+e', handler: () => setExportDialog(true) },
+    { combo: 'mod+o', handler: () => { void openSaved(); } },
+    { combo: 'delete', handler: () => doc.selectedId && deletePage(doc.selectedId) },
+    { combo: 'left', handler: () => doc.selectedId && movePage(doc.selectedId, -1) },
+    { combo: 'right', handler: () => doc.selectedId && movePage(doc.selectedId, 1) },
+  ]);
+
+  if (!doc.pages.length) {
+    return (
+      <StudioShell>
+        <StudioTopBar title="PDF Studio Pro" left={
+          <>
+            <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white">
+              <Upload className="h-3.5 w-3.5" /> Open
+              <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) for (const f of Array.from(fs)) await addPdf(f); e.target.value = ''; }} />
+            </label>
+            <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
+          </>
+        } />
+        <div
+          onDrop={async (e) => { e.preventDefault(); const fs = e.dataTransfer.files; if (fs) for (const f of Array.from(fs)) await addPdf(f); }}
+          onDragOver={(e) => e.preventDefault()}
+          className="flex flex-1 flex-col bg-[#0a0b0e]"
+        >
+          <EmptyState
+            icon={<FileText className="h-7 w-7" />}
+            title={busy || 'Open a PDF to start editing'}
+            description="Drop a PDF anywhere on this screen, or pick one below. Everything happens on your device — nothing uploads."
+            actions={[
+              { label: 'Open PDF', description: 'Pick one or more files', icon: <Upload className="h-4 w-4" />, onClick: () => fileRef.current?.click(), primary: true },
+              { label: 'Open from Library', description: 'Continue a saved project', icon: <FileText className="h-4 w-4" />, onClick: openSaved },
+            ]}
+            hints={[
+              { label: 'Organize, annotate, sign', description: 'Reorder pages, draw, type, redact, e-sign' },
+              { label: 'OCR + Smart Redact', description: 'Auto-find emails, phones, SSNs — auto-cover them' },
+              { label: 'Convert', description: 'Make searchable, export to Word, split, watermark' },
+            ]}
+          />
+        </div>
+        {gate}
+        {openDialog && <OpenDialog items={savedList} onCancel={() => setOpenDialog(false)} onPick={loadFromLibrary} />}
+      </StudioShell>
+    );
+  }
+
+  return (
+    <StudioShell>
+      {policyGate.element}
+      <StudioTopBar
+        title="PDF Studio Pro"
+        left={
+          <>
+            <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white">
+              <Upload className="h-3.5 w-3.5" /> Add PDF
+              <input type="file" accept="application/pdf" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) for (const f of Array.from(fs)) await addPdf(f); e.target.value = ''; }} />
+            </label>
+            <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
+            <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
+            <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>
+            <span className="ml-2 h-5 w-px bg-white/10" />
+            <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-40 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
+          </>
+        }
+        right={
+          <>
+            <button onClick={() => setShowCommentsPanel(s => !s)} className={cn('inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium', showCommentsPanel ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')} title="Comments">
+              <MessageSquare className="h-3.5 w-3.5" />
+              <CommentsBadge count={comments.filter(c => !c.resolved).length} />
+            </button>
+            <StudioButton variant="ghost" size="sm" onClick={undo} disabled={!stack.current.canUndo()}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
+            <StudioButton variant="ghost" size="sm" onClick={redo} disabled={!stack.current.canRedo()}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
+            <HelpButton />
+          </>
+        }
+      />
+
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-xs text-zinc-300">
+        <input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} className="h-6 w-8 rounded border border-white/10" title="Color" />
+        {tool === 'text' && (
+          <>
+            <span className="text-zinc-500">Size</span>
+            <input type="range" min={8} max={64} value={textSize} onChange={e => setTextSize(+e.target.value)} className="w-24" />
+            <span className="tabular-nums">{textSize}</span>
+          </>
+        )}
+        {tool === 'draw' && (
+          <>
+            <span className="text-zinc-500">Pen</span>
+            <input type="range" min={1} max={10} value={penWidth} onChange={e => setPenWidth(+e.target.value)} className="w-24" />
+            <span className="tabular-nums">{penWidth}</span>
+          </>
+        )}
+        {tool === 'sign' && (
+          <StudioButton size="sm" variant="soft" onClick={() => setSignDialog(true)}>{signaturePng ? 'Change signature' : 'Create signature…'}</StudioButton>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          <StudioButton size="sm" variant="soft" onClick={() => setWatermarkDialog(true)} title="Apply watermark to all pages"><Droplets className="h-3 w-3" /> Watermark</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => setSplitDialog(true)} title="Split into multiple PDFs"><Scissors className="h-3 w-3" /> Split</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void exportAsDocx()} title="Export as Word"><FileType2 className="h-3 w-3" /> Word</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void exportSearchable()} title="OCR then build searchable PDF"><FileCheck2 className="h-3 w-3" /> Searchable</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void runOcr()} title="Read text from this scanned page"><ScanText className="h-3 w-3" /> OCR</StudioButton>
+          <select value={ocrLang} onChange={e => setOcrLang(e.target.value)} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs text-zinc-100" title="OCR language">
+            {OCR_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
+          </select>
+          <StudioButton size="sm" variant="soft" onClick={() => void runSmartRedact()} title="Find emails, phones, SSNs and redact them"><Shield className="h-3 w-3" /> Smart Redact</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void runAutoDeskew()} title="Straighten a tilted scan"><Sparkles className="h-3 w-3" /> Deskew</StudioButton>
+          <label className="ml-2 flex items-center gap-1.5">
+            <input type="checkbox" checked={doc.pageNumbers} onChange={e => commit('page nums', { ...cloneDoc(doc), pageNumbers: e.target.checked })} />
+            <Hash className="h-3 w-3" /> Page numbers
+          </label>
+        </div>
+      </div>
+
+      <StudioBody>
+        <StudioToolDock>
+          {TOOLS.map(t => (
+            <StudioToolButton key={t.tool} active={tool === t.tool} label={t.label} hint={formatCombo(t.key)} onClick={() => setTool(t.tool)}>
+              {t.icon}
+            </StudioToolButton>
+          ))}
+        </StudioToolDock>
+
+        <StudioSidebar side="left" width={200}>
+          <StudioPanel title={`Pages · ${doc.pages.length}`}>
+            <div className="grid max-h-[70vh] grid-cols-2 gap-1.5 overflow-y-auto">
+              {doc.pages.map((p, i) => {
+                const rp = raster[p.srcId]?.[p.srcIndex];
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => setDoc(d => ({ ...d, selectedId: p.id }))}
+                    style={{ contentVisibility: 'auto', containIntrinsicSize: '0 120px' } as React.CSSProperties}
+                    className={cn('group relative cursor-pointer overflow-hidden rounded border bg-white', doc.selectedId === p.id ? 'border-cyan-400 ring-2 ring-cyan-400/40' : 'border-white/10 hover:border-white/30')}
+                  >
+                    <div className="grid aspect-[3/4] place-items-center" style={{ transform: `rotate(${p.rotation}deg)` }}>
+                      {rp ? <PreviewCanvas canvas={rp.canvas} /> : <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
+                    </div>
+                    <div className="absolute left-1 top-1 rounded bg-black/60 px-1.5 text-[9px] font-bold text-white">{i + 1}</div>
+                    <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-0.5 bg-black/70 p-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <IconBtn title="Move left" onClick={() => movePage(p.id, -1)}><ChevronLeft className="h-3 w-3" /></IconBtn>
+                      <IconBtn title="Rotate" onClick={() => rotatePage(p.id)}><RotateCw className="h-3 w-3" /></IconBtn>
+                      <IconBtn title="Duplicate" onClick={() => duplicatePage(p.id)}><Copy className="h-3 w-3" /></IconBtn>
+                      <IconBtn title="Delete" onClick={() => deletePage(p.id)}><Trash2 className="h-3 w-3" /></IconBtn>
+                      <IconBtn title="Move right" onClick={() => movePage(p.id, 1)}><ChevronRight className="h-3 w-3" /></IconBtn>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </StudioPanel>
+        </StudioSidebar>
+
+        <StudioCanvasArea className="flex items-center justify-center p-6 touch-none">
+          {selRaster && selPage ? (
+            <div ref={editorWrapRef} className="flex max-h-full max-w-full items-center justify-center" style={{ transform: `translate(${editorPan.x}px,${editorPan.y}px) scale(${editorZoom})`, transformOrigin: 'center center' }}>
+            <div
+              ref={editorRef}
+              className="relative max-h-full max-w-full shadow-2xl"
+              style={{ touchAction: 'none', cursor: tool === 'select' ? 'default' : 'crosshair', transform: `rotate(${selPage.rotation}deg)` }}
+              onPointerDown={onEditorDown}
+              onPointerMove={onEditorMove}
+              onPointerUp={onEditorUp}
+            >
+              <PreviewCanvas canvas={selRaster.canvas} max={720} />
+              {(doc.annotations[selPage.id] ?? []).map((a, i) => {
+                if (a.kind === 'text') return (
+                  <span key={i} onPointerDown={(e) => startMoveAnno(e, i, a)} onDoubleClick={() => delAnno(selPage.id, i)}
+                    className="absolute whitespace-nowrap cursor-move"
+                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, color: a.color, fontSize: a.size, fontWeight: 600, lineHeight: 1 }}>
+                    {a.text}
+                  </span>
+                );
+                if (a.kind === 'rect') return (
+                  <div key={i} onPointerDown={(e) => startMoveAnno(e, i, a)} onDoubleClick={() => delAnno(selPage.id, i)}
+                    title={a.redact ? 'Redaction — content underneath is permanently removed on export' : undefined}
+                    className={cn('absolute cursor-move', a.redact && 'outline outline-1 outline-rose-500/70')}
+                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, width: `${a.nw * 100}%`, height: `${a.nh * 100}%`, background: a.color, opacity: a.opacity ?? 1 }} />
+                );
+                if (a.kind === 'image') return (
+                  <div key={i} onPointerDown={(e) => startMoveAnno(e, i, a)} onDoubleClick={() => delAnno(selPage.id, i)}
+                    className="absolute cursor-move border border-dashed border-cyan-400/60"
+                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, width: `${a.nw * 100}%`, height: `${a.nh * 100}%`, background: 'rgba(34,211,238,.05)' }} />
+                );
+                return null;
+              })}
+              <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                {(doc.annotations[selPage.id] ?? []).map((a, i) => {
+                  if (a.kind === 'draw') return <polyline key={`d${i}`} points={ptsToStr(a.pts)} fill="none" stroke={a.color} strokeWidth={a.width} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />;
+                  if (a.kind === 'line') return <line key={`l${i}`} x1={a.nx * 100} y1={a.ny * 100} x2={a.nx2 * 100} y2={a.ny2 * 100} stroke={a.color} strokeWidth={a.width} vectorEffect="non-scaling-stroke" strokeLinecap="round" />;
+                  if (a.kind === 'ellipse') return <ellipse key={`e${i}`} cx={(a.nx + a.nw / 2) * 100} cy={(a.ny + a.nh / 2) * 100} rx={(a.nw / 2) * 100} ry={(a.nh / 2) * 100} fill="none" stroke={a.color} strokeWidth={a.width} vectorEffect="non-scaling-stroke" />;
+                  return null;
+                })}
+                {livePts.length > 2 && <polyline points={ptsToStr(livePts)} fill="none" stroke={textColor} strokeWidth={penWidth} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />}
+              </svg>
+            </div>
+            </div>
+          ) : (
+            <div className="text-sm text-zinc-500">Select a page from the sidebar</div>
+          )}
+        </StudioCanvasArea>
+      </StudioBody>
+
+      <StudioStatusBar>
+        <span>{doc.pages.length} pages</span>
+        <span>{Object.values(doc.annotations).reduce((s, a) => s + a.length, 0)} annotations</span>
+        <span className="ml-auto">{tool}</span>
+      </StudioStatusBar>
+
+      {busy && (
+        <div className="pointer-events-none fixed left-1/2 top-16 -translate-x-1/2 rounded-md bg-black/80 px-4 py-2 text-sm text-white backdrop-blur">
+          <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" /> {busy}
+          {progress > 0 && <div className="mt-1 h-1 w-48 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-cyan-400 transition-all" style={{ width: `${progress}%` }} /></div>}
+        </div>
+      )}
+      {toast && <div className="pointer-events-none fixed bottom-12 left-1/2 -translate-x-1/2 rounded-md bg-cyan-500/90 px-3 py-1.5 text-xs font-medium text-zinc-900 shadow-lg">{toast}</div>}
+      {gate}
+
+      <input ref={imgRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImageFile(f); e.target.value = ''; }} />
+
+      {exportDialog && (
+        <Dialog title="Export PDF" onCancel={() => setExportDialog(false)} onConfirm={exportPdf} confirmLabel="Download">
+          <label className="flex items-center gap-2 text-xs text-zinc-300">
+            <input type="checkbox" checked={doc.pageNumbers} onChange={e => commit('page nums', { ...cloneDoc(doc), pageNumbers: e.target.checked })} />
+            Add page numbers
+          </label>
+          <label className="flex items-center justify-between gap-2 text-xs text-zinc-300">
+            <span>Reduce file size</span>
+            <select value={compressLevel} onChange={e => setCompressLevel(e.target.value as typeof compressLevel)} className="rounded border border-white/10 bg-[#0a0b0e] px-2 py-1 text-xs text-zinc-100">
+              <option value="none">Off (keep vector text)</option>
+              <option value="light">Light — high quality</option>
+              <option value="balanced">Balanced</option>
+              <option value="strong">Strong — smallest</option>
+            </select>
+          </label>
+          {compressLevel !== 'none' && <div className="rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">Compression flattens pages to images — selectable text is lost. Best for scans/photos. We keep the original if it’s already smaller.</div>}
+          <div className="rounded bg-emerald-500/10 p-2 text-xs text-emerald-200">Redacted pages are flattened to an image so the hidden text is permanently removed — not just covered. Other pages keep their selectable vector text.</div>
+        </Dialog>
+      )}
+      {openDialog && <OpenDialog items={savedList} onCancel={() => setOpenDialog(false)} onPick={loadFromLibrary} />}
+      {showCommentsPanel && selPage && (
+        <div className="fixed right-0 top-[88px] bottom-0 z-40 flex w-80 flex-col border-l border-white/10 bg-[#0f1115] shadow-2xl">
+          <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
+            <div className="text-xs font-semibold text-zinc-100">Comments</div>
+            <button onClick={() => setShowCommentsPanel(false)} className="rounded p-1 text-zinc-400 hover:bg-white/5"><X className="h-3.5 w-3.5" /></button>
+          </div>
+          <div className="border-b border-white/5 px-3 py-2 text-[10px] text-zinc-400">
+            Author: <input value={commentAuthor} onChange={e => setCommentAuthor(e.target.value)} className="ml-1 rounded border border-white/10 bg-[#0a0b0e] px-1.5 py-0.5 text-zinc-100" />
+          </div>
+          <div className="border-b border-white/5 p-3">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Page {doc.pages.findIndex(p => p.id === selPage.id) + 1}</div>
+            <CommentsThread
+              anchor={{ kind: 'page-rect', pageId: selPage.id, nx: 0, ny: 0, nw: 1, nh: 1 }}
+              comments={commentsModel.current.threadFor({ kind: 'page-rect', pageId: selPage.id, nx: 0, ny: 0, nw: 1, nh: 1 })}
+              currentUser={commentAuthor}
+              currentColor={commentColor}
+              onAdd={(text) => commentsModel.current.add({ kind: 'page-rect', pageId: selPage.id, nx: 0, ny: 0, nw: 1, nh: 1 }, commentAuthor, commentColor, text)}
+              onReply={(parentId, text) => commentsModel.current.reply(parentId, commentAuthor, commentColor, text)}
+              onResolve={(id) => commentsModel.current.resolve(id, true)}
+              onUnresolve={(id) => commentsModel.current.resolve(id, false)}
+              onDelete={(id) => commentsModel.current.remove(id)}
+              onEdit={(id, text) => commentsModel.current.editText(id, text)}
+            />
+          </div>
+          <div className="flex-1 min-h-0">
+            <CommentsOverviewPanel
+              comments={comments}
+              currentUser={commentAuthor}
+              currentColor={commentColor}
+              onJumpTo={(anchor) => {
+                if (anchor.kind === 'page-rect') setDoc(d => ({ ...d, selectedId: anchor.pageId }));
+              }}
+              onResolve={(id) => commentsModel.current.resolve(id, true)}
+              onUnresolve={(id) => commentsModel.current.resolve(id, false)}
+              onDelete={(id) => commentsModel.current.remove(id)}
+              onReply={(parentId, text) => commentsModel.current.reply(parentId, commentAuthor, commentColor, text)}
+              onEdit={(id, text) => commentsModel.current.editText(id, text)}
+            />
+          </div>
+        </div>
+      )}
+      {watermarkDialog && (
+        <WatermarkDialog onCancel={() => setWatermarkDialog(false)} onApply={(w) => void applyWatermark(w)} />
+      )}
+      {splitDialog && (
+        <SplitDialog totalPages={doc.pages.length} onCancel={() => setSplitDialog(false)} onSplit={(r) => void runSplit(r)} />
+      )}
+      {ocrDialog && (
+        <Dialog title={`Extracted text · ${ocrDialog.words.length} words`} wide onCancel={() => setOcrDialog(null)} onConfirm={() => {
+          navigator.clipboard?.writeText(ocrDialog.text);
+          toastFor('Copied to clipboard');
+          setOcrDialog(null);
+        }} confirmLabel="Copy all">
+          <div className="max-h-96 overflow-y-auto rounded border border-white/10 bg-[#0a0b0e] p-3 text-xs whitespace-pre-wrap text-zinc-200">
+            {ocrDialog.text || <span className="text-zinc-500">No text detected</span>}
+          </div>
+        </Dialog>
+      )}
+      {signDialog && (
+        <SignatureDialog onCancel={() => setSignDialog(false)} onSave={(bytes) => { setSignaturePng(bytes); setSignDialog(false); setTool('sign'); toastFor('Signature ready — click anywhere on the page'); }} />
+      )}
+    </StudioShell>
+  );
+}
+
+function WatermarkDialog({ onCancel, onApply }: { onCancel: () => void; onApply: (w: PdfWatermark) => void }) {
+  const [text, setText] = React.useState('DRAFT');
+  const [color, setColor] = React.useState('#888888');
+  const [opacity, setOpacity] = React.useState(0.4);
+  const [fontSize, setFontSize] = React.useState(72);
+  const [rotation, setRotation] = React.useState(-30);
+  const [position, setPosition] = React.useState<PdfWatermark['position']>('center');
+  return (
+    <Dialog title="Apply watermark" onCancel={onCancel} onConfirm={() => onApply({ text, color, opacity, fontSize, rotation, position })} confirmLabel="Apply">
+      <div className="space-y-3 text-xs">
+        <label className="block">
+          <div className="mb-1 text-zinc-400">Text</div>
+          <input value={text} onChange={e => setText(e.target.value)} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-zinc-100" />
+        </label>
+        <div className="flex items-center gap-2">
+          <label className="text-zinc-400">Color</label>
+          <input type="color" value={color} onChange={e => setColor(e.target.value)} className="h-6 w-8 rounded border border-white/10" />
+          <label className="text-zinc-400 ml-3">Opacity</label>
+          <input type="range" min={0.05} max={1} step={0.05} value={opacity} onChange={e => setOpacity(parseFloat(e.target.value))} className="flex-1" />
+          <span className="w-8 tabular-nums">{Math.round(opacity * 100)}%</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <div className="mb-1 text-zinc-400">Font size</div>
+            <input type="number" value={fontSize} onChange={e => setFontSize(parseInt(e.target.value) || 72)} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-zinc-100" />
+          </label>
+          <label className="block">
+            <div className="mb-1 text-zinc-400">Rotation (°)</div>
+            <input type="number" value={rotation} onChange={e => setRotation(parseInt(e.target.value) || 0)} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-zinc-100" />
+          </label>
+        </div>
+        <label className="block">
+          <div className="mb-1 text-zinc-400">Position</div>
+          <select value={position} onChange={e => setPosition(e.target.value as PdfWatermark['position'])} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-zinc-100">
+            <option value="center">Center</option>
+            <option value="top">Top</option>
+            <option value="bottom">Bottom</option>
+            <option value="top-right">Top right</option>
+            <option value="bottom-right">Bottom right</option>
+          </select>
+        </label>
+      </div>
+    </Dialog>
+  );
+}
+
+function SplitDialog({ totalPages, onCancel, onSplit }: { totalPages: number; onCancel: () => void; onSplit: (r: Array<{ from: number; to: number; name?: string }>) => void }) {
+  const [mode, setMode] = React.useState<'every' | 'ranges'>('every');
+  const [chunkSize, setChunkSize] = React.useState(1);
+  const [rangesText, setRangesText] = React.useState('1-3, 4-6, 7-10');
+
+  const handle = () => {
+    if (mode === 'every') {
+      const ranges: Array<{ from: number; to: number; name?: string }> = [];
+      for (let i = 1; i <= totalPages; i += chunkSize) {
+        const to = Math.min(totalPages, i + chunkSize - 1);
+        ranges.push({ from: i, to, name: `pages_${i}-${to}.pdf` });
+      }
+      onSplit(ranges);
+    } else {
+      const parts = rangesText.split(',').map(s => s.trim()).filter(Boolean);
+      const ranges: Array<{ from: number; to: number; name?: string }> = [];
+      for (const p of parts) {
+        const m = /^(\d+)\s*-\s*(\d+)$/.exec(p);
+        if (m) ranges.push({ from: parseInt(m[1]), to: parseInt(m[2]) });
+        else {
+          const n = parseInt(p);
+          if (!isNaN(n)) ranges.push({ from: n, to: n });
+        }
+      }
+      onSplit(ranges);
+    }
+  };
+
+  return (
+    <Dialog title="Split PDF" onCancel={onCancel} onConfirm={handle} confirmLabel="Split & download">
+      <div className="space-y-3 text-xs">
+        <div className="flex gap-1">
+          <button onClick={() => setMode('every')} className={cn('flex-1 rounded px-2 py-1.5', mode === 'every' ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>Every N pages</button>
+          <button onClick={() => setMode('ranges')} className={cn('flex-1 rounded px-2 py-1.5', mode === 'ranges' ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>Custom ranges</button>
+        </div>
+        {mode === 'every' ? (
+          <label className="block">
+            <div className="mb-1 text-zinc-400">Pages per file</div>
+            <input type="number" min={1} max={totalPages} value={chunkSize} onChange={e => setChunkSize(Math.max(1, parseInt(e.target.value) || 1))} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-zinc-100" />
+            <div className="mt-1 text-[10px] text-zinc-500">Will produce {Math.ceil(totalPages / chunkSize)} file(s)</div>
+          </label>
+        ) : (
+          <label className="block">
+            <div className="mb-1 text-zinc-400">Ranges (e.g. "1-3, 5-8, 10")</div>
+            <textarea value={rangesText} onChange={e => setRangesText(e.target.value)} rows={2} className="w-full rounded border border-white/10 bg-[#0a0b0e] p-1.5 font-mono text-zinc-100" />
+          </label>
+        )}
+        <div className="rounded bg-amber-500/10 p-2 text-amber-200">Total pages: {totalPages}</div>
+      </div>
+    </Dialog>
+  );
+}
+
+function PreviewCanvas({ canvas, max = 720 }: { canvas: HTMLCanvasElement; max?: number }) {
+  const ref = React.useRef<HTMLCanvasElement | null>(null);
+  React.useEffect(() => {
+    const dst = ref.current;
+    if (!dst) return;
+    const scale = Math.min(max / canvas.width, max / canvas.height);
+    dst.width = Math.round(canvas.width * scale);
+    dst.height = Math.round(canvas.height * scale);
+    const ctx = dst.getContext('2d')!;
+    ctx.clearRect(0, 0, dst.width, dst.height);
+    ctx.drawImage(canvas, 0, 0, dst.width, dst.height);
+  }, [canvas, max]);
+  return <canvas ref={ref} className="block max-h-full max-w-full" />;
+}
+
+function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {
+  return <button title={title} onClick={(e) => { e.stopPropagation(); onClick(); }} className="grid h-5 w-5 place-items-center rounded text-zinc-300 hover:bg-white/10 hover:text-white">{children}</button>;
+}
+
+function OpenDialog({ items, onCancel, onPick }: { items: StudioProject[]; onCancel: () => void; onPick: (id: string) => void }) {
+  return (
+    <Dialog title="Library" onCancel={onCancel} onConfirm={onCancel} confirmLabel="Close">
+      <div className="max-h-96 space-y-1 overflow-y-auto">
+        {items.length === 0 && <div className="rounded bg-white/5 p-4 text-center text-xs text-zinc-400">No saved projects</div>}
+        {items.map(p => (
+          <button key={p.id} onClick={() => onPick(p.id)} className="flex w-full items-center gap-2 rounded bg-white/5 px-3 py-2 text-left text-xs text-zinc-200 hover:bg-white/10">
+            <FileText className="h-3.5 w-3.5 text-zinc-400" />
+            <span className="flex-1 truncate">{p.name}</span>
+            <span className="text-zinc-500">{new Date(p.updatedAt).toLocaleDateString()}</span>
+          </button>
+        ))}
+      </div>
+    </Dialog>
+  );
+}
+
+function SignatureDialog({ onCancel, onSave }: { onCancel: () => void; onSave: (bytes: ArrayBuffer) => void }) {
+  const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const drawing = React.useRef(false);
+  const last = React.useRef<{ x: number; y: number } | null>(null);
+
+  React.useEffect(() => {
+    const c = canvasRef.current!;
+    c.width = 480; c.height = 160;
+    const ctx = c.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, c.width, c.height);
+  }, []);
+
+  const onDown: React.PointerEventHandler = (e) => {
+    drawing.current = true;
+    const r = canvasRef.current!.getBoundingClientRect();
+    last.current = { x: ((e.clientX - r.left) / r.width) * canvasRef.current!.width, y: ((e.clientY - r.top) / r.height) * canvasRef.current!.height };
+    (e.target as Element).setPointerCapture?.(e.pointerId);
+  };
+  const onMove: React.PointerEventHandler = (e) => {
+    if (!drawing.current || !last.current) return;
+    const r = canvasRef.current!.getBoundingClientRect();
+    const x = ((e.clientX - r.left) / r.width) * canvasRef.current!.width;
+    const y = ((e.clientY - r.top) / r.height) * canvasRef.current!.height;
+    const ctx = canvasRef.current!.getContext('2d')!;
+    ctx.strokeStyle = '#111111';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(last.current.x, last.current.y);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    last.current = { x, y };
+  };
+  const onUp = () => { drawing.current = false; last.current = null; };
+
+  const clear = () => {
+    const c = canvasRef.current!;
+    const ctx = c.getContext('2d')!;
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, c.width, c.height);
+  };
+
+  const save = async () => {
+    const c = canvasRef.current!;
+    const trimmed = trimToContent(c) ?? c;
+    const blob: Blob = await new Promise((res, rej) => trimmed.toBlob(b => b ? res(b) : rej(new Error('Could not capture signature')), 'image/png'));
+    onSave(await blob.arrayBuffer());
+  };
+
+  return (
+    <Dialog title="Sign here" onCancel={onCancel} onConfirm={save} confirmLabel="Use signature" wide>
+      <div className="space-y-2">
+        <canvas
+          ref={canvasRef}
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}
+          className="block w-full rounded border border-white/10 bg-white touch-none"
+          style={{ aspectRatio: '3/1' }}
+        />
+        <div className="flex justify-end">
+          <button onClick={clear} className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-white/5"><Eraser className="mr-1 inline h-3 w-3" /> Clear</button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+function trimToContent(c: HTMLCanvasElement): HTMLCanvasElement | null {
+  const w = c.width, h = c.height;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.getImageData(0, 0, w, h).data;
+  let minX = w, minY = h, maxX = 0, maxY = 0, has = false;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const o = (y * w + x) * 4;
+    const r = img[o], g = img[o + 1], b = img[o + 2];
+    if (r < 200 || g < 200 || b < 200) {
+      has = true;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+  }
+  if (!has) return null;
+  const pad = 8;
+  minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+  maxX = Math.min(w, maxX + pad); maxY = Math.min(h, maxY + pad);
+  const out = blankCanvas(maxX - minX, maxY - minY);
+  const octx = out.getContext('2d')!;
+  octx.drawImage(c, minX, minY, maxX - minX, maxY - minY, 0, 0, out.width, out.height);
+  return out;
+}
+
+function Dialog({ title, children, onCancel, onConfirm, confirmLabel = 'OK', wide }: { title: string; children: React.ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel?: string; wide?: boolean }) {
+  return <SharedDialog title={title} onClose={onCancel} onConfirm={onConfirm} confirmLabel={confirmLabel} width={wide ? 'lg' : 'sm'}>{children}</SharedDialog>;
+}

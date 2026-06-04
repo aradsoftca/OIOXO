@@ -147,6 +147,60 @@ export function pitchShift(x: Float32Array, semitones: number): Float32Array {
   return resample(timeStretch(x, ratio), ratio);
 }
 
+// --- dynamics: compressor + noise gate -------------------------------------
+
+/**
+ * Feed-forward peak compressor with attack/release ballistics. Operates on a
+ * single channel; callers apply it per channel with a SHARED envelope for
+ * stereo-linked behavior (pass the same envelope array). This is a real
+ * compressor (level-dependent gain reduction over time), not a static trim.
+ *
+ * thresholdDb: knee point. ratio: >1. attackSec/releaseSec: envelope speed.
+ */
+export function compress(
+  x: Float32Array, sampleRate: number,
+  thresholdDb: number, ratio: number, attackSec: number, releaseSec: number,
+  makeupDb = 0,
+): Float32Array {
+  const thr = thresholdDb;
+  const r = Math.max(1, ratio);
+  const atk = Math.exp(-1 / (Math.max(1e-4, attackSec) * sampleRate));
+  const rel = Math.exp(-1 / (Math.max(1e-4, releaseSec) * sampleRate));
+  const makeup = Math.pow(10, makeupDb / 20);
+  const out = new Float32Array(x.length);
+  let env = 0; // smoothed level estimate (linear)
+  for (let i = 0; i < x.length; i++) {
+    const a = Math.abs(x[i]);
+    env = a > env ? atk * env + (1 - atk) * a : rel * env + (1 - rel) * a;
+    const levelDb = env > 1e-6 ? 20 * Math.log10(env) : -120;
+    let gainDb = 0;
+    if (levelDb > thr) gainDb = (thr - levelDb) * (1 - 1 / r); // negative
+    out[i] = x[i] * Math.pow(10, gainDb / 20) * makeup;
+  }
+  return out;
+}
+
+/**
+ * Downward noise gate: below `thresholdDb` the signal is smoothly attenuated to
+ * silence. `attackSec`/`releaseSec` smooth the gate to avoid clicks.
+ */
+export function gate(
+  x: Float32Array, sampleRate: number,
+  thresholdDb: number, attackSec = 0.005, releaseSec = 0.05,
+): Float32Array {
+  const thr = Math.pow(10, Math.min(0, thresholdDb) / 20);
+  const atk = 1 / Math.max(1, attackSec * sampleRate);
+  const rel = 1 / Math.max(1, releaseSec * sampleRate);
+  const out = new Float32Array(x.length);
+  let g = 0;
+  for (let i = 0; i < x.length; i++) {
+    const target = Math.abs(x[i]) >= thr ? 1 : 0;
+    g += (target - g) * (target > g ? atk : rel);
+    out[i] = x[i] * g;
+  }
+  return out;
+}
+
 const COMB_TUNINGS = [1116, 1188, 1277, 1356];   // samples @ 44.1 kHz
 const ALLPASS_TUNINGS = [556, 441, 341, 225];
 

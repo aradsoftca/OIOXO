@@ -12,6 +12,7 @@
     "start": "next start -p 3001",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test:studios": "tsx scripts/test_studios_phase1.mjs",
     "test:oioxo": "tsx scripts/test_oioxo.mjs",
     "test:security": "tsx scripts/test_security.mjs",
     "oioxo:patch": "tsx scripts/patch_magic_demo.mjs",

@@ -42,12 +42,24 @@ interface Instrument {
   octave: number;
 }
 
+/** A variable-length piano-roll note (replaces the fixed 8-row step grid for
+ *  synth instruments). `pitch` = semitones above the instrument's base octave;
+ *  `start`/`length` in steps; `vel` 0..1. */
+interface PianoNote { pitch: number; start: number; length: number; vel: number }
+
 interface Pattern {
   id: string;
   name: string;
   steps: number;
   notes: Record<InstId, (number | null)[]>;
+  /** Optional per-instrument piano-roll notes. When present for a synth
+   *  instrument, playback/export use this instead of the `notes` step grid;
+   *  drums always use `notes`. Backward-compatible (old patterns have none). */
+  roll?: Partial<Record<InstId, PianoNote[]>>;
 }
+
+// Chromatic range for the piano roll, low→high (semitones above base octave).
+const ROLL_RANGE = 24; // two octaves
 
 interface DocState {
   name: string;
@@ -108,7 +120,11 @@ const NEW_DOC = (): DocState => {
 
 const cloneDoc = (d: DocState): DocState => ({
   ...d,
-  patterns: d.patterns.map(p => ({ ...p, notes: Object.fromEntries(Object.entries(p.notes).map(([k, v]) => [k, v.slice()])) as any })),
+  patterns: d.patterns.map(p => ({
+    ...p,
+    notes: Object.fromEntries(Object.entries(p.notes).map(([k, v]) => [k, v.slice()])) as any,
+    roll: p.roll ? Object.fromEntries(Object.entries(p.roll).map(([k, v]) => [k, (v ?? []).map(n => ({ ...n }))])) as any : undefined,
+  })),
   chain: [...d.chain],
   instruments: d.instruments.map(i => ({ ...i })),
 });
@@ -367,6 +383,18 @@ export default function MusicStudioPro() {
     commit('step', next);
   };
 
+  // Which synth instrument is open in the piano roll (null = grid view only).
+  const [rollInst, setRollInst] = React.useState<InstId | null>(null);
+
+  // Replace the active pattern's roll notes for one instrument.
+  const setRoll = (instId: InstId, notes: PianoNote[]) => {
+    const next = cloneDoc(doc);
+    const p = next.patterns.find(x => x.id === doc.activePatternId);
+    if (!p) return;
+    p.roll = { ...(p.roll ?? {}), [instId]: notes };
+    commit('piano roll', next);
+  };
+
   const togglePlay = () => {
     if (playing) {
       const ctx = audioCtxRef.current;
@@ -418,14 +446,26 @@ export default function MusicStudioPro() {
         const stepIdx = state.step;
         for (const inst of live.instruments) {
           if (inst.muted || (soloed && !inst.solo)) continue;
-          const n = pattern.notes[inst.id]?.[stepIdx];
-          if (n == null) continue;
           const trackGain = c.createGain();
           trackGain.gain.value = inst.volume;
           const panner = c.createStereoPanner();
           panner.pan.value = inst.pan;
           trackGain.connect(panner).connect(master);
-          scheduleStep(c, trackGain, t, inst, n, live.key, stepDur);
+          const roll = pattern.roll?.[inst.id];
+          if (roll && roll.length) {
+            // Piano-roll path: fire every note that STARTS at this step, with
+            // its own pitch (chromatic) + length-derived duration + velocity.
+            for (const note of roll) {
+              if (note.start !== stepIdx) continue;
+              const f = noteToFreq(note.pitch, live.key, inst.octave);
+              const g = c.createGain(); g.gain.value = note.vel; g.connect(trackGain);
+              scheduleSynth(c, g, t, f, inst.volume, inst.id as any, note.length * stepDur);
+            }
+          } else {
+            const n = pattern.notes[inst.id]?.[stepIdx];
+            if (n == null) continue;
+            scheduleStep(c, trackGain, t, inst, n, live.key, stepDur);
+          }
         }
         setCurrentStep(stepIdx);
         state.step = (state.step + 1) % pattern.steps;
@@ -626,14 +666,24 @@ export default function MusicStudioPro() {
             const t = tCur + swingOff;
             for (const inst of doc.instruments) {
               if (inst.muted || (soloed && !inst.solo)) continue;
-              const n = pattern.notes[inst.id]?.[s];
-              if (n == null) continue;
               const trackGain = offline.createGain();
               trackGain.gain.value = inst.volume;
               const panner = offline.createStereoPanner();
               panner.pan.value = inst.pan;
               trackGain.connect(panner).connect(master);
-              scheduleStep(offline, trackGain, t, inst, n, doc.key, stepDur);
+              const roll = pattern.roll?.[inst.id];
+              if (roll && roll.length) {
+                for (const note of roll) {
+                  if (note.start !== s) continue;
+                  const f = noteToFreq(note.pitch, doc.key, inst.octave);
+                  const g = offline.createGain(); g.gain.value = note.vel; g.connect(trackGain);
+                  scheduleSynth(offline, g, t, f, inst.volume, inst.id as any, note.length * stepDur);
+                }
+              } else {
+                const n = pattern.notes[inst.id]?.[s];
+                if (n == null) continue;
+                scheduleStep(offline, trackGain, t, inst, n, doc.key, stepDur);
+              }
             }
             tCur += stepDur;
           }
@@ -832,7 +882,22 @@ export default function MusicStudioPro() {
               currentStep={playing ? currentStep : -1}
               onSetNote={setNote}
               onUpdateInst={updateInstrument}
+              rollInst={rollInst}
+              onToggleRoll={(id) => setRollInst(r => r === id ? null : id)}
             />
+            {rollInst && (() => {
+              const inst = doc.instruments.find(i => i.id === rollInst);
+              if (!inst) return null;
+              return (
+                <PianoRoll
+                  inst={inst}
+                  steps={activePattern.steps}
+                  notes={activePattern.roll?.[rollInst] ?? []}
+                  currentStep={playing ? currentStep : -1}
+                  onChange={(notes) => setRoll(rollInst, notes)}
+                />
+              );
+            })()}
           </div>
           {patternIsEmpty(activePattern) && (
             <div className="absolute inset-0 flex items-center justify-center bg-[#0a0b0e]/95 backdrop-blur-sm">
@@ -971,12 +1036,14 @@ function patternIsEmpty(pattern: Pattern): boolean {
   return true;
 }
 
-function SequencerGrid({ pattern, instruments, currentStep, onSetNote, onUpdateInst }: {
+function SequencerGrid({ pattern, instruments, currentStep, onSetNote, onUpdateInst, rollInst, onToggleRoll }: {
   pattern: Pattern;
   instruments: Instrument[];
   currentStep: number;
   onSetNote: (instId: InstId, step: number, value: number | null) => void;
   onUpdateInst: (id: InstId, mut: (i: Instrument) => void) => void;
+  rollInst?: InstId | null;
+  onToggleRoll?: (id: InstId) => void;
 }) {
   return (
     <div className="space-y-1.5">
@@ -998,9 +1065,14 @@ function SequencerGrid({ pattern, instruments, currentStep, onSetNote, onUpdateI
               </div>
             )}
             {inst.kind === 'synth' && <span className="text-[9px] text-zinc-500">O{inst.octave}</span>}
+            {inst.kind === 'synth' && onToggleRoll && (
+              <button onClick={() => onToggleRoll(inst.id)} title="Piano roll (melodic notes)" className={cn('rounded px-1 text-[11px]', rollInst === inst.id ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-500 hover:bg-white/5')}>🎹</button>
+            )}
           </div>
           <div className="flex flex-1 gap-1">
-            {pattern.notes[inst.id].map((n, s) => {
+            {(pattern.roll?.[inst.id]?.length) ? (
+              <div className="flex-1 self-center rounded bg-white/5 px-2 py-1 text-[10px] text-zinc-400">Piano roll active ({pattern.roll![inst.id]!.length} notes) — click 🎹 to edit</div>
+            ) : pattern.notes[inst.id].map((n, s) => {
               const filled = n != null;
               const isPlaying = s === currentStep;
               const beat4 = s % 4 === 0;
@@ -1048,6 +1120,69 @@ function StepCell({ filled, value, color, beat4, playing, synth, onClick, onChan
     >
       {synth && filled && <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-black/80">{value}</span>}
     </button>
+  );
+}
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+/**
+ * Piano roll for a synth instrument: ROLL_RANGE pitch rows × pattern steps,
+ * variable-length notes. Click an empty cell to add a 1-step note; click a note
+ * to delete it; click to the right of a note's start (same row) to extend it.
+ */
+function PianoRoll({ inst, steps, notes, currentStep, onChange }: {
+  inst: Instrument; steps: number; notes: PianoNote[]; currentStep: number;
+  onChange: (notes: PianoNote[]) => void;
+}) {
+  // High pitches on top.
+  const rows = Array.from({ length: ROLL_RANGE + 1 }, (_, i) => ROLL_RANGE - i);
+  const noteAt = (pitch: number, step: number) => notes.find(n => n.pitch === pitch && step >= n.start && step < n.start + n.length);
+  const click = (pitch: number, step: number) => {
+    const existing = noteAt(pitch, step);
+    if (existing) {
+      if (step > existing.start) {
+        // extend/trim to this step
+        onChange(notes.map(n => n === existing ? { ...n, length: step - existing.start + 1 } : n));
+      } else {
+        onChange(notes.filter(n => n !== existing)); // click the head = delete
+      }
+      return;
+    }
+    // is there a note on this row starting to the left we should extend?
+    const left = notes.filter(n => n.pitch === pitch && n.start < step).sort((a, b) => b.start - a.start)[0];
+    if (left && left.start + left.length === step) { onChange(notes.map(n => n === left ? { ...n, length: n.length + (step - (left.start + left.length) + 1) } : n)); return; }
+    onChange([...notes, { pitch, start: step, length: 1, vel: 0.85 }]);
+  };
+  return (
+    <div className="mt-2 rounded border border-white/10 bg-[#0a0b0e] p-2">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-semibold text-zinc-200" style={{ color: inst.color }}>🎹 {inst.label} — piano roll</span>
+        <span className="text-[10px] text-zinc-500">click=add · click head=delete · click right=extend</span>
+      </div>
+      <div className="max-h-64 overflow-auto">
+        {rows.map(pitch => {
+          const isBlack = NOTE_NAMES[((pitch % 12) + 12) % 12].includes('#');
+          return (
+            <div key={pitch} className="flex items-stretch gap-px">
+              <div className={cn('w-10 shrink-0 px-1 text-[9px] leading-5', isBlack ? 'bg-black/40 text-zinc-500' : 'bg-white/5 text-zinc-400')}>{NOTE_NAMES[((pitch % 12) + 12) % 12]}{Math.floor(pitch / 12) + inst.octave}</div>
+              <div className="flex flex-1 gap-px">
+                {Array.from({ length: steps }, (_, s) => {
+                  const n = noteAt(pitch, s);
+                  const head = n && n.start === s;
+                  return (
+                    <button key={s} onClick={() => click(pitch, s)}
+                      className={cn('h-5 flex-1 min-w-[14px] rounded-[2px] transition-colors', s === currentStep && 'ring-1 ring-cyan-400', !n && (s % 4 === 0 ? 'bg-white/[.06] hover:bg-white/[.12]' : 'bg-white/[.02] hover:bg-white/[.08]'))}
+                      style={{ background: n ? inst.color : undefined, opacity: n ? (head ? 0.95 : 0.7) : 1 }}
+                      title={`${NOTE_NAMES[((pitch % 12) + 12) % 12]} step ${s + 1}`}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 

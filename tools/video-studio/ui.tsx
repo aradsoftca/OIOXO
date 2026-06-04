@@ -75,7 +75,7 @@ interface VideoClip {
   hue: number;
   opacity: number;
   fit: 'contain' | 'cover';
-  transition?: 'none' | 'fade';
+  transition?: 'none' | 'fade' | 'slide' | 'wipe';
   transDur?: number;
   keyframes?: VideoClipKeyframes;
   colorWheels?: ColorWheels;
@@ -668,14 +668,32 @@ export default function VideoStudioPro() {
     const videoTracks = doc.tracks.filter(tr => tr.kind === 'video');
     for (let i = videoTracks.length - 1; i >= 0; i--) {
       const tr = videoTracks[i];
-      const active = doc.clips.find(cl => cl.trackId === tr.id && cl.kind === 'video' && t >= cl.start && t < clipEnd(cl)) as VideoClip | undefined;
+      const trackClips = (doc.clips.filter(cl => cl.trackId === tr.id && cl.kind === 'video') as VideoClip[]).sort((a, b) => a.start - b.start);
+      const ai = trackClips.findIndex(cl => t >= cl.start && t < clipEnd(cl));
+      const active = ai >= 0 ? trackClips[ai] : undefined;
       if (!active) continue;
       const item = mediaMap.get(active.mediaId);
       if (!item) continue;
+      // Transition preview: during the opening transDur, draw the previous clip
+      // underneath (held on its last frame) and ramp the incoming clip's alpha
+      // (fade) — a visible cue matching the export's WYSIWYG transition.
+      const transDur = active.transDur ?? 0.5;
+      const inTrans = !!active.transition && active.transition !== 'none' && (t - active.start) < transDur && ai > 0;
+      let transAlpha = 1;
+      if (inTrans) {
+        const prev = trackClips[ai - 1];
+        const pItem = mediaMap.get(prev.mediaId);
+        if (pItem) {
+          const pLocalT = clipDuration(prev);
+          if (pItem.kind === 'image') { const im = new Image(); im.src = pItem.url; if (im.complete) drawVideoFrame(ctx, im, c.width, c.height, prev, pLocalT); }
+          else { const pv = getMediaEl(pItem) as HTMLVideoElement; if (pv.readyState >= 2) drawVideoFrame(ctx, pv, c.width, c.height, prev, pLocalT); }
+        }
+        if (active.transition === 'fade') transAlpha = Math.min(1, (t - active.start) / transDur);
+      }
       if (item.kind === 'image') {
         const img = new Image();
         img.src = item.url;
-        if (img.complete) drawVideoFrame(ctx, img, c.width, c.height, active);
+        if (img.complete) drawVideoFrame(ctx, img, c.width, c.height, active, 0, transAlpha);
       } else {
         const local = (t - active.start) * active.speed + active.srcStart;
         const localT = t - active.start;
@@ -686,14 +704,14 @@ export default function VideoStudioPro() {
             const cc = previewRef.current;
             if (!cc) return;
             const ctx2 = cc.getContext('2d')!;
-            drawVideoFrame(ctx2, bitmap as any, cc.width, cc.height, active, localT);
+            drawVideoFrame(ctx2, bitmap as any, cc.width, cc.height, active, localT, transAlpha);
           });
         } else {
           const v = getMediaEl(item) as HTMLVideoElement;
           if (Math.abs(v.currentTime - local) > 0.2 && !isNaN(v.duration)) {
             try { v.currentTime = Math.min(Math.max(local, 0), v.duration); } catch {}
           }
-          if (v.readyState >= 2) drawVideoFrame(ctx, v, c.width, c.height, active, localT);
+          if (v.readyState >= 2) drawVideoFrame(ctx, v, c.width, c.height, active, localT, transAlpha);
         }
       }
     }
@@ -1336,7 +1354,7 @@ export default function VideoStudioPro() {
   );
 }
 
-function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | HTMLImageElement | ImageBitmap, dw: number, dh: number, v: VideoClip, localT = 0) {
+function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | HTMLImageElement | ImageBitmap, dw: number, dh: number, v: VideoClip, localT = 0, alphaMul = 1) {
   const sw = src instanceof HTMLVideoElement ? src.videoWidth : (src as any).naturalWidth ?? (src as ImageBitmap).width;
   const sh = src instanceof HTMLVideoElement ? src.videoHeight : (src as any).naturalHeight ?? (src as ImageBitmap).height;
   if (!sw || !sh) return;
@@ -1355,7 +1373,7 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
   const hue = sampleClipParam(v, 'hue', v.hue, localT);
   const opacity = sampleClipParam(v, 'opacity', v.opacity, localT);
   ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, opacity / 100));
+  ctx.globalAlpha = Math.max(0, Math.min(1, (opacity / 100) * alphaMul));
   // PiP transform around the frame center — mirrors the export compositor's
   // drawClipFrame so preview == output.
   const tf = v.transform;
@@ -1625,6 +1643,15 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
                 <button key={f} onClick={() => onChange(x => { (x as VideoClip).fit = f; })} className={cn('flex-1 rounded px-2 py-1 text-xs', c.fit === f ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{f}</button>
               ))}
             </div>
+            <div className="text-xs text-zinc-500">Transition in (blends from the previous clip)</div>
+            <div className="flex gap-1">
+              {(['none', 'fade', 'slide', 'wipe'] as const).map(tr => (
+                <button key={tr} onClick={() => onChange(x => { (x as VideoClip).transition = tr; if (!(x as VideoClip).transDur) (x as VideoClip).transDur = 0.5; })} className={cn('flex-1 rounded px-2 py-1 text-xs', (c.transition ?? 'none') === tr ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{tr}</button>
+              ))}
+            </div>
+            {(c.transition && c.transition !== 'none') && (
+              <StudioSlider label="Transition length" value={Math.round((c.transDur ?? 0.5) * 100)} min={20} max={200} onChange={v => onChange(x => { (x as VideoClip).transDur = v / 100; })} suffix=" cs" />
+            )}
           </div>
         </StudioPanel>
         <StudioPanel title="Color grade">

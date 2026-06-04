@@ -45,7 +45,7 @@ export interface CompVideoClip {
   };
   colorWheels?: ColorWheels;
   curves?: CurveSet;
-  transition?: 'none' | 'fade';
+  transition?: 'none' | 'fade' | 'slide' | 'wipe';
   transDur?: number;
 }
 
@@ -259,15 +259,52 @@ export async function renderTimelineFrame(
   // Bottom-to-top: V1 is the base, V2+ composite over it (PiP / overlays).
   for (let i = videoTracks.length - 1; i >= 0; i--) {
     const tr = videoTracks[i];
-    const active = doc.clips.find((cl) => cl.trackId === tr.id && cl.kind === 'video' && t >= cl.start && t < clipEnd(cl)) as CompVideoClip | undefined;
+    const trackClips = (doc.clips.filter((cl) => cl.trackId === tr.id && cl.kind === 'video') as CompVideoClip[]).sort((a, b) => a.start - b.start);
+    const ai = trackClips.findIndex((cl) => t >= cl.start && t < clipEnd(cl));
+    const active = ai >= 0 ? trackClips[ai] : undefined;
     if (!active) continue;
     const media = mediaMap.get(active.mediaId);
     const fs = sources.get(active.mediaId);
     if (!media || !fs) continue;
     const localT = t - active.start;
+
+    // Cross-clip transition: during this clip's opening `transDur`, blend the
+    // OUTGOING (previous) clip underneath so a real fade/wipe happens, not the
+    // hard cut the old phantom-field code produced.
+    const transDur = active.transDur ?? 0.5;
+    const inTransition = !!active.transition && active.transition !== 'none' && localT < transDur && ai > 0;
+    if (inTransition) {
+      const prev = trackClips[ai - 1];
+      const prevFs = sources.get(prev.mediaId);
+      if (prevFs) {
+        // Hold the previous clip on its final frame for the overlap.
+        const prevLocal = clipDuration(prev);
+        const prevSrc = prevLocal * prev.speed + prev.srcStart;
+        const prevFrame = await prevFs.frameAt(Math.max(0, prevSrc - 0.04));
+        if (prevFrame) drawClipFrame(ctx, prevFrame, frameW, frameH, prev, prevLocal);
+      }
+    }
+
     const srcTime = localT * active.speed + active.srcStart;
     const frame = await fs.frameAt(srcTime);
-    if (frame) drawClipFrame(ctx, frame, frameW, frameH, active, localT);
+    if (!frame) continue;
+    if (inTransition) {
+      const p = Math.min(1, localT / transDur); // 0→1 across the transition
+      ctx.save();
+      if (active.transition === 'fade') {
+        ctx.globalAlpha = p;
+        drawClipFrame(ctx, frame, frameW, frameH, active, localT);
+      } else {
+        // 'slide'/'wipe' → reveal the incoming clip left-to-right via a clip rect.
+        ctx.beginPath();
+        ctx.rect(0, 0, frameW * p, frameH);
+        ctx.clip();
+        drawClipFrame(ctx, frame, frameW, frameH, active, localT);
+      }
+      ctx.restore();
+    } else {
+      drawClipFrame(ctx, frame, frameW, frameH, active, localT);
+    }
   }
 
   const textTrack = doc.tracks.find((tr) => tr.kind === 'text');

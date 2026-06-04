@@ -13,6 +13,7 @@
 import * as dsp from '../engines/audio/dsp.ts';
 import { OFFLINE_ONLY_EFFECTS, hasOfflineOnly } from '../lib/studios/audio-master-chain.ts';
 import { measureIntegratedLufs, normalizeLoudness, measureTruePeakDb } from '../lib/studios/loudness.ts';
+import { makeEvaluator } from '../lib/studios/sheet-formula.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond) => { if (cond) { pass++; console.log('  ✓', name); } else { fail++; console.error('  ✗', name); } };
@@ -123,6 +124,40 @@ console.log('— BS.1770 loudness (real LUFS, not peak/RMS) —');
   // different loudness must get DIFFERENT gains.
   const lufsDiffersFromPeak = Math.abs(gLoud - gQuiet) > 1;
   ok('loudness gain differs from peak gain (proves it is not peak-norm)', lufsDiffersFromPeak);
+}
+
+console.log('— Sheets formula engine (IF / VLOOKUP / conditional / text) —');
+{
+  const cells = {
+    A1: 'Item', B1: 'Qty', C1: 'Price',
+    A2: 'Widget', B2: '3', C2: '10',
+    A3: 'Gadget', B3: '1', C3: '25',
+    A4: 'Gizmo', B4: '5', C4: '4',
+    // formulas
+    E1: '=SUM(B2:B4)',          // 9
+    E2: '=B2*C2',               // 30
+    E3: '=IF(B2>2,"big","small")',  // big
+    E4: '=COUNTIF(B2:B4,">2")', // 2  (3 and 5)
+    E5: '=SUMIF(B2:B4,">2",C2:C4)', // 10+4 = 14
+    E6: '=VLOOKUP("Gadget",A2:C4,3)', // 25
+    E7: '=CONCAT(A2," x",B2)',  // "Widget x3"
+    E8: '=ROUND(C2/B2,2)',      // 3.33
+    E9: '=AVERAGE(C2:C4)',      // 13
+    E10: '=UPPER(A3)',          // GADGET
+  };
+  const ev = makeEvaluator(cells);
+  ok('SUM over a range', ev('E1') === 9);
+  ok('cell arithmetic B2*C2', ev('E2') === 30);
+  ok('IF returns the true branch string', ev('E3') === 'big');
+  ok('COUNTIF with > criterion', ev('E4') === 2);
+  ok('SUMIF with criterion + sum range', ev('E5') === 14);
+  ok('VLOOKUP finds the row and column', ev('E6') === 25);
+  ok('CONCAT joins text + ref', ev('E7') === 'Widget x3');
+  ok('ROUND to 2 decimals', approx(ev('E8'), 3.33, 1e-9));
+  ok('AVERAGE over a range', approx(ev('E9'), 13, 1e-9));
+  ok('UPPER text function', ev('E10') === 'GADGET');
+  ok('plain numeric cell resolves', ev('B2') === 3);
+  ok('plain text cell resolves', ev('A2') === 'Widget');
 }
 
 console.log(`\nStudios gate: ${pass} passed, ${fail} failed`);

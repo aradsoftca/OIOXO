@@ -46,6 +46,7 @@ import {
 type ToolKind =
   | 'move' | 'marquee-rect' | 'marquee-ellipse' | 'lasso' | 'wand'
   | 'crop' | 'eyedropper' | 'brush' | 'eraser' | 'bucket'
+  | 'clone' | 'heal'
   | 'text' | 'shape-rect' | 'shape-ellipse' | 'hand' | 'zoom';
 
 type BlendMode =
@@ -521,6 +522,8 @@ const TOOLS: { tool: ToolKind; label: string; key: string; icon: React.ReactNode
   { tool: 'eyedropper', label: 'Eyedropper', key: 'i', icon: <Pipette className="h-4 w-4" /> },
   { tool: 'brush', label: 'Brush', key: 'b', icon: <Brush className="h-4 w-4" /> },
   { tool: 'eraser', label: 'Eraser', key: 'e', icon: <Eraser className="h-4 w-4" /> },
+  { tool: 'clone', label: 'Clone Stamp (alt-click to set source)', key: 's', icon: <Copy className="h-4 w-4" /> },
+  { tool: 'heal', label: 'Healing Brush (alt-click to set source)', key: 'j', icon: <Sparkles className="h-4 w-4" /> },
   { tool: 'bucket', label: 'Paint Bucket', key: 'g', icon: <PaintBucket className="h-4 w-4" /> },
   { tool: 'text', label: 'Text', key: 't', icon: <TypeIcon className="h-4 w-4" /> },
   { tool: 'shape-rect', label: 'Rectangle', key: 'u', icon: <Square className="h-4 w-4" /> },
@@ -1315,7 +1318,62 @@ export default function ImageStudioPro() {
     points: { x: number; y: number }[];
     targetCanvas?: HTMLCanvasElement;
     panStart?: { x: number; y: number };
+    cloneOffset?: { dx: number; dy: number } | null;  // source→dest offset for clone/heal
   }>({ down: false, tool: null, startX: 0, startY: 0, lastX: 0, lastY: 0, points: [] });
+  // Clone/heal source point (set with Alt-click). Offset from the first stroke
+  // point keeps the sampled region tracking the brush.
+  const cloneSrc = React.useRef<{ x: number; y: number } | null>(null);
+
+  /**
+   * Clone stamp / healing brush. Samples a circular patch from `cloneSrc` (+the
+   * running offset) on the FLATTENED image and stamps it under the cursor. Heal
+   * = the same patch blended so its mean matches the destination (texture from
+   * the source, color/luminance from the target — Photoshop's spot-heal feel).
+   */
+  const stampAt = (target: HTMLCanvasElement, x: number, y: number, heal: boolean) => {
+    const src = cloneSrc.current;
+    const off = ptrState.current.cloneOffset;
+    if (!src || !off) return;
+    const r = Math.max(2, brushSize / 2);
+    const sx = x + off.dx, sy = y + off.dy;
+    // Sample the source from the composited image (so it works across layers).
+    const flat = composite; // the live composited canvas (HTMLCanvasElement)
+    if (!flat) return;
+    const sctx = (flat as HTMLCanvasElement).getContext('2d', { willReadFrequently: true });
+    const dctx = target.getContext('2d', { willReadFrequently: true });
+    if (!sctx || !dctx) return;
+    const d = Math.ceil(r * 2);
+    const sxi = Math.round(sx - r), syi = Math.round(sy - r);
+    const dxi = Math.round(x - r), dyi = Math.round(y - r);
+    let patch: ImageData;
+    try { patch = sctx.getImageData(sxi, syi, d, d); } catch { return; }
+    if (heal) {
+      // Match the patch's mean color to the destination patch (heal = texture
+      // from source, tone from target).
+      let dst: ImageData; try { dst = dctx.getImageData(dxi, dyi, d, d); } catch { return; }
+      const meanOf = (im: ImageData) => { let r0 = 0, g0 = 0, b0 = 0, n = 0; for (let i = 0; i < im.data.length; i += 4) { if (im.data[i + 3] > 8) { r0 += im.data[i]; g0 += im.data[i + 1]; b0 += im.data[i + 2]; n++; } } return n ? [r0 / n, g0 / n, b0 / n] : [0, 0, 0]; };
+      const [sr, sg, sb] = meanOf(patch); const [dr, dg, db] = meanOf(dst);
+      for (let i = 0; i < patch.data.length; i += 4) {
+        patch.data[i] = Math.max(0, Math.min(255, patch.data[i] + (dr - sr)));
+        patch.data[i + 1] = Math.max(0, Math.min(255, patch.data[i + 1] + (dg - sg)));
+        patch.data[i + 2] = Math.max(0, Math.min(255, patch.data[i + 2] + (db - sb)));
+      }
+    }
+    // Feather the patch into a circular soft-edged brush via a temp canvas.
+    const tmp = blankCanvas(d, d);
+    const tctx = tmp.getContext('2d')!;
+    tctx.putImageData(patch, 0, 0);
+    const round = blankCanvas(d, d);
+    const rctx = round.getContext('2d')!;
+    const grad = rctx.createRadialGradient(r, r, r * 0.4, r, r, r);
+    grad.addColorStop(0, 'rgba(0,0,0,1)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
+    rctx.fillStyle = grad; rctx.beginPath(); rctx.arc(r, r, r, 0, Math.PI * 2); rctx.fill();
+    tctx.globalCompositeOperation = 'destination-in';
+    tctx.drawImage(round, 0, 0);
+    dctx.globalAlpha = brushOpacity / 100;
+    dctx.drawImage(tmp, dxi, dyi);
+    dctx.globalAlpha = 1;
+  };
 
   const onPointerDown = (e: React.PointerEvent) => {
     (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -1347,6 +1405,19 @@ export default function ImageStudioPro() {
       const next = cloneDoc(doc);
       next.selection = { kind: 'wand', mask };
       commit('magic wand', next);
+      return;
+    }
+    if (tool === 'clone' || tool === 'heal') {
+      // Alt-click sets the clone/heal SOURCE point.
+      if (e.altKey) { cloneSrc.current = { x: p.x, y: p.y }; ptrState.current.down = false; toastFor('Clone source set — now paint over the area to fix'); return; }
+      if (!cloneSrc.current) { toastFor('Alt-click to set a source point first'); ptrState.current.down = false; return; }
+      const layer = ensurePaintLayer();
+      ptrState.current.targetCanvas = layer.canvas;
+      // Offset from this first dab to the source, held for the whole stroke.
+      ptrState.current.cloneOffset = { dx: cloneSrc.current.x - p.x, dy: cloneSrc.current.y - p.y };
+      stampAt(layer.canvas, p.x, p.y, tool === 'heal');
+      bumpRevision(layer.id);
+      scheduleBrushRedraw();
       return;
     }
     if (tool === 'brush' || tool === 'eraser') {
@@ -1423,6 +1494,20 @@ export default function ImageStudioPro() {
         scheduleBrushRedraw();
       }
     }
+    if (t === 'clone' || t === 'heal') {
+      const c = ptrState.current.targetCanvas;
+      if (c && ptrState.current.cloneOffset) {
+        // Dab along the move segment so fast drags stay continuous.
+        const steps = Math.max(1, Math.floor(Math.hypot(p.x - ptrState.current.lastX, p.y - ptrState.current.lastY) / Math.max(2, brushSize * 0.25)));
+        for (let i = 1; i <= steps; i++) {
+          const cx = ptrState.current.lastX + (p.x - ptrState.current.lastX) * (i / steps);
+          const cy = ptrState.current.lastY + (p.y - ptrState.current.lastY) * (i / steps);
+          stampAt(c, cx, cy, t === 'heal');
+        }
+        if (doc.activeId) bumpRevision(doc.activeId);
+        scheduleBrushRedraw();
+      }
+    }
     if (t === 'lasso') {
       ptrState.current.points.push(p);
       force();
@@ -1460,6 +1545,8 @@ export default function ImageStudioPro() {
     ptrState.current.down = false;
     if (t === 'brush') commit('brush', doc);
     if (t === 'eraser') commit('eraser', doc);
+    if (t === 'clone') { ptrState.current.cloneOffset = null; commit('clone stamp', doc); }
+    if (t === 'heal') { ptrState.current.cloneOffset = null; commit('heal', doc); }
     if (t === 'move') commit('move', doc);
     if (t === 'shape-rect' || t === 'shape-ellipse') commit('shape', doc);
     if (t === 'marquee-rect' || t === 'marquee-ellipse') {

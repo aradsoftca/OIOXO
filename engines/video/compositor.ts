@@ -47,6 +47,9 @@ export interface CompVideoClip {
   curves?: CurveSet;
   transition?: 'none' | 'fade' | 'slide' | 'wipe';
   transDur?: number;
+  /** Chroma key (green/blue screen). Keyed pixels become transparent so the
+   *  track below shows through. No model — per-pixel distance in RGB. */
+  chromaKey?: { color: string; similarity: number; smoothness: number; spill: number };
 }
 
 export interface CompAudioClip {
@@ -144,6 +147,56 @@ class FrameSource {
   dispose(): void { if (this.video) { this.video.pause(); this.video.src = ''; } }
 }
 
+// ---- Chroma key (green/blue screen) — pure per-pixel, no model --------------
+
+const _keyCanvas: { c: HTMLCanvasElement | OffscreenCanvas | null } = { c: null };
+function keyScratch(w: number, h: number): { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D } {
+  if (!_keyCanvas.c) _keyCanvas.c = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(w, h) : document.createElement('canvas');
+  const cv = _keyCanvas.c as any;
+  cv.width = w; cv.height = h;
+  return { canvas: cv, ctx: cv.getContext('2d', { willReadFrequently: true }) };
+}
+
+/**
+ * Remove a key color (green/blue screen) from a frame, returning a canvas with
+ * alpha applied. `similarity` = how close to the key counts as background;
+ * `smoothness` = soft edge width; `spill` = how much key tint to desaturate on
+ * the kept edges. All 0..1. Pure RGB-distance keying — fast, no model.
+ */
+export function chromaKeySource(src: CanvasImageSource, key: { color: string; similarity: number; smoothness: number; spill: number }): HTMLCanvasElement | OffscreenCanvas | null {
+  const sw = (src as any).videoWidth ?? (src as any).naturalWidth ?? (src as any).width ?? 0;
+  const sh = (src as any).videoHeight ?? (src as any).naturalHeight ?? (src as any).height ?? 0;
+  if (!sw || !sh) return null;
+  const { canvas, ctx } = keyScratch(sw, sh);
+  try {
+    ctx.clearRect(0, 0, sw, sh);
+    ctx.drawImage(src, 0, 0, sw, sh);
+    const img = ctx.getImageData(0, 0, sw, sh);
+    const d = img.data;
+    const m = /^#?([0-9a-f]{6})$/i.exec((key.color || '#00ff00').trim());
+    const kn = m ? parseInt(m[1], 16) : 0x00ff00;
+    const kr = (kn >> 16) & 255, kg = (kn >> 8) & 255, kb = kn & 255;
+    const sim = Math.max(0.01, key.similarity) * 442;      // 0..~442 (max RGB dist)
+    const smooth = Math.max(0.001, key.smoothness) * 442;
+    const spill = Math.max(0, Math.min(1, key.spill));
+    for (let i = 0; i < d.length; i += 4) {
+      const dr = d[i] - kr, dg = d[i + 1] - kg, db = d[i + 2] - kb;
+      const dist = Math.sqrt(dr * dr + dg * dg + db * db);
+      if (dist < sim) {
+        d[i + 3] = 0;                                       // fully keyed out
+      } else if (dist < sim + smooth) {
+        d[i + 3] = Math.round(((dist - sim) / smooth) * d[i + 3]); // soft edge
+        // spill suppression on the edge: pull green toward the r/b average
+        if (spill > 0) { const avg = (d[i] + d[i + 2]) / 2; if (d[i + 1] > avg) d[i + 1] = d[i + 1] + (avg - d[i + 1]) * spill; }
+      } else if (spill > 0) {
+        const avg = (d[i] + d[i + 2]) / 2; if (d[i + 1] > avg) d[i + 1] = d[i + 1] + (avg - d[i + 1]) * spill * 0.5;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+  } catch { return null; }
+}
+
 // ---- The faithful frame renderer (mirror of the UI's drawPreviewFrame) -------
 
 function drawClipFrame(
@@ -181,7 +234,15 @@ function drawClipFrame(
   }
 
   (ctx as any).filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)`;
-  ctx.drawImage(src, tx, ty, tw, th);
+  if (c.chromaKey) {
+    // Key the source on its own buffer first, then draw the alpha-bearing
+    // result so the track below shows through the keyed-out region.
+    const keyed = chromaKeySource(src, c.chromaKey);
+    if (keyed) ctx.drawImage(keyed, tx, ty, tw, th);
+    else ctx.drawImage(src, tx, ty, tw, th);
+  } else {
+    ctx.drawImage(src, tx, ty, tw, th);
+  }
   (ctx as any).filter = 'none';
 
   // Color wheels + curves operate on pixels (CSS filters can't express them).

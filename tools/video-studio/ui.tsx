@@ -19,6 +19,7 @@ import { ProBadge } from '@/components/limits/ProBadge';
 
 const POLICY_KEY = 'video-studio';
 import { getVideoInfo } from '@/engines/video';
+import { chromaKeySource } from '@/engines/video/compositor';
 import {
   StudioShell, StudioTopBar, StudioBody, StudioToolDock, StudioToolButton,
   StudioPanel, StudioSidebar, StudioButton, StudioSlider, StudioSelect,
@@ -77,6 +78,7 @@ interface VideoClip {
   fit: 'contain' | 'cover';
   transition?: 'none' | 'fade' | 'slide' | 'wipe';
   transDur?: number;
+  chromaKey?: { color: string; similarity: number; smoothness: number; spill: number };
   keyframes?: VideoClipKeyframes;
   colorWheels?: ColorWheels;
   curves?: CurveSet;
@@ -1386,7 +1388,12 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
     ctx.translate(-dw / 2, -dh / 2);
   }
   ctx.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)`;
-  ctx.drawImage(src as any, tx, ty, tw, th);
+  if (v.chromaKey) {
+    const keyed = chromaKeySource(src as any, v.chromaKey);
+    ctx.drawImage((keyed ?? (src as any)) as any, tx, ty, tw, th);
+  } else {
+    ctx.drawImage(src as any, tx, ty, tw, th);
+  }
   ctx.filter = 'none';
   const hasWheels = v.colorWheels && !isZeroWheels(v.colorWheels);
   const hasCurves = v.curves && (v.curves.master || v.curves.r || v.curves.g || v.curves.b);
@@ -1690,6 +1697,26 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
                   <StudioSlider label="Position Y" value={Math.round(tf.y * 100)} min={-100} max={100} onChange={v => setTf({ y: v / 100 })} suffix="%" />
                   <StudioSlider label="Rotation" value={tf.rotation} min={-180} max={180} onChange={v => setTf({ rotation: v })} suffix="°" />
                   <button onClick={() => onChange(x => { (x as VideoClip).transform = undefined; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Reset transform</button>
+                </>
+              );
+            })()}
+          </div>
+        </StudioPanel>
+        <StudioPanel title="Chroma key (green screen)" defaultOpen={!!c.chromaKey}>
+          <div className="space-y-2">
+            {(() => {
+              const ck = c.chromaKey;
+              const setCk = (patch: Partial<NonNullable<VideoClip['chromaKey']>>) => onChange(x => { const cur = (x as VideoClip).chromaKey ?? { color: '#00ff00', similarity: 0.35, smoothness: 0.1, spill: 0.5 }; (x as VideoClip).chromaKey = { ...cur, ...patch }; });
+              if (!ck) return (
+                <button onClick={() => setCk({})} className="w-full rounded bg-white/5 px-2 py-1.5 text-xs text-zinc-200 hover:bg-white/10">Enable — remove a green/blue screen</button>
+              );
+              return (
+                <>
+                  <label className="flex items-center justify-between text-xs text-zinc-400">Key color<input type="color" value={ck.color} onChange={e => setCk({ color: e.target.value })} className="h-7 w-9 cursor-pointer rounded border border-white/10 bg-transparent" /></label>
+                  <StudioSlider label="Similarity" value={Math.round(ck.similarity * 100)} min={1} max={100} onChange={v => setCk({ similarity: v / 100 })} suffix="%" />
+                  <StudioSlider label="Edge softness" value={Math.round(ck.smoothness * 100)} min={0} max={60} onChange={v => setCk({ smoothness: v / 100 })} suffix="%" />
+                  <StudioSlider label="Spill removal" value={Math.round(ck.spill * 100)} min={0} max={100} onChange={v => setCk({ spill: v / 100 })} suffix="%" />
+                  <button onClick={() => onChange(x => { (x as VideoClip).chromaKey = undefined; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Disable key</button>
                 </>
               );
             })()}

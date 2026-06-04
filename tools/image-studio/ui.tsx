@@ -1109,6 +1109,40 @@ export default function ImageStudioPro() {
     }
   };
 
+  // Content-aware "Remove object": select the thing (marquee/lasso/wand), then
+  // MI-GAN inpaints the selected region ON-DEVICE (model lazy-loaded from CDN
+  // on first use). The result replaces the active image/paint layer's pixels.
+  const runRemoveObject = async () => {
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer first'); return; }
+    if (!doc.selection) { toastFor('Select the object to remove first (marquee, lasso, or magic wand)'); return; }
+    if (!(await guard())) return;
+    setBusy('Loading model…');
+    try {
+      const { inpaint, inpaintReady } = await import('@/lib/studios/inpaint');
+      if (!inpaintReady()) setBusy('Downloading remover model (~28 MB, on your device)…');
+      // Inpaint the full composited image so the fill samples all visible
+      // content; the selection mask marks what to remove.
+      const result = await inpaint(composite as HTMLCanvasElement, doc.selection.mask, (p) => {
+        setBusy(p.phase === 'Downloading model' ? `Downloading model… ${Math.round(p.ratio * 100)}%` : `${p.phase}…`);
+      });
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = result;
+      }
+      next.selection = null;
+      commit('remove object', next);
+      bumpRevision(target.id);
+      toastFor('Object removed — on-device, nothing uploaded');
+    } catch (e) {
+      toastFor((e as Error).message || 'Could not remove the object');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const addAdjustment = (kind: AdjustmentLayer['adjustKind']) => {
     const defaults: Record<typeof kind, Record<string, number>> = {
       'bright-contrast': { brightness: 100, contrast: 100 },
@@ -1737,6 +1771,7 @@ export default function ImageStudioPro() {
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent} title="Save (Ctrl+S)"><Save className="h-3.5 w-3.5" /> Save</StudioButton>
             <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export (Ctrl+E)"><Download className="h-3.5 w-3.5" /> Export</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runRemoveBg()} title="Remove Background (AI)"><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
+            <StudioButton variant="soft" size="sm" onClick={() => void runRemoveObject()} title="Select an object, then remove it (content-aware, on-device)"><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runAutoEnhance()} title="Auto-enhance (white balance + levels)"><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runExtractPalette()} title="Extract color palette"><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => setSmartCropDialog(true)} title="Smart crop for social"><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>

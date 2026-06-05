@@ -74,6 +74,10 @@ const BLEND_LIST: { value: BlendMode; label: string }[] = [
   { value: 'luminosity', label: 'Luminosity' },
 ];
 
+/** A non-destructive filter in a layer's effect stack — re-applied at render
+ *  time so it can be re-ordered, tweaked, or removed without touching pixels. */
+interface LayerFx { id: string; kind: 'blur' | 'sharpen' | 'emboss' | 'edge' | 'pixelate' | 'posterize' | 'noise'; param: number; enabled: boolean }
+
 interface LayerBase {
   id: string;
   name: string;
@@ -85,6 +89,8 @@ interface LayerBase {
   adjust: AdjustParams;
   animations?: AnimationConfig;
   styles?: LayerStyles;
+  /** Non-destructive effect stack (applied after adjust, before compositing). */
+  fx?: LayerFx[];
 }
 
 interface ImageLayer extends LayerBase {
@@ -181,7 +187,7 @@ function cloneLayer(l: Layer): Layer {
   // frames — painting into a mask after pushing to the undo stack would
   // silently mutate the previous frames' masks too, corrupting history. Clone
   // the mask alongside the layer's main canvas so each frame is independent.
-  const base = { ...l, adjust: { ...l.adjust }, mask: l.mask ? cloneCanvas(l.mask) : undefined };
+  const base = { ...l, adjust: { ...l.adjust }, mask: l.mask ? cloneCanvas(l.mask) : undefined, fx: l.fx ? l.fx.map(f => ({ ...f })) : undefined };
   if (l.kind === 'paint') return { ...base, canvas: cloneCanvas(l.canvas) } as Layer;
   if (l.kind === 'image') return { ...base, canvas: cloneCanvas(l.canvas) } as Layer;
   return base as Layer;
@@ -195,17 +201,36 @@ function cloneDoc(d: DocState): DocState {
   };
 }
 
+/** Apply a layer's non-destructive effect stack to its source canvas (in order,
+ *  enabled only). Returns the original if the stack is empty. */
+function applyFxStack(src: HTMLCanvasElement, fx?: LayerFx[]): HTMLCanvasElement {
+  if (!fx || !fx.length) return src;
+  let cur = src;
+  for (const f of fx) {
+    if (!f.enabled) continue;
+    if (f.kind === 'blur') cur = gaussianBlur(cur, f.param);
+    else if (f.kind === 'sharpen') cur = applyKernel(cur, KERNELS.sharpen, f.param);
+    else if (f.kind === 'emboss') cur = applyKernel(cur, KERNELS.emboss, f.param);
+    else if (f.kind === 'edge') cur = applyKernel(cur, KERNELS.edge, f.param);
+    else if (f.kind === 'pixelate') cur = pixelate(cur, Math.max(1, f.param));
+    else if (f.kind === 'posterize') cur = posterize(cur, Math.max(2, Math.min(16, f.param)));
+    else if (f.kind === 'noise') cur = noise(cur, f.param);
+  }
+  return cur;
+}
+
 function renderLayer(layer: Layer, w: number, h: number): HTMLCanvasElement | null {
   if (!layer.visible || layer.opacity <= 0) return null;
   if (layer.kind === 'image') {
     const c = blankCanvas(w, h);
     const ctx = c.getContext('2d')!;
+    const srcC = applyFxStack(layer.canvas, layer.fx);
     ctx.save();
     ctx.translate(layer.x + (layer.canvas.width * layer.scaleX) / 2, layer.y + (layer.canvas.height * layer.scaleY) / 2);
     ctx.rotate((layer.rotation * Math.PI) / 180);
     ctx.scale(layer.scaleX, layer.scaleY);
     ctx.filter = adjustToFilter(layer.adjust);
-    ctx.drawImage(layer.canvas, -layer.canvas.width / 2, -layer.canvas.height / 2);
+    ctx.drawImage(srcC, -layer.canvas.width / 2, -layer.canvas.height / 2);
     ctx.filter = 'none';
     ctx.restore();
     return c;
@@ -213,8 +238,9 @@ function renderLayer(layer: Layer, w: number, h: number): HTMLCanvasElement | nu
   if (layer.kind === 'paint') {
     const c = blankCanvas(w, h);
     const ctx = c.getContext('2d')!;
+    const srcC = applyFxStack(layer.canvas, layer.fx);
     ctx.filter = adjustToFilter(layer.adjust);
-    ctx.drawImage(layer.canvas, 0, 0);
+    ctx.drawImage(srcC, 0, 0);
     ctx.filter = 'none';
     return c;
   }
@@ -677,7 +703,7 @@ export default function ImageStudioPro() {
         continue;
       }
       const rev = layerRevisionsRef.current.get(layer.id) ?? 0;
-      const hash = `${rev}_${layer.opacity}_${layer.blend}_${layer.visible}_${JSON.stringify(layer.adjust)}_${(layer as any).x ?? 0}_${(layer as any).y ?? 0}_${(layer as any).rotation ?? 0}_${(layer as any).scaleX ?? 1}_${(layer as any).scaleY ?? 1}_${(layer as any).text ?? ''}_${(layer as any).w ?? 0}_${(layer as any).h ?? 0}_${(layer as any).fill ?? ''}_${JSON.stringify(layer.styles ?? null)}`;
+      const hash = `${rev}_${layer.opacity}_${layer.blend}_${layer.visible}_${JSON.stringify(layer.adjust)}_${(layer as any).x ?? 0}_${(layer as any).y ?? 0}_${(layer as any).rotation ?? 0}_${(layer as any).scaleX ?? 1}_${(layer as any).scaleY ?? 1}_${(layer as any).text ?? ''}_${(layer as any).w ?? 0}_${(layer as any).h ?? 0}_${(layer as any).fill ?? ''}_${JSON.stringify(layer.styles ?? null)}_${JSON.stringify(layer.fx ?? null)}`;
       let rendered = cacheRef.current.get(layer.id, hash);
       if (!rendered) {
         rendered = renderLayer(layer, doc.width, doc.height);
@@ -1010,20 +1036,13 @@ export default function ImageStudioPro() {
       toastFor('Pick a paint or image layer');
       return;
     }
-    const src = getCanvasOf(target)!;
-    let result: HTMLCanvasElement;
-    if (kind === 'blur') result = gaussianBlur(src, param);
-    else if (kind === 'sharpen') result = applyKernel(src, KERNELS.sharpen, param);
-    else if (kind === 'emboss') result = applyKernel(src, KERNELS.emboss, param);
-    else if (kind === 'edge') result = applyKernel(src, KERNELS.edge, param);
-    else if (kind === 'pixelate') result = pixelate(src, Math.max(1, param));
-    else if (kind === 'posterize') result = posterize(src, Math.max(2, Math.min(16, param)));
-    else result = noise(src, param);
+    // Non-destructive: append to the layer's effect stack (re-applied at render
+    // time, re-orderable/removable) instead of baking pixels.
     const next = cloneDoc(doc);
-    const idx = next.layers.findIndex(l => l.id === target.id);
-    if (idx >= 0) {
-      const l = next.layers[idx];
-      if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = result;
+    const l = next.layers.find(x => x.id === target.id);
+    if (l) {
+      l.fx = [...(l.fx ?? []), { id: `fx${Date.now().toString(36)}`, kind, param, enabled: true }];
+      bumpRevision(l.id);
     }
     commit(`filter: ${kind}`, next);
     setFilterDialog(null);
@@ -2032,6 +2051,18 @@ export default function ImageStudioPro() {
                 )}
                 {maskEditId && (
                   <div className="mb-2 rounded bg-cyan-500/10 px-2 py-1 text-[11px] text-cyan-200">Mask edit: <b>Brush</b> reveals, <b>Eraser</b> hides. Soft brush = feathered edges.</div>
+                )}
+                {activeLayer && (activeLayer.fx?.length ?? 0) > 0 && (
+                  <div className="mb-2 space-y-1 rounded border border-white/10 p-1.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Effects (non-destructive)</div>
+                    {activeLayer.fx!.map((f) => (
+                      <div key={f.id} className="flex items-center gap-1.5 text-[11px]">
+                        <input type="checkbox" checked={f.enabled} onChange={() => updateLayer(activeLayer.id, (l) => { const fx = l.fx?.find(x => x.id === f.id); if (fx) fx.enabled = !fx.enabled; }, 'toggle fx')} />
+                        <span className="flex-1 capitalize text-zinc-300">{f.kind}</span>
+                        <button onClick={() => updateLayer(activeLayer.id, (l) => { l.fx = (l.fx ?? []).filter(x => x.id !== f.id); }, 'remove fx')} className="text-zinc-500 hover:text-rose-400" title="Remove effect">✕</button>
+                      </div>
+                    ))}
+                  </div>
                 )}
                 {[...doc.layers].reverse().map(l => (
                   <LayerRow

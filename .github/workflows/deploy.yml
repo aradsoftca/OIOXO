@@ -13,14 +13,11 @@ name: Build (obfuscated) & Deploy newxonvert
 # drift). This workflow only moves the build off the server.
 
 on:
+  # This repo's app IS the root (no newxonvert/ subdir). Deploy from the branch
+  # that carries the shippable tree. Adjust `branches` to your release branch.
   push:
-    branches: [master]
-    paths: ['newxonvert/**']
+    branches: [feat/flagship-gap-fixes, master]
   workflow_dispatch: {}
-
-defaults:
-  run:
-    working-directory: newxonvert
 
 concurrency:
   group: deploy-newxonvert
@@ -38,17 +35,17 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: newxonvert/package-lock.json
+          cache-dependency-path: package-lock.json
 
       # Incremental obfuscated builds: restore Next's compiler cache so only
       # changed files are recompiled/obfuscated.
       - name: Restore Next build cache
         uses: actions/cache@v4
         with:
-          path: newxonvert/.next/cache
-          key: next-${{ hashFiles('newxonvert/package-lock.json') }}-${{ github.sha }}
+          path: .next/cache
+          key: next-${{ hashFiles('package-lock.json') }}-${{ github.sha }}
           restore-keys: |
-            next-${{ hashFiles('newxonvert/package-lock.json') }}-
+            next-${{ hashFiles('package-lock.json') }}-
             next-
 
       - name: Install deps
@@ -94,7 +91,6 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: '3.12' }
       - run: pip install paramiko
-        working-directory: .
 
       - uses: actions/download-artifact@v4
         with: { name: newxonvert-build, path: /tmp/art }
@@ -103,7 +99,6 @@ jobs:
       # minted key and the artifact path; deploy.py does env/prisma/swap/PM2/
       # Caddy/smoke exactly as it does for a normal deploy.
       - name: Deploy (ship prebuilt artifact)
-        working-directory: newxonvert
         env:
           ICELAND_HOST: ${{ secrets.ICELAND_HOST }}
           ICELAND_USER: ${{ secrets.ICELAND_USER }}

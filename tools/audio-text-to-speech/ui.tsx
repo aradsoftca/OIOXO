@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { Play, Pause, Square, Download, Volume2 } from 'lucide-react';
+import { Play, Pause, Square, Volume2 } from 'lucide-react';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
@@ -87,34 +87,11 @@ export default function AudioTextToSpeechTool() {
   const pause = () => { window.speechSynthesis.pause(); setPaused(true); };
   const resume = () => { window.speechSynthesis.resume(); setPaused(false); };
   const stop = () => { window.speechSynthesis.cancel(); setPlaying(false); setPaused(false); };
-
-  const downloadWav = async () => {
-    if (!supported || !text.trim()) return;
-    const sizeHit = checkLever(POLICY_KEY, 'input-size', text.length, isPro);
-    if (sizeHit) { policyGate.fire(sizeHit); return; }
-    setError('');
-    try {
-      // Capture the playback via getUserMedia? Not portable. Use MediaRecorder
-      // on a destination MediaStream from a tap on the synthesis audio? The
-      // Web Speech API does not expose its output stream in any browser. So
-      // we generate audio by routing the synthesis to a MediaStreamDestination
-      // is not possible; we fall back to recording from a live AudioContext
-      // playthrough is not available either. Capture via "destination" mic
-      // would require user permission. Instead, advise download via system
-      // audio capture — not viable cross-browser.
-      //
-      // Workaround: use MediaRecorder on the page audio output via captureStream
-      // on a hidden HTMLAudioElement that plays a synthesized track. That's
-      // still not possible because Web Speech does not emit a Blob.
-      //
-      // We can't reliably save WAV here without a transformers.js TTS model.
-      // Surface the limitation and offer to copy text + suggest using the
-      // browser's built-in screen-recording or system-audio capture.
-      setError('This browser does not let pages record its built-in voices. Use your system audio recorder while pressing Play, or pick a voice download in your OS settings.');
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
+  // NOTE: this is a read-aloud tool using the browser's built-in Web Speech
+  // voices, which no browser exposes as a recordable stream — so there is no
+  // honest "Save audio" path here (a dead Save button + a false
+  // produces:['audio/wav'] manifest claim were removed). Saving real audio
+  // needs an on-device neural TTS model (separate feature).
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
@@ -156,11 +133,6 @@ export default function AudioTextToSpeechTool() {
               Stop
             </button>
           )}
-          <button type="button" onClick={downloadWav} disabled={!supported || !text.trim()}
-            className="ml-auto flex items-center gap-2 border border-black/[0.08] px-4 py-2.5 text-[12px] font-medium text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)] disabled:opacity-60">
-            <Download className="h-3.5 w-3.5" />
-            Save audio
-          </button>
         </div>
         {!supported && (
           <div className="border border-red-500/30 bg-red-500/10 p-3 text-[12px] text-red-700">

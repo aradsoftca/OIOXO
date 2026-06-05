@@ -274,13 +274,48 @@ export async function convertFile(file: File, target: Target, opts: ConvertOpts 
   startJob('Converting');
   updateJob('Converting', 0.05);
   try {
-    return await runConvert(file, target, {
+    const out = await runConvert(file, target, {
       ...opts,
       onProgress: (r) => { updateJob('Converting', r); opts.onProgress?.(r); },
     });
+    return await brandConvertOutput(out);
   } finally {
     endJob();
   }
+}
+
+/**
+ * Apply the free-tier brand mark to a converted blob by MIME, so the universal
+ * converter doesn't ship clean files (its image/pdf/audio paths bypass the
+ * global canvas-patch). Each helper self-gates on shouldWatermarkHere() (Pro /
+ * watermark-free tools pass through untouched) and on size. Video is skipped:
+ * the ffmpeg engine already stamps video output via maybeWatermarkVideo. Text /
+ * data / multi-file (zip) outputs are not branded.
+ */
+async function brandConvertOutput(out: ConvertOutput): Promise<ConvertOutput> {
+  try {
+    if (!out.blob) return out;
+    const type = out.blob.type || '';
+    if (type.startsWith('image/')) {
+      const { stampImageBlob } = await import('@/lib/watermark/download');
+      return { ...out, blob: await stampImageBlob(out.blob) };
+    }
+    if (type === 'application/pdf') {
+      const { shouldWatermarkHere } = await import('@/lib/watermark/config');
+      if (!shouldWatermarkHere()) return out;
+      const { PDFDocument } = await import('pdf-lib');
+      const { stampPdfFooter } = await import('@/engines/pdf');
+      const doc = await PDFDocument.load(await out.blob.arrayBuffer());
+      await stampPdfFooter(doc);
+      const bytes = await doc.save();
+      return { ...out, blob: new Blob([new Uint8Array(bytes)], { type: 'application/pdf' }) };
+    }
+    if (type.startsWith('audio/')) {
+      const { brandAudioBlob } = await import('@/lib/watermark/audio');
+      return { ...out, blob: await brandAudioBlob(out.blob) };
+    }
+  } catch { /* never break a conversion over branding */ }
+  return out;
 }
 
 async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): Promise<ConvertOutput> {

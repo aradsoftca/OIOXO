@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { removeBackground as removeBgEngine } from '@/engines/image';
+import { useUsageGate } from '@/components/usage/use-usage-gate';
 
 /**
  * Background Studio — oioxo / newxonvert version
@@ -22,6 +23,9 @@ export default function BackgroundStudioUI() {
   const cutoutUrlRef = useRef<string | null>(null);
   useEffect(() => () => { if (cutoutUrlRef.current) URL.revokeObjectURL(cutoutUrlRef.current); }, []);
 
+  // Gate the heavy on-device bg-removal model (was completely unmetered).
+  const { guard, gate } = useUsageGate('studio-background');
+
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -39,6 +43,7 @@ export default function BackgroundStudioUI() {
 
   const removeBackground = async () => {
     if (!originalImage) return;
+    if (!(await guard())) return;
     setIsProcessing(true);
     try {
       const canvas = document.createElement('canvas');
@@ -69,11 +74,22 @@ export default function BackgroundStudioUI() {
     }
   };
 
+  const download = () => {
+    const canvas = canvasRef.current;
+    if (!canvas || !cutoutImage) return;
+    // toDataURL goes through the global canvas-patch → free tier gets the brand
+    // mark automatically; <a download> click is metered by the gate interceptor.
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `background.png`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
-    
+
     const subject = cutoutImage || originalImage;
     if (!subject) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -121,6 +137,16 @@ export default function BackgroundStudioUI() {
             )}
           </div>
         )}
+
+        {cutoutImage && (
+          <button
+            onClick={download}
+            style={{ padding: '10px 16px', background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}
+          >
+            Download PNG
+          </button>
+        )}
+        {gate}
       </div>
 
       <div style={{ background: '#f1f5f9', borderRadius: 12, padding: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 400 }}>

@@ -9,7 +9,9 @@ export const manifest: ToolManifest = {
   icon: 'megaphone',
   compute: 'instant',
   accepts: ['text/plain'],
-  produces: ['audio/wav'],
+  // Read-aloud via the browser's Web Speech voices — no recordable output
+  // stream exists, so it produces no downloadable file (no false audio/wav claim).
+  produces: [],
   keywords: ['text to speech', 'tts', 'read aloud', 'speech synthesis', 'voice generator'],
   pinDefault: false,
   offline: true,

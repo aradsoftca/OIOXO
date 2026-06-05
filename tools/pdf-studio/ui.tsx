@@ -36,7 +36,7 @@ import {
   SharedDialog,
 } from '@/lib/studios';
 
-type Tool = 'select' | 'text' | 'draw' | 'sign' | 'highlight' | 'line' | 'ellipse' | 'rect' | 'whiteout' | 'image' | 'field';
+type Tool = 'select' | 'text' | 'draw' | 'sign' | 'highlight' | 'line' | 'ellipse' | 'rect' | 'whiteout' | 'image' | 'field' | 'edit-text';
 interface RasterPage { canvas: HTMLCanvasElement; w: number; h: number }
 interface DocState {
   name: string;
@@ -72,6 +72,7 @@ const TOOLS: { tool: Tool; label: string; key: string; icon: React.ReactNode }[]
   { tool: 'whiteout', label: 'Whiteout', key: 'e', icon: <Eraser className="h-4 w-4" /> },
   { tool: 'image', label: 'Image', key: 'i', icon: <ImageIcon className="h-4 w-4" /> },
   { tool: 'field', label: 'Form field (fillable)', key: 'f', icon: <SquareDashed className="h-4 w-4" /> },
+  { tool: 'edit-text', label: 'Edit existing text', key: 'x', icon: <TypeIcon className="h-4 w-4" /> },
 ];
 
 export default function PdfStudioPro() {
@@ -289,6 +290,8 @@ export default function PdfStudioPro() {
       const text = window.prompt('Text:');
       if (!text) return;
       addAnno(selPage.id, { kind: 'text', nx: p.nx, ny: p.ny, text, size: textSize, color: textColor });
+    } else if (tool === 'edit-text') {
+      void editTextAt(p.nx, p.ny);
     } else if (['rect', 'highlight', 'line', 'ellipse', 'whiteout', 'field'].includes(tool)) {
       dragRect.current = p;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -460,6 +463,51 @@ export default function PdfStudioPro() {
     } catch (e) {
       toastFor('Could not scan this page');
     } finally { setBusy(''); }
+  };
+
+  // Edit existing PDF text: find the text run nearest the click, let the user
+  // rewrite it; on save we whiteout (destructively remove) the original run and
+  // draw the replacement text in its place, font-size-matched. Pragmatic, exact
+  // approach (no full reflow) that genuinely fixes typos in an existing PDF.
+  const editTextAt = async (cnx: number, cny: number) => {
+    if (!selPage) return;
+    const bytes = sources[selPage.srcId];
+    if (!bytes) return;
+    setBusy('Reading text…');
+    try {
+      const { default: pdfjsLib } = await import('pdfjs-dist') as any;
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
+      const pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
+      const page = await pdfDoc.getPage(selPage.srcIndex + 1);
+      const vp = page.getViewport({ scale: 1 });
+      const content = await page.getTextContent();
+      // Find the text item whose box contains (or is nearest) the click.
+      let best: any = null, bestD = Infinity;
+      for (const it of content.items as any[]) {
+        if (!it.str?.trim()) continue;
+        const [, , , d, e, f] = it.transform as number[];
+        const h = Math.abs(d || it.height || 12);
+        const nx = e / vp.width, ny = 1 - (f + h) / vp.height, nw = it.width / vp.width, nh = h * 1.4 / vp.height;
+        const inside = cnx >= nx && cnx <= nx + nw && cny >= ny && cny <= ny + nh;
+        const dist = Math.hypot(cnx - (nx + nw / 2), cny - (ny + nh / 2));
+        if (inside) { best = { it, nx, ny, nw, nh, h }; break; }
+        if (dist < bestD) { bestD = dist; best = { it, nx, ny, nw, nh, h }; }
+      }
+      if (!best || bestD > 0.06) { toastFor('No text found here — click directly on a word'); return; }
+      const replacement = window.prompt('Edit text:', best.it.str);
+      if (replacement == null || replacement === best.it.str) return;
+      const next = cloneDoc(doc);
+      const list = next.annotations[selPage.id] ?? [];
+      // 1) Destroy the original run (white box, flatten on export).
+      list.push({ kind: 'rect', nx: best.nx, ny: best.ny, nw: best.nw, nh: best.nh, color: '#ffffff', opacity: 1, redact: true });
+      // 2) Draw the replacement at the same spot, matched font size (px).
+      const sizePx = Math.max(8, Math.round(best.h));
+      list.push({ kind: 'text', nx: best.nx, ny: best.ny + best.nh * 0.2, text: replacement, size: sizePx, color: '#000000' });
+      next.annotations[selPage.id] = list;
+      commit('edit text', next);
+      toastFor('Text replaced');
+    } catch { toastFor('Could not edit this page’s text'); }
+    finally { setBusy(''); }
   };
 
   const exportPdf = async () => {

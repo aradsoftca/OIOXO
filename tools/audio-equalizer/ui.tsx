@@ -5,28 +5,38 @@ import { AudioDrop, type AudioFileItem } from '@/components/tool/AudioDrop';
 import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
 import { runFfmpeg, downloadBlob } from '@/engines/ffmpeg';
 
+// Standard ISO 10-band graphic EQ (octave-spaced 31Hz–16kHz) — matches what
+// Winamp/foobar/hardware graphic EQs use, vs the old 5 fixed bands.
 interface Band { id: string; label: string; freq: number; width: number; }
 const BANDS: Band[] = [
-  { id: 'sub',  label: '60Hz',   freq: 60,    width: 50 },
-  { id: 'bass', label: '230Hz',  freq: 230,   width: 200 },
-  { id: 'mid',  label: '910Hz',  freq: 910,   width: 800 },
-  { id: 'high', label: '4kHz',   freq: 4000,  width: 3000 },
-  { id: 'air',  label: '14kHz',  freq: 14000, width: 6000 },
+  { id: 'b31',   label: '31Hz',  freq: 31,    width: 22 },
+  { id: 'b62',   label: '62Hz',  freq: 62,    width: 44 },
+  { id: 'b125',  label: '125Hz', freq: 125,   width: 88 },
+  { id: 'b250',  label: '250Hz', freq: 250,   width: 175 },
+  { id: 'b500',  label: '500Hz', freq: 500,   width: 350 },
+  { id: 'b1k',   label: '1kHz',  freq: 1000,  width: 700 },
+  { id: 'b2k',   label: '2kHz',  freq: 2000,  width: 1400 },
+  { id: 'b4k',   label: '4kHz',  freq: 4000,  width: 2800 },
+  { id: 'b8k',   label: '8kHz',  freq: 8000,  width: 5600 },
+  { id: 'b16k',  label: '16kHz', freq: 16000, width: 6000 },
 ];
 
 interface Curve { id: string; label: string; gains: number[]; }
+//                                       31  62 125 250 500  1k  2k  4k  8k 16k
 const CURVES: Curve[] = [
-  { id: 'flat',   label: 'Flat',         gains: [0, 0, 0, 0, 0] },
-  { id: 'pop',    label: 'Pop',          gains: [2, 1, -1, 2, 3] },
-  { id: 'rock',   label: 'Rock',         gains: [4, 2, -1, 2, 4] },
-  { id: 'vocal',  label: 'Vocal Boost',  gains: [-2, -1, 3, 2, 1] },
-  { id: 'bass',   label: 'Bass Boost',   gains: [6, 4, 0, 0, 0] },
-  { id: 'bright', label: 'Bright',       gains: [-2, -1, 0, 3, 5] },
+  { id: 'flat',   label: 'Flat',        gains: [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0] },
+  { id: 'pop',    label: 'Pop',         gains: [-1,  0,  1,  2,  2,  0, -1,  1,  2,  2] },
+  { id: 'rock',   label: 'Rock',        gains: [ 4,  3,  1, -1, -1,  0,  1,  3,  4,  4] },
+  { id: 'vocal',  label: 'Vocal Boost', gains: [-3, -2, -1,  1,  3,  3,  2,  1,  0, -1] },
+  { id: 'bass',   label: 'Bass Boost',  gains: [ 6,  5,  4,  2,  0,  0,  0,  0,  0,  0] },
+  { id: 'treble', label: 'Treble Boost',gains: [ 0,  0,  0,  0,  0,  1,  2,  3,  4,  5] },
+  { id: 'bright', label: 'Bright',      gains: [-2, -2, -1,  0,  0,  1,  2,  3,  4,  5] },
+  { id: 'loud',   label: 'Loudness',    gains: [ 5,  4,  2,  0, -1,  0,  1,  2,  4,  5] },
 ];
 
 export default function Tool() {
   const [item, setItem] = React.useState<AudioFileItem | null>(null);
-  const [gains, setGains] = React.useState<number[]>([0, 0, 0, 0, 0]);
+  const [gains, setGains] = React.useState<number[]>(() => BANDS.map(() => 0));
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [error, setError] = React.useState('');

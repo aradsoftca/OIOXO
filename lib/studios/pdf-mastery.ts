@@ -191,7 +191,11 @@ export async function makeSearchablePdf(srcBytes: ArrayBuffer, onProgress?: (pag
   return new Blob([new Uint8Array(result)], { type: 'application/pdf' });
 }
 
-export type PdfCompressLevel = 'light' | 'balanced' | 'strong';
+// 'lossless' preserves the TEXT layer (re-saves with object streams, no
+// rasterization — text stays selectable/searchable); light/balanced/strong
+// rasterize pages to JPEG (smaller, but text becomes an image — only right for
+// scans/image-heavy PDFs).
+export type PdfCompressLevel = 'lossless' | 'light' | 'balanced' | 'strong';
 
 /**
  * Content-aware "Reduce File Size" — rasterizes each page and re-embeds it as a
@@ -207,8 +211,24 @@ export async function compressPdf(
   level: PdfCompressLevel = 'balanced',
   onProgress?: (page: number, total: number) => void,
 ): Promise<{ blob: Blob; ratio: number }> {
-  const { rasterizePdf } = await import('@/engines/pdf/rasterize');
   const { PDFDocument } = await import('pdf-lib');
+
+  // TEXT-PRESERVING path: re-serialize the original with object streams. No
+  // rasterization → text stays selectable/searchable and vectors stay crisp.
+  // Modest savings (structure only), but it's the honest "shrink without
+  // destroying the document" mode rivals charge for.
+  if (level === 'lossless') {
+    onProgress?.(1, 1);
+    const doc = await PDFDocument.load(srcBytes.slice(0), { ignoreEncryption: true });
+    const result = await doc.save({ useObjectStreams: true });
+    const out = new Blob([new Uint8Array(result)], { type: 'application/pdf' });
+    if (out.size >= srcBytes.byteLength) {
+      return { blob: new Blob([new Uint8Array(srcBytes.slice(0))], { type: 'application/pdf' }), ratio: 1 };
+    }
+    return { blob: out, ratio: out.size / srcBytes.byteLength };
+  }
+
+  const { rasterizePdf } = await import('@/engines/pdf/rasterize');
   const cfg = level === 'light' ? { maxEdge: 2200, quality: 0.85 }
     : level === 'strong' ? { maxEdge: 1400, quality: 0.6 }
     : { maxEdge: 1700, quality: 0.72 };

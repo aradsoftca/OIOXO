@@ -158,16 +158,23 @@ export default function PdfStudioPro() {
   const [sources, setSources] = React.useState<Record<string, ArrayBuffer>>({});
   const [raster, setRaster] = React.useState<Record<string, RasterPage[]>>({});
 
+  // Latest-doc ref so builders that fire several times before React re-renders
+  // (e.g. opening multiple PDFs in one `for…await` loop) stack instead of
+  // clobbering each other. Synced from every doc mutation below.
+  const docRef = React.useRef<DocState>(doc);
+  React.useEffect(() => { docRef.current = doc; }, [doc]);
+
   const commit = React.useCallback((label: string, next: DocState) => {
+    docRef.current = next;
     setDoc(next);
     stack.current.push(label, cloneDoc(next));
     force();
   }, []);
 
-  const undo = () => { const p = stack.current.undo(cloneDoc(doc)); if (p) { setDoc(p); force(); } };
-  const redo = () => { const p = stack.current.redo(); if (p) { setDoc(p); force(); } };
+  const undo = () => { const p = stack.current.undo(cloneDoc(docRef.current)); if (p) { docRef.current = p; setDoc(p); force(); } };
+  const redo = () => { const p = stack.current.redo(); if (p) { docRef.current = p; setDoc(p); force(); } };
 
-  const [compressLevel, setCompressLevel] = React.useState<'none' | 'light' | 'balanced' | 'strong'>('none');
+  const [compressLevel, setCompressLevel] = React.useState<'none' | 'lossless' | 'light' | 'balanced' | 'strong'>('none');
   const [pdfPassword, setPdfPassword] = React.useState('');
   const [tool, setTool] = React.useState<Tool>('text');
   const [textColor, setTextColor] = React.useState('#000000');
@@ -384,7 +391,10 @@ export default function PdfStudioPro() {
   const selRaster = selPage ? raster[selPage.srcId]?.[selPage.srcIndex] : null;
 
   const addPdf = async (file: File) => {
-    if (!(await guard({ bytes: file.size }))) return;
+    // Opening a PDF to view / organize it is FREE — like every PDF tool, the
+    // credit is charged on the OUTPUT (export / split / OCR / convert), not on
+    // loading a file. Gating import burned a free user's credit just to look at
+    // their PDF and blocked the editor when the usage API was unreachable.
     setBusy('Reading PDF…');
     setProgress(0);
     try {
@@ -397,7 +407,9 @@ export default function PdfStudioPro() {
       const pagesR: RasterPage[] = rp.map(r => ({ canvas: r.canvas, w: r.width, h: r.height }));
       setSources(s => ({ ...s, [sid]: bytes }));
       setRaster(r => ({ ...r, [sid]: pagesR }));
-      const next = cloneDoc(doc);
+      // Latest doc (not the render closure) so opening several PDFs in a row
+      // appends them all instead of keeping only the last.
+      const next = cloneDoc(docRef.current);
       const added: PageRef[] = pagesR.map((_, i) => ({ id: `p${++_pid}`, srcId: sid, srcIndex: i, rotation: 0 }));
       next.pages = [...next.pages, ...added];
       if (!next.selectedId && added.length) next.selectedId = added[0].id;
@@ -1150,13 +1162,15 @@ export default function PdfStudioPro() {
           <label className="flex items-center justify-between gap-2 text-xs text-zinc-300">
             <span>Reduce file size</span>
             <select value={compressLevel} onChange={e => setCompressLevel(e.target.value as typeof compressLevel)} className="rounded border border-white/10 bg-[#0a0b0e] px-2 py-1 text-xs text-zinc-100">
-              <option value="none">Off (keep vector text)</option>
-              <option value="light">Light — high quality</option>
-              <option value="balanced">Balanced</option>
-              <option value="strong">Strong — smallest</option>
+              <option value="none">Off</option>
+              <option value="lossless">Lossless — keep selectable text</option>
+              <option value="light">Light — flatten to image</option>
+              <option value="balanced">Balanced — flatten to image</option>
+              <option value="strong">Strong — smallest, flatten to image</option>
             </select>
           </label>
-          {compressLevel !== 'none' && <div className="rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">Compression flattens pages to images — selectable text is lost. Best for scans/photos. We keep the original if it’s already smaller.</div>}
+          {compressLevel === 'lossless' && <div className="rounded bg-emerald-500/10 p-2 text-[11px] text-emerald-200">Re-packs the document without rasterizing — text stays selectable/searchable. Modest savings; best for text PDFs.</div>}
+          {compressLevel !== 'none' && compressLevel !== 'lossless' && <div className="rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">Flattens pages to images — selectable text is lost. Best for scans/photos. We keep the original if it’s already smaller.</div>}
           {formFields.length > 0 && compressLevel === 'none' && <div className="rounded bg-cyan-500/10 p-2 text-[11px] text-cyan-200">{formFields.length} fillable form field{formFields.length === 1 ? '' : 's'} will be added — recipients can type into them in any PDF reader.</div>}
           <label className="flex items-center justify-between gap-2 text-xs text-zinc-300">
             <span>Password (AES)</span>

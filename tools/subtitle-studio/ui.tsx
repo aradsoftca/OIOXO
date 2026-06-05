@@ -692,6 +692,43 @@ export default function SubtitleStudioPro() {
     setExportDialog(false);
   };
 
+  // Burn the cues INTO the source video (hard-subs) — the output the category is
+  // actually bought for. Reuses the existing engines/subtitle burnCaptions
+  // (ffmpeg overlay of rendered caption PNGs). Needs the loaded source video.
+  const burnIntoVideo = async () => {
+    if (!mediaFile || !/^video\//.test(mediaFile.type)) { toastFor('Load a video first (left panel) to burn captions in'); return; }
+    if (!doc.cues.length) { toastFor('No cues to burn'); return; }
+    if (!(await guard())) return;
+    setBusy('Burning captions into video…');
+    setProgress(0);
+    try {
+      const { burnCaptions } = await import('@/engines/subtitle/auto');
+      // Probe the source video's pixel dimensions (burnCaptions sizes the
+      // caption PNGs to the frame).
+      const dims = await new Promise<{ w: number; h: number }>((resolve) => {
+        const v = document.createElement('video');
+        v.preload = 'metadata'; v.muted = true;
+        v.onloadedmetadata = () => resolve({ w: v.videoWidth || 1920, h: v.videoHeight || 1080 });
+        v.onerror = () => resolve({ w: 1920, h: 1080 });
+        v.src = URL.createObjectURL(mediaFile);
+      });
+      const chunks = doc.cues.map(c => ({ start: c.start, end: c.end, text: c.text }));
+      const s = doc.style;
+      const blob = await burnCaptions(mediaFile, chunks, dims.w, dims.h, {
+        fontSize: s.size,
+        color: s.color,
+        highlight: s.background === 'box',
+        position: s.pos,
+        uppercase: false,
+      }, (r: number) => setProgress(Math.round(r * 100)));
+      downloadBlob(blob, `${safeFilename(doc.name)}-captioned.mp4`);
+      toastFor('Exported captioned video');
+      setExportDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'Burn-in failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
   const saveCurrent = async () => {
     setBusy('Saving…');
     try {
@@ -1116,6 +1153,17 @@ export default function SubtitleStudioPro() {
               ))}
             </div>
           </Field>
+          <div className="mt-3 border-t border-white/10 pt-3">
+            <div className="mb-1 text-[11px] text-zinc-400">Or render captions onto the video (hard-subs):</div>
+            <button
+              onClick={() => void burnIntoVideo()}
+              disabled={!mediaFile || !/^video\//.test(mediaFile?.type ?? '')}
+              className="w-full rounded bg-emerald-500 px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-white/5 disabled:text-zinc-500"
+              title={mediaFile ? 'Burn the styled captions into the loaded video' : 'Load a video on the left first'}
+            >
+              Burn into video (MP4)
+            </button>
+          </div>
         </Dialog>
       )}
       {openDialog && (

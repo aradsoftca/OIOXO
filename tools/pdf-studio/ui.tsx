@@ -36,7 +36,7 @@ import {
   SharedDialog,
 } from '@/lib/studios';
 
-type Tool = 'select' | 'text' | 'draw' | 'sign' | 'highlight' | 'line' | 'ellipse' | 'rect' | 'whiteout' | 'image';
+type Tool = 'select' | 'text' | 'draw' | 'sign' | 'highlight' | 'line' | 'ellipse' | 'rect' | 'whiteout' | 'image' | 'field';
 interface RasterPage { canvas: HTMLCanvasElement; w: number; h: number }
 interface DocState {
   name: string;
@@ -71,6 +71,7 @@ const TOOLS: { tool: Tool; label: string; key: string; icon: React.ReactNode }[]
   { tool: 'rect', label: 'Rect / Redact', key: 'r', icon: <SquareDashed className="h-4 w-4" /> },
   { tool: 'whiteout', label: 'Whiteout', key: 'e', icon: <Eraser className="h-4 w-4" /> },
   { tool: 'image', label: 'Image', key: 'i', icon: <ImageIcon className="h-4 w-4" /> },
+  { tool: 'field', label: 'Form field (fillable)', key: 'f', icon: <SquareDashed className="h-4 w-4" /> },
 ];
 
 export default function PdfStudioPro() {
@@ -287,7 +288,7 @@ export default function PdfStudioPro() {
       const text = window.prompt('Text:');
       if (!text) return;
       addAnno(selPage.id, { kind: 'text', nx: p.nx, ny: p.ny, text, size: textSize, color: textColor });
-    } else if (['rect', 'highlight', 'line', 'ellipse', 'whiteout'].includes(tool)) {
+    } else if (['rect', 'highlight', 'line', 'ellipse', 'whiteout', 'field'].includes(tool)) {
       dragRect.current = p;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     } else if (tool === 'draw') {
@@ -362,6 +363,11 @@ export default function PdfStudioPro() {
           else if (tool === 'whiteout') addAnno(selPage.id, { kind: 'rect', nx, ny, nw, nh, color: '#ffffff', opacity: 1, redact: true });
           else if (tool === 'ellipse') addAnno(selPage.id, { kind: 'ellipse', nx, ny, nw, nh, color: textColor, width: 2 });
           else if (tool === 'rect') addAnno(selPage.id, { kind: 'rect', nx, ny, nw, nh, color: '#000000', opacity: 1, redact: true });
+          else if (tool === 'field') {
+            // Real fillable form field, bound to this page (1-based pageId).
+            const pageNum = doc.pages.findIndex(p => p.id === selPage.id) + 1;
+            setFormFields(fs => [...fs, { id: `f${Date.now().toString(36)}`, pageId: `p${pageNum}`, kind: 'text', nx, ny, nw, nh, label: 'Field' }]);
+          }
         }
       }
     }
@@ -469,6 +475,13 @@ export default function PdfStudioPro() {
         onProgress: hasRedaction ? (r) => setProgress(Math.round(r * 100)) : undefined,
       });
       let note = 'Exported';
+      // Add REAL fillable AcroForm fields (recipient can type/check them in any
+      // PDF reader). Skipped if compressing, since compression rasterizes pages.
+      if (formFields.length && compressLevel === 'none') {
+        const { applyInteractiveFormFields } = await import('@/lib/studios');
+        blob = await applyInteractiveFormFields(await blob.arrayBuffer(), formFields);
+        note = `Exported with ${formFields.length} fillable field${formFields.length === 1 ? '' : 's'}`;
+      }
       if (compressLevel !== 'none') {
         setBusy('Reducing file size…'); setProgress(0);
         const { compressPdf } = await import('@/lib/studios');
@@ -485,6 +498,32 @@ export default function PdfStudioPro() {
     } finally {
       setBusy(''); setProgress(0);
     }
+  };
+
+  // Export every page as a PNG, zipped. Builds the edited PDF first so
+  // annotations/redactions are baked into the images.
+  const exportImages = async () => {
+    if (!doc.pages.length) return;
+    if (!(await guard())) return;
+    setBusy('Rendering pages to images…'); setProgress(0);
+    try {
+      const blob = await buildPdf({ sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers });
+      const { rasterizePdf } = await import('@/engines/pdf/rasterize');
+      const rasters = await rasterizePdf(await blob.arrayBuffer(), { maxEdge: 2000, onProgress: (p) => setProgress(Math.round((p.page / p.pageCount) * 90)) });
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      for (let i = 0; i < rasters.length; i++) {
+        const png: Blob = await new Promise((res, rej) => rasters[i].canvas.toBlob(b => b ? res(b) : rej(new Error('encode failed')), 'image/png'));
+        zip.file(`${safeFilename(doc.name)}-${String(i + 1).padStart(3, '0')}.png`, png);
+      }
+      setProgress(95);
+      const out = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(out, `${safeFilename(doc.name)}-images.zip`);
+      toastFor(`Exported ${rasters.length} page image${rasters.length === 1 ? '' : 's'}`);
+      setExportDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'Image export failed');
+    } finally { setBusy(''); setProgress(0); }
   };
 
   const saveCurrent = async () => {
@@ -738,6 +777,16 @@ export default function PdfStudioPro() {
                 })}
                 {livePts.length > 2 && <polyline points={ptsToStr(livePts)} fill="none" stroke={textColor} strokeWidth={penWidth} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />}
               </svg>
+              {/* Fillable form-field overlays for THIS page (1-based pageId). */}
+              {(() => { const pageNum = doc.pages.findIndex(p => p.id === selPage.id) + 1; return formFields.filter(f => f.pageId === `p${pageNum}`).map((f) => (
+                <div key={f.id}
+                  onDoubleClick={() => setFormFields(fs => fs.filter(x => x.id !== f.id))}
+                  title="Fillable form field — double-click to remove"
+                  className="absolute flex items-center justify-start border-2 border-dashed border-cyan-500 bg-cyan-400/10 px-1 text-[10px] text-cyan-700"
+                  style={{ left: `${f.nx * 100}%`, top: `${f.ny * 100}%`, width: `${f.nw * 100}%`, height: `${f.nh * 100}%` }}>
+                  {f.label}
+                </div>
+              )); })()}
             </div>
             </div>
           ) : (
@@ -779,7 +828,9 @@ export default function PdfStudioPro() {
             </select>
           </label>
           {compressLevel !== 'none' && <div className="rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">Compression flattens pages to images — selectable text is lost. Best for scans/photos. We keep the original if it’s already smaller.</div>}
+          {formFields.length > 0 && compressLevel === 'none' && <div className="rounded bg-cyan-500/10 p-2 text-[11px] text-cyan-200">{formFields.length} fillable form field{formFields.length === 1 ? '' : 's'} will be added — recipients can type into them in any PDF reader.</div>}
           <div className="rounded bg-emerald-500/10 p-2 text-xs text-emerald-200">Redacted pages are flattened to an image so the hidden text is permanently removed — not just covered. Other pages keep their selectable vector text.</div>
+          <button type="button" onClick={() => void exportImages()} className="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10">Or export every page as PNG images (.zip)</button>
         </Dialog>
       )}
       {openDialog && <OpenDialog items={savedList} onCancel={() => setOpenDialog(false)} onPick={loadFromLibrary} />}

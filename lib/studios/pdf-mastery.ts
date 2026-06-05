@@ -231,6 +231,53 @@ export async function compressPdf(
   return { blob: compressed, ratio: compressed.size / srcBytes.byteLength };
 }
 
+/**
+ * Create REAL interactive AcroForm fields (fillable in any PDF reader) — text
+ * fields, checkboxes, and signature placeholders — rather than drawing static
+ * graphics. Uses pdf-lib's form API. The recipient can type into / check these
+ * in Acrobat, Preview, browsers, etc. (For a flattened, non-editable stamp use
+ * applyFormFieldsToPdf instead.)
+ */
+export async function applyInteractiveFormFields(srcBytes: ArrayBuffer, fields: PdfFormField[]): Promise<Blob> {
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+  const pdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+  const form = pdf.getForm();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const pages = pdf.getPages();
+  const pagesById = new Map<string, any>();
+  pages.forEach((p, i) => pagesById.set(`p${i + 1}`, p));
+  let uniq = 0;
+  for (const f of fields) {
+    const page = pagesById.get(f.pageId) ?? pages[0];
+    if (!page) continue;
+    const { width: W, height: H } = page.getSize();
+    const x = f.nx * W, w = f.nw * W, h = f.nh * H;
+    const y = H - f.ny * H - h;
+    const name = `${f.kind}_${f.id || ++uniq}`;
+    try {
+      if (f.kind === 'text') {
+        const tf = form.createTextField(name);
+        if (f.value) tf.setText(f.value);
+        tf.addToPage(page, { x, y, width: w, height: h, borderWidth: 1, borderColor: rgb(0.6, 0.6, 0.6) });
+      } else if (f.kind === 'checkbox') {
+        const cb = form.createCheckBox(name);
+        const s = Math.min(w, h, 18);
+        cb.addToPage(page, { x, y, width: s, height: s, borderWidth: 1, borderColor: rgb(0.3, 0.3, 0.3) });
+        if (f.checked) cb.check();
+        if (f.label) page.drawText(f.label, { x: x + s + 6, y: y + (s - 10) / 2, size: 10, font, color: rgb(0.1, 0.1, 0.1) });
+      } else if (f.kind === 'signature') {
+        // pdf-lib has no native signature widget; use a text field as a
+        // fill-in signature line + a visible dashed box.
+        page.drawRectangle({ x, y, width: w, height: h, borderColor: rgb(0.4, 0.4, 0.4), borderWidth: 0.8, borderDashArray: [4, 3] });
+        const tf = form.createTextField(name);
+        tf.addToPage(page, { x: x + 2, y: y + 2, width: w - 4, height: h - 4, borderWidth: 0 });
+      }
+    } catch { /* duplicate field name / unsupported — skip this one */ }
+  }
+  const out = await pdf.save();
+  return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
+}
+
 export async function applyFormFieldsToPdf(srcBytes: ArrayBuffer, fields: PdfFormField[]): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const pdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });

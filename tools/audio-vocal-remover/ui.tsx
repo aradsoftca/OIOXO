@@ -25,27 +25,36 @@ export default function AudioVocalRemoverTool() {
   const [amount, setAmount] = React.useState(1);
   const [format, setFormat] = React.useState<Format>('wav');
   const [busy, setBusy] = React.useState(false);
+  const [busyMsg, setBusyMsg] = React.useState('');
   const [previewUrl, setPreviewUrl] = React.useState('');
   const [error, setError] = React.useState('');
+  // AI mode = on-device Spleeter stem separation (true separation, any track,
+  // incl. mono); off = the instant stereo center-channel method.
+  const [ai, setAi] = React.useState(false);
+
+  const buildAsync = async (): Promise<AudioBuffer | null> => {
+    if (!item) return null;
+    if (ai) {
+      const { separateStem } = await import('@/lib/studios/stem-separation');
+      const stem = mode === 'instrumental' ? 'accompaniment' : 'vocals';
+      return separateStem(item.buffer, stem, (p) => setBusyMsg(p.phase === 'Downloading model' ? `Downloading model… ${Math.round(p.ratio * 100)}%` : `${p.phase}…`));
+    }
+    return mode === 'instrumental' ? removeVocals(item.buffer, amount) : isolateVocals(item.buffer, amount);
+  };
 
   React.useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   const isMono = item?.info.channels === 1;
 
-  const build = () => {
-    if (!item) return null;
-    return mode === 'instrumental' ? removeVocals(item.buffer, amount) : isolateVocals(item.buffer, amount);
-  };
-
   const preview = async () => {
     if (!item) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setBusyMsg('');
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     try {
-      const out = build(); if (!out) return;
+      const out = await buildAsync(); if (!out) return;
       setPreviewUrl(URL.createObjectURL(await encodeAudio(out, 'wav', 192)));
     } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setBusyMsg(''); }
   };
 
   const download = async () => {
@@ -55,13 +64,13 @@ export default function AudioVocalRemoverTool() {
       { type: 'lever', lever: 'input-duration', value: item.info.duration },
     ]);
     if (!ok) return;
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setBusyMsg('');
     try {
-      const out = build(); if (!out) return;
+      const out = await buildAsync(); if (!out) return;
       const blob = await encodeAudio(out, format, 192);
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + `-${mode}.${format}`);
     } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setBusyMsg(''); }
   };
 
   return (
@@ -78,10 +87,10 @@ export default function AudioVocalRemoverTool() {
               className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change file</button>
           </div>
 
-          {isMono && (
+          {isMono && !ai && (
             <div className="flex items-start gap-2 border border-amber-500/30 bg-amber-500/10 p-3 text-[12px] text-amber-900 dark:text-amber-200">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              This works by separating the stereo channels, so it needs a stereo track. Mono files have nothing to cancel.
+              The fast method separates stereo channels, so it needs a stereo track. Turn on <b>AI separation</b> for mono files.
             </div>
           )}
 
@@ -100,12 +109,16 @@ export default function AudioVocalRemoverTool() {
                   ))}
                 </div>
               </div>
+              <label className="flex items-center gap-2 border-t border-black/[0.06] pt-3 text-[12px]">
+                <input type="checkbox" checked={ai} onChange={(e) => setAi(e.target.checked)} />
+                <span><b>AI separation</b> — true stem split on your device (works on mono too; downloads a ~20 MB model on first use, nothing uploaded)</span>
+              </label>
               <div>
                 <div className="flex items-baseline justify-between">
                   <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Strength</span>
                   <span className="font-mono text-[14px] tabular-nums font-bold">{Math.round(amount * 100)}%</span>
                 </div>
-                <Slider.Root value={[amount]} min={0} max={1} step={0.05} disabled={isMono}
+                <Slider.Root value={[amount]} min={0} max={1} step={0.05} disabled={isMono || ai}
                   onValueChange={([v]) => setAmount(v)} className="relative mt-2 flex h-5 w-full touch-none items-center">
                   <Slider.Track className="relative h-1.5 grow bg-black/[0.08]"><Slider.Range className="absolute h-full bg-[var(--color-cat-audio)]" /></Slider.Track>
                   <Slider.Thumb className="block h-4 w-4 border-2 border-[var(--color-fg)] bg-[var(--color-cat-audio)]" />
@@ -132,14 +145,15 @@ export default function AudioVocalRemoverTool() {
                   ))}
                 </div>
               </div>
-              <button type="button" onClick={preview} disabled={busy || isMono}
+              <button type="button" onClick={preview} disabled={busy || (isMono && !ai)}
                 className="flex w-full items-center justify-center gap-2 border border-black/[0.08] py-2.5 text-[12px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)] disabled:opacity-60">
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Preview
               </button>
-              <button type="button" onClick={download} disabled={busy || isMono}
+              <button type="button" onClick={download} disabled={busy || (isMono && !ai)}
                 className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-audio)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
                 {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download .{format}
               </button>
+              {busy && busyMsg && <div className="text-[11px] text-[var(--color-fg-muted)]">{busyMsg}</div>}
               {error && <div className="text-[12px] text-red-600">{error}</div>}
             </aside>
           </div>

@@ -33,6 +33,7 @@ export * from './element-model';
 export * from './element-canvas';
 export * from './sheet-formula';
 export * from './inpaint';
+export * from './stem-separation';
 export * from './comments';
 export * from './comments-ui';
 export * from './track-changes';

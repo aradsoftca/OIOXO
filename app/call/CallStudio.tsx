@@ -8,6 +8,7 @@ import {
   Users, Layout, FileText, Pin, Wand2, Smile, Keyboard, FlipHorizontal2,
 } from 'lucide-react';
 import { joinMesh, type Mesh, type MeshPeerInfo } from '@/lib/p2p/mesh';
+import { useRoomCode } from '@/lib/p2p/use-room-code';
 import type { MediaState } from '@/lib/p2p/media';
 import { meterStream, type AudioMeter } from '@/lib/p2p/audio-level';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -45,7 +46,8 @@ export default function CallStudio() {
   const params = useSearchParams();
   const joinCode = params.get('r');
   const role: 's' | 'r' = joinCode ? 'r' : 's';
-  const [room] = React.useState(() => joinCode || Math.random().toString(36).slice(2, 10));
+  // client-only (avoids hydration mismatch); keep the existing short code format
+  const room = useRoomCode(joinCode, () => Math.random().toString(36).slice(2, 10));
   const audioOnly = params.get('audio') === '1';
 
   const [state, setState] = React.useState<MediaState>('connecting');
@@ -136,7 +138,7 @@ export default function CallStudio() {
   // cleanup effect does NOT stop the very tracks the call is now using.
   const lobbyHandedOffRef = React.useRef(false);
 
-  const link = typeof window !== 'undefined' ? `${window.location.origin}/call?r=${room}${audioOnly ? '&audio=1' : ''}` : '';
+  const link = room && typeof window !== 'undefined' ? `${window.location.origin}/call?r=${room}${audioOnly ? '&audio=1' : ''}` : '';
 
   React.useEffect(() => {
     if (role !== 's' || !link) return;
@@ -393,6 +395,13 @@ export default function CallStudio() {
       const { watermarkVideoStream } = await import('@/lib/watermark/stream-overlay');
       const wrapped = await watermarkVideoStream(stream, await isWatermarkOn());
       wmStopRef.current = wrapped.stop;
+      // Local tile shows the WATERMARKED stream so the recording compositor
+      // (startRec draws localRef) captures the brand mark on free sessions —
+      // it previously recorded the raw `stream`, leaking a clean .webm.
+      if (localRef.current && wrapped.stream !== stream) {
+        localRef.current.srcObject = wrapped.stream;
+        void localRef.current.play().catch(() => {});
+      }
       meshRef.current = joinMesh(room, nameRef.current, wrapped.stream, {
         onSelfId: (id) => { selfIdRef.current = id; },
         onRoster: (list) => {

@@ -3,22 +3,38 @@ import * as React from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { recordRange, downloadBlob, fmtDuration } from '@/engines/video';
+import { checkLever } from '@/lib/limits/policy';
+import { usePolicyGate } from '@/components/limits/PolicyGate';
+import { useIsPro } from '@/lib/limits/use-is-pro';
+import { shouldWatermark } from '@/lib/watermark/config';
+
+const POLICY_KEY = 'video-mute';
 
 export default function Tool() {
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [error, setError] = React.useState('');
+  const isPro = useIsPro();
+  const policyGate = usePolicyGate();
 
   React.useEffect(() => () => { if (item?.url) URL.revokeObjectURL(item.url); }, [item]);
 
   const run = async () => {
     if (!item) return;
+    const sizeHit = checkLever(POLICY_KEY, 'input-size', item.file.size, isPro);
+    if (sizeHit) { policyGate.fire(sizeHit); return; }
+    const durHit = checkLever(POLICY_KEY, 'input-duration', item.info.duration, isPro);
+    if (durHit) { policyGate.fire(durHit); return; }
     setBusy(true); setError(''); setProgress(0);
     try {
       const blob = await recordRange(item.video, 0, item.info.duration, {
         withVideo: true,
         withAudio: false,
+        // Free tier gets the brand mark burned into the recording (matches
+        // video-trim); Pro / watermark-free policy → clean. This path bypasses
+        // both the canvas-patch and ffmpeg, so the opt is REQUIRED here.
+        watermark: shouldWatermark(POLICY_KEY),
         onProgress: (t) => setProgress(Math.round((t / item.info.duration) * 100)),
       });
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '-muted.webm');
@@ -29,6 +45,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
+      {policyGate.element}
       {!item && <VideoDrop loaded={false} onLoad={setItem} />}
 
       {item && (

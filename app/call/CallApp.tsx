@@ -87,6 +87,13 @@ export default function CallApp() {
       const { watermarkVideoStream } = await import('@/lib/watermark/stream-overlay');
       const wrapped = await watermarkVideoStream(stream, await isWatermarkOn());
       wmStopRef.current = wrapped.stop;
+      // Show the WATERMARKED stream in the local tile so the recording
+      // compositor (startRec draws localRef) captures the branded video too —
+      // previously it recorded the raw `stream`, leaking a clean .webm on free.
+      if (localRef.current && wrapped.stream !== stream) {
+        localRef.current.srcObject = wrapped.stream;
+        void localRef.current.play().catch(() => {});
+      }
       peerRef.current = connectMedia(role, room, {
         localStream: wrapped.stream,
         onState: setState,

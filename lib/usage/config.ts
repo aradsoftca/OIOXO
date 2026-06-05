@@ -67,6 +67,15 @@ export const GATED_TOOL_LIMITS: Record<string, number> = {
   'office-studio': 3,
   'office-docs': 3,
   'office-slides': 3,
+  // studio twins of the office/value tools — same leak, missed in the first pass
+  // (categories convert/text/generator are ungated, so these shipped free-unlimited)
+  'translate-studio': 5,   // on-device OCR + translate + export — the critical leak
+  'text-translate': 10,    // on-device translation model; commodity-ish but metered
+  'studio-docs': 3,
+  'studio-slides': 3,
+  'studio-sheets': 4,
+  'studio-background': 2,  // heavy on-device bg-removal model
+  'image-passport': 2,     // intended 2/day (was leaking at category image=10)
   // image: commodity converters = unlimited funnel; AI/heavy = tight value caps
   'image-convert-format': 9999,
   'image-heic-convert': 9999,
@@ -102,6 +111,13 @@ export const GATED_TOOL_DISPLAY: Record<string, Category> = {
   'office-studio': 'convert',
   'office-docs': 'text',
   'office-slides': 'image',
+  'translate-studio': 'text',
+  'text-translate': 'text',
+  'studio-docs': 'text',
+  'studio-slides': 'image',
+  'studio-sheets': 'convert',
+  'studio-background': 'image',
+  'image-passport': 'image',
   'image-convert-format': 'image',
   'image-heic-convert': 'image',
   'image-batch-compress': 'image',

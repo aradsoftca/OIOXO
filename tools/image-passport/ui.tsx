@@ -32,7 +32,7 @@ export default function PassportPhoto() {
   const [error, setError] = React.useState('');
   const [out, setOut] = React.useState<{ url: string; blob: Blob } | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const { guard, gate } = useUsageGate('image');
+  const { guard, gate } = useUsageGate('image-passport');
 
   React.useEffect(() => () => { if (out?.url) URL.revokeObjectURL(out.url); }, [out]);
 

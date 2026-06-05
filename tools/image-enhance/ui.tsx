@@ -24,7 +24,7 @@ export default function PhotoEnhancer() {
   const [error, setError] = React.useState('');
   const [out, setOut] = React.useState<{ url: string; blob: Blob } | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const { guard, gate } = useUsageGate('image');
+  const { guard, gate } = useUsageGate('image-enhance');
 
   // Unmount-only cleanup. Previous deps `[out, srcUrl]` caused producing the
   // enhanced output (`out`) to revoke the source preview (`srcUrl`), which

@@ -12,6 +12,21 @@ const SUBTLE: Algo[] = ['SHA-1', 'SHA-256', 'SHA-384', 'SHA-512'];
 export default function HashTool() {
   const [input, setInput] = React.useState('');
   const [results, setResults] = React.useState<Record<string, string>>({});
+  const [dragging, setDragging] = React.useState(false);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
+
+  // Paste anywhere → hash it (unless the user is typing in another field).
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae === inputRef.current) return; // native paste into the box
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+      const text = e.clipboardData?.getData('text/plain');
+      if (text) { e.preventDefault(); setInput(text); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -34,15 +49,39 @@ export default function HashTool() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_1.4fr]">
-      <div className="tile-surface" data-neutral="true">
+      <div
+        className={cn('tile-surface relative', dragging && 'ring-2 ring-[var(--color-cat-dev)]')}
+        data-neutral="true"
+        onDragOver={(e) => {
+          if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setDragging(true); }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer?.files?.[0];
+          if (file) file.text().then(setInput).catch(() => { /* binary */ });
+        }}
+      >
+        {dragging && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[var(--color-surface-1)]/85 text-[13px] font-semibold text-[var(--color-fg)]">
+            Drop a file to hash it
+          </div>
+        )}
         <div className="tile-content gap-3 !justify-start">
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
             Input
           </div>
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type or paste text to hash"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && input) { e.preventDefault(); e.stopPropagation(); setInput(''); }
+            }}
+            placeholder="Type, paste, or drop a file to hash"
             spellCheck={false}
             className="h-80 w-full resize-none bg-transparent font-mono text-[13px] leading-relaxed text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:outline-none"
           />

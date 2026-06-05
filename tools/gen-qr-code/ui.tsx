@@ -1,10 +1,11 @@
 'use client';
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { Download } from 'lucide-react';
+import { Download, Copy, Check, ClipboardPaste } from 'lucide-react';
 import QRCode from 'qrcode';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
+import { useCopy } from '@/components/tool/CopyButton';
 
 const LEVELS: Array<{ id: 'L' | 'M' | 'Q' | 'H'; label: string; recovery: string }> = [
   { id: 'L', label: 'Low',       recovery: '7%' },
@@ -22,6 +23,9 @@ export default function Tool() {
   const [level, setLevel] = React.useState<'L' | 'M' | 'Q' | 'H'>('M');
   const [dataUrl, setDataUrl] = React.useState('');
   const [error, setError] = React.useState('');
+  const { copy, isCopied } = useCopy();
+  const [imgCopied, setImgCopied] = React.useState(false);
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   React.useEffect(() => {
     if (!text) { setDataUrl(''); setError(''); return; }
@@ -75,6 +79,61 @@ export default function Tool() {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
 
+  // Paste a URL / text straight into the input — from the button or by
+  // pressing paste anywhere on the tool (the most-asked QR shortcut: copy a
+  // link, hit the tool, get a code). Ignored while a field is focused so it
+  // never clobbers what the user is typing.
+  const pasteFromClipboard = React.useCallback(async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      if (t) setText(t);
+    } catch { /* permission denied / insecure context */ }
+  }, []);
+
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+      const t = e.clipboardData?.getData('text/plain');
+      if (t) { setText(t); e.preventDefault(); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
+
+  // Copy the rendered QR as an actual image to the clipboard (paste into chat,
+  // docs, design tools) — a feature the best QR generators ship and ours lacked.
+  const copyImage = React.useCallback(async () => {
+    if (!dataUrl) return;
+    try {
+      const blob = await (await fetch(dataUrl)).blob();
+      // ClipboardItem with image/png — supported in Chromium & Safari.
+      const item = new ClipboardItem({ [blob.type]: blob });
+      await navigator.clipboard.write([item]);
+      setImgCopied(true);
+      setTimeout(() => setImgCopied(false), 1400);
+    } catch { /* unsupported / denied — silently fall back to download */ }
+  }, [dataUrl]);
+
+  const canCopyImage = typeof window !== 'undefined' && typeof ClipboardItem !== 'undefined';
+
+  // Keyboard: Cmd/Ctrl+Enter downloads PNG when not typing in the textarea.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        if (document.activeElement === taRef.current) return;
+        e.preventDefault();
+        download('png');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // download is stable per render; deps intentionally limited to dataUrl
+    // (which is what download reads through closure).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataUrl, size]);
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <div className="flex aspect-square items-center justify-center border border-black/[0.08]" style={{ background: bg }}>
@@ -88,15 +147,38 @@ export default function Tool() {
       </div>
 
       <aside className="space-y-4">
-        <label className="block border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Text or URL</div>
+        <div className="block border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Text or URL</div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={pasteFromClipboard}
+                title="Paste from clipboard"
+                className="flex items-center gap-1 px-1.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)] transition hover:text-[var(--color-fg)]"
+              >
+                <ClipboardPaste className="h-3.5 w-3.5" /> Paste
+              </button>
+              <button
+                type="button"
+                onClick={() => copy(text, 'text')}
+                disabled={!text}
+                title="Copy text"
+                className="flex items-center gap-1 px-1.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)] transition hover:text-[var(--color-fg)] disabled:opacity-40"
+              >
+                {isCopied('text') ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
           <textarea
+            ref={taRef}
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={3}
-            className="mt-2 w-full resize-none bg-transparent font-mono text-[13px] text-[var(--color-fg)] outline-none"
+            placeholder="Paste a link or type any text…"
+            className="mt-2 w-full resize-none bg-transparent font-mono text-[13px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] outline-none"
           />
-        </label>
+        </div>
 
         <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 space-y-3">
           <div>
@@ -166,6 +248,7 @@ export default function Tool() {
             type="button"
             onClick={() => download('png')}
             disabled={!dataUrl}
+            title="Download PNG (Ctrl/⌘+Enter)"
             className="flex items-center justify-center gap-2 bg-[var(--color-cat-generator)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none"
           >
             <Download className="h-3.5 w-3.5" /> PNG
@@ -179,6 +262,17 @@ export default function Tool() {
             <Download className="h-3.5 w-3.5" /> SVG
           </button>
         </div>
+        {canCopyImage && (
+          <button
+            type="button"
+            onClick={copyImage}
+            disabled={!dataUrl}
+            className="flex w-full items-center justify-center gap-2 border border-black/[0.08] py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)] disabled:text-[var(--color-fg-subtle)]"
+          >
+            {imgCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {imgCopied ? 'Copied image' : 'Copy image'}
+          </button>
+        )}
       </aside>
     </div>
   );

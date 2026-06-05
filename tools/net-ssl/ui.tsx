@@ -3,6 +3,9 @@ import { powFetch } from '@/lib/pow-client';
 
 import * as React from 'react';
 import { Loader2, Lock, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { ResultGrid } from '@/components/tool/ResultGrid';
+import { RecentChips } from '@/components/tool/RecentChips';
+import { useQueryHotkeys } from '@/lib/use-query-hotkeys';
 
 interface Cert {
   error?: string;
@@ -16,29 +19,42 @@ export default function Tool() {
   const [busy, setBusy] = React.useState(false);
   const [res, setRes] = React.useState<Cert | null>(null);
 
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!host.trim()) return;
+  const rememberRef = React.useRef<(q: string) => void>(() => {});
+
+  const check = React.useCallback(async (target: string) => {
+    if (!target.trim()) return;
     setBusy(true); setRes(null);
     try {
-      const r = await powFetch('/api/net/ssl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host }) });
-      setRes(await r.json());
+      const r = await powFetch('/api/net/ssl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: target }) });
+      const data: Cert = await r.json();
+      setRes(data);
+      if (!data.error) rememberRef.current(target.trim());
     } catch { setRes({ error: 'Request failed.' }); }
     setBusy(false);
-  };
+  }, []);
+
+  const run = (e: React.FormEvent) => { e.preventDefault(); void check(host); };
+
+  // Paste a domain anywhere to check it; Esc clears. historyKey → recent chips.
+  const { recent, remember, forget } = useQueryHotkeys({
+    historyKey: 'ssl',
+    onPaste: (t) => { setHost(t); void check(t); },
+    onClear: () => { setHost(''); setRes(null); },
+  });
+  rememberRef.current = remember;
 
   const valid = res && !res.error && !res.expired && res.daysRemaining != null;
-  const rows: [string, unknown][] = res && !res.error ? [
-    ['Common name', res.subject],
-    ['Issuer', res.issuer],
-    ['Valid from', res.validFrom],
-    ['Valid until', res.validTo],
-    ['Days remaining', res.daysRemaining],
-    ['TLS protocol', res.protocol],
-    ['Trusted chain', res.authorized ? 'Yes' : `No${res.authError ? ` (${res.authError})` : ''}`],
-    ['Serial', res.serialNumber],
-    ['Chain', res.chain?.join(' → ')],
-    ['SANs', res.san?.slice(0, 12).join(', ') + ((res.san?.length ?? 0) > 12 ? ' …' : '')],
+  const rows = res && !res.error ? [
+    { label: 'Common name', value: res.subject },
+    { label: 'Issuer', value: res.issuer },
+    { label: 'Valid from', value: res.validFrom },
+    { label: 'Valid until', value: res.validTo },
+    { label: 'Days remaining', value: res.daysRemaining },
+    { label: 'TLS protocol', value: res.protocol },
+    { label: 'Trusted chain', value: res.authorized ? 'Yes' : `No${res.authError ? ` (${res.authError})` : ''}` },
+    { label: 'Serial', value: res.serialNumber },
+    { label: 'Chain', value: res.chain?.join(' → ') },
+    { label: 'SANs', value: res.san?.length ? res.san.slice(0, 12).join(', ') + ((res.san.length) > 12 ? ' …' : '') : undefined, copyText: res.san?.join(', ') },
   ] : [];
 
   return (
@@ -52,6 +68,8 @@ export default function Tool() {
         </button>
       </form>
 
+      <RecentChips recent={recent} onPick={(q) => { setHost(q); void check(q); }} onForget={forget} colorVar="--color-cat-ip" />
+
       {res?.error && <div className="text-[13px] text-[var(--color-cat-pdf)]">{res.error}</div>}
 
       {res && !res.error && (
@@ -63,14 +81,7 @@ export default function Tool() {
               {!res.authorized && <span className="ml-1 text-[12px] font-normal text-[var(--color-fg-muted)]">(chain not trusted)</span>}
             </div>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {rows.filter(([, v]) => v != null && v !== '').map(([k, v]) => (
-              <div key={k} className="flex items-center justify-between gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] px-4 py-2.5">
-                <span className="shrink-0 text-[12px] text-[var(--color-fg-muted)]">{k}</span>
-                <span className="truncate font-mono text-[12px] text-[var(--color-fg)]">{String(v)}</span>
-              </div>
-            ))}
-          </div>
+          <ResultGrid rows={rows} colorVar="--color-cat-ip" />
         </>
       )}
       <p className="text-[11px] text-[var(--color-fg-subtle)]">Read-only TLS handshake from our server. Internal/private addresses are blocked.</p>

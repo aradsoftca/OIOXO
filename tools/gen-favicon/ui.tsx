@@ -10,6 +10,7 @@ export default function Tool() {
   const [sourceUrl, setSourceUrl] = React.useState('');
   const [previews, setPreviews] = React.useState<Map<number, string>>(new Map());
   const [busy, setBusy] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   // Mirror current URLs into refs so the unmount cleanup reads the LATEST
@@ -59,8 +60,23 @@ export default function Tool() {
     }
   }, [sourceUrl, previews]);
 
+  // Paste a screenshot or copied image straight into the tool — no need to save
+  // it to disk first. Ignored while editing a text field.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith('image/'));
+      const img = item?.getAsFile();
+      if (img) { e.preventDefault(); void loadFile(img); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [loadFile]);
+
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    setDragOver(false);
     const next = e.dataTransfer.files?.[0];
     if (next) void loadFile(next);
   };
@@ -78,9 +94,11 @@ export default function Tool() {
     <div className="space-y-4">
       <div
         onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
         className={cn(
-          'flex aspect-[3/1] items-center justify-center border border-black/[0.08] bg-[oklch(20%_0.008_250)]',
+          'relative flex aspect-[3/1] items-center justify-center border bg-[oklch(20%_0.008_250)] transition',
+          dragOver ? 'border-[var(--color-cat-generator)] ring-2 ring-[var(--color-cat-generator)]/40' : 'border-black/[0.08]',
           file ? '' : 'cursor-pointer',
         )}
         onClick={() => !file && inputRef.current?.click()}
@@ -88,12 +106,21 @@ export default function Tool() {
         {!file && (
           <div className="text-center">
             <Upload className="mx-auto h-7 w-7 text-white/70" />
-            <div className="mt-2 text-[16px] font-semibold text-white">Drop a square logo or icon</div>
-            <div className="mt-1 text-[12px] text-white/55">PNG, JPG, WebP, SVG — files stay yours</div>
+            <div className="mt-2 text-[16px] font-semibold text-white">Drop, paste, or click to add a square logo</div>
+            <div className="mt-1 text-[12px] text-white/55">PNG, JPG, WebP, SVG · or paste a screenshot — files stay yours</div>
           </div>
         )}
         {file && sourceUrl && (
           <img src={sourceUrl} alt="source" className="h-full w-auto object-contain" />
+        )}
+        {file && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+            className="absolute right-2 top-2 inline-flex items-center gap-1 bg-black/55 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur transition hover:bg-black/75"
+          >
+            <Upload className="h-3 w-3" /> Replace
+          </button>
         )}
         <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
       </div>

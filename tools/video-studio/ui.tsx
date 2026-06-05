@@ -257,14 +257,26 @@ export default function VideoStudioPro() {
   const [, force] = React.useReducer(x => x + 1, 0);
   React.useEffect(() => { stack.current.reset(cloneDoc(doc), 'init'); }, []);
 
+  // Always-current snapshot of the working doc. Builders that can fire several
+  // times before React re-renders (e.g. clicking 3 media items in a row to add
+  // them all to the timeline) MUST read from this ref, not the `doc` closure —
+  // otherwise each rapid call clones the SAME stale doc and only the last commit
+  // survives, silently dropping clips.
+  const docRef = React.useRef<DocState>(doc);
+  // Keep the ref consistent with whatever path mutates `doc` (functional
+  // setDoc for playhead/selection/name, recovery restore, etc.).
+  React.useEffect(() => { docRef.current = doc; }, [doc]);
+  const applyDoc = React.useCallback((next: DocState) => { docRef.current = next; setDoc(next); }, []);
+
   const commit = React.useCallback((label: string, next: DocState) => {
     next.duration = computeDuration(next.clips);
+    docRef.current = next;
     setDoc(next);
     stack.current.push(label, cloneDoc(next));
     force();
   }, []);
-  const undo = () => { const p = stack.current.undo(cloneDoc(doc)); if (p) { setDoc(p); force(); } };
-  const redo = () => { const p = stack.current.redo(); if (p) { setDoc(p); force(); } };
+  const undo = () => { const p = stack.current.undo(cloneDoc(docRef.current)); if (p) { applyDoc(p); force(); } };
+  const redo = () => { const p = stack.current.redo(); if (p) { applyDoc(p); force(); } };
 
   const [media, setMedia] = React.useState<MediaItem[]>([]);
   const mediaMap = React.useMemo(() => new Map(media.map(m => [m.id, m])), [media]);
@@ -353,7 +365,12 @@ export default function VideoStudioPro() {
   };
 
   const ingestFiles = async (files: FileList | File[]) => {
-    if (!(await guard())) return;
+    // Importing media is FREE — like every real editor (CapCut, Premiere), you
+    // load and arrange clips without spending anything; the usage credit is
+    // charged on Export (the valuable output) and on the heavy AI ops
+    // (auto-caption / auto-reframe). Gating import burned a free user's daily
+    // video credit just to *open a clip*, before they made anything — and it
+    // blocked the whole editor when the usage API was unreachable.
     const arr = Array.from(files);
     if (!arr.length) return;
     setBusy('Importing…');
@@ -421,7 +438,9 @@ export default function VideoStudioPro() {
   const addClipFromMedia = (mediaId: string, targetTrackId?: string) => {
     const item = mediaMap.get(mediaId);
     if (!item) return;
-    const next = cloneDoc(doc);
+    // Read the LATEST doc (not the render-closure `doc`) so rapid successive
+    // adds stack correctly instead of clobbering each other.
+    const next = cloneDoc(docRef.current);
     let trackId: string;
     if (targetTrackId && next.tracks.find(t => t.id === targetTrackId)) {
       // Caller named a specific track — use it (e.g. drop on A2 to layer music

@@ -1,7 +1,8 @@
 'use client';
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { Copy, Check, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 interface Layer {
   id: number;
@@ -38,7 +39,6 @@ export default function Tool() {
   const [bgColor, setBgColor] = React.useState('#f4f1ed');
   const [boxColor, setBoxColor] = React.useState('#ffffff');
   const [radius, setRadius] = React.useState(12);
-  const [copied, setCopied] = React.useState(false);
 
   const cssValue = layers.map((l) => `${l.inset ? 'inset ' : ''}${l.x}px ${l.y}px ${l.blur}px ${l.spread}px ${hexToRgba(l.color, l.alpha)}`).join(', ');
 
@@ -48,14 +48,6 @@ export default function Tool() {
 
   const applyPreset = (preset: typeof PRESETS[number]) => {
     setLayers(preset.layers.map((p) => newLayer(p)));
-  };
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(`box-shadow: ${cssValue};`);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch { /* iframe / permission denied */ }
   };
 
   return (
@@ -76,10 +68,7 @@ export default function Tool() {
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] tabular-nums break-all">
             box-shadow: {cssValue};
           </div>
-          <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
-            {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-          </button>
+          <CopyButton value={`box-shadow: ${cssValue};`} className="w-full" />
         </div>
 
         <aside className="space-y-3">

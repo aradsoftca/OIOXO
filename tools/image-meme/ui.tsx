@@ -3,6 +3,8 @@
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { Upload, Download } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 type Format = 'png' | 'jpeg';
 
@@ -57,6 +59,20 @@ export default function ImageMemeTool() {
     setUrl(u);
     setDims({ w: img.naturalWidth, h: img.naturalHeight });
   };
+
+  const clear = React.useCallback(() => {
+    setUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setFile(null);
+    setDims(null);
+  }, []);
+
+  // Clipboard paste, drag-anywhere hover state, Esc to clear, Enter to download.
+  const downloadRef = React.useRef<() => void>(() => {});
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+    onRun: file ? () => downloadRef.current() : undefined,
+  });
 
   React.useEffect(() => {
     if (!file || !url || !dims) return;
@@ -113,23 +129,26 @@ export default function ImageMemeTool() {
       setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.95);
   };
+  downloadRef.current = download;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
       <div className="space-y-3">
         {!file ? (
           <div
-            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }}
-            onDragOver={(e) => e.preventDefault()}
-            className="flex aspect-[4/3] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]"
+            {...dropZone}
+            className={cn(
+              'flex aspect-[4/3] items-center justify-center border border-dashed bg-[var(--color-surface-1)] transition-colors',
+              dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+            )}
           >
             <button type="button" onClick={() => inputRef.current?.click()}
               className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
               <Upload className="h-5 w-5" />
-              Drop a photo or click to browse
+              {dragging ? 'Drop to make a meme' : 'Drop, paste or click to browse'}
             </button>
             <input ref={inputRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
           </div>
         ) : (
           <div className="overflow-hidden border border-black/[0.08] bg-black/5">

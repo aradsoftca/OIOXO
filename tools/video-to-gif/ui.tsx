@@ -1,8 +1,8 @@
 'use client';
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
+import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
 import { seekTo, captureFrame, framesToGif, downloadBlob, fmtDuration } from '@/engines/video';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
@@ -165,12 +165,9 @@ export default function Tool() {
             </div>
 
             <aside>
-              <button type="button" onClick={run} disabled={busy || clipDur <= 0}
-                className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                {busy ? `Building… ${progress}%` : 'Build & Download GIF'}
-              </button>
-              {error && <div className="mt-2 text-[12px] text-red-600">{error}</div>}
+              <FfmpegRunButton colorVar="--color-cat-video" busy={busy} progress={progress}
+                disabled={clipDur <= 0} label="Build & Download GIF" busyLabel="Building…"
+                onClick={run} error={error} />
             </aside>
           </div>
         </>

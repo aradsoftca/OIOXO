@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
-import { Copy, Check, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 interface Preset {
   id: string;
@@ -41,7 +42,6 @@ export default function Tool() {
   const [keyframes, setKeyframes] = React.useState(preset.keyframes);
   const [name, setName] = React.useState('myAnim');
   const [version, setVersion] = React.useState(0);
-  const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
     setDuration(preset.duration);
@@ -59,14 +59,6 @@ export default function Tool() {
   animation: ${name} ${duration}s ${easing} ${delay}s ${iteration};
 }`;
 
-  const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(fullCss);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch { /* iframe / permission denied */ }
-  };
-
   const replay = () => setVersion((v) => v + 1);
 
   return (
@@ -83,10 +75,7 @@ export default function Tool() {
             <RotateCcw className="h-3.5 w-3.5" /> Replay
           </button>
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[11px] whitespace-pre-wrap">{fullCss}</div>
-          <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
-            {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-          </button>
+          <CopyButton value={fullCss} />
         </div>
 
         <aside className="space-y-3">

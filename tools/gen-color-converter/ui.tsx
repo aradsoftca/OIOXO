@@ -3,10 +3,11 @@ import * as React from 'react';
 import { Copy, Check } from 'lucide-react';
 import { parseHex, rgbToHsl, rgbToHsv, toHex } from '@/engines/color';
 import { cn } from '@/lib/cn';
+import { useCopy } from '@/components/tool/CopyButton';
 
 export default function Tool() {
   const [hex, setHex] = React.useState('#3a4a5a');
-  const [copied, setCopied] = React.useState<string | null>(null);
+  const { copy, isCopied } = useCopy();
   const rgb = parseHex(hex);
   const hsl = rgb ? rgbToHsl(rgb) : null;
   const hsv = rgb ? rgbToHsv(rgb) : null;
@@ -20,14 +21,6 @@ export default function Tool() {
     { label: 'CMYK', value: rgbToCmyk(rgb) },
     { label: 'Tailwind nearest', value: nearestTailwind(rgb) },
   ] : [];
-
-  const copy = async (v: string) => {
-    try {
-      await navigator.clipboard?.writeText(v);
-      setCopied(v);
-      setTimeout(() => setCopied(null), 1400);
-    } catch { /* iframe / permission denied */ }
-  };
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -54,8 +47,8 @@ export default function Tool() {
                 <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">{f.label}</div>
                 <div className="mt-0.5 font-mono text-[13px] font-semibold text-[var(--color-fg)]">{f.value}</div>
               </div>
-              <span className={cn('opacity-0 transition group-hover:opacity-100', copied === f.value && 'opacity-100')}>
-                {copied === f.value
+              <span className={cn('opacity-0 transition group-hover:opacity-100', isCopied(f.value) && 'opacity-100')}>
+                {isCopied(f.value)
                   ? <Check className="h-4 w-4 text-[var(--color-cat-generator)]" />
                   : <Copy className="h-4 w-4 text-[var(--color-fg-subtle)]" />}
               </span>

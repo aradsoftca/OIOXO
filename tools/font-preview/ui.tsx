@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
+import { Download } from 'lucide-react';
 import type { Font } from 'opentype.js';
 import { FontDrop } from '@/components/tool/FontDrop';
 import { renderToSvg } from '@/engines/font';
@@ -24,6 +25,49 @@ export default function Tool() {
   const lines = text.split('\n');
   const svgs = font ? lines.map((line) => renderToSvg(font, line || ' ', size, color)) : [];
 
+  // Export the specimen exactly as previewed: draw each line's glyph outlines
+  // straight onto a canvas via opentype paths (no SVG <img> taint), then PNG.
+  const downloadPng = () => {
+    if (!font) return;
+    const PAD = 32;
+    const lineGap = Math.round(size * 0.35);
+    // Measure each line at origin (0,0) so we know its box relative to baseline.
+    const rendered = lines.map((line) => {
+      const b = font.getPath(line || ' ', 0, 0, size).getBoundingBox();
+      return { text: line || ' ', w: Math.max(1, b.x2 - b.x1), h: Math.max(1, b.y2 - b.y1), x1: b.x1, y1: b.y1 };
+    });
+    const contentW = Math.max(...rendered.map((r) => r.w), 1);
+    const contentH = rendered.reduce((acc, r) => acc + r.h, 0) + lineGap * Math.max(0, rendered.length - 1);
+    const scale = 2; // retina-crisp specimen
+    const W = Math.ceil(contentW + PAD * 2);
+    const H = Math.ceil(contentH + PAD * 2);
+    const canvas = document.createElement('canvas');
+    canvas.width = W * scale; canvas.height = H * scale;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(scale, scale);
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    let y = PAD;
+    for (const r of rendered) {
+      const top = y - r.y1;     // place so this line's top edge lands at y
+      const left = PAD - r.x1;  // and its left edge at PAD
+      const placed = font.getPath(r.text, left, top, size);
+      placed.fill = color;
+      placed.draw(ctx);
+      y += r.h + lineGap;
+    }
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (fileName.replace(/\.[^.]+$/, '') || 'specimen') + '-specimen.png';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    }, 'image/png');
+  };
+
   return (
     <div className="space-y-4">
       {!font && (
@@ -40,8 +84,13 @@ export default function Tool() {
             <span className="text-[12px] font-semibold text-[var(--color-fg)]">{fileName}</span>
             <button
               type="button"
+              onClick={downloadPng}
+              className="ml-auto flex items-center gap-1.5 border border-black/[0.08] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:border-[var(--color-cat-font)] hover:text-[var(--color-cat-font)]"
+            ><Download className="h-3 w-3" /> PNG</button>
+            <button
+              type="button"
               onClick={() => { setFont(null); setFileName(''); }}
-              className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+              className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
             >Change font</button>
           </div>
 

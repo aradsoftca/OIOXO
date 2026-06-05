@@ -39,9 +39,18 @@ function isAudio(f: File): boolean {
   return /\.(mp3|wav|m4a|aac|ogg|flac|opus|webm)$/.test(lower);
 }
 
+/** True while the user is typing in an editable field — used to ignore paste. */
+function isTypingTarget(t: EventTarget | null): boolean {
+  const el = t as HTMLElement | null;
+  if (!el || !el.tagName) return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable;
+}
+
 export function AudioDrop(props: Props) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [dragActive, setDragActive] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const handle = async (files: FileList | File[]) => {
@@ -77,18 +86,53 @@ export function AudioDrop(props: Props) {
   // Pick up a file the AI staged before navigating here.
   useStagedInput((f) => { void handle([f]); });
 
+  // Clipboard paste: paste an audio file (or a recording copied from another
+  // app / OS file manager) straight into the tool — same path as drop. Keep a
+  // ref to the latest handler so the once-registered listener never goes stale.
+  const handleRef = React.useRef(handle);
+  handleRef.current = handle;
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (isTypingTarget(e.target)) return; // don't hijack paste in text fields
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0) return;
+      const audio = Array.from(files).filter(isAudio);
+      if (!audio.length) return;
+      e.preventDefault();
+      void handleRef.current(audio);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
+
+  // Drag state handlers shared by both layouts. dragenter/over set active;
+  // dragleave only clears when the pointer actually leaves the zone (not when
+  // it crosses a child element — relatedTarget stays inside in that case).
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); if (!dragActive) setDragActive(true); };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setDragActive(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    if (e.dataTransfer.files?.length) void handle(e.dataTransfer.files);
+  };
+
   if (props.multiple) {
     return (
       <div className="space-y-2">
         <div
-          onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) void handle(e.dataTransfer.files); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="border border-dashed border-black/[0.15] bg-[var(--color-surface-1)] p-5"
+          onDrop={onDrop}
+          onDragOver={onDragOver}
+          onDragEnter={onDragOver}
+          onDragLeave={onDragLeave}
+          className={`border border-dashed p-5 transition-colors ${dragActive ? 'border-[var(--color-cat-audio)] bg-[var(--color-cat-audio)]/[0.06]' : 'border-black/[0.15] bg-[var(--color-surface-1)]'}`}
         >
           <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
             className="flex w-full flex-col items-center gap-2 text-center">
-            <Upload className="h-6 w-6 text-[var(--color-fg-muted)]" />
-            <div className="text-[13px] font-semibold">{busy ? 'Loading…' : 'Drop audio files or click to add'}</div>
+            <Upload className={`h-6 w-6 ${dragActive ? 'text-[var(--color-cat-audio)]' : 'text-[var(--color-fg-muted)]'}`} />
+            <div className="text-[13px] font-semibold">{busy ? 'Loading…' : dragActive ? 'Drop to add' : 'Drop audio files, paste, or click to add'}</div>
             <div className="text-[10px] text-[var(--color-fg-muted)]">MP3 · WAV · M4A · OGG · FLAC</div>
           </button>
           <input ref={inputRef} type="file" accept="audio/*" multiple className="hidden"
@@ -134,15 +178,17 @@ export function AudioDrop(props: Props) {
 
   return (
     <div
-      onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.[0]) void handle(e.dataTransfer.files); }}
-      onDragOver={(e) => e.preventDefault()}
-      className="border border-dashed border-black/[0.15] bg-[var(--color-surface-1)] p-6"
+      onDrop={onDrop}
+      onDragOver={onDragOver}
+      onDragEnter={onDragOver}
+      onDragLeave={onDragLeave}
+      className={`border border-dashed p-6 transition-colors ${dragActive ? 'border-[var(--color-cat-audio)] bg-[var(--color-cat-audio)]/[0.06]' : 'border-black/[0.15] bg-[var(--color-surface-1)]'}`}
     >
       <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
         className="flex w-full flex-col items-center gap-3 text-center">
-        <Upload className="h-7 w-7 text-[var(--color-fg-muted)]" />
+        <Upload className={`h-7 w-7 ${dragActive ? 'text-[var(--color-cat-audio)]' : 'text-[var(--color-fg-muted)]'}`} />
         <div className="text-[14px] font-semibold">
-          {props.loaded && props.fileName ? props.fileName : busy ? 'Decoding…' : 'Drop an audio file'}
+          {props.loaded && props.fileName ? props.fileName : busy ? 'Decoding…' : dragActive ? 'Drop to load' : 'Drop an audio file, paste, or click'}
         </div>
         <div className="text-[11px] text-[var(--color-fg-muted)]">MP3 · WAV · M4A · OGG · FLAC</div>
       </button>

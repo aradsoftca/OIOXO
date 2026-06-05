@@ -5,6 +5,7 @@ import * as Slider from '@radix-ui/react-slider';
 import { Download, Upload, Image as ImageIcon, Loader2, ArrowLeftRight, Zap } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 import { decode, encode, type ImageFormat, FORMAT_TO_EXT } from '@/engines/image';
 
 const FORMATS: { id: ImageFormat; label: string; lossy: boolean; supportsEffort: boolean }[] = [
@@ -125,12 +126,6 @@ export default function CompressTool() {
     setCompare(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
   };
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
-
   const download = () => {
     if (!outputUrl || !file) return;
     const a = document.createElement('a');
@@ -142,6 +137,22 @@ export default function CompressTool() {
     document.body.removeChild(a);
   };
 
+  const clear = React.useCallback(() => {
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    if (outputUrl) URL.revokeObjectURL(outputUrl);
+    setSourceUrl(''); setOutputUrl(''); setFile(null);
+    setDecoded(null); setDims(null); setOutputBytes(0);
+  }, [sourceUrl, outputUrl]);
+
+  // Paste a screenshot, drag-anywhere hover state, Esc clears, Enter downloads.
+  const downloadRef = React.useRef(download);
+  downloadRef.current = download;
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+    onRun: outputUrl ? () => downloadRef.current() : undefined,
+  });
+
   const sourceBytes = file?.size ?? 0;
   const ratio = sourceBytes > 0 && outputBytes > 0
     ? Math.round((1 - outputBytes / sourceBytes) * 100)
@@ -151,10 +162,10 @@ export default function CompressTool() {
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
       <div
         ref={stageRef}
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
+        {...dropZone}
         className={cn(
-          'relative aspect-[4/3] overflow-hidden border border-black/[0.08] bg-[oklch(20%_0.008_250)]',
+          'relative aspect-[4/3] overflow-hidden border bg-[oklch(20%_0.008_250)] transition-colors',
+          dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border border-black/[0.08]',
           !sourceUrl && 'flex items-center justify-center',
         )}
       >
@@ -169,16 +180,23 @@ export default function CompressTool() {
             </div>
             <div>
               <div className="text-[18px] font-semibold tracking-tight text-white">
-                Drop an image here
+                Drop, paste or click
               </div>
               <div className="mt-1 text-[13px] text-white/55">
                 JPG · PNG · WebP · AVIF — files stay yours
               </div>
             </div>
-            <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">
-              or click to browse
+            <div className="flex items-center gap-2 text-[12px] text-white/70">
+              <span className="border border-white/10 px-3 py-1.5">browse</span>
+              <span className="text-white/40">or paste a screenshot</span>
             </div>
           </button>
+        )}
+
+        {sourceUrl && dragging && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">Drop to replace</div>
+          </div>
         )}
 
         {sourceUrl && (

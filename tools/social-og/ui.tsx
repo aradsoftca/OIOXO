@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
-import { Download } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
+import { useCanvasExport, fmtBytes } from '@/components/tool/useCanvasExport';
 
 const PRESETS = [
   { label: 'OG (1.91:1)',     w: 1200, h: 630 },
@@ -100,46 +101,48 @@ export default function Tool() {
   const [palette, setPalette] = React.useState(PALETTES[0]);
   const [textColor, setTextColor] = React.useState('#ffffff');
   const [align, setAlign] = React.useState<'left' | 'center'>('left');
-  const [url, setUrl] = React.useState('');
 
-  // Track the latest URL in a ref so the unmount cleanup can revoke it.
-  // Previously the last-generated blob URL leaked on every navigation away.
-  const urlRef = React.useRef('');
-  React.useEffect(() => { urlRef.current = url; }, [url]);
-  React.useEffect(() => () => {
-    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-  }, []);
+  // Debounced live preview + leak-safe URL + export byte size, shared with the
+  // banner generator. Keeps typing smooth even at 1200px+ and reports size.
+  const { url, bytes, busy, download } = useCanvasExport({
+    width: size.w,
+    height: size.h,
+    paint: (c) => draw(c, { w: size.w, h: size.h, title, subtitle, eyebrow, from: palette.from, to: palette.to, textColor, align }),
+    deps: [size, title, subtitle, eyebrow, palette, textColor, align],
+  });
 
+  const filename = `og-${size.w}x${size.h}.png`;
+
+  // Cmd/Ctrl+S downloads the current frame.
   React.useEffect(() => {
-    const c = document.createElement('canvas');
-    c.width = size.w; c.height = size.h;
-    draw(c, { w: size.w, h: size.h, title, subtitle, eyebrow, from: palette.from, to: palette.to, textColor, align });
-    c.toBlob((blob) => {
-      if (!blob) return;
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      setUrl(URL.createObjectURL(blob));
-    }, 'image/png');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [size, title, subtitle, eyebrow, palette, textColor, align]);
-
-  const download = () => {
-    if (!url) return;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `og-${size.w}x${size.h}.png`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  };
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        download(filename);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [download, filename]);
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <div className="space-y-3">
-        <div className="border border-black/[0.08] bg-[oklch(95%_0.005_80)] p-3">
+        <div className="relative border border-black/[0.08] bg-[oklch(95%_0.005_80)] p-3">
           {url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={url} alt="OG preview" className="w-full" />
           )}
+          {busy && (
+            <div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1.5 bg-black/55 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+              <Loader2 className="h-3 w-3 animate-spin" /> Rendering
+            </div>
+          )}
         </div>
-        <div className="text-[11px] font-mono text-[var(--color-fg-subtle)]">{size.w} × {size.h}</div>
+        <div className="flex items-center gap-3 font-mono text-[11px] text-[var(--color-fg-subtle)]">
+          <span>{size.w} × {size.h}</span>
+          {bytes > 0 && <span className="text-[var(--color-fg-muted)]">PNG · {fmtBytes(bytes)}</span>}
+        </div>
       </div>
 
       <aside className="space-y-4">
@@ -198,10 +201,11 @@ export default function Tool() {
           </div>
         </div>
 
-        <button type="button" onClick={download} disabled={!url}
+        <button type="button" onClick={() => download(filename)} disabled={!url}
           className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-social)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
           <Download className="h-3.5 w-3.5" /> Download PNG
         </button>
+        <div className="text-center font-mono text-[10px] text-[var(--color-fg-subtle)]">{filename}{bytes > 0 ? ` · ${fmtBytes(bytes)}` : ''}  ·  ⌘/Ctrl+S</div>
       </aside>
     </div>
   );

@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Copy, Check } from 'lucide-react';
+import { useCopy } from '@/lib/useCopy';
 
 const DEFAULT_ZONES = [
   { id: 'America/Los_Angeles', label: 'San Francisco' },
@@ -33,6 +34,7 @@ export default function Tool() {
   const [zones, setZones] = React.useState<Zone[]>(DEFAULT_ZONES);
   const [now, setNow] = React.useState(() => new Date());
   const [adding, setAdding] = React.useState(false);
+  const { copied, copy } = useCopy();
 
   React.useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
@@ -42,29 +44,49 @@ export default function Tool() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {zones.map((z) => (
-          <div key={z.id} className="relative border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-            <button
-              type="button"
-              onClick={() => setZones((zs) => zs.filter((x) => x.id !== z.id))}
-              className="absolute right-2 top-2 grid h-7 w-7 place-items-center text-[var(--color-fg-subtle)] transition hover:text-[var(--color-fg)]"
-              title="Remove"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+        {zones.map((z) => {
+          const timeStr = new Intl.DateTimeFormat([], { timeZone: z.id, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now);
+          return (
+          <div key={z.id} className="group relative border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
+            <div className="absolute right-2 top-2 flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => copy(`${timeStr} ${z.id}`, z.id)}
+                className="grid h-7 w-7 place-items-center text-[var(--color-fg-subtle)] opacity-0 transition hover:text-[var(--color-fg)] focus:opacity-100 group-hover:opacity-100"
+                title="Copy time"
+              >
+                {copied === z.id
+                  ? <Check className="h-3.5 w-3.5 text-[var(--color-cat-time)]" />
+                  : <Copy className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setZones((zs) => zs.filter((x) => x.id !== z.id))}
+                className="grid h-7 w-7 place-items-center text-[var(--color-fg-subtle)] transition hover:text-[var(--color-fg)]"
+                title="Remove"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
               {z.label}
             </div>
-            <div className="mt-2 font-mono text-[38px] font-bold leading-none tabular-nums text-[var(--color-cat-time)]">
-              {new Intl.DateTimeFormat([], { timeZone: z.id, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(now)}
-            </div>
+            <button
+              type="button"
+              onClick={() => copy(`${timeStr} ${z.id}`, z.id)}
+              title="Click to copy"
+              className="mt-2 block cursor-copy text-left font-mono text-[38px] font-bold leading-none tabular-nums text-[var(--color-cat-time)]"
+            >
+              {timeStr}
+            </button>
             <div className="mt-2 flex items-baseline justify-between text-[11px] font-mono text-[var(--color-fg-subtle)]">
               <span>{new Intl.DateTimeFormat([], { timeZone: z.id, weekday: 'short', month: 'short', day: '2-digit' }).format(now)}</span>
               <span>{offsetFor(z.id, now)}</span>
             </div>
             <div className="mt-1 text-[10px] text-[var(--color-fg-subtle)]">{z.id}</div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {adding ? (

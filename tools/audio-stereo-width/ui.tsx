@@ -67,7 +67,7 @@ export default function AudioStereoWidthTool() {
             </div>
           )}
 
-          <Waveform buffer={item.buffer} />
+          <Waveform buffer={item.buffer} player />
 
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 space-y-3">

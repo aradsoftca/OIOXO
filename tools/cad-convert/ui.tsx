@@ -1,9 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { Upload, Download, Loader2, Box } from 'lucide-react';
+import { Download, Loader2, Box } from 'lucide-react';
 import { cadKind } from '@/engines/cad';
 import { convertCadInWorker } from '@/engines/cad/client';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 import { extOf } from '@/lib/convert/matrix';
 
 type Target = 'stl' | 'obj';
@@ -14,7 +15,6 @@ export default function CadConvertTool() {
   const [busy, setBusy] = React.useState(false);
   const [stats, setStats] = React.useState<{ parts: number; triangles: number } | null>(null);
   const [error, setError] = React.useState('');
-  const inputRef = React.useRef<HTMLInputElement>(null);
 
   const load = (f: File) => {
     if (!cadKind(extOf(f.name))) { setError('Please choose a STEP (.step/.stp), IGES (.iges/.igs) or BREP file.'); return; }
@@ -41,17 +41,28 @@ export default function CadConvertTool() {
     } finally { setBusy(false); }
   };
 
+  // Keyboard: Enter tessellates the loaded CAD file, Esc clears it.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (!file) return;
+      if (e.key === 'Enter' && !busy) { e.preventDefault(); void run(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setFile(null); setStats(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       {!file && (
-        <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) load(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className="h-5 w-5" /> Drop a CAD file (STEP, IGES, BREP) or click to browse
-          </button>
-          <input ref={inputRef} type="file" accept=".step,.stp,.iges,.igs,.brep" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
-        </div>
+        <ConvertDropZone
+          accept=".step,.stp,.iges,.igs,.brep"
+          label="Drop a CAD file, click to browse, or paste"
+          sublabel="STEP · IGES · BREP"
+          onFiles={(files) => load(files[0])}
+        />
       )}
 
       {file && (

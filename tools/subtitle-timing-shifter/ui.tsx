@@ -1,5 +1,6 @@
 'use client';
 import { TextTool } from '@/components/tool/TextTool';
+import { SubtitleCuePreview } from '@/components/tool/SubtitleCuePreview';
 import { parse, shift, write } from '@/engines/subtitle';
 
 export default function Tool() {
@@ -8,6 +9,9 @@ export default function Tool() {
       toolId="subtitle-timing-shifter"
       colorVar="--color-cat-subtitle"
       inputPlaceholder="Paste SRT or WebVTT…"
+      fileAccept=".srt,.vtt,.ass,.ssa,.sub,.txt"
+      downloadExt="srt"
+      preview={(out) => <SubtitleCuePreview text={out} />}
       transform={(s, o) => {
         if (!s.trim()) return '';
         const cues = parse(s);

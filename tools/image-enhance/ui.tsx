@@ -8,6 +8,7 @@ import { downloadBlob } from '@/engines/ffmpeg';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const POLICY_KEY = 'image-enhance';
 
@@ -52,15 +53,37 @@ export default function PhotoEnhancer() {
     finally { setBusy(false); setPhase(''); }
   };
 
+  const clear = React.useCallback(() => {
+    setSrcUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setOut((o) => { if (o?.url) URL.revokeObjectURL(o.url); return null; });
+    setFile(null);
+    setError('');
+  }, []);
+
+  // Enter runs the latest closure; mirror through a ref so we don't reorder.
+  const runRef = React.useRef<() => void>(() => {});
+  runRef.current = () => { void run(); };
+
+  // Clipboard paste (screenshot → enhance), drag-anywhere hover state,
+  // Esc to clear, Enter to enhance.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => load(f),
+    onClear: file ? clear : undefined,
+    onRun: file && !busy ? () => runRef.current() : undefined,
+  });
+
   return (
     <div className="space-y-4">
       {gate}
       {policyGate.element}
       {!file ? (
-        <div onClick={() => inputRef.current?.click()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) load(f); }} onDragOver={(e) => e.preventDefault()}
-          className="flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed border-black/[0.14] bg-[var(--color-surface-1)] px-6 py-16 text-center">
+        <div onClick={() => inputRef.current?.click()} {...dropZone}
+          className={cn(
+            'flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed bg-[var(--color-surface-1)] px-6 py-16 text-center transition-colors',
+            dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.14]',
+          )}>
           <Upload className="h-7 w-7 text-[var(--color-cat-image)]" />
-          <div className="text-[15px] font-semibold">Drop a photo to enhance</div>
+          <div className="text-[15px] font-semibold">{dragging ? 'Drop to enhance' : 'Drop, paste or click to enhance'}</div>
           <div className="text-[12px] text-[var(--color-fg-muted)]">Best on small or slightly soft images. Processed on your device.</div>
         </div>
       ) : (
@@ -79,7 +102,7 @@ export default function PhotoEnhancer() {
           {busy && ratio > 0 && <div className="h-1 w-full overflow-hidden bg-black/[0.06]"><div className="h-full bg-[var(--color-cat-image)] transition-[width]" style={{ width: `${ratio * 100}%` }} /></div>}
         </>
       )}
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); e.target.value = ''; }} />
       {error && <div className="text-[12px] text-red-600">{error}</div>}
       {out && (
         <div className="space-y-2 border border-[var(--color-cat-image)]/40 bg-[var(--color-cat-image)]/5 p-4">

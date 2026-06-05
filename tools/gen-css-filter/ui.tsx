@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Copy, Check } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 interface F { key: string; label: string; unit: string; min: number; max: number; step: number; def: number; }
 const FILTERS: F[] = [
@@ -21,7 +21,6 @@ export default function Tool() {
   const [vals, setVals] = React.useState<Record<string, number>>(
     () => Object.fromEntries(FILTERS.map((f) => [f.key, f.def])),
   );
-  const [copied, setCopied] = React.useState(false);
 
   const css = React.useMemo(() => {
     const parts = FILTERS.filter((f) => vals[f.key] !== f.def)
@@ -30,12 +29,6 @@ export default function Tool() {
   }, [vals]);
 
   const reset = () => setVals(Object.fromEntries(FILTERS.map((f) => [f.key, f.def])));
-  const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(`filter: ${css};`);
-      setCopied(true); setTimeout(() => setCopied(false), 1400);
-    } catch { /* iframe / permission denied */ }
-  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -51,10 +44,7 @@ export default function Tool() {
         <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] break-all">
           filter: {css};
         </div>
-        <button type="button" onClick={copy}
-          className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-[var(--color-canvas)] transition hover:opacity-90">
-          {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-        </button>
+        <CopyButton value={`filter: ${css};`} disabled={css === 'none'} />
       </div>
 
       <aside className="space-y-2.5 border border-black/[0.08] bg-[var(--color-surface-1)] p-3">

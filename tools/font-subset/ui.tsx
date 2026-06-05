@@ -3,7 +3,7 @@ import * as React from 'react';
 import { Download } from 'lucide-react';
 import type { Font } from 'opentype.js';
 import { FontDrop } from '@/components/tool/FontDrop';
-import { getFontInfo, subsetFont, type FontInfo } from '@/engines/font';
+import { getFontInfo, subsetFont, renderToSvg, type FontInfo } from '@/engines/font';
 
 const PRESETS = [
   { label: 'A–Z, a–z, 0–9', text: 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789' },
@@ -49,6 +49,23 @@ export default function Tool() {
     ? Math.max(0, Math.round((1 - outSize / info.fileSize) * 100))
     : null;
 
+  // Live specimen of the kept characters, rendered in the actual font so the
+  // user sees exactly which glyphs survive the subset before downloading.
+  const previewSvg = React.useMemo(() => {
+    if (!font) return '';
+    const seen = new Set<string>();
+    let sample = '';
+    for (const ch of chars) {
+      if (ch === '\n' || ch === ' ') continue;
+      if (seen.has(ch)) continue;
+      seen.add(ch);
+      sample += ch;
+      if (sample.length >= 80) break; // cap so the SVG stays light
+    }
+    if (!sample) return '';
+    try { return renderToSvg(font, sample, 28, '#0f172a'); } catch { return ''; }
+  }, [font, chars]);
+
   return (
     <div className="space-y-4">
       {!font && (
@@ -84,6 +101,13 @@ export default function Tool() {
                 <div className="mt-2 text-[10px] text-[var(--color-fg-muted)]">
                   {uniqueChars} unique character{uniqueChars === 1 ? '' : 's'}
                 </div>
+                {previewSvg && (
+                  <div className="mt-3 border-t border-black/[0.06] pt-3">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)] mb-2">Kept glyphs</div>
+                    <div className="overflow-x-auto bg-[var(--color-canvas)] p-3 border border-black/[0.06]"
+                      dangerouslySetInnerHTML={{ __html: previewSvg }} />
+                  </div>
+                )}
               </div>
 
               <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">

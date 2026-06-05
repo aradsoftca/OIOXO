@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { Shuffle } from 'lucide-react';
 import { TextTool } from '@/components/tool/TextTool';
 
 interface Props {
@@ -20,15 +21,30 @@ interface Props {
  */
 export function NameGenerator({ toolId, generate, extraControls = [], defaultCount = 12 }: Props) {
   const [nonce, setNonce] = React.useState(0);
+
+  // Enter (when not typing in a field) regenerates — fast "give me more" loop.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      e.preventDefault();
+      setNonce((n) => n + 1);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex items-center justify-end gap-3">
+        <span className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">Press Enter to reroll</span>
         <button
           type="button"
           onClick={() => setNonce((n) => n + 1)}
-          className="border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
+          className="inline-flex items-center gap-1.5 border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
         >
-          Generate again
+          <Shuffle className="h-3.5 w-3.5" /> Generate again
         </button>
       </div>
       <TextTool

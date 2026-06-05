@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Copy, Check } from 'lucide-react';
 import { parseHex, toHex, rgbToHsl, hslToRgb, harmonies } from '@/engines/color';
 import { cn } from '@/lib/cn';
+import { useCopy } from '@/components/tool/CopyButton';
 
 const SCHEMES: { id: keyof ReturnType<typeof harmonies>; label: string }[] = [
   { id: 'complementary', label: 'Complementary' },
@@ -16,19 +17,11 @@ const SCHEMES: { id: keyof ReturnType<typeof harmonies>; label: string }[] = [
 export default function Tool() {
   const [base, setBase] = React.useState('#3a4a5a');
   const [scheme, setScheme] = React.useState<typeof SCHEMES[number]['id']>('triadic');
-  const [copied, setCopied] = React.useState<string | null>(null);
+  const { copy, isCopied } = useCopy();
 
   const rgb = parseHex(base);
   const harmonySet = rgb ? harmonies(rgbToHsl(rgb)) : null;
   const colors = harmonySet ? harmonySet[scheme] : [];
-
-  const copy = async (hex: string) => {
-    try {
-      await navigator.clipboard?.writeText(hex);
-      setCopied(hex);
-      setTimeout(() => setCopied(null), 1400);
-    } catch { /* iframe / permission denied */ }
-  };
 
   return (
     <div className="space-y-4">
@@ -86,8 +79,8 @@ export default function Tool() {
                 <div className={cn('text-[10px] font-mono', isDark ? 'text-white/70' : 'text-black/60')}>
                   h{c.h}° s{c.s}% l{c.l}%
                 </div>
-                <div className="mt-2 opacity-0 transition group-hover:opacity-100">
-                  {copied === hex
+                <div className={cn('mt-2 opacity-0 transition group-hover:opacity-100', isCopied(hex) && 'opacity-100')}>
+                  {isCopied(hex)
                     ? <Check className="h-4 w-4" />
                     : <Copy className="h-4 w-4" />}
                 </div>

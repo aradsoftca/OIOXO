@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { useRouter } from 'next/navigation';
-import { Upload, Loader2, Download, Check, ArrowRight, FileText } from 'lucide-react';
+import { Loader2, Download, Check, ArrowRight, FileText } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { convertFile, type Target, type ConvCategory } from '@/lib/convert/matrix';
 import { actionsForFile } from '@/lib/files/actions';
@@ -10,12 +10,15 @@ import type { ToolManifest } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
 import { stageHandoff } from '@/lib/ai/handoff';
 import { TileIcon } from '@/components/tiles/TileIcon';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { freeSizeLabel } from '@/lib/usage/benefits';
 
 const CAT_LABEL: Record<ConvCategory, string> = {
   image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation', text: 'text file', archive: 'archive', calendar: 'calendar / contacts', email: 'email', certificate: 'certificate / key',
 };
+
+const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
 export default function ConvertAnythingTool() {
   const router = useRouter();
@@ -27,8 +30,7 @@ export default function ConvertAnythingTool() {
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [error, setError] = React.useState('');
-  const [result, setResult] = React.useState<{ url?: string; text?: string; filename: string } | null>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const [result, setResult] = React.useState<{ url?: string; text?: string; filename: string; size?: number } | null>(null);
   const { guard, gate } = useUsageGate('convert');
 
   React.useEffect(() => () => { if (result?.url) URL.revokeObjectURL(result.url); }, [result]);
@@ -51,15 +53,15 @@ export default function ConvertAnythingTool() {
     try {
       const out = await convertFile(file, target, { onProgress: (r) => setProgress(Math.round(r * 100)) });
       if (out.text != null) {
-        setResult({ text: out.text, filename: out.filename });
+        setResult({ text: out.text, filename: out.filename, size: new Blob([out.text]).size });
       } else if (out.files) {
         const { default: JSZip } = await import('jszip');
         const zip = new JSZip();
         for (const f of out.files) zip.file(f.name, await f.blob.arrayBuffer());
         const blob = await zip.generateAsync({ type: 'blob' });
-        setResult({ url: URL.createObjectURL(blob), filename: out.filename });
+        setResult({ url: URL.createObjectURL(blob), filename: out.filename, size: blob.size });
       } else if (out.blob) {
-        setResult({ url: URL.createObjectURL(out.blob), filename: out.filename });
+        setResult({ url: URL.createObjectURL(out.blob), filename: out.filename, size: out.blob.size });
       }
     } catch (e) {
       setError((e as Error).message || 'Conversion failed.');
@@ -95,27 +97,35 @@ export default function ConvertAnythingTool() {
     if (createdHere) { const u = url; setTimeout(() => URL.revokeObjectURL(u), 60_000); }
   };
 
+  // Keyboard: Esc clears the loaded file and resets the action lists.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (file && e.key === 'Escape') {
+        e.preventDefault();
+        setFile(null); setResult(null); setActive(null); setTargets([]); setTools([]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-5">
       {gate}
       {!file && (
-        <div
-          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) load(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex flex-col items-center justify-center gap-4 border-2 border-dashed border-black/[0.14] bg-[var(--color-surface-1)] px-6 py-16 text-center"
-        >
-          <div className="flex h-14 w-14 items-center justify-center bg-[var(--color-cat-convert)]/10">
-            <Upload className="h-6 w-6 text-[var(--color-cat-convert)]" />
-          </div>
-          <div>
-            <button type="button" onClick={() => inputRef.current?.click()} className="text-[18px] font-semibold tracking-tight text-[var(--color-fg)] hover:underline underline-offset-4">
-              Drop a file — see everything you can do with it
-            </button>
-            <p className="mt-1 text-[13px] text-[var(--color-fg-muted)]">Convert it to any format, or open it in the right tool — edit, compress, extract. Files never leave your device.</p>
-            <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">1 free conversion/day · {freeSizeLabel('convert')} · <a href="/limits" className="underline underline-offset-2">see all limits</a></p>
-          </div>
-          <input ref={inputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
-        </div>
+        <ConvertDropZone
+          label="Drop a file, click to browse, or paste — see everything you can do with it"
+          sublabel={
+            <>
+              Convert it to any format, or open it in the right tool. Files never leave your device.
+              <br />
+              1 free conversion/day · {freeSizeLabel('convert')} · <a href="/limits" className="underline underline-offset-2">see all limits</a>
+            </>
+          }
+          onFiles={(files) => load(files[0])}
+        />
       )}
 
       {file && (
@@ -171,8 +181,9 @@ export default function ConvertAnythingTool() {
 
           {result && (
             <div className="border border-[var(--color-cat-convert)]/40 bg-[var(--color-cat-convert)]/5 p-4">
-              <div className="flex items-center gap-2 text-[13px] font-semibold text-[var(--color-fg)]">
+              <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-[var(--color-fg)]">
                 <Check className="h-4 w-4 text-green-600" /> Ready: {result.filename}
+                {result.size != null && <span className="font-mono text-[11px] font-normal text-[var(--color-fg-muted)]">{fmtSize(result.size)}</span>}
               </div>
               {result.text != null && (
                 <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap bg-[var(--color-surface-1)] p-3 font-mono text-[12px] text-[var(--color-fg)]">{result.text.slice(0, 4000) || '(no text found)'}</pre>

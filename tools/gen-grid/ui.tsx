@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Copy, Check } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 const JUSTIFIES = ['start', 'end', 'center', 'stretch', 'space-between', 'space-around', 'space-evenly'] as const;
 const ALIGNS = ['start', 'end', 'center', 'stretch'] as const;
@@ -19,7 +19,6 @@ export default function Tool() {
   const [rowGap, setRowGap] = React.useState(12);
   const [justify, setJustify] = React.useState<J>('stretch');
   const [align, setAlign] = React.useState<A>('stretch');
-  const [copied, setCopied] = React.useState(false);
 
   const colsStr = cols.map((c) => c.value).join(' ');
   const rowsStr = rows.map((r) => r.value).join(' ');
@@ -32,14 +31,6 @@ column-gap: ${colGap}px;
 row-gap: ${rowGap}px;
 justify-items: ${justify};
 align-items: ${align};`;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(css);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch { /* iframe / permission denied — code is still visible */ }
-  };
 
   const PRESETS: { label: string; cols: string[]; rows: string[] }[] = [
     { label: '3 cols',    cols: ['1fr', '1fr', '1fr'], rows: ['auto', 'auto'] },
@@ -74,10 +65,7 @@ align-items: ${align};`;
             ))}
           </div>
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[11px] whitespace-pre">{css}</div>
-          <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
-            {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-          </button>
+          <CopyButton value={css} />
         </div>
 
         <aside className="space-y-3">

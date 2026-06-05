@@ -6,6 +6,7 @@ import { Upload, Download, Wand2, Image as ImageIcon } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { removeBackground } from '@/engines/image';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const FONTS = [
   { label: 'Sans', css: '700 1px Arial, sans-serif' },
@@ -93,6 +94,18 @@ export default function TextBehindTool() {
 
   React.useEffect(() => { draw(); }, [draw]);
 
+  const clear = React.useCallback(() => {
+    setBg((b) => { b?.close(); return null; });
+    setSubject((s) => { s?.close(); return null; });
+  }, []);
+
+  // Clipboard paste, drag-anywhere hover state, Esc to clear.
+  // Paste is ignored while typing so it never steals paste into the text field.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: bg ? clear : undefined,
+  });
+
   const download = (type: 'image/png' | 'image/jpeg') => {
     const canvas = canvasRef.current;
     if (!canvas || !bg) return;
@@ -111,18 +124,28 @@ export default function TextBehindTool() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
       <div
-        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }}
-        onDragOver={(e) => e.preventDefault()}
-        className={cn('relative flex aspect-[4/3] items-center justify-center overflow-hidden border border-black/[0.08] bg-[oklch(20%_0.008_250)]')}
+        {...dropZone}
+        className={cn(
+          'relative flex aspect-[4/3] items-center justify-center overflow-hidden border bg-[oklch(20%_0.008_250)] transition-colors',
+          dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border border-black/[0.08]',
+        )}
       >
+        {bg && dragging && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">Drop to replace</div>
+          </div>
+        )}
         {!bg && (
           <button type="button" onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-4 px-6 text-center">
             <div className="bg-white/[0.06] p-4"><Upload className="h-6 w-6 text-white/80" /></div>
             <div>
-              <div className="text-[18px] font-semibold tracking-tight text-white">Drop a photo with a clear subject</div>
+              <div className="text-[18px] font-semibold tracking-tight text-white">Drop, paste or click a photo with a clear subject</div>
               <div className="mt-1 text-[13px] text-white/55">A person, pet or object works best · files stay yours</div>
             </div>
-            <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">or click to browse</div>
+            <div className="flex items-center gap-2 text-[12px] text-white/70">
+              <span className="border border-white/10 px-3 py-1.5">browse</span>
+              <span className="text-white/40">or paste a screenshot</span>
+            </div>
           </button>
         )}
         <canvas ref={canvasRef} className={cn('absolute inset-0 h-full w-full object-contain', !bg && 'hidden')} />
@@ -137,7 +160,7 @@ export default function TextBehindTool() {
             </div>
           </div>
         )}
-        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
       </div>
 
       <aside className="space-y-4">

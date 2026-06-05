@@ -8,6 +8,7 @@ import { setRecent } from '@/lib/storage/recent';
 import { decode, encode, type ImageFormat, FORMAT_TO_EXT } from '@/engines/image';
 import { OPS } from '@/engines/image/ops';
 import { ImageSession, workerSupported, type Progress } from '@/lib/compute/imageSession';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { useStagedInput } from '@/lib/ai/handoff';
 
@@ -165,6 +166,28 @@ export function ImageFilterTool({
   // Pick up a file the AI staged before navigating here.
   useStagedInput((f) => { void loadFile(f); });
 
+  const clear = React.useCallback(() => {
+    if (sourceUrl) URL.revokeObjectURL(sourceUrl);
+    setSourceUrl('');
+    setFile(null);
+    setReady(false);
+    setDims(null);
+    setOutputBytes(0);
+    decodedMainRef.current = null;
+  }, [sourceUrl]);
+
+  // download is defined below; reference it through a ref so Enter always runs
+  // the latest closure without reordering the component.
+  const downloadRef = React.useRef<() => void>(() => {});
+
+  // Clipboard paste (screenshot → tool), drag-anywhere hover state,
+  // Esc to clear, Enter to download.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+    onRun: ready ? () => downloadRef.current() : undefined,
+  });
+
   // Live preview — full resolution, off the main thread, painted to canvas.
   const render = React.useCallback(async () => {
     if (!ready) return;
@@ -240,12 +263,8 @@ export function ImageFilterTool({
       setExportProg(null);
     }
   };
+  downloadRef.current = () => { if (ready && exportProg === null) void download(); };
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
   const onComparePointerDown = (e: React.PointerEvent) => {
     draggingRef.current = true;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -270,22 +289,35 @@ export function ImageFilterTool({
       {gate}
       <div
         ref={stageRef}
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
+        {...dropZone}
         className={cn(
-          'relative aspect-[4/3] overflow-hidden border border-black/[0.08] bg-[oklch(20%_0.008_250)]',
+          'relative aspect-[4/3] overflow-hidden border bg-[oklch(20%_0.008_250)] transition-colors',
+          dragging ? 'border-2 border-dashed' : 'border border-black/[0.08]',
           !sourceUrl && 'flex items-center justify-center',
         )}
+        style={dragging ? { borderColor: `var(${colorVar})` } : undefined}
       >
         {!sourceUrl && (
           <button type="button" onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-4 px-6 text-center">
             <div className="bg-white/[0.06] p-4"><Upload className="h-6 w-6 text-white/80" /></div>
             <div>
-              <div className="text-[18px] font-semibold tracking-tight text-white">Drop an image here</div>
+              <div className="text-[18px] font-semibold tracking-tight text-white">Drop, paste or click</div>
               <div className="mt-1 text-[13px] text-white/55">{emptyHint}</div>
             </div>
-            <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">or click to browse</div>
+            <div className="flex items-center gap-2 text-[12px] text-white/70">
+              <span className="border border-white/10 px-3 py-1.5">browse</span>
+              <span className="text-white/40">or paste a screenshot</span>
+            </div>
           </button>
+        )}
+
+        {/* Drag-over affordance while a loaded image is on the stage. */}
+        {sourceUrl && dragging && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">
+              Drop to replace
+            </div>
+          </div>
         )}
 
         {sourceUrl && (

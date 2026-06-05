@@ -3,6 +3,8 @@
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { Upload, Download, Loader2, ArrowLeftRight } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 type Format = 'png' | 'jpeg';
 
@@ -121,16 +123,39 @@ export default function ImageDenoiseTool() {
     setCompare(Math.max(0, Math.min(100, ((clientX - r.left) / r.width) * 100)));
   };
 
+  const clear = React.useCallback(() => {
+    setSrcUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setOutUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    srcRef.current = null;
+    setFile(null);
+    setDims(null);
+    setShowCompare(false);
+  }, []);
+
+  // Enter runs the latest closure; mirror through a ref so we don't reorder.
+  const runRef = React.useRef<() => void>(() => {});
+  runRef.current = () => { void run(); };
+
+  // Clipboard paste (screenshot → denoise), drag-anywhere hover state,
+  // Esc to clear, Enter to apply.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+    onRun: file && !busy ? () => runRef.current() : undefined,
+  });
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
       <div>
         {!file ? (
-          <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }}
-            onDragOver={(e) => e.preventDefault()}
-            className="flex aspect-[4/3] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
-            <label className="flex cursor-pointer flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-              <Upload className="h-5 w-5" /> Drop a noisy photo or click to browse
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+          <div {...dropZone}
+            className={cn(
+              'flex aspect-[4/3] items-center justify-center border border-dashed bg-[var(--color-surface-1)] transition-colors',
+              dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+            )}>
+            <label className="flex cursor-pointer flex-col items-center gap-3 text-center text-[13px] text-[var(--color-fg-muted)]">
+              <Upload className="h-5 w-5" /> {dragging ? 'Drop to denoise' : 'Drop, paste or click to browse'}
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
             </label>
           </div>
         ) : (

@@ -1,9 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { Upload, Download, Loader2, X, Box } from 'lucide-react';
+import { Download, Loader2, X, Box } from 'lucide-react';
 import { type Model3dTarget } from '@/engines/model3d';
 import { convertModelInWorker } from '@/engines/model3d/client';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 
 interface Item { file: File }
 
@@ -13,7 +14,6 @@ export default function Model3dConvertTool() {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [result, setResult] = React.useState<{ url: string; name: string; count: number } | null>(null);
-  const inputRef = React.useRef<HTMLInputElement>(null);
 
   React.useEffect(() => () => { if (result?.url) URL.revokeObjectURL(result.url); }, [result]);
 
@@ -53,17 +53,29 @@ export default function Model3dConvertTool() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
+  // Keyboard: Enter converts the queued models, Esc clears the queue.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (!items.length) return;
+      if (e.key === 'Enter' && !busy) { e.preventDefault(); void run(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setItems([]); setResult(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="space-y-3">
-        <div onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) add(e.dataTransfer.files); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="border border-dashed border-black/[0.18] bg-[var(--color-surface-1)] p-5">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex w-full items-center justify-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className="h-4 w-4" /> Drop a 3D model (+ its .mtl / textures if any) or click to browse
-          </button>
-          <input ref={inputRef} type="file" multiple className="hidden" onChange={(e) => { if (e.target.files?.length) add(e.target.files); e.target.value = ''; }} />
-        </div>
+        <ConvertDropZone
+          multiple
+          compact
+          label={items.length ? 'Add more files, or paste' : 'Drop a 3D model (+ .mtl / textures), click to browse, or paste'}
+          sublabel={items.length ? undefined : 'OBJ · STL · PLY · GLTF · FBX · DAE'}
+          onFiles={(files) => add(files)}
+        />
 
         {items.length > 0 && (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)]">

@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { Upload, Download, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 type Format = 'png' | 'jpeg';
 
@@ -35,6 +37,20 @@ export default function ImageSplitTool() {
     setBitmap(bm);
     setFile(next);
   };
+
+  const clear = React.useCallback(() => {
+    setBitmap((b) => { b?.close(); return null; });
+    setUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setFile(null);
+  }, []);
+
+  // Clipboard paste, drag-anywhere hover state, Esc to clear, Enter to download.
+  const downloadRef = React.useRef<() => void>(() => {});
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+    onRun: file && !busy ? () => downloadRef.current() : undefined,
+  });
 
   const mime = format === 'png' ? 'image/png' : 'image/jpeg';
 
@@ -78,21 +94,24 @@ export default function ImageSplitTool() {
       setTimeout(() => URL.revokeObjectURL(href), 60_000);
     } finally { setBusy(false); }
   };
+  downloadRef.current = () => { void download(); };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div>
         {!file ? (
           <div
-            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }}
-            onDragOver={(e) => e.preventDefault()}
-            className="flex aspect-[4/3] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]"
+            {...dropZone}
+            className={cn(
+              'flex aspect-[4/3] items-center justify-center border border-dashed bg-[var(--color-surface-1)] transition-colors',
+              dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+            )}
           >
-            <label className="flex cursor-pointer flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
+            <label className="flex cursor-pointer flex-col items-center gap-3 text-center text-[13px] text-[var(--color-fg-muted)]">
               <Upload className="h-5 w-5" />
-              Drop an image or click to browse
+              {dragging ? 'Drop to split into tiles' : 'Drop, paste or click to browse'}
               <input type="file" accept="image/*" className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
             </label>
           </div>
         ) : (

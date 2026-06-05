@@ -1,7 +1,8 @@
 'use client';
 import * as React from 'react';
-import { Upload, Download, Loader2 } from 'lucide-react';
+import { Upload, Download, Loader2, X, ClipboardPaste, Archive } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useImageInput } from '@/components/tool/useImageInput';
 
 interface Size { id: string; label: string; w: number; h: number }
 
@@ -70,6 +71,7 @@ export default function Tool() {
   const [file, setFile] = React.useState<File | null>(null);
   const [bitmap, setBitmap] = React.useState<ImageBitmap | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const [zipping, setZipping] = React.useState(false);
   const [previews, setPreviews] = React.useState<Map<string, string>>(new Map());
   const inputRef = React.useRef<HTMLInputElement>(null);
 
@@ -112,11 +114,20 @@ export default function Tool() {
     void render(bm);
   }, [bitmap, render]);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
+  const clear = React.useCallback(() => {
+    if (bitmap) bitmap.close();
+    previews.forEach((u) => URL.revokeObjectURL(u));
+    setPreviews(new Map());
+    setBitmap(null);
+    setFile(null);
+  }, [bitmap, previews]);
+
+  // Paste a screenshot, drop anywhere on the tool, Esc to clear.
+  const { dragging, dropZoneProps } = useImageInput({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+    disabled: busy,
+  });
 
   const download = (size: Size) => {
     const url = previews.get(size.id);
@@ -127,28 +138,74 @@ export default function Tool() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
+  // Download every rendered size in one ZIP — the single biggest time-saver for
+  // someone shipping a launch across platforms (rivals make you save 12 times).
+  const downloadAll = React.useCallback(async () => {
+    if (!file || previews.size === 0) return;
+    setZipping(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const base = file.name.replace(/\.[^.]+$/, '');
+      for (const cat of PRESETS) {
+        for (const s of cat.sizes) {
+          const url = previews.get(s.id);
+          if (!url) continue;
+          const blob = await (await fetch(url)).blob();
+          zip.file(`${base}-${s.id}.jpg`, blob);
+        }
+      }
+      const out = await zip.generateAsync({ type: 'blob' });
+      const u = URL.createObjectURL(out);
+      const a = document.createElement('a');
+      a.href = u;
+      a.download = `${base}-social-sizes.zip`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(u);
+    } finally {
+      setZipping(false);
+    }
+  }, [file, previews]);
+
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4" {...dropZoneProps}>
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed border-[var(--color-cat-social)] bg-[var(--color-cat-social)]/10 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 bg-[var(--color-cat-social)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg">
+            <Upload className="h-4 w-4" /> Drop to resize for every platform
+          </div>
+        </div>
+      )}
       {!file ? (
         <div
-          onDrop={onDrop}
-          onDragOver={(e) => e.preventDefault()}
           onClick={() => inputRef.current?.click()}
-          className="grid aspect-[3/1] cursor-pointer place-items-center border border-dashed border-black/[0.15] bg-[oklch(20%_0.008_250)] text-center"
+          className="grid aspect-[3/1] cursor-pointer place-items-center border border-dashed border-black/[0.15] bg-[oklch(20%_0.008_250)] text-center transition hover:border-[var(--color-cat-social)]"
         >
           <div>
             <Upload className="mx-auto h-7 w-7 text-white/70" />
-            <div className="mt-2 text-[16px] font-semibold text-white">Drop a source image</div>
-            <div className="mt-1 text-[12px] text-white/55">Best results with high-res landscape — center-crop is automatic</div>
+            <div className="mt-2 text-[16px] font-semibold text-white">Drop, paste, or click to add an image</div>
+            <div className="mt-1 flex items-center justify-center gap-1.5 text-[12px] text-white/55">
+              <ClipboardPaste className="h-3 w-3" /> Paste a screenshot · high-res landscape works best · center-crop is automatic
+            </div>
           </div>
           <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
         </div>
       ) : (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-[12px] text-[var(--color-fg-muted)]">{file.name}  ·  {bitmap?.width}×{bitmap?.height}</div>
-          <button type="button" onClick={() => inputRef.current?.click()} className="border border-black/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition hover:bg-[var(--color-surface-2)]">
-            Replace
-          </button>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={downloadAll} disabled={busy || zipping || previews.size === 0}
+              className="flex items-center gap-1.5 bg-[var(--color-cat-social)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)]">
+              {zipping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Archive className="h-3.5 w-3.5" />}
+              {zipping ? 'Zipping…' : 'Download all (ZIP)'}
+            </button>
+            <button type="button" onClick={() => inputRef.current?.click()} className="border border-black/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition hover:bg-[var(--color-surface-2)]">
+              Replace
+            </button>
+            <button type="button" onClick={clear} title="Clear (Esc)" className="flex h-[30px] w-[30px] items-center justify-center border border-black/[0.08] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
         </div>
       )}

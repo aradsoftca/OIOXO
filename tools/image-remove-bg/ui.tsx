@@ -8,6 +8,7 @@ import { removeBackground, type BgRemoveQuality } from '@/engines/image';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const POLICY_KEY = 'image-remove-bg';
 
@@ -140,11 +141,22 @@ export default function RemoveBackgroundTool() {
     void run(next);
   }, [sourceUrl, outputUrl, run]);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
+  const clear = React.useCallback(() => {
+    if (sourceUrlRef.current) URL.revokeObjectURL(sourceUrlRef.current);
+    if (outputUrlRef.current) URL.revokeObjectURL(outputUrlRef.current);
+    setFile(null);
+    setSourceUrl('');
+    setOutputUrl('');
+    setOutputBlob(null);
+    setDims(null);
+    setShowCompare(false);
+  }, []);
+
+  // Clipboard paste (screenshot → cutout), drag-anywhere hover state, Esc to clear.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+  });
 
   const onComparePointerDown = (e: React.PointerEvent) => {
     draggingCompareRef.current = true;
@@ -198,14 +210,21 @@ export default function RemoveBackgroundTool() {
       {/* Stage */}
       <div
         ref={stageRef}
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
+        {...dropZone}
         className={cn(
-          'relative aspect-[4/3] overflow-hidden border border-black/[0.08]',
+          'relative aspect-[4/3] overflow-hidden border transition-colors',
+          dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border-black/[0.08]',
           !sourceUrl && 'flex items-center justify-center bg-[oklch(20%_0.008_250)]',
         )}
         style={sourceUrl ? backdropCss(backdrop) : undefined}
       >
+        {sourceUrl && dragging && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">
+              Drop to replace
+            </div>
+          </div>
+        )}
         {!sourceUrl && (
           <button
             type="button"
@@ -217,14 +236,15 @@ export default function RemoveBackgroundTool() {
             </div>
             <div>
               <div className="text-[18px] font-semibold tracking-tight text-white">
-                Drop a photo here
+                Drop, paste or click
               </div>
               <div className="mt-1 text-[13px] text-white/55">
                 JPG · PNG · WebP · AVIF — files stay yours
               </div>
             </div>
-            <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">
-              or click to browse
+            <div className="flex items-center gap-2 text-[12px] text-white/70">
+              <span className="border border-white/10 px-3 py-1.5">browse</span>
+              <span className="text-white/40">or paste a screenshot</span>
             </div>
           </button>
         )}

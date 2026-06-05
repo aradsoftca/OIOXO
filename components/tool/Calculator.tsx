@@ -94,10 +94,15 @@ function evaluate(expr: string, deg: boolean): number {
   return out.length ? (out[0] as number) : NaN;
 }
 
+interface HistoryEntry { expr: string; result: string }
+
 export function Calculator({ scientific = false }: { scientific?: boolean }) {
   const [expr, setExpr] = React.useState('');
   const [result, setResult] = React.useState('0');
   const [deg, setDeg] = React.useState(true);
+  const [history, setHistory] = React.useState<HistoryEntry[]>([]);
+  const [copied, setCopied] = React.useState(false);
+  const copyTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const compute = React.useCallback((e: string) => {
     if (!e.trim()) { setResult('0'); return; }
@@ -106,10 +111,36 @@ export function Calculator({ scientific = false }: { scientific?: boolean }) {
 
   React.useEffect(() => { compute(expr); }, [expr, deg, compute]);
 
+  const copyResult = React.useCallback(() => {
+    if (result === '0' || result === 'Error') return;
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(result).then(
+      () => {
+        setCopied(true);
+        clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopied(false), 1400);
+      },
+      () => {/* clipboard denied (iframe / insecure context) — silent */},
+    );
+  }, [result]);
+  React.useEffect(() => () => clearTimeout(copyTimer.current), []);
+
+  // "=" commits the current expression to history then keeps the result on the
+  // display so it chains into the next calculation (calculator.net behaviour).
+  const commit = React.useCallback(() => {
+    if (result === 'Error') { setExpr(''); return; }
+    setExpr((cur) => {
+      if (cur.trim() && cur !== result) {
+        setHistory((h) => [{ expr: cur, result }, ...h].slice(0, 12));
+      }
+      return result;
+    });
+  }, [result]);
+
   const press = (k: Key) => {
     if (k.t === 'clear') { setExpr(''); setResult('0'); return; }
     if (k.t === 'back') { setExpr((s) => s.slice(0, -1)); return; }
-    if (k.t === 'eq') { setExpr(result === 'Error' ? '' : result); return; }
+    if (k.t === 'eq') { commit(); return; }
     if (k.t === 'num') { setExpr((s) => s + k.v); return; }
     if (k.t === 'dot') { setExpr((s) => s + '.'); return; }
     if (k.t === 'op') { setExpr((s) => s + k.v); return; }
@@ -125,17 +156,23 @@ export function Calculator({ scientific = false }: { scientific?: boolean }) {
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't hijack typing when the user is in a real form field elsewhere on
+      // the page (search bar, other inputs) — only drive the calculator when no
+      // editable element holds focus.
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
       const k = e.key;
       if (/[0-9]/.test(k)) setExpr((s) => s + k);
       else if (k === '.') setExpr((s) => s + '.');
       else if (['+', '-', '*', '/', '^', '(', ')'].includes(k)) setExpr((s) => s + k);
-      else if (k === 'Enter' || k === '=') { e.preventDefault(); setExpr(result === 'Error' ? '' : result); }
+      else if (k === 'Enter' || k === '=') { e.preventDefault(); commit(); }
       else if (k === 'Backspace') setExpr((s) => s.slice(0, -1));
       else if (k === 'Escape') { setExpr(''); setResult('0'); }
+      else if ((e.ctrlKey || e.metaKey) && (k === 'c' || k === 'C')) { copyResult(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [result]);
+  }, [commit, copyResult]);
 
   const label = (k: Key): string => {
     switch (k.t) {
@@ -155,12 +192,32 @@ export function Calculator({ scientific = false }: { scientific?: boolean }) {
       : 'bg-[var(--color-surface-1)] text-[var(--color-fg)] hover:bg-[var(--color-surface-2)]',
   );
 
+  const canCopy = result !== '0' && result !== 'Error';
+
   return (
     <div className="mx-auto max-w-md space-y-3">
-      <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-        <div className="min-h-[20px] truncate text-right font-mono text-[13px] text-[var(--color-fg-muted)]">{expr || ' '}</div>
+      <button
+        type="button"
+        onClick={canCopy ? copyResult : undefined}
+        title={canCopy ? 'Click to copy result' : undefined}
+        className={cn(
+          'group block w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-left transition',
+          canCopy && 'cursor-pointer hover:border-[color:color-mix(in_oklch,var(--color-cat-calc)_40%,transparent)]',
+        )}
+      >
+        <div className="flex min-h-[20px] items-center justify-between gap-2">
+          <span
+            className={cn(
+              'text-[10px] font-bold uppercase tracking-[0.16em] transition',
+              copied ? 'text-[var(--color-cat-calc)] opacity-100' : 'opacity-0 group-hover:opacity-60',
+            )}
+          >
+            {copied ? 'Copied' : canCopy ? 'Copy' : ''}
+          </span>
+          <span className="truncate font-mono text-[13px] text-[var(--color-fg-muted)]">{expr || ' '}</span>
+        </div>
         <div className="truncate text-right font-mono text-[34px] font-bold tracking-tight text-[var(--color-fg)]">{result}</div>
-      </div>
+      </button>
 
       {scientific && (
         <div className="flex items-center justify-between">
@@ -194,6 +251,35 @@ export function Calculator({ scientific = false }: { scientific?: boolean }) {
           </button>
         ))}
       </div>
+
+      {history.length > 0 && (
+        <div className="border border-black/[0.08] bg-[var(--color-surface-1)]">
+          <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2">
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">History</span>
+            <button
+              type="button"
+              onClick={() => setHistory([])}
+              className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {history.map((h, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setExpr(h.result)}
+                title="Recall this result"
+                className="flex w-full items-baseline justify-between gap-3 px-3 py-1.5 text-left transition hover:bg-[var(--color-surface-2)]"
+              >
+                <span className="truncate font-mono text-[12px] text-[var(--color-fg-muted)]">{h.expr}</span>
+                <span className="shrink-0 font-mono text-[13px] font-semibold text-[var(--color-fg)] tabular-nums">= {h.result}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

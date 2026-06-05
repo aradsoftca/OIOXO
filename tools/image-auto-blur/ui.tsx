@@ -4,6 +4,8 @@ import { Loader2, Download, Upload, Shield } from 'lucide-react';
 import type { FaceDetector } from '@mediapipe/tasks-vision';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { downloadBlob } from '@/engines/ffmpeg';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH || '';
 let detectorPromise: Promise<FaceDetector> | null = null;
@@ -69,6 +71,18 @@ export default function AutoBlurFaces() {
     finally { setBusy(false); setStatus(''); }
   };
 
+  const clear = React.useCallback(() => {
+    setOut((o) => { if (o?.url) URL.revokeObjectURL(o.url); return null; });
+    setCount(null);
+    setError('');
+  }, []);
+
+  // Clipboard paste (screenshot → auto-blur), drag-anywhere hover state, Esc to clear.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void run(f),
+    onClear: out ? clear : undefined,
+  });
+
   return (
     <div className="space-y-4">
       {gate}
@@ -77,10 +91,13 @@ export default function AutoBlurFaces() {
           <input type="range" min={6} max={40} value={strength} onChange={(e) => setStrength(+e.target.value)} />
         </label>
       </div>
-      <div onClick={() => inputRef.current?.click()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void run(f); }} onDragOver={(e) => e.preventDefault()}
-        className="flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed border-black/[0.14] bg-[var(--color-surface-1)] px-6 py-16 text-center">
+      <div onClick={() => inputRef.current?.click()} {...dropZone}
+        className={cn(
+          'flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed bg-[var(--color-surface-1)] px-6 py-16 text-center transition-colors',
+          dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.14]',
+        )}>
         <Shield className="h-7 w-7 text-[var(--color-cat-image)]" />
-        <div className="text-[15px] font-semibold">{busy ? status || 'Working…' : 'Drop a photo to blur faces'}</div>
+        <div className="text-[15px] font-semibold">{busy ? status || 'Working…' : dragging ? 'Drop to blur faces' : 'Drop, paste or click to blur faces'}</div>
         <div className="text-[12px] text-[var(--color-fg-muted)]">Every detected face is blurred automatically — all on your device.</div>
       </div>
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void run(f); e.target.value = ''; }} />

@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Upload, Download, Loader2, BookOpen } from 'lucide-react';
+import { Download, Loader2, BookOpen } from 'lucide-react';
 import { epubToContent, htmlToPlainText } from '@/engines/ebook';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 import { sanitizeHtml } from '@/lib/safe-html';
 
 type Target = 'pdf' | 'html' | 'txt';
@@ -13,7 +14,6 @@ export default function EbookConvertTool() {
   const [target, setTarget] = React.useState<Target>('pdf');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const inputRef = React.useRef<HTMLInputElement>(null);
 
   const load = async (f: File) => {
     if (!/\.epub$/i.test(f.name)) { setError('Please choose an EPUB file (.epub). MOBI/AZW3 coming soon.'); return; }
@@ -56,17 +56,29 @@ export default function EbookConvertTool() {
     } finally { setBusy(false); }
   };
 
+  // Keyboard: Enter runs once an ebook is loaded, Esc clears it.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (!file) return;
+      if (e.key === 'Enter' && !busy && content) { e.preventDefault(); void run(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setFile(null); setContent(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       {!file && (
-        <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className="h-5 w-5" /> Drop an EPUB or click to browse
-          </button>
-          <input ref={inputRef} type="file" accept=".epub" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); }} />
-        </div>
+        <ConvertDropZone
+          accept=".epub"
+          busy={busy}
+          label="Drop an EPUB, click to browse, or paste"
+          sublabel=".epub"
+          onFiles={(files) => void load(files[0])}
+        />
       )}
 
       {file && (

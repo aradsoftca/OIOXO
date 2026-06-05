@@ -8,6 +8,7 @@ export default function Tool() {
       toolId="subtitle-character-counter"
       colorVar="--color-cat-subtitle"
       inputPlaceholder="Paste SRT or WebVTT…"
+      fileAccept=".srt,.vtt,.ass,.ssa,.sub,.txt"
       transform={(s, o) => {
         if (!s.trim()) return 'Paste a subtitle file to analyze.';
         const cues = parse(s);

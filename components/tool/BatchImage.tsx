@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 import { Upload, X, Download, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 import { mapWithConcurrency } from '@/lib/compute/concurrency';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
@@ -66,6 +68,18 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
     return prev.filter((_, idx) => idx !== i);
   });
 
+  const clearAll = React.useCallback(() => {
+    setItems((prev) => { prev.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); return []; });
+  }, []);
+
+  // Clipboard paste appends to the batch; Esc clears all. Drag hover state
+  // lets the drop zone light up. Files pasted/dropped go through the same
+  // decode path as the file picker.
+  const { dragging, dropZone } = useImageDrop({
+    onFiles: (files) => void add(files),
+    onClear: items.length ? clearAll : undefined,
+  });
+
   const run = async () => {
     if (!items.length) return;
     // Compute the largest input size once via a fold — Math.max(...arr) blows
@@ -120,14 +134,16 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
       {gate}
       {policyGate.element}
       <div
-        onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) void add(e.dataTransfer.files); }}
-        onDragOver={(e) => e.preventDefault()}
-        className="border border-dashed border-black/[0.18] bg-[var(--color-surface-1)] p-5"
+        {...dropZone}
+        className={cn(
+          'border border-dashed bg-[var(--color-surface-1)] p-5 transition-colors',
+          dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+        )}
       >
         <button type="button" onClick={() => inputRef.current?.click()}
           className="flex w-full items-center justify-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
           <Upload className="h-4 w-4" />
-          Drop images here or click to add (process them all at once)
+          {dragging ? 'Drop to add to the batch' : 'Drop, paste or click to add images (process them all at once)'}
         </button>
         <input ref={inputRef} type="file" accept={accept} multiple className="hidden"
           onChange={(e) => { if (e.target.files?.length) void add(e.target.files); e.target.value = ''; }} />
@@ -138,7 +154,7 @@ export function BatchImage({ controls, process, zipName, cta = 'Process all → 
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)]">
             <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-2">
               <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">{items.length} images</span>
-              <button type="button" onClick={() => { items.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); setItems([]); }}
+              <button type="button" onClick={clearAll}
                 className="text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Clear all</button>
             </div>
             <div className="grid max-h-[420px] grid-cols-4 gap-2 overflow-y-auto p-3 sm:grid-cols-6">

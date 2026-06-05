@@ -3,6 +3,8 @@ import * as React from 'react';
 import { Copy, Check, Download } from 'lucide-react';
 import { parse, shift, write } from '@/engines/subtitle';
 import { cn } from '@/lib/cn';
+import { SubtitleTextarea } from '@/components/tool/SubtitleTextarea';
+import { SubtitleCuePreview } from '@/components/tool/SubtitleCuePreview';
 
 export default function Tool() {
   const [first, setFirst] = React.useState('');
@@ -47,8 +49,8 @@ export default function Tool() {
   return (
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-2">
-        <textarea value={first} onChange={(e) => setFirst(e.target.value)} placeholder="First subtitle file…" spellCheck={false} className="h-56 border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
-        <textarea value={second} onChange={(e) => setSecond(e.target.value)} placeholder="Second subtitle file…" spellCheck={false} className="h-56 border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
+        <SubtitleTextarea value={first} onChange={setFirst} placeholder="First subtitle file" label="First subtitle file" className="h-56 w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
+        <SubtitleTextarea value={second} onChange={setSecond} placeholder="Second subtitle file" label="Second subtitle file" className="h-56 w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
       </div>
       <div className="flex flex-wrap items-end gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
         <label className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
@@ -74,6 +76,7 @@ export default function Tool() {
         </button>
       </div>
       <textarea readOnly value={output} placeholder="Merged result will appear here." className="h-72 w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
+      {!isError && output && <SubtitleCuePreview text={output} />}
     </div>
   );
 }

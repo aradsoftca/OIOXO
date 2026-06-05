@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { Copy, Download, Trash2, Upload, Check } from 'lucide-react';
+import { Copy, Download, Trash2, Upload, Check, FileUp } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { FetchUrlBar } from '@/components/tool/FetchUrlBar';
@@ -36,6 +36,15 @@ interface TextToolProps {
   /** Optional "fetch from URL" bar above the input — server fetches the page
    * (CORS-free) and drops the returned text into the input box. */
   urlFetch?: { endpoint: string; placeholder?: string };
+  /** Accept attribute + hint for the file picker / drop zone (e.g. ".srt,.vtt").
+   * When set, the input panel shows a "drop a file" affordance and the whole tool
+   * accepts drag-drop of a text file straight into the input. */
+  fileAccept?: string;
+  /** Output download extension (default "txt"). Subtitle tools pass "srt"/"vtt". */
+  downloadExt?: string;
+  /** Optional live preview rendered under the output (e.g. parsed subtitle cues).
+   * Receives the current output text. */
+  preview?: (output: string) => React.ReactNode;
 }
 
 /**
@@ -58,18 +67,53 @@ export function TextTool({
   colorVar = '--color-cat-text',
   initialInput = '',
   urlFetch,
+  fileAccept,
+  downloadExt = 'txt',
+  preview,
 }: TextToolProps) {
   const [input, setInput] = React.useState(initialInput);
   const [options, setOptions] = React.useState<Record<string, unknown>>(() =>
     Object.fromEntries(controls.map((c) => [c.id, c.defaultValue])),
   );
   const [copied, setCopied] = React.useState(false);
+  const [dragging, setDragging] = React.useState(false);
+  const [loadedName, setLoadedName] = React.useState('');
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
+  const dragDepth = React.useRef(0);
+
+  // One shared loader for staged/dropped/picked files: read as text → input.
+  const loadFile = React.useCallback((file: File) => {
+    file.text()
+      .then((t) => { setInput(t); setLoadedName(file.name); })
+      .catch(() => { /* not a text file */ });
+  }, []);
 
   // If the user picked this tool from the homepage launcher (or the AI) with a
   // file in hand, read it as text and drop it straight into the input.
-  useStagedInput((file) => {
-    file.text().then((t) => setInput(t)).catch(() => { /* not text */ });
-  });
+  useStagedInput(loadFile);
+
+  // Global clipboard paste: paste a screenshot's text / copied subtitle anywhere
+  // on the page (no need to click into the box). Ignored while the user is
+  // actively typing in a field, and only when the input is empty so we never
+  // clobber edited text. Files pasted from the clipboard (e.g. a copied .srt)
+  // are read as text too.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      const typing = tag === 'TEXTAREA' || tag === 'INPUT' || el?.isContentEditable;
+      if (typing) return; // let the browser handle paste into a focused field
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const file = Array.from(dt.files).find((f) => f.type.startsWith('text/') || /\.(srt|vtt|ass|ssa|txt|sub)$/i.test(f.name));
+      if (file) { e.preventDefault(); loadFile(file); return; }
+      const text = dt.getData('text');
+      if (text) { e.preventDefault(); setInput(text); setLoadedName(''); }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [loadFile]);
 
   const output = React.useMemo(() => {
     try {
@@ -105,23 +149,79 @@ export function TextTool({
     // Text content is left untouched (an in-body attribution would corrupt the
     // user's result); the brand signature is the filename suffix for free users.
     const blob = new Blob([output], { type: 'text/plain;charset=utf-8' });
-    await downloadBlob(blob, toolId, 'txt');
+    await downloadBlob(blob, loadedName ? loadedName.replace(/\.[^./\\]+$/, '') : toolId, downloadExt);
   };
 
   const paste = async () => {
     try {
       const text = await navigator.clipboard.readText();
       setInput(text);
+      setLoadedName('');
     } catch {
       /* user denied */
     }
+  };
+
+  const clear = () => { setInput(''); setLoadedName(''); };
+
+  // Drag-drop a text/subtitle file anywhere over the tool area. We count
+  // enter/leave so nested children don't flicker the hover state.
+  const onDragOver = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  };
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    if (!Array.from(e.dataTransfer.types).includes('Files')) return;
+    e.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) loadFile(file);
   };
 
   const inputStats = computeStats(input);
   const outputStats = computeStats(output);
 
   return (
-    <div className="space-y-4">
+    <div
+      className="relative space-y-4"
+      onDragOver={fileAccept ? onDragOver : undefined}
+      onDragEnter={fileAccept ? onDragEnter : undefined}
+      onDragLeave={fileAccept ? onDragLeave : undefined}
+      onDrop={fileAccept ? onDrop : undefined}
+    >
+      {fileAccept && (
+        <input
+          ref={fileRef}
+          type="file"
+          accept={fileAccept}
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }}
+        />
+      )}
+      {fileAccept && dragging && (
+        <div
+          className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed bg-[var(--color-surface-1)]/85 backdrop-blur-sm"
+          style={{ borderColor: `var(${colorVar})` }}
+        >
+          <div className="flex flex-col items-center gap-2 text-[var(--color-fg)]">
+            <FileUp className="h-7 w-7" style={{ color: `var(${colorVar})` }} />
+            <span className="text-[13px] font-bold uppercase tracking-[0.18em]">Drop file to load</span>
+          </div>
+        </div>
+      )}
       {urlFetch && (
         <FetchUrlBar
           endpoint={urlFetch.endpoint}
@@ -132,11 +232,23 @@ export function TextTool({
       )}
       <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="grid gap-3 md:grid-cols-2">
-        <Panel label="Input" colorVar={colorVar}>
+        <Panel
+          label="Input"
+          colorVar={colorVar}
+          headerExtra={
+            loadedName ? (
+              <span className="truncate font-mono text-[10px] text-[var(--color-fg-subtle)]" title={loadedName}>
+                {loadedName}
+              </span>
+            ) : undefined
+          }
+        >
           <textarea
+            ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={inputPlaceholder}
+            onChange={(e) => { setInput(e.target.value); if (loadedName) setLoadedName(''); }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { clear(); (e.target as HTMLTextAreaElement).blur(); } }}
+            placeholder={fileAccept ? `${inputPlaceholder}  —  or drop / paste a file` : inputPlaceholder}
             spellCheck={false}
             className="h-72 w-full resize-none bg-transparent font-mono text-[13px] leading-relaxed text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:outline-none"
           />
@@ -145,8 +257,11 @@ export function TextTool({
               {inputStats.chars} chars · {inputStats.words} words · {inputStats.lines} lines
             </span>
             <div className="flex items-center gap-1">
+              {fileAccept && (
+                <IconBtn onClick={() => fileRef.current?.click()} title="Open file"><FileUp className="h-3.5 w-3.5" /></IconBtn>
+              )}
               <IconBtn onClick={paste} title="Paste"><Upload className="h-3.5 w-3.5" /></IconBtn>
-              <IconBtn onClick={() => setInput('')} title="Clear"><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+              <IconBtn onClick={clear} title="Clear (Esc)"><Trash2 className="h-3.5 w-3.5" /></IconBtn>
             </div>
           </PanelFooter>
         </Panel>
@@ -171,6 +286,9 @@ export function TextTool({
             </div>
           </PanelFooter>
         </Panel>
+        {preview && output && !output.startsWith('Error') && (
+          <div className="md:col-span-2">{preview(output)}</div>
+        )}
       </div>
 
       <aside className="space-y-3">
@@ -218,11 +336,13 @@ function Panel({
   label,
   colorVar,
   accent,
+  headerExtra,
   children,
 }: {
   label: string;
   colorVar?: string;
   accent?: boolean;
+  headerExtra?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -236,10 +356,11 @@ function Panel({
       }
     >
       <div className="tile-content gap-3 !justify-start">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
             {label}
           </div>
+          {headerExtra}
         </div>
         {children}
       </div>

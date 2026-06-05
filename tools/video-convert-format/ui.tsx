@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
-import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
+import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
 import { fmtDuration } from '@/engines/video';
 import { runFfmpeg, downloadBlob } from '@/engines/ffmpeg';
 import { checkLever, checkFormat } from '@/lib/limits/policy';
@@ -139,12 +139,8 @@ export default function Tool() {
                 <div className="mt-1 text-[14px] font-semibold break-all">{item.file.name.replace(/\.[^.]+$/, '')}.{target}</div>
                 <div className="mt-2 text-[10px] text-[var(--color-fg-muted)]">First time may take a moment to warm up. Subsequent jobs start instantly.</div>
               </div>
-              <button type="button" onClick={run} disabled={busy}
-                className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
-                {busy ? `Converting… ${progress}%` : 'Convert & Download'}
-              </button>
-              {error && <div className="text-[12px] text-red-600">{error}</div>}
+              <FfmpegRunButton colorVar="--color-cat-video" busy={busy} progress={progress}
+                label="Convert & Download" busyLabel="Converting…" onClick={run} error={error} />
             </aside>
           </div>
         </>

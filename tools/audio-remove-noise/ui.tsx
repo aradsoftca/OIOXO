@@ -84,7 +84,7 @@ export default function AudioRemoveNoiseTool() {
             </button>
           </div>
 
-          <Waveform buffer={resultBuffer ?? item.buffer} />
+          <Waveform buffer={resultBuffer ?? item.buffer} player />
 
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 space-y-3">

@@ -1,10 +1,11 @@
 'use client';
 
 import * as React from 'react';
-import { Upload, Download, Loader2, Presentation, AlertTriangle } from 'lucide-react';
+import { Download, Loader2, Presentation, AlertTriangle } from 'lucide-react';
 import { officeToContent } from '@/engines/office';
 import { htmlToPdf } from '@/engines/document';
 import { htmlToPlainText } from '@/engines/ebook';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 import { sanitizeHtml } from '@/lib/safe-html';
 
 type Target = 'pdf' | 'html' | 'txt';
@@ -16,7 +17,6 @@ export default function SlidesConvertTool() {
   const [target, setTarget] = React.useState<Target>('pdf');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const inputRef = React.useRef<HTMLInputElement>(null);
 
   const legacy = file ? EXT(file) === 'ppt' : false;
 
@@ -56,17 +56,29 @@ export default function SlidesConvertTool() {
     } finally { setBusy(false); }
   };
 
+  // Keyboard: Enter exports once slides are loaded, Esc clears them.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (!file) return;
+      if (e.key === 'Enter' && !busy && content) { e.preventDefault(); void run(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setFile(null); setContent(null); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       {!file && (
-        <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className="h-5 w-5" /> Drop a presentation (.pptx, .ppt, .odp) or click to browse
-          </button>
-          <input ref={inputRef} type="file" accept=".pptx,.ppt,.odp" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); }} />
-        </div>
+        <ConvertDropZone
+          accept=".pptx,.ppt,.odp"
+          busy={busy}
+          label="Drop a presentation, click to browse, or paste"
+          sublabel=".pptx · .ppt · .odp"
+          onFiles={(files) => void load(files[0])}
+        />
       )}
 
       {file && (

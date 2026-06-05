@@ -1,5 +1,7 @@
 'use client';
-import { CalcTool, type CalcResult } from '@/components/tool/CalcTool';
+import { CalcTool, type CalcResult, type CalcChartSpec } from '@/components/tool/CalcTool';
+
+const usd = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
 // 2024 US federal tax brackets — single / MFJ. Educational estimate; not tax advice.
 const BRACKETS = {
@@ -25,7 +27,7 @@ const BRACKETS = {
 
 const STANDARD_DEDUCTION = { single: 14600, married: 29200 };
 
-function compute(v: Record<string, string | number>): CalcResult[] {
+function model(v: Record<string, string | number>) {
   const filing = String(v.filing ?? 'single') as 'single' | 'married';
   const gross = Number(v.gross) || 0;
   const useStandard = v.useStandard !== 'false';
@@ -49,15 +51,33 @@ function compute(v: Record<string, string | number>): CalcResult[] {
   }
   const effective = gross > 0 ? (tax / gross) * 100 : 0;
   const takeHome = gross - tax;
-  const fmt = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  return { gross, tax, takeHome, marginal, effective, taxable, deduction };
+}
+
+function compute(v: Record<string, string | number>): CalcResult[] {
+  const m = model(v);
   return [
-    { label: 'Federal tax owed',  value: fmt(tax), primary: true },
-    { label: 'Take-home',         value: fmt(takeHome) },
-    { label: 'Marginal rate',     value: `${(marginal * 100).toFixed(0)}%` },
-    { label: 'Effective rate',    value: `${effective.toFixed(2)}%` },
-    { label: 'Taxable income',    value: fmt(taxable) },
-    { label: 'Deduction applied', value: fmt(deduction) },
+    { label: 'Federal tax owed',  value: usd(m.tax), primary: true },
+    { label: 'Take-home',         value: usd(m.takeHome) },
+    { label: 'Marginal rate',     value: `${(m.marginal * 100).toFixed(0)}%` },
+    { label: 'Effective rate',    value: `${m.effective.toFixed(2)}%` },
+    { label: 'Taxable income',    value: usd(m.taxable) },
+    { label: 'Deduction applied', value: usd(m.deduction) },
   ];
+}
+
+function chart(v: Record<string, string | number>): CalcChartSpec | null {
+  const m = model(v);
+  if (m.gross <= 0) return null;
+  return {
+    type: 'donut',
+    title: 'Tax vs take-home',
+    format: usd,
+    segments: [
+      { label: 'Take-home', value: Math.max(0, m.takeHome) },
+      { label: 'Federal tax', value: Math.max(0, m.tax) },
+    ],
+  };
 }
 
 export default function Tool() {
@@ -73,7 +93,7 @@ export default function Tool() {
             { value: 'married', label: 'Married filing jointly' },
           ],
         },
-        { id: 'gross', label: 'Gross income', unit: '$', defaultValue: 85000 },
+        { id: 'gross', label: 'Gross income', unit: '$', defaultValue: 85000, min: 0, max: 500000, step: 1000 },
         {
           id: 'useStandard', label: 'Deduction', type: 'select', defaultValue: 'true',
           options: [
@@ -81,9 +101,10 @@ export default function Tool() {
             { value: 'false', label: 'Custom (itemized)' },
           ],
         },
-        { id: 'deduction', label: 'Custom deduction', unit: '$', defaultValue: 14600 },
+        { id: 'deduction', label: 'Custom deduction', unit: '$', defaultValue: 14600, min: 0, max: 100000, step: 500 },
       ]}
       compute={compute}
+      chart={chart}
       formula="Tax = Σ (taxable in bracket × bracket rate)  ·  US 2024"
     />
   );

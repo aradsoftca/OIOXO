@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { Download, Copy, Check, RefreshCw, Plus, X } from 'lucide-react';
+import { useCopy } from '@/components/tool/CopyButton';
 
 interface Point { x: number; y: number; color: string }
 
@@ -35,7 +36,7 @@ export default function GenMeshGradientTool() {
   const [base, setBase] = React.useState('#1a1a2e');
   const [w, setW] = React.useState(1600);
   const [h, setH] = React.useState(900);
-  const [copied, setCopied] = React.useState(false);
+  const { copy, isCopied } = useCopy(1500);
 
   const bg = React.useMemo(() => buildBackground(points, base), [points, base]);
   const css = `background-color: ${base};\nbackground-image:\n    ${bg.replace(`,\n    ${base}`, '')};`;
@@ -56,17 +57,7 @@ export default function GenMeshGradientTool() {
   const removePoint = (i: number) => setPoints((prev) => prev.filter((_, idx) => idx !== i));
   const setPointColor = (i: number, color: string) => setPoints((prev) => prev.map((p, idx) => idx === i ? { ...p, color } : p));
 
-  const copyCss = async () => {
-    try {
-      await navigator.clipboard.writeText(css);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard write rejects in some embedded/iframe contexts and on
-      // Safari without a recent user-activation; just no-op so the page
-      // doesn't surface an unhandled rejection.
-    }
-  };
+  const copyCss = () => { void copy(css, 'css'); };
 
   const downloadPng = () => {
     const canvas = document.createElement('canvas');
@@ -109,8 +100,8 @@ export default function GenMeshGradientTool() {
             <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">CSS</span>
             <button type="button" onClick={copyCss}
               className="flex items-center gap-1.5 text-[11px] text-white/70 hover:text-white">
-              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-              {copied ? 'Copied' : 'Copy'}
+              {isCopied('css') ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {isCopied('css') ? 'Copied' : 'Copy'}
             </button>
           </div>
           <pre className="overflow-x-auto p-3 font-mono text-[11px] leading-relaxed text-[#e5e5e5]">{css}</pre>

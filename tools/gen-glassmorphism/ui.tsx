@@ -1,6 +1,6 @@
 'use client';
 import * as React from 'react';
-import { Copy, Check } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 const BG_PRESETS = [
   { id: 'sunset',  gradient: 'linear-gradient(135deg, #ff7e5f 0%, #feb47b 100%)' },
@@ -24,7 +24,6 @@ export default function Tool() {
   const [tint, setTint] = React.useState('#ffffff');
   const [borderAlpha, setBorderAlpha] = React.useState(0.3);
   const [radius, setRadius] = React.useState(20);
-  const [copied, setCopied] = React.useState(false);
 
   const css = `background: ${hexToRgba(tint, alpha)};
 backdrop-filter: blur(${blur}px);
@@ -32,14 +31,6 @@ backdrop-filter: blur(${blur}px);
 border: 1px solid ${hexToRgba(tint, borderAlpha)};
 border-radius: ${radius}px;
 box-shadow: 0 8px 32px rgba(0,0,0,0.18);`;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(css);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch { /* iframe / permission denied */ }
-  };
 
   return (
     <div className="space-y-4">
@@ -66,10 +57,7 @@ box-shadow: 0 8px 32px rgba(0,0,0,0.18);`;
             ))}
           </div>
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[11px] whitespace-pre">{css}</div>
-          <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
-            {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-          </button>
+          <CopyButton value={css} />
         </div>
 
         <aside className="space-y-3">

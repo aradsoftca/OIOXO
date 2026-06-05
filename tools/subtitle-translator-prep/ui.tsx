@@ -3,6 +3,8 @@ import * as React from 'react';
 import { Copy, Check, Download } from 'lucide-react';
 import { parse, write, stripTags } from '@/engines/subtitle';
 import { cn } from '@/lib/cn';
+import { SubtitleTextarea } from '@/components/tool/SubtitleTextarea';
+import { SubtitleCuePreview } from '@/components/tool/SubtitleCuePreview';
 
 export default function Tool() {
   const [mode, setMode] = React.useState<'extract' | 'merge'>('extract');
@@ -54,7 +56,7 @@ export default function Tool() {
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2">
           <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Original subtitle</div>
-          <textarea value={original} onChange={(e) => setOriginal(e.target.value)} placeholder="Paste original SRT here…" spellCheck={false} className="h-72 w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
+          <SubtitleTextarea value={original} onChange={setOriginal} placeholder="Paste original SRT here" label="Original subtitle" className="h-72 w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
         </div>
 
         {mode === 'extract' ? (
@@ -107,6 +109,7 @@ export default function Tool() {
             </button>
           </div>
           <textarea readOnly value={merged} placeholder="Merged subtitle will appear here." className="h-56 w-full border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] outline-none" />
+          {merged && !merged.startsWith('Mismatch:') && <SubtitleCuePreview text={merged} />}
         </>
       )}
     </div>

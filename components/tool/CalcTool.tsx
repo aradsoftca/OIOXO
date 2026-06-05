@@ -15,6 +15,8 @@ export interface CalcInput {
   min?: number;
   max?: number;
   step?: number;
+  /** When min+max are set, render a drag slider beside the number field (real-time recalc). Defaults to true. */
+  slider?: boolean;
 }
 
 export interface CalcResult {
@@ -27,6 +29,23 @@ export interface CalcResult {
   hint?: string;
 }
 
+/** A single slice/bar of the optional breakdown chart. */
+export interface CalcChartSegment {
+  label: string;
+  value: number;
+  /** CSS color (e.g. a var() expression). Falls back to a generated palette. */
+  color?: string;
+}
+
+export interface CalcChartSpec {
+  type: 'donut' | 'bars';
+  segments: CalcChartSegment[];
+  /** Optional title shown above the chart. */
+  title?: string;
+  /** Formatter for segment values in the legend. */
+  format?: (n: number) => string;
+}
+
 interface CalcToolProps {
   toolId: string;
   inputs: CalcInput[];
@@ -34,11 +53,15 @@ interface CalcToolProps {
   colorVar?: string;
   /** Tagline above results explaining what we computed */
   formula?: string;
+  /** Optional visual breakdown derived from the current values. Returns null to hide. */
+  chart?: (values: Record<string, string | number>) => CalcChartSpec | null;
 }
 
 /**
  * Calculator template — N inputs, a compute function, a stack of results.
  * The primary result gets the big display; the rest line up under it.
+ * Inputs with min+max gain a drag slider; results gain copy/reset + an
+ * optional visual breakdown chart.
  */
 export function CalcTool({
   toolId,
@@ -46,10 +69,17 @@ export function CalcTool({
   compute,
   colorVar = '--color-cat-calc',
   formula,
+  chart,
 }: CalcToolProps) {
-  const [values, setValues] = React.useState<Record<string, string | number>>(() =>
-    Object.fromEntries(inputs.map((i) => [i.id, i.defaultValue ?? (i.type === 'number' ? 0 : '')])),
+  const defaults = React.useMemo(
+    () =>
+      Object.fromEntries(
+        inputs.map((i) => [i.id, i.defaultValue ?? (i.type === 'number' ? 0 : '')]),
+      ) as Record<string, string | number>,
+    [inputs],
   );
+  const [values, setValues] = React.useState<Record<string, string | number>>(defaults);
+  const [copied, setCopied] = React.useState(false);
 
   const results = React.useMemo(() => {
     try {
@@ -58,6 +88,15 @@ export function CalcTool({
       return [];
     }
   }, [values, compute]);
+
+  const chartSpec = React.useMemo(() => {
+    if (!chart) return null;
+    try {
+      return chart(values);
+    } catch {
+      return null;
+    }
+  }, [values, chart]);
 
   React.useEffect(() => {
     const primary = results.find((r) => r.primary) ?? results[0];
@@ -69,12 +108,65 @@ export function CalcTool({
     return () => clearTimeout(id);
   }, [results, toolId]);
 
+  const isDirty = React.useMemo(
+    () => inputs.some((i) => String(values[i.id]) !== String(defaults[i.id])),
+    [values, defaults, inputs],
+  );
+
+  const reset = React.useCallback(() => setValues(defaults), [defaults]);
+
+  const copy = React.useCallback(async () => {
+    const lines = results
+      .filter((r) => r.value !== '—')
+      .map((r) => `${r.label}: ${r.value}${r.unit ? ' ' + r.unit : ''}`);
+    if (!lines.length) return;
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch {
+      /* clipboard blocked — silent */
+    }
+  }, [results]);
+
+  // Esc anywhere on the tool resets to defaults (ignored while not dirty).
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const onKeyDown = React.useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape' && isDirty) {
+        e.preventDefault();
+        reset();
+      }
+    },
+    [isDirty, reset],
+  );
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+    <div
+      ref={rootRef}
+      onKeyDown={onKeyDown}
+      className="grid gap-4 lg:grid-cols-[1fr_1.2fr]"
+    >
       <div className="tile-surface" data-neutral="true">
         <div className="tile-content gap-4 !justify-start">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
-            Inputs
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              Inputs
+            </div>
+            <button
+              type="button"
+              onClick={reset}
+              disabled={!isDirty}
+              className={cn(
+                'text-[11px] font-medium tracking-wide transition',
+                isDirty
+                  ? 'text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]'
+                  : 'cursor-default text-[var(--color-fg-subtle)] opacity-40',
+              )}
+              title="Reset to defaults (Esc)"
+            >
+              Reset
+            </button>
           </div>
           {inputs.map((input) => (
             <CalcInputRow
@@ -100,11 +192,28 @@ export function CalcTool({
             style={{ ['--tile-color' as string]: `color-mix(in oklch, var(${colorVar}) 18%, var(--color-surface-1))`, ['--tile-fg' as string]: 'var(--color-fg)' }}
           >
             <div className="tile-content gap-4 !justify-start">
+              <div className="flex items-start justify-between gap-3">
+                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+                  Result
+                </div>
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="shrink-0 border border-black/[0.08] bg-white/50 px-2.5 py-1 text-[11px] font-medium text-[var(--color-fg-muted)] transition hover:border-[color:var(--tile-color)] hover:text-[var(--color-fg)]"
+                  style={{ ['--tile-color' as string]: `var(${colorVar})` }}
+                  title="Copy results"
+                >
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
               {results.map((r, i) => (
                 <ResultRow key={`${r.label}-${i}`} result={r} colorVar={colorVar} />
               ))}
             </div>
           </div>
+        )}
+        {chartSpec && chartSpec.segments.length > 0 && (
+          <BreakdownChart spec={chartSpec} colorVar={colorVar} />
         )}
       </div>
     </div>
@@ -123,6 +232,12 @@ function CalcInputRow({
   colorVar: string;
 }) {
   const t = input.type ?? 'number';
+  const hasRange =
+    t === 'number' &&
+    input.slider !== false &&
+    typeof input.min === 'number' &&
+    typeof input.max === 'number' &&
+    input.max > input.min;
   return (
     <label className="flex flex-col gap-1.5">
       <div className="flex items-baseline justify-between">
@@ -154,6 +269,19 @@ function CalcInputRow({
             'w-full border border-black/[0.08] bg-white/60 px-3 py-2 font-mono text-[15px] text-[var(--color-fg)] focus:outline-none transition',
             'focus:border-[color:var(--tile-color,var(--color-cat-calc))]',
           )}
+          style={{ ['--tile-color' as string]: `var(${colorVar})` }}
+        />
+      )}
+      {hasRange && (
+        <input
+          type="range"
+          value={Number(value) || 0}
+          min={input.min}
+          max={input.max}
+          step={input.step ?? (input.max! - input.min!) / 100}
+          onChange={(e) => onChange(Number(e.target.value))}
+          aria-label={`${input.label} slider`}
+          className="calc-slider mt-0.5 w-full"
           style={{ ['--tile-color' as string]: `var(${colorVar})` }}
         />
       )}
@@ -192,6 +320,148 @@ function ResultRow({ result, colorVar }: { result: CalcResult; colorVar: string 
       <div className="font-mono text-[16px] font-semibold text-[var(--color-fg)] tabular-nums">
         {result.value}
         {result.unit && <span className="ml-1 text-[12px] font-medium text-[var(--color-fg-muted)]">{result.unit}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Generated palette around the tool's accent hue when a segment has no explicit color. */
+function paletteColor(i: number, colorVar: string): string {
+  const mixes = [
+    `var(${colorVar})`,
+    `color-mix(in oklch, var(${colorVar}) 62%, var(--color-surface-2))`,
+    `color-mix(in oklch, var(${colorVar}) 42%, var(--color-surface-2))`,
+    `color-mix(in oklch, var(${colorVar}) 26%, var(--color-surface-2))`,
+    `color-mix(in oklch, var(${colorVar}) 14%, var(--color-surface-2))`,
+  ];
+  return mixes[i % mixes.length];
+}
+
+function BreakdownChart({ spec, colorVar }: { spec: CalcChartSpec; colorVar: string }) {
+  const fmt = spec.format ?? ((n: number) => n.toLocaleString());
+  const segs = spec.segments.map((s, i) => ({
+    ...s,
+    value: Math.max(0, Number(s.value) || 0),
+    color: s.color ?? paletteColor(i, colorVar),
+  }));
+  const total = segs.reduce((a, s) => a + s.value, 0);
+  if (total <= 0) return null;
+
+  return (
+    <div className="tile-surface" data-neutral="true">
+      <div className="tile-content gap-4 !justify-start">
+        {spec.title && (
+          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+            {spec.title}
+          </div>
+        )}
+        {spec.type === 'donut' ? (
+          <div className="flex items-center gap-5">
+            <Donut segs={segs} total={total} />
+            <Legend segs={segs} total={total} fmt={fmt} />
+          </div>
+        ) : (
+          <Bars segs={segs} total={total} fmt={fmt} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Donut({
+  segs,
+  total,
+}: {
+  segs: Array<CalcChartSegment & { color: string }>;
+  total: number;
+}) {
+  const r = 38;
+  const c = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <svg viewBox="0 0 100 100" className="h-[104px] w-[104px] shrink-0 -rotate-90">
+      <circle cx="50" cy="50" r={r} fill="none" stroke="var(--color-surface-2)" strokeWidth="14" />
+      {segs.map((s, i) => {
+        const frac = s.value / total;
+        const len = frac * c;
+        const el = (
+          <circle
+            key={i}
+            cx="50"
+            cy="50"
+            r={r}
+            fill="none"
+            stroke={s.color}
+            strokeWidth="14"
+            strokeDasharray={`${len} ${c - len}`}
+            strokeDashoffset={-offset}
+            style={{ transition: 'stroke-dasharray 220ms var(--ease-snap, ease), stroke-dashoffset 220ms var(--ease-snap, ease)' }}
+          />
+        );
+        offset += len;
+        return el;
+      })}
+    </svg>
+  );
+}
+
+function Legend({
+  segs,
+  total,
+  fmt,
+}: {
+  segs: Array<CalcChartSegment & { color: string }>;
+  total: number;
+  fmt: (n: number) => string;
+}) {
+  return (
+    <div className="min-w-0 flex-1 space-y-1.5">
+      {segs.map((s, i) => (
+        <div key={i} className="flex items-center gap-2 text-[12px]">
+          <span className="h-2.5 w-2.5 shrink-0" style={{ background: s.color }} />
+          <span className="min-w-0 flex-1 truncate text-[var(--color-fg-muted)]">{s.label}</span>
+          <span className="shrink-0 font-mono tabular-nums text-[var(--color-fg)]">{fmt(s.value)}</span>
+          <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular-nums text-[var(--color-fg-subtle)]">
+            {((s.value / total) * 100).toFixed(0)}%
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Bars({
+  segs,
+  total,
+  fmt,
+}: {
+  segs: Array<CalcChartSegment & { color: string }>;
+  total: number;
+  fmt: (n: number) => string;
+}) {
+  const max = Math.max(...segs.map((s) => s.value), 1);
+  return (
+    <div className="space-y-2">
+      {segs.map((s, i) => (
+        <div key={i} className="space-y-1">
+          <div className="flex items-baseline justify-between text-[12px]">
+            <span className="truncate text-[var(--color-fg-muted)]">{s.label}</span>
+            <span className="ml-2 shrink-0 font-mono tabular-nums text-[var(--color-fg)]">{fmt(s.value)}</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden bg-[var(--color-surface-2)]">
+            <div
+              className="h-full"
+              style={{
+                width: `${(s.value / max) * 100}%`,
+                background: s.color,
+                transition: 'width 240ms var(--ease-snap, ease)',
+              }}
+            />
+          </div>
+        </div>
+      ))}
+      <div className="pt-1 text-right text-[11px] font-mono tabular-nums text-[var(--color-fg-subtle)]">
+        Total {fmt(total)}
       </div>
     </div>
   );

@@ -1,10 +1,17 @@
 'use client';
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { Upload, Download, Loader2 } from 'lucide-react';
+import { Upload, Download, Loader2, X, ClipboardPaste } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useImageInput } from '@/components/tool/useImageInput';
 
 const SIZES = [128, 256, 512, 1024];
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 function render(canvas: HTMLCanvasElement | OffscreenCanvas, bm: ImageBitmap, opts: {
   size: number; zoom: number; offsetX: number; offsetY: number;
@@ -55,6 +62,7 @@ export default function Tool() {
   const [transparent, setTransparent] = React.useState(true);
   const [exportSize, setExportSize] = React.useState(512);
   const [busy, setBusy] = React.useState(false);
+  const [lastSaved, setLastSaved] = React.useState<{ name: string; bytes: number } | null>(null);
   const inputRef = React.useRef<HTMLInputElement>(null);
   const previewRef = React.useRef<HTMLCanvasElement>(null);
 
@@ -71,17 +79,26 @@ export default function Tool() {
       const bm = await createImageBitmap(next);
       setBitmap(bm);
       setFile(next);
+      setLastSaved(null);
       setZoom(1); setOffsetX(0); setOffsetY(0);
     } finally {
       setBusy(false);
     }
   }, [bitmap]);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
+  const clear = React.useCallback(() => {
+    if (bitmap) bitmap.close();
+    setBitmap(null);
+    setFile(null);
+    setLastSaved(null);
+  }, [bitmap]);
+
+  // Paste a screenshot, drop anywhere on the tool, Esc to clear.
+  const { dragging, dropZoneProps } = useImageInput({
+    onFile: (f) => void loadFile(f),
+    onClear: bitmap ? clear : undefined,
+    disabled: busy,
+  });
 
   const download = async () => {
     if (!bitmap || !file) return;
@@ -90,22 +107,28 @@ export default function Tool() {
     render(c, bitmap, { size: exportSize, zoom, offsetX, offsetY, borderWidth: borderWidth * (exportSize / 400), borderColor, backgroundColor, transparent });
     const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/png'));
     if (!blob) return;
+    const name = `${file.name.replace(/\.[^.]+$/, '')}-avatar-${exportSize}.png`;
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${file.name.replace(/\.[^.]+$/, '')}-avatar-${exportSize}.png`;
+    a.download = name;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setLastSaved({ name: a.download || name, bytes: blob.size });
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+    <div className="relative grid gap-6 lg:grid-cols-[1fr_340px]" {...dropZoneProps}>
+      {dragging && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed border-[var(--color-cat-social)] bg-[var(--color-cat-social)]/10 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 bg-[var(--color-cat-social)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg">
+            <Upload className="h-4 w-4" /> Drop to use this photo
+          </div>
+        </div>
+      )}
       <div
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
         className={cn(
-          'flex aspect-square items-center justify-center border border-black/[0.08]',
-          transparent ? '' : '',
+          'relative flex aspect-square items-center justify-center border border-black/[0.08]',
         )}
         style={transparent ? {
           backgroundImage: 'linear-gradient(45deg, #eee 25%, transparent 25%), linear-gradient(-45deg, #eee 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #eee 75%), linear-gradient(-45deg, transparent 75%, #eee 75%)',
@@ -114,16 +137,24 @@ export default function Tool() {
         } : { background: backgroundColor }}
       >
         {bitmap ? (
-          <canvas ref={previewRef} width={400} height={400} className="h-full w-full" />
+          <>
+            <canvas ref={previewRef} width={400} height={400} className="h-full w-full" />
+            <button type="button" onClick={clear} title="Clear (Esc)"
+              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center border border-black/[0.08] bg-[var(--color-surface-1)]/90 text-[var(--color-fg-muted)] backdrop-blur transition hover:text-[var(--color-fg)]">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </>
         ) : (
           <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-center">
             <Upload className="h-7 w-7 text-[var(--color-fg-muted)]" />
-            <div className="text-[14px] font-semibold text-[var(--color-fg)]">Drop a photo</div>
-            <div className="text-[11px] text-[var(--color-fg-muted)]">JPG · PNG · WebP</div>
+            <div className="text-[14px] font-semibold text-[var(--color-fg)]">Drop, paste, or click to add a photo</div>
+            <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-fg-muted)]">
+              <ClipboardPaste className="h-3 w-3" /> Paste a screenshot · JPG · PNG · WebP
+            </div>
           </button>
         )}
         <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
-        {busy && <Loader2 className="absolute h-6 w-6 animate-spin" />}
+        {busy && <Loader2 className="absolute h-6 w-6 animate-spin text-[var(--color-cat-social)]" />}
       </div>
 
       <aside className="space-y-4">
@@ -177,8 +208,14 @@ export default function Tool() {
 
         <button type="button" onClick={download} disabled={!bitmap}
           className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-social)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
-          <Download className="h-3.5 w-3.5" /> Download PNG
+          <Download className="h-3.5 w-3.5" /> Download {exportSize}px PNG
         </button>
+        {lastSaved && (
+          <div className="flex items-center justify-between gap-2 border border-[var(--color-cat-social)]/30 bg-[var(--color-cat-social)]/5 px-3 py-2 text-[11px]">
+            <span className="truncate font-mono text-[var(--color-fg)]" title={lastSaved.name}>{lastSaved.name}</span>
+            <span className="shrink-0 font-mono text-[var(--color-fg-muted)]">{fmtBytes(lastSaved.bytes)}</span>
+          </div>
+        )}
       </aside>
     </div>
   );

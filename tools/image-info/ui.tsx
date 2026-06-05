@@ -4,6 +4,7 @@ import * as React from 'react';
 import { Upload, Image as ImageIcon, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { detectFormat, type ImageFormat } from '@/engines/image';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 interface Info {
   name: string;
@@ -99,11 +100,17 @@ export default function ImageInfoTool() {
     });
   }, [preview]);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
+  const clear = React.useCallback(() => {
+    if (previewRef.current) URL.revokeObjectURL(previewRef.current);
+    setPreview('');
+    setInfo(null);
+  }, []);
+
+  // Clipboard paste, drag-anywhere hover state, Esc to clear.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: info ? clear : undefined,
+  });
 
   const copy = async (label: string, value: string) => {
     await navigator.clipboard?.writeText(value);
@@ -126,13 +133,20 @@ export default function ImageInfoTool() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
       <div
-        onDrop={onDrop}
-        onDragOver={(e) => e.preventDefault()}
+        {...dropZone}
         className={cn(
-          'relative aspect-[4/3] overflow-hidden border border-black/[0.08] bg-[oklch(20%_0.008_250)]',
+          'relative aspect-[4/3] overflow-hidden border bg-[oklch(20%_0.008_250)] transition-colors',
+          dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border border-black/[0.08]',
           !preview && 'flex items-center justify-center',
         )}
       >
+        {preview && dragging && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">
+              Drop to replace
+            </div>
+          </div>
+        )}
         {!preview && (
           <button
             type="button"
@@ -144,7 +158,7 @@ export default function ImageInfoTool() {
             </div>
             <div>
               <div className="text-[18px] font-semibold tracking-tight text-white">
-                Drop an image to inspect
+                Drop, paste or click to inspect
               </div>
               <div className="mt-1 text-[13px] text-white/55">
                 JPG · PNG · WebP · AVIF · GIF · BMP
@@ -163,6 +177,7 @@ export default function ImageInfoTool() {
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) void loadFile(f);
+            e.target.value = '';
           }}
         />
       </div>

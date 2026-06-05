@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Upload, Copy, Download, Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 interface ColorBucket {
   r: number; g: number; b: number;
@@ -139,6 +140,18 @@ export default function ImageColorExtractTool() {
     void extract(next, count);
   };
 
+  const clear = React.useCallback(() => {
+    setPreviewUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setFile(null);
+    setColors([]);
+  }, []);
+
+  // Clipboard paste (screenshot → palette), drag-anywhere hover state, Esc to clear.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+  });
+
   React.useEffect(() => {
     if (file) void extract(file, count);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -197,17 +210,19 @@ export default function ImageColorExtractTool() {
     <div className="space-y-4">
       {!file && (
         <div
-          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]"
+          {...dropZone}
+          className={cn(
+            'flex aspect-[5/2] items-center justify-center border border-dashed bg-[var(--color-surface-1)] transition-colors',
+            dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+          )}
         >
           <button type="button" onClick={() => inputRef.current?.click()}
             className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
             <Upload className="h-5 w-5" />
-            Drop an image to extract its palette
+            {dragging ? 'Drop to extract its palette' : 'Drop, paste or click to extract its palette'}
           </button>
           <input ref={inputRef} type="file" accept="image/*" className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
         </div>
       )}
 

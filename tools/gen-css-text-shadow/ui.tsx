@@ -1,7 +1,8 @@
 'use client';
 
 import * as React from 'react';
-import { Copy, Check, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 interface Layer { id: number; x: number; y: number; blur: number; color: string; alpha: number; }
 let _id = 1;
@@ -27,14 +28,9 @@ export default function Tool() {
   const [text, setText] = React.useState('Xonvert');
   const [textColor, setTextColor] = React.useState('#1a1a1a');
   const [bg, setBg] = React.useState('#f4f1ed');
-  const [copied, setCopied] = React.useState(false);
 
   const css = layers.map((l) => `${l.x}px ${l.y}px ${l.blur}px ${rgba(l.color, l.alpha)}`).join(', ');
   const upd = (id: number, p: Partial<Layer>) => setLayers((ls) => ls.map((l) => l.id === id ? { ...l, ...p } : l));
-  const copy = async () => {
-    try { await navigator.clipboard?.writeText(`text-shadow: ${css};`); setCopied(true); setTimeout(() => setCopied(false), 1400); }
-    catch { /* iframe / permission denied */ }
-  };
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
@@ -49,10 +45,7 @@ export default function Tool() {
           ))}
         </div>
         <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[12px] break-all">text-shadow: {css};</div>
-        <button type="button" onClick={copy}
-          className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-[var(--color-canvas)] transition hover:opacity-90">
-          {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-        </button>
+        <CopyButton value={`text-shadow: ${css};`} />
       </div>
 
       <aside className="space-y-3">

@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { Upload, Download, X, ArrowUp, ArrowDown } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 type Layout = 'horizontal' | 'vertical' | 'grid';
 type Format = 'png' | 'jpeg';
@@ -35,6 +37,19 @@ export default function ImageMergeTool() {
   const move = (i: number, dir: -1 | 1) => setItems((prev) => {
     const j = i + dir; if (j < 0 || j >= prev.length) return prev;
     const next = [...prev]; [next[i], next[j]] = [next[j], next[i]]; return next;
+  });
+
+  const clearAll = React.useCallback(() => {
+    setItems((prev) => { prev.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); return []; });
+  }, []);
+
+  // Clipboard paste APPENDS to the set, drag-anywhere hover state,
+  // Esc clears all, Enter downloads the merge.
+  const downloadRef = React.useRef<() => void>(() => {});
+  const { dragging, dropZone } = useImageDrop({
+    onFiles: (files) => void add(files),
+    onClear: items.length ? clearAll : undefined,
+    onRun: items.length ? () => downloadRef.current() : undefined,
   });
 
   const render = React.useCallback((canvas: HTMLCanvasElement) => {
@@ -92,18 +107,21 @@ export default function ImageMergeTool() {
       setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.95);
   };
+  downloadRef.current = download;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
       <div className="space-y-3">
         <div
-          onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) void add(e.dataTransfer.files); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="border border-dashed border-black/[0.18] bg-[var(--color-surface-1)] p-4"
+          {...dropZone}
+          className={cn(
+            'border border-dashed bg-[var(--color-surface-1)] p-4 transition-colors',
+            dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+          )}
         >
           <button type="button" onClick={() => inputRef.current?.click()}
             className="flex w-full items-center justify-center gap-3 text-[12px] text-[var(--color-fg-muted)]">
-            <Upload className="h-4 w-4" /> Drop images or click to add
+            <Upload className="h-4 w-4" /> {dragging ? 'Drop to add to the merge' : 'Drop, paste or click to add images'}
           </button>
           <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
             onChange={(e) => { if (e.target.files?.length) void add(e.target.files); e.target.value = ''; }} />

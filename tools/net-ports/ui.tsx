@@ -2,7 +2,9 @@
 import { powFetch } from '@/lib/pow-client';
 
 import * as React from 'react';
-import { Loader2, Plug } from 'lucide-react';
+import { Loader2, Plug, Copy, Check } from 'lucide-react';
+import { RecentChips } from '@/components/tool/RecentChips';
+import { useQueryHotkeys } from '@/lib/use-query-hotkeys';
 
 const NAMES: Record<number, string> = {
   21: 'FTP', 22: 'SSH', 25: 'SMTP', 53: 'DNS', 80: 'HTTP', 110: 'POP3', 143: 'IMAP',
@@ -16,22 +18,43 @@ export default function Tool() {
   const [busy, setBusy] = React.useState(false);
   const [res, setRes] = React.useState<R[] | null>(null);
   const [error, setError] = React.useState('');
+  const [copied, setCopied] = React.useState(false);
 
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!host.trim()) return;
+  const copyResults = React.useCallback(async () => {
+    if (!res?.length) return;
+    const w = Math.max(...res.map((r) => String(r.port).length));
+    const text = res.map((r) => `${String(r.port).padStart(w)}  ${(NAMES[r.port] ?? '').padEnd(9)} ${r.open ? 'open' : 'closed'}`).join('\n');
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1400); } catch { /* */ }
+  }, [res]);
+
+  const rememberRef = React.useRef<(q: string) => void>(() => {});
+
+  const scan = React.useCallback(async (targetHost: string, portsInput: string) => {
+    const target = targetHost.trim();
+    if (!target) return;
     setBusy(true); setRes(null); setError('');
-    const ports = portsStr.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= 65535);
+    const ports = portsInput.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1 && n <= 65535);
     try {
       const r = await powFetch('/api/net/ports', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ host, ports }),
+        body: JSON.stringify({ host: target, ports }),
       });
       const d = await r.json();
-      if (!r.ok) setError(d.error || 'Failed.'); else setRes(d.results);
+      if (!r.ok) setError(d.error || 'Failed.');
+      else { setRes(d.results); rememberRef.current(target); }
     } catch { setError('Request failed.'); }
     setBusy(false);
-  };
+  }, []);
+
+  const run = (e: React.FormEvent) => { e.preventDefault(); void scan(host, portsStr); };
+
+  // Paste a host anywhere to scan it; Esc clears. historyKey → recent chips.
+  const { recent, remember, forget } = useQueryHotkeys({
+    historyKey: 'ports',
+    onPaste: (t) => { setHost(t); void scan(t, portsStr); },
+    onClear: () => { setHost(''); setRes(null); setError(''); },
+  });
+  rememberRef.current = remember;
 
   return (
     <div className="space-y-4">
@@ -48,16 +71,30 @@ export default function Tool() {
         </div>
       </form>
 
+      <RecentChips recent={recent} onPick={(q) => { setHost(q); void scan(q, portsStr); }} onForget={forget} colorVar="--color-cat-ip" />
+
       {error && <div className="text-[13px] text-[var(--color-cat-pdf)]">{error}</div>}
 
       {res && (
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+              {res.filter((r) => r.open).length} open · {res.length} checked
+            </span>
+            <button type="button" onClick={copyResults}
+              className="inline-flex items-center gap-1.5 border border-black/[0.08] px-2.5 py-1 text-[11px] font-medium text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)]">
+              {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           {res.map((r) => (
             <div key={r.port} className="flex items-center justify-between border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-2">
               <span className="font-mono text-[13px] text-[var(--color-fg)]">{r.port}<span className="ml-1 text-[11px] text-[var(--color-fg-muted)]">{NAMES[r.port] ?? ''}</span></span>
               <span className={`text-[11px] font-bold uppercase tracking-wider ${r.open ? 'text-green-600' : 'text-[var(--color-fg-subtle)]'}`}>{r.open ? 'open' : 'closed'}</span>
             </div>
           ))}
+          </div>
         </div>
       )}
       <p className="text-[11px] text-[var(--color-fg-subtle)]">TCP connectivity check from our server (single host, ≤10 ports, rate-limited). Internal/private addresses are blocked.</p>

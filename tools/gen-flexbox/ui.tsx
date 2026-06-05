@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
-import { Copy, Check, Plus, X } from 'lucide-react';
+import { Plus, X } from 'lucide-react';
+import { CopyButton } from '@/components/tool/CopyButton';
 
 const DIRECTIONS = ['row', 'row-reverse', 'column', 'column-reverse'] as const;
 const WRAPS = ['nowrap', 'wrap', 'wrap-reverse'] as const;
@@ -22,7 +23,6 @@ export default function Tool() {
   const [content, setContent] = React.useState<C>('stretch');
   const [gap, setGap] = React.useState(8);
   const [count, setCount] = React.useState(5);
-  const [copied, setCopied] = React.useState(false);
 
   const css = `display: flex;
 flex-direction: ${dir};
@@ -31,14 +31,6 @@ justify-content: ${justify};
 align-items: ${align};
 align-content: ${content};
 gap: ${gap}px;`;
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard?.writeText(css);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
-    } catch { /* iframe / permission denied */ }
-  };
 
   const Pill = <T extends string>({ value, opts, onChange, label }: { value: T; opts: readonly T[]; onChange: (v: T) => void; label: string }) => (
     <div>
@@ -68,10 +60,7 @@ gap: ${gap}px;`;
             ))}
           </div>
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3 font-mono text-[11px] whitespace-pre">{css}</div>
-          <button type="button" onClick={copy}
-            className="inline-flex items-center justify-center gap-2 bg-[var(--color-fg)] text-[var(--color-canvas)] py-2.5 text-[12px] font-bold uppercase tracking-wider">
-            {copied ? <><Check className="h-4 w-4" /> Copied</> : <><Copy className="h-4 w-4" /> Copy CSS</>}
-          </button>
+          <CopyButton value={css} />
         </div>
 
         <aside className="space-y-3">

@@ -1,11 +1,12 @@
 'use client';
 
 import * as React from 'react';
-import { Upload, Download, Loader2, FileText, AlertTriangle } from 'lucide-react';
+import { Download, Loader2, FileText, AlertTriangle } from 'lucide-react';
 import { docxToHtml, htmlToPdf } from '@/engines/document';
 import { officeToContent } from '@/engines/office';
 import { htmlToPlainText } from '@/engines/ebook';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 import { sanitizeHtml } from '@/lib/safe-html';
 
 type Target = 'pdf' | 'html' | 'txt';
@@ -29,7 +30,6 @@ export default function DocConvertTool() {
   const [target, setTarget] = React.useState<Target>('pdf');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const inputRef = React.useRef<HTMLInputElement>(null);
   const { guard, gate } = useUsageGate('convert');
 
   const legacy = file ? EXT(file) === 'doc' : false;
@@ -74,18 +74,31 @@ export default function DocConvertTool() {
     } finally { setBusy(false); }
   };
 
+  // Keyboard: Enter runs the conversion, Esc clears the loaded file. Ignored
+  // while a field is focused so typing in the picker / inputs is unaffected.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (!file) return;
+      if (e.key === 'Enter' && !busy) { e.preventDefault(); void run(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setFile(null); setHtml(''); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       {gate}
       {!file && (
-        <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className="h-5 w-5" /> Drop a document (.docx, .doc, .odt) or click to browse
-          </button>
-          <input ref={inputRef} type="file" accept=".docx,.doc,.odt" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); }} />
-        </div>
+        <ConvertDropZone
+          accept=".docx,.doc,.odt"
+          busy={busy}
+          label="Drop a document, click to browse, or paste"
+          sublabel=".docx · .doc · .odt"
+          onFiles={(files) => void load(files[0])}
+        />
       )}
 
       {file && (

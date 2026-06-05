@@ -1,5 +1,6 @@
 'use client';
 import { TextTool } from '@/components/tool/TextTool';
+import { SubtitleCuePreview } from '@/components/tool/SubtitleCuePreview';
 import { parse, scale, write } from '@/engines/subtitle';
 
 const RATES = [
@@ -19,6 +20,9 @@ export default function Tool() {
       toolId="subtitle-fps-converter"
       colorVar="--color-cat-subtitle"
       inputPlaceholder="Paste SRT or WebVTT…"
+      fileAccept=".srt,.vtt,.ass,.ssa,.sub,.txt"
+      downloadExt="srt"
+      preview={(out) => <SubtitleCuePreview text={out} />}
       transform={(s, o) => {
         if (!s.trim()) return '';
         const cues = parse(s);

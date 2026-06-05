@@ -1,7 +1,8 @@
 'use client';
 import * as React from 'react';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, Radio } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { useCopy } from '@/lib/useCopy';
 
 function isNumeric(s: string): boolean {
   return /^\d{9,13}$/.test(s.trim());
@@ -11,7 +12,15 @@ interface Row { label: string; value: string }
 
 export default function Tool() {
   const [input, setInput] = React.useState(() => String(Math.floor(Date.now() / 1000)));
-  const [copied, setCopied] = React.useState<string | null>(null);
+  const [live, setLive] = React.useState(false);
+  const { copied, copy } = useCopy();
+
+  // Live mode: keep the input pinned to "now" so the conversions tick every second.
+  React.useEffect(() => {
+    if (!live) return;
+    const id = setInterval(() => setInput(String(Math.floor(Date.now() / 1000))), 1000);
+    return () => clearInterval(id);
+  }, [live]);
 
   const rows: Row[] = React.useMemo(() => {
     const s = input.trim();
@@ -34,38 +43,47 @@ export default function Tool() {
     ];
   }, [input]);
 
-  const copy = async (label: string, value: string) => {
-    await navigator.clipboard?.writeText(value);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 1400);
-  };
-
   return (
     <div className="space-y-4">
       <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
         <label className="block">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
-            Timestamp or date
+          <div className="flex items-center justify-between">
+            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              Timestamp or date
+            </div>
+            <button
+              type="button"
+              onClick={() => setLive((v) => !v)}
+              title="Tick the conversions live from the current time"
+              className={cn(
+                'flex items-center gap-1 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider transition',
+                live ? 'text-[var(--color-cat-time)]' : 'text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]',
+              )}
+            >
+              <Radio className={cn('h-3 w-3', live && 'animate-pulse')} /> Live
+            </button>
           </div>
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => { setLive(false); setInput(e.target.value); }}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setLive(false); setInput(''); } }}
             placeholder="1700000000 or 2024-01-15T12:00:00Z"
+            spellCheck={false}
             className="mt-2 w-full border-b-2 border-black/[0.1] bg-transparent py-1.5 font-mono text-[18px] tabular-nums text-[var(--color-fg)] outline-none focus:border-[var(--color-cat-time)]"
           />
         </label>
         <div className="mt-3 flex gap-2">
           <button
             type="button"
-            onClick={() => setInput(String(Math.floor(Date.now() / 1000)))}
+            onClick={() => { setLive(false); setInput(String(Math.floor(Date.now() / 1000))); }}
             className="border border-black/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)]"
           >
             Now
           </button>
           <button
             type="button"
-            onClick={() => setInput(new Date().toISOString())}
+            onClick={() => { setLive(false); setInput(new Date().toISOString()); }}
             className="border border-black/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)]"
           >
             Now as ISO
@@ -78,7 +96,7 @@ export default function Tool() {
           <button
             key={r.label}
             type="button"
-            onClick={() => copy(r.label, r.value)}
+            onClick={() => copy(r.value, r.label)}
             className="group flex w-full items-start justify-between gap-3 border-b border-black/[0.05] px-4 py-3 text-left transition last:border-0 hover:bg-[var(--color-surface-2)]"
           >
             <div>

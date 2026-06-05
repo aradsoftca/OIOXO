@@ -45,7 +45,7 @@ export default function Tool() {
               className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change file</button>
           </div>
 
-          <Waveform buffer={item.buffer} selection={{ start: item.info.duration - dur, end: item.info.duration }} />
+          <Waveform buffer={item.buffer} selection={{ start: item.info.duration - dur, end: item.info.duration }} player />
 
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 space-y-3">

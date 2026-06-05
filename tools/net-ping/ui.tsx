@@ -3,6 +3,8 @@ import { powFetch } from '@/lib/pow-client';
 
 import * as React from 'react';
 import { Loader2, Activity } from 'lucide-react';
+import { RecentChips } from '@/components/tool/RecentChips';
+import { useQueryHotkeys } from '@/lib/use-query-hotkeys';
 
 interface Res {
   error?: string; addr?: string; port?: number;
@@ -15,19 +17,32 @@ export default function Tool() {
   const [busy, setBusy] = React.useState(false);
   const [res, setRes] = React.useState<Res | null>(null);
 
-  const run = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!host.trim()) return;
+  const rememberRef = React.useRef<(q: string) => void>(() => {});
+
+  const ping = React.useCallback(async (target: string, p: string) => {
+    if (!target.trim()) return;
     setBusy(true); setRes(null);
     try {
       const r = await powFetch('/api/net/ping', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ host, port: Number(port) || 443 }),
+        body: JSON.stringify({ host: target, port: Number(p) || 443 }),
       });
-      setRes(await r.json());
+      const data: Res = await r.json();
+      setRes(data);
+      if (!data.error) rememberRef.current(target.trim());
     } catch { setRes({ error: 'Request failed.' }); }
     setBusy(false);
-  };
+  }, []);
+
+  const run = (e: React.FormEvent) => { e.preventDefault(); void ping(host, port); };
+
+  // Paste a host anywhere to ping it; Esc clears. historyKey → recent chips.
+  const { recent, remember, forget } = useQueryHotkeys({
+    historyKey: 'ping',
+    onPaste: (t) => { setHost(t); void ping(t, port); },
+    onClear: () => { setHost(''); setRes(null); },
+  });
+  rememberRef.current = remember;
 
   return (
     <div className="space-y-4">
@@ -41,6 +56,8 @@ export default function Tool() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />} Ping
         </button>
       </form>
+
+      <RecentChips recent={recent} onPick={(q) => { setHost(q); void ping(q, port); }} onForget={forget} colorVar="--color-cat-ip" />
 
       {res?.error && <div className="text-[13px] text-[var(--color-cat-pdf)]">{res.error}</div>}
 

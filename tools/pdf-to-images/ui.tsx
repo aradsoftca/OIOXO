@@ -129,10 +129,17 @@ export default function PdfToImagesTool() {
                 </div>
               )}
               {busy && (
-                <div className="grid place-items-center py-12">
-                  <div className="flex items-center gap-2 text-[13px] text-[var(--color-fg)]">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>{progress ? `Rendering page ${progress.page} / ${progress.total}` : 'Rendering…'}</span>
+                <div className="px-2 py-12">
+                  <div className="mx-auto max-w-xs">
+                    <div className="flex items-center gap-2 text-[13px] text-[var(--color-fg)]">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span className="font-medium">{progress ? `Rendering page ${progress.page} / ${progress.total}` : 'Rendering…'}</span>
+                      {progress && <span className="ml-auto font-mono text-[var(--color-fg-muted)]">{Math.round((progress.page / Math.max(1, progress.total)) * 100)}%</span>}
+                    </div>
+                    <div className="mt-2 h-1 w-full overflow-hidden bg-black/[0.06]">
+                      <div className="h-full bg-[var(--color-cat-pdf)] transition-[width] duration-200 ease-out"
+                        style={{ width: `${progress ? Math.round((progress.page / Math.max(1, progress.total)) * 100) : 8}%` }} />
+                    </div>
                   </div>
                 </div>
               )}

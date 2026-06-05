@@ -8,6 +8,7 @@ export default function Tool() {
       toolId="subtitle-to-plain-text"
       colorVar="--color-cat-subtitle"
       inputPlaceholder="Paste SRT or WebVTT…"
+      fileAccept=".srt,.vtt,.ass,.ssa,.sub,.txt"
       transform={(s, o) => {
         if (!s.trim()) return '';
         const cues = parse(s);

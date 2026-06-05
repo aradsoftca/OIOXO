@@ -8,6 +8,7 @@ import { downloadBlob } from '@/engines/ffmpeg';
 import { enforcePolicy } from '@/lib/limits/server-check';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const POLICY_KEY = 'image-passport';
 
@@ -58,15 +59,35 @@ export default function PassportPhoto() {
     finally { setBusy(false); setStatus(''); }
   };
 
+  const clear = React.useCallback(() => {
+    setFile(null);
+    setOut((o) => { if (o?.url) URL.revokeObjectURL(o.url); return null; });
+    setError('');
+  }, []);
+
+  // Enter runs the latest closure; mirror through a ref so we don't reorder.
+  const runRef = React.useRef<() => void>(() => {});
+  runRef.current = () => { void run(); };
+
+  // Clipboard paste sets the photo, drag-anywhere hover state, Esc to clear, Enter to make.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => { setFile(f); setOut(null); },
+    onClear: file ? clear : undefined,
+    onRun: file && !busy ? () => runRef.current() : undefined,
+  });
+
   return (
     <div className="space-y-4">
       {gate}
       {policyGate.element}
       {!file ? (
-        <div onClick={() => inputRef.current?.click()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) { setFile(f); setOut(null); } }} onDragOver={(e) => e.preventDefault()}
-          className="flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed border-black/[0.14] bg-[var(--color-surface-1)] px-6 py-16 text-center">
+        <div onClick={() => inputRef.current?.click()} {...dropZone}
+          className={cn(
+            'flex cursor-pointer flex-col items-center gap-3 border-2 border-dashed bg-[var(--color-surface-1)] px-6 py-16 text-center transition-colors',
+            dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.14]',
+          )}>
           <IdCard className="h-7 w-7 text-[var(--color-cat-image)]" />
-          <div className="text-[15px] font-semibold">Drop a head-and-shoulders photo</div>
+          <div className="text-[15px] font-semibold">{dragging ? 'Drop to make a passport photo' : 'Drop, paste or click a head-and-shoulders photo'}</div>
           <div className="text-[12px] text-[var(--color-fg-muted)]">Use a clear, front-facing photo. Everything runs on your device.</div>
         </div>
       ) : (
@@ -86,7 +107,7 @@ export default function PassportPhoto() {
           </button>
         </>
       )}
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); setOut(null); } }} />
+      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); setOut(null); } e.target.value = ''; }} />
       {error && <div className="text-[12px] text-red-600">{error}</div>}
       {out && (
         <div className="space-y-2 border border-[var(--color-cat-image)]/40 bg-[var(--color-cat-image)]/5 p-4">

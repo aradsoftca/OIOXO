@@ -2,6 +2,8 @@
 
 import * as React from 'react';
 import { Upload, Copy, Download, Check } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 type Charset = 'detailed' | 'standard' | 'blocks' | 'minimal';
 
@@ -33,6 +35,20 @@ export default function ImageAsciiArtTool() {
     setBitmap(bm);
     setFile(next);
   };
+
+  const clear = React.useCallback(() => {
+    setBitmap((b) => { b?.close(); return null; });
+    setFile(null);
+    setAscii('');
+    setColorRows([]);
+  }, []);
+
+  // Clipboard paste (screenshot → ASCII), drag-anywhere hover state, Esc to clear.
+  // Paste is ignored while typing so it never steals paste into the output box.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+  });
 
   const generate = React.useCallback(() => {
     if (!bitmap) return;
@@ -135,17 +151,19 @@ export default function ImageAsciiArtTool() {
       <div className="space-y-3">
         {!file ? (
           <div
-            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void loadFile(f); }}
-            onDragOver={(e) => e.preventDefault()}
-            className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]"
+            {...dropZone}
+            className={cn(
+              'flex aspect-[5/2] items-center justify-center border border-dashed bg-[var(--color-surface-1)] transition-colors',
+              dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+            )}
           >
             <button type="button" onClick={() => inputRef.current?.click()}
               className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
               <Upload className="h-5 w-5" />
-              Drop an image to turn into ASCII art
+              {dragging ? 'Drop to turn into ASCII art' : 'Drop, paste or click to turn into ASCII art'}
             </button>
             <input ref={inputRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }} />
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }} />
           </div>
         ) : (
           <div className="overflow-auto border border-black/[0.08] bg-[#0a0a0a] p-2">

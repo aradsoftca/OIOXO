@@ -4,6 +4,8 @@ import { powFetch } from '@/lib/pow-client';
 import * as React from 'react';
 import { Search, Loader2, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { RecentChips } from '@/components/tool/RecentChips';
+import { useQueryHotkeys } from '@/lib/use-query-hotkeys';
 
 const TYPES = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'NS', 'SOA', 'CAA', 'SRV', 'PTR'] as const;
 type RecordType = typeof TYPES[number];
@@ -18,6 +20,8 @@ export default function NetDnsTool() {
   const [error, setError] = React.useState('');
   const [copied, setCopied] = React.useState('');
 
+  const rememberRef = React.useRef<(q: string) => void>(() => {});
+
   const lookup = async (d = domain, t = type) => {
     const name = d.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
     if (!name) return;
@@ -31,6 +35,7 @@ export default function NetDnsTool() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `Lookup failed (${res.status})`);
       setAnswers((json.answers ?? []) as Answer[]);
+      rememberRef.current(name);
     } catch (e) {
       setError((e as Error).message || 'Lookup failed. Check the domain and try again.');
     } finally {
@@ -39,6 +44,22 @@ export default function NetDnsTool() {
   };
 
   const copy = async (v: string) => { await navigator.clipboard.writeText(v); setCopied(v); setTimeout(() => setCopied(''), 1200); };
+
+  // Paste a domain anywhere to resolve it; Esc clears the box and results.
+  // historyKey surfaces one-click "recent lookups" chips.
+  const { recent, remember, forget } = useQueryHotkeys({
+    historyKey: 'dns',
+    onPaste: (t) => { setDomain(t); void lookup(t, type); },
+    onClear: () => { setDomain(''); setAnswers(null); setError(''); },
+  });
+  rememberRef.current = remember;
+
+  // Copy every record (type / value / TTL) as aligned plain text.
+  const copyAll = async () => {
+    if (!answers?.length) return;
+    const text = answers.map((a) => `${a.type}\t${a.data}\t${a.TTL}s`).join('\n');
+    try { await navigator.clipboard.writeText(text); setCopied('__all__'); setTimeout(() => setCopied((c) => (c === '__all__' ? '' : c)), 1400); } catch { /* */ }
+  };
 
   return (
     <div className="space-y-4">
@@ -58,6 +79,8 @@ export default function NetDnsTool() {
         </button>
       </form>
 
+      <RecentChips recent={recent} onPick={(q) => { setDomain(q); void lookup(q, type); }} onForget={forget} colorVar="--color-cat-ip" />
+
       {error && <div className="text-[12px] text-red-600">{error}</div>}
 
       {answers && (
@@ -67,6 +90,14 @@ export default function NetDnsTool() {
           </div>
         ) : (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)]">
+            <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-1.5">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">{answers.length} {type} record{answers.length === 1 ? '' : 's'}</span>
+              <button type="button" onClick={copyAll}
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]">
+                {copied === '__all__' ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied === '__all__' ? 'Copied' : 'Copy all'}
+              </button>
+            </div>
             <div className="grid grid-cols-[80px_1fr_80px] gap-2 border-b border-black/[0.06] px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
               <span>Type</span><span>Value</span><span className="text-right">TTL</span>
             </div>

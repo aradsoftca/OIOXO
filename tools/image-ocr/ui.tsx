@@ -7,6 +7,7 @@ import { recognize, OCR_LANGUAGES, type OcrProgress, type OcrResult } from '@/en
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const POLICY_KEY = 'image-ocr';
 
@@ -59,11 +60,19 @@ export default function ImageOcrTool() {
     void run(next, language);
   }, [sourceUrl, language, run]);
 
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    const next = e.dataTransfer.files?.[0];
-    if (next) void loadFile(next);
-  };
+  const clear = React.useCallback(() => {
+    setSourceUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setFile(null);
+    setResult(null);
+    setDims(null);
+  }, []);
+
+  // Clipboard paste (screenshot → OCR), drag-anywhere hover state, Esc to clear.
+  // Paste is ignored while typing, so it never steals paste into the textarea.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: file ? clear : undefined,
+  });
 
   const copyText = async () => {
     if (!result) return;
@@ -97,13 +106,20 @@ export default function ImageOcrTool() {
       <div className="space-y-4">
         <div
           ref={stageRef}
-          onDrop={onDrop}
-          onDragOver={(e) => e.preventDefault()}
+          {...dropZone}
           className={cn(
-            'relative aspect-[4/3] overflow-hidden border border-black/[0.08] bg-[oklch(20%_0.008_250)]',
+            'relative aspect-[4/3] overflow-hidden border bg-[oklch(20%_0.008_250)] transition-colors',
+            dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border border-black/[0.08]',
             !sourceUrl && 'flex items-center justify-center',
           )}
         >
+          {sourceUrl && dragging && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+              <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">
+                Drop to replace
+              </div>
+            </div>
+          )}
           {!sourceUrl && (
             <button
               type="button"
@@ -115,14 +131,15 @@ export default function ImageOcrTool() {
               </div>
               <div>
                 <div className="text-[18px] font-semibold tracking-tight text-white">
-                  Drop an image here
+                  Drop, paste or click
                 </div>
                 <div className="mt-1 text-[13px] text-white/55">
                   JPG · PNG · WebP · BMP · TIFF — files stay on your device
                 </div>
               </div>
-              <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">
-                or click to browse
+              <div className="flex items-center gap-2 text-[12px] text-white/70">
+                <span className="border border-white/10 px-3 py-1.5">browse</span>
+                <span className="text-white/40">or paste a screenshot</span>
               </div>
             </button>
           )}
@@ -166,7 +183,7 @@ export default function ImageOcrTool() {
             type="file"
             accept="image/*"
             className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f); e.target.value = ''; }}
           />
         </div>
 

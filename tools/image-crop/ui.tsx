@@ -1,6 +1,8 @@
 'use client';
 import * as React from 'react';
 import { decode, encode, type ImageFormat } from '@/engines/image';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 interface Aspect { id: string; label: string; ratio: number | null; }
 const ASPECTS: Aspect[] = [
@@ -132,13 +134,33 @@ export default function Tool() {
     } finally { setBusy(false); }
   };
 
+  const clear = React.useCallback(() => {
+    setSrc((s) => { if (s?.url) URL.revokeObjectURL(s.url); return null; });
+    setError('');
+  }, []);
+
+  // Enter runs the latest export closure; mirror through a ref so we don't reorder.
+  const exportRef = React.useRef<() => void>(() => {});
+  exportRef.current = () => { void exportCrop(); };
+
+  // Clipboard paste (screenshot → crop), drag-anywhere hover state,
+  // Esc to clear, Enter to crop & download.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void loadFile(f),
+    onClear: src ? clear : undefined,
+    onRun: src && !busy ? () => exportRef.current() : undefined,
+  });
+
   return (
     <div className="space-y-4">
       {!src && (
-        <label className="block">
-          <input type="file" accept="image/*" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); }} />
-          <div className="cursor-pointer border border-dashed border-black/[0.18] bg-[var(--color-surface-1)] p-12 text-center transition hover:border-[var(--color-cat-image)]">
-            <div className="text-[14px] font-bold">Drop an image</div>
+        <label className="block" {...dropZone}>
+          <input type="file" accept="image/*" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }} />
+          <div className={cn(
+            'cursor-pointer border border-dashed bg-[var(--color-surface-1)] p-12 text-center transition',
+            dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18] hover:border-[var(--color-cat-image)]',
+          )}>
+            <div className="text-[14px] font-bold">{dragging ? 'Drop to crop' : 'Drop, paste or click to crop'}</div>
             <div className="mt-1 text-[11px] text-[var(--color-fg-muted)]">JPG · PNG · WebP · AVIF</div>
           </div>
         </label>

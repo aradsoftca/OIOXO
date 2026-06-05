@@ -32,6 +32,7 @@ async function loadFile(file: File): Promise<PdfFileItem> {
 export function PdfDrop(props: Props) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [dragActive, setDragActive] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   const handle = async (files: FileList | File[]) => {
@@ -67,18 +68,66 @@ export function PdfDrop(props: Props) {
   // Pick up a file the AI staged before navigating here.
   useStagedInput((f) => { void handle([f]); });
 
+  // Keep the latest handler in a ref so the window 'paste' listener (bound
+  // once) always sees current props without re-subscribing on every render.
+  const handleRef = React.useRef(handle);
+  handleRef.current = handle;
+
+  // Clipboard paste — paste a PDF copied from Finder/Explorer/another app and
+  // it loads just like a drop. Ignored while the user is typing in a field so
+  // it never hijacks a normal Ctrl+V into an input. Lifts every PDF tool.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t) {
+        const tag = t.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || t.isContentEditable) return;
+      }
+      const dt = e.clipboardData;
+      if (!dt) return;
+      const files: File[] = [];
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === 'file') {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      const pdfs = files.filter(
+        (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'),
+      );
+      if (pdfs.length) {
+        e.preventDefault();
+        void handleRef.current(pdfs);
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
+
+  // Shared drag handlers — track hover so the zone lights up while a file is
+  // dragged over it (clearer "drop here" affordance than a static border).
+  const onDragOver = (e: React.DragEvent) => { e.preventDefault(); if (!dragActive) setDragActive(true); };
+  const onDragLeave = (e: React.DragEvent) => {
+    // Only clear when the pointer actually leaves the zone, not when moving
+    // over a child element (relatedTarget still inside).
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+    setDragActive(false);
+  };
+
   if (props.multiple) {
     return (
       <div className="space-y-2">
         <div
-          onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files) void handle(e.dataTransfer.files); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="border border-dashed border-black/[0.15] bg-[var(--color-surface-1)] p-5"
+          onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files) void handle(e.dataTransfer.files); }}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
+          className={`border border-dashed p-5 transition-colors ${dragActive ? 'border-[var(--color-cat-pdf)] bg-[var(--color-cat-pdf)]/[0.06]' : 'border-black/[0.15] bg-[var(--color-surface-1)]'}`}
         >
           <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
             className="flex w-full flex-col items-center gap-2 text-center">
-            <Upload className="h-6 w-6 text-[var(--color-fg-muted)]" />
-            <div className="text-[13px] font-semibold">{busy ? 'Loading…' : 'Drop PDFs or click to add'}</div>
+            <Upload className={`h-6 w-6 ${dragActive ? 'text-[var(--color-cat-pdf)]' : 'text-[var(--color-fg-muted)]'}`} />
+            <div className="text-[13px] font-semibold">{busy ? 'Loading…' : dragActive ? 'Drop to add' : 'Drop PDFs or click to add'}</div>
+            <div className="text-[10px] text-[var(--color-fg-muted)]">or paste · PDF</div>
           </button>
           <input ref={inputRef} type="file" accept="application/pdf" multiple className="hidden"
             onChange={(e) => { if (e.target.files) void handle(e.target.files); e.target.value = ''; }} />
@@ -123,17 +172,18 @@ export function PdfDrop(props: Props) {
 
   return (
     <div
-      onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.[0]) void handle(e.dataTransfer.files); }}
-      onDragOver={(e) => e.preventDefault()}
-      className="border border-dashed border-black/[0.15] bg-[var(--color-surface-1)] p-6"
+      onDrop={(e) => { e.preventDefault(); setDragActive(false); if (e.dataTransfer.files?.[0]) void handle(e.dataTransfer.files); }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      className={`border border-dashed p-6 transition-colors ${dragActive ? 'border-[var(--color-cat-pdf)] bg-[var(--color-cat-pdf)]/[0.06]' : 'border-black/[0.15] bg-[var(--color-surface-1)]'}`}
     >
       <button type="button" onClick={() => inputRef.current?.click()} disabled={busy}
         className="flex w-full flex-col items-center gap-3 text-center">
-        <Upload className="h-7 w-7 text-[var(--color-fg-muted)]" />
+        <Upload className={`h-7 w-7 ${dragActive ? 'text-[var(--color-cat-pdf)]' : 'text-[var(--color-fg-muted)]'}`} />
         <div className="text-[14px] font-semibold">
-          {props.loaded && props.fileName ? props.fileName : busy ? 'Loading…' : 'Drop a PDF file'}
+          {props.loaded && props.fileName ? props.fileName : busy ? 'Loading…' : dragActive ? 'Drop to load' : 'Drop a PDF file'}
         </div>
-        <div className="text-[11px] text-[var(--color-fg-muted)]">PDF</div>
+        <div className="text-[11px] text-[var(--color-fg-muted)]">Drop, click, or paste · PDF</div>
       </button>
       <input ref={inputRef} type="file" accept="application/pdf" className="hidden"
         onChange={(e) => { if (e.target.files) void handle(e.target.files); e.target.value = ''; }} />

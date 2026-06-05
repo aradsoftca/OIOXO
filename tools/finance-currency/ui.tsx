@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowLeftRight, Loader2, TrendingUp } from 'lucide-react';
+import { ArrowLeftRight, Check, Copy, Loader2, TrendingUp } from 'lucide-react';
 
 const NAMES: Record<string, string> = {
   EUR: 'Euro', USD: 'US Dollar', GBP: 'British Pound', JPY: 'Japanese Yen', CHF: 'Swiss Franc',
@@ -27,6 +27,7 @@ export default function CurrencyConverterTool() {
   const [amount, setAmount] = React.useState('100');
   const [from, setFrom] = React.useState('USD');
   const [to, setTo] = React.useState('EUR');
+  const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
     let on = true;
@@ -52,6 +53,15 @@ export default function CurrencyConverterTool() {
   const unitRate = fx ? convert(1, from, to) : NaN;
 
   const swap = () => { setFrom(to); setTo(from); };
+
+  const copyResult = async () => {
+    if (!Number.isFinite(result)) return;
+    try {
+      await navigator.clipboard.writeText(fmtMoney(result));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1400);
+    } catch { /* clipboard blocked */ }
+  };
 
   const Picker = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
     <select value={value} onChange={(e) => onChange(e.target.value)}
@@ -91,7 +101,11 @@ export default function CurrencyConverterTool() {
             </div>
           </div>
 
-          <div className="border border-[var(--color-cat-finance)] bg-[var(--color-cat-finance)]/[0.06] p-5 text-center">
+          <div className="relative border border-[var(--color-cat-finance)] bg-[var(--color-cat-finance)]/[0.06] p-5 text-center">
+            <button type="button" onClick={copyResult} title="Copy converted amount"
+              className="absolute right-3 top-3 grid h-8 w-8 place-items-center text-[var(--color-fg-muted)] transition hover:text-[var(--color-cat-finance)]">
+              {copied ? <Check className="h-4 w-4 text-[var(--color-cat-finance)]" /> : <Copy className="h-4 w-4" />}
+            </button>
             <div className="text-[13px] text-[var(--color-fg-muted)]">{fmtMoney(amt)} {from} =</div>
             <div className="mt-1 font-mono text-[clamp(26px,6vw,40px)] font-bold tracking-tight text-[var(--color-fg)]">
               {fmtMoney(result)} <span className="text-[var(--color-cat-finance)]">{to}</span>

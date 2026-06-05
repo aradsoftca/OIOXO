@@ -5,6 +5,7 @@ import { Upload, Download, Loader2, ShieldCheck, MapPin, AlertTriangle, FileImag
 import { cn } from '@/lib/cn';
 import { setRecent } from '@/lib/storage/recent';
 import { stripMetadata, readMetadata, type MetaSummary } from '@/engines/metadata';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 function formatBytes(b: number): string {
   if (b <= 0) return '0 B';
@@ -48,23 +49,48 @@ export default function RemoveMetadataTool() {
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
   };
 
+  const clear = React.useCallback(() => {
+    setOut((o) => { if (o?.url) URL.revokeObjectURL(o.url); return null; });
+    setFile(null);
+    setMeta(null);
+  }, []);
+
+  // Clipboard paste, drag-anywhere hover state, Esc to clear, Enter to download.
+  const downloadRef = React.useRef<() => void>(() => {});
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void load(f),
+    onClear: file ? clear : undefined,
+    onRun: out && !busy ? () => downloadRef.current() : undefined,
+  });
+  downloadRef.current = download;
+
   const foundCount = meta?.rows.length ?? 0;
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
       <div
-        onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }}
-        onDragOver={(e) => e.preventDefault()}
-        className="relative flex aspect-[4/3] items-center justify-center overflow-hidden border border-black/[0.08] bg-[oklch(20%_0.008_250)]"
+        {...dropZone}
+        className={cn(
+          'relative flex aspect-[4/3] items-center justify-center overflow-hidden border bg-[oklch(20%_0.008_250)] transition-colors',
+          dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border border-black/[0.08]',
+        )}
       >
+        {file && dragging && (
+          <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-black/55 backdrop-blur-sm">
+            <div className="border-2 border-dashed border-white/70 px-5 py-3 text-[14px] font-semibold text-white">Drop to replace</div>
+          </div>
+        )}
         {!file ? (
           <button type="button" onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-4 px-6 text-center">
             <div className="bg-white/[0.06] p-4"><Upload className="h-6 w-6 text-white/80" /></div>
             <div>
-              <div className="text-[18px] font-semibold tracking-tight text-white">Drop a photo to clean</div>
+              <div className="text-[18px] font-semibold tracking-tight text-white">Drop, paste or click to clean</div>
               <div className="mt-1 text-[13px] text-white/55">JPG · PNG · WebP — files never leave your device</div>
             </div>
-            <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">or click to browse</div>
+            <div className="flex items-center gap-2 text-[12px] text-white/70">
+              <span className="border border-white/10 px-3 py-1.5">browse</span>
+              <span className="text-white/40">or paste a screenshot</span>
+            </div>
           </button>
         ) : (
           <>
@@ -76,7 +102,7 @@ export default function RemoveMetadataTool() {
             )}
           </>
         )}
-        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); }} />
+        <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); e.target.value = ''; }} />
       </div>
 
       <aside className="space-y-4">

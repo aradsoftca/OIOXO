@@ -3,6 +3,9 @@ import { powFetch } from '@/lib/pow-client';
 
 import * as React from 'react';
 import { Loader2, Search } from 'lucide-react';
+import { ResultGrid } from '@/components/tool/ResultGrid';
+import { RecentChips } from '@/components/tool/RecentChips';
+import { useQueryHotkeys } from '@/lib/use-query-hotkeys';
 
 interface Result {
   ip?: string; error?: string; resolvedFrom?: string;
@@ -17,6 +20,8 @@ export default function Tool() {
   const [res, setRes] = React.useState<Result | null>(null);
   const [error, setError] = React.useState('');
 
+  const rememberRef = React.useRef<(q: string) => void>(() => {});
+
   const lookup = React.useCallback(async (q: string) => {
     const target = q.trim();
     setBusy(true); setError(''); setRes(null);
@@ -29,7 +34,7 @@ export default function Tool() {
       });
       const data: Result = await r.json();
       if (!r.ok) setError(data.error || 'Lookup failed — check the IP or domain.');
-      else setRes(data);
+      else { setRes(data); rememberRef.current(target); }
     } catch {
       setError('Network error — please try again.');
     } finally {
@@ -39,17 +44,26 @@ export default function Tool() {
 
   const submit = (e: React.FormEvent) => { e.preventDefault(); if (query.trim()) void lookup(query); };
 
-  const rows: [string, unknown][] = res ? [
-    ['IP', res.ip],
-    ['City', res.city],
-    ['Region', res.region],
-    ['Country', `${res.country ?? ''}${res.countryCode ? ` (${res.countryCode})` : ''}`],
-    ['Postal', res.postal],
-    ['Organization', res.org],
-    ['ASN', res.asn ? `AS${res.asn}` : undefined],
-    ['Reverse DNS', res.reverseDns],
-    ['Timezone', res.timezone],
-    ['Coordinates', res.latitude != null ? `${res.latitude}, ${res.longitude}` : undefined],
+  // Paste an IP/domain anywhere to run it; Esc clears the box and results.
+  // historyKey surfaces one-click "recent lookups" chips.
+  const { recent, remember, forget } = useQueryHotkeys({
+    historyKey: 'ip-lookup',
+    onPaste: (t) => { setQuery(t); void lookup(t); },
+    onClear: () => { setQuery(''); setRes(null); setError(''); },
+  });
+  rememberRef.current = remember;
+
+  const rows = res ? [
+    { label: 'IP', value: res.ip },
+    { label: 'City', value: res.city },
+    { label: 'Region', value: res.region },
+    { label: 'Country', value: `${res.country ?? ''}${res.countryCode ? ` (${res.countryCode})` : ''}`.trim() || undefined },
+    { label: 'Postal', value: res.postal },
+    { label: 'Organization', value: res.org },
+    { label: 'ASN', value: res.asn ? `AS${res.asn}` : undefined },
+    { label: 'Reverse DNS', value: res.reverseDns },
+    { label: 'Timezone', value: res.timezone },
+    { label: 'Coordinates', value: res.latitude != null ? `${res.latitude}, ${res.longitude}` : undefined },
   ] : [];
 
   return (
@@ -67,18 +81,11 @@ export default function Tool() {
         </button>
       </form>
 
+      <RecentChips recent={recent} onPick={(q) => { setQuery(q); void lookup(q); }} onForget={forget} colorVar="--color-cat-ip" />
+
       {error && <div className="text-[13px] text-[var(--color-cat-pdf)]">{error}</div>}
 
-      {res && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {rows.filter(([, v]) => v).map(([k, v]) => (
-            <div key={k} className="flex items-center justify-between gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] px-4 py-2.5">
-              <span className="text-[12px] text-[var(--color-fg-muted)]">{k}</span>
-              <span className="truncate font-mono text-[12px] text-[var(--color-fg)]">{String(v)}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {res && <ResultGrid rows={rows} colorVar="--color-cat-ip" />}
 
       <p className="text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
         Resolved against our own local database — no third-party API, nothing stored. Location is approximate. IP geolocation by <a href="https://db-ip.com" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-[var(--color-fg-muted)]">DB-IP</a>.

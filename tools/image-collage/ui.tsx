@@ -3,6 +3,8 @@
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { Upload, Download, X } from 'lucide-react';
+import { cn } from '@/lib/cn';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 type Layout = '1x2' | '2x1' | '2x2' | '3x1' | '1x3' | '3x2' | '2x3' | '3x3';
 type Fit = 'cover' | 'contain';
@@ -70,6 +72,20 @@ export default function ImageCollageTool() {
     });
   };
 
+  const clearAll = React.useCallback(() => {
+    setItems((prev) => { prev.forEach((i) => { URL.revokeObjectURL(i.url); i.bitmap.close(); }); return []; });
+    setError('');
+  }, []);
+
+  // Clipboard paste APPENDS images, drag-anywhere hover state,
+  // Esc clears all, Enter downloads the collage.
+  const downloadRef = React.useRef<() => void>(() => {});
+  const { dragging, dropZone } = useImageDrop({
+    onFiles: (files) => void add(files),
+    onClear: items.length ? clearAll : undefined,
+    onRun: items.length ? () => downloadRef.current() : undefined,
+  });
+
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -134,19 +150,22 @@ export default function ImageCollageTool() {
       setTimeout(() => URL.revokeObjectURL(href), 60_000);
     }, 'image/png');
   };
+  downloadRef.current = download;
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
       <div className="space-y-3">
         <div
-          onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files?.length) void add(e.dataTransfer.files); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="border border-dashed border-black/[0.18] bg-[var(--color-surface-1)] p-3"
+          {...dropZone}
+          className={cn(
+            'border border-dashed bg-[var(--color-surface-1)] p-3 transition-colors',
+            dragging ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/[0.06]' : 'border-black/[0.18]',
+          )}
         >
           <button type="button" onClick={() => inputRef.current?.click()}
             className="flex w-full items-center justify-center gap-3 py-3 text-[12px] text-[var(--color-fg-muted)]">
             <Upload className="h-4 w-4" />
-            Drop or click to add images (max 9)
+            {dragging ? 'Drop to add to the collage' : 'Drop, paste or click to add images (max 9)'}
           </button>
           <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
             onChange={(e) => { if (e.target.files?.length) void add(e.target.files); e.target.value = ''; }} />

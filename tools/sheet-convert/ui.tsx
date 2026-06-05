@@ -1,8 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Upload, Download, Loader2, Table } from 'lucide-react';
+import { Download, Loader2, Table } from 'lucide-react';
 import { readWorkbook, convertSheet, type SheetTarget } from '@/engines/document';
+import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 
 export default function SheetConvertTool() {
   const [file, setFile] = React.useState<File | null>(null);
@@ -11,7 +12,6 @@ export default function SheetConvertTool() {
   const [target, setTarget] = React.useState<SheetTarget>('csv');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
-  const inputRef = React.useRef<HTMLInputElement>(null);
 
   const load = async (f: File) => {
     setFile(f); setError(''); setBusy(true);
@@ -41,17 +41,29 @@ export default function SheetConvertTool() {
     } finally { setBusy(false); }
   };
 
+  // Keyboard: Enter exports once a workbook is loaded, Esc clears it.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (!file) return;
+      if (e.key === 'Enter' && !busy && sheets.length) { e.preventDefault(); void run(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setFile(null); setSheets([]); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   return (
     <div className="space-y-4">
       {!file && (
-        <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }}
-          onDragOver={(e) => e.preventDefault()}
-          className="flex aspect-[5/2] items-center justify-center border border-dashed border-black/[0.18] bg-[var(--color-surface-1)]">
-          <button type="button" onClick={() => inputRef.current?.click()} className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className="h-5 w-5" /> Drop a spreadsheet (XLSX, XLS, ODS, CSV) or click to browse
-          </button>
-          <input ref={inputRef} type="file" accept=".xlsx,.xls,.ods,.csv,.tsv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); }} />
-        </div>
+        <ConvertDropZone
+          accept=".xlsx,.xls,.ods,.csv,.tsv"
+          busy={busy}
+          label="Drop a spreadsheet, click to browse, or paste"
+          sublabel="XLSX · XLS · ODS · CSV"
+          onFiles={(files) => void load(files[0])}
+        />
       )}
 
       {file && (

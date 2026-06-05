@@ -9,6 +9,7 @@ import { loadOpenCv } from '@/engines/opencv';
 import { enforcePolicy } from '@/lib/limits/server-check';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const POLICY_KEY = 'image-doc-scan';
 
@@ -54,6 +55,22 @@ export default function DocScanTool() {
     } catch { /* manual corners */ }
     setBusy(false);
   }, [isPro, policyGate]);
+
+  const clear = React.useCallback(() => {
+    setResultUrl((u) => { if (u) URL.revokeObjectURL(u); return ''; });
+    setImg(null);
+  }, []);
+
+  // Enter runs the latest scan closure; mirror through a ref so we don't reorder.
+  const scanRef = React.useRef<() => void>(() => {});
+  scanRef.current = () => { void scan(); };
+
+  // Clipboard paste (screenshot → scan), drag-anywhere hover state, Esc to clear, Enter to scan.
+  const { dragging, dropZone } = useImageDrop({
+    onFile: (f) => void load(f),
+    onClear: img ? clear : undefined,
+    onRun: img && !busy ? () => scanRef.current() : undefined,
+  });
 
   const onMove = (e: React.PointerEvent) => {
     if (drag < 0 || !stageRef.current) return;
@@ -110,17 +127,23 @@ export default function DocScanTool() {
       {policyGate.element}
       <div className="space-y-3">
         {!img ? (
-          <div onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) void load(f); }} onDragOver={(e) => e.preventDefault()}
-            className="flex aspect-[4/3] items-center justify-center border border-black/[0.08] bg-[oklch(20%_0.008_250)]">
+          <div {...dropZone}
+            className={cn(
+              'flex aspect-[4/3] items-center justify-center border bg-[oklch(20%_0.008_250)] transition-colors',
+              dragging ? 'border-2 border-dashed border-[var(--color-cat-image)]' : 'border border-black/[0.08]',
+            )}>
             <button type="button" onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center gap-4 px-6 text-center">
               <div className="bg-white/[0.06] p-4"><Upload className="h-6 w-6 text-white/80" /></div>
               <div>
-                <div className="text-[18px] font-semibold tracking-tight text-white">Drop a photo of a document</div>
+                <div className="text-[18px] font-semibold tracking-tight text-white">{dragging ? 'Drop to scan' : 'Drop, paste or click a document photo'}</div>
                 <div className="mt-1 text-[13px] text-white/55">Receipt, page, whiteboard — files stay yours</div>
               </div>
-              <div className="border border-white/10 px-3 py-1.5 text-[12px] text-white/70">or click to browse</div>
+              <div className="flex items-center gap-2 text-[12px] text-white/70">
+                <span className="border border-white/10 px-3 py-1.5">browse</span>
+                <span className="text-white/40">or paste a screenshot</span>
+              </div>
             </button>
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); }} />
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void load(f); e.target.value = ''; }} />
           </div>
         ) : resultUrl ? (
           <div className="border border-black/[0.08] bg-white">

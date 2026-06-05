@@ -107,22 +107,18 @@ jobs:
           OBFUSCATE: '1'
           NEXT_BASE_PATH: ''
           TOOL_WASM_KEY: ${{ steps.mintkey.outputs.tool_key }}
-        # Mirror deploy.py's tolerance: some pages do DB/`document` work during
-        # static generation and can throw at prerender, yet Next still emits a
-        # COMPLETE .next. deploy.py treats the build as OK when the artifacts
-        # exist (BUILD_ID + required-server-files + routes-manifest), regardless
-        # of a non-zero exit. Do the same here so CI matches the proven server
-        # behavior instead of being stricter than production.
+        # The build must GENUINELY succeed. A FAILED `next build` still writes
+        # BUILD_ID + routes-manifest but OMITS prerender-manifest.json — and
+        # `next start` crash-loops without it (this shipped a broken .next once
+        # and 502'd prod). So: require exit 0 AND a complete .next including
+        # prerender-manifest.json. Prerender throws (DB/`document`) must be fixed
+        # at the source, never tolerated.
         run: |
-          set +e
           npm run build
-          code=$?
-          if [ -f .next/BUILD_ID ] && [ -f .next/required-server-files.json ] && [ -f .next/routes-manifest.json ]; then
-            echo "Build artifacts complete (exit=$code) — treating as success (matches deploy.py)."
-            exit 0
-          fi
-          echo "Build artifacts INCOMPLETE (exit=$code) — real failure."
-          exit 1
+          for f in BUILD_ID required-server-files.json routes-manifest.json prerender-manifest.json; do
+            if [ ! -f ".next/$f" ]; then echo "MISSING .next/$f — build is not bootable"; exit 1; fi
+          done
+          echo "Build complete: exit 0 + all required .next manifests present."
 
       # Never let the build .env leak into the artifact tar.
       - name: Scrub build .env

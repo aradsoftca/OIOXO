@@ -540,12 +540,16 @@ def main():
         print("\n========== SHIP PREBUILT ARTIFACT ==========")
         remote_tgz = posixpath.join(REMOTE_DIR, "_artifact.tgz")
         sftp.put(artifact, remote_tgz)
+        # Require a BOOTABLE .next: prerender-manifest.json must be present or
+        # `next start` crash-loops (a failed build omits it). Never swap a build
+        # that can't boot — the live site stays up on the old one.
         rc, _, _ = run(ssh, f"rm -rf {REMOTE_DIR}/.next-build && mkdir -p {REMOTE_DIR}/.next-build && "
                             f"tar -xzf {remote_tgz} -C {REMOTE_DIR}/.next-build && rm -f {remote_tgz} && "
-                            f"test -f {REMOTE_DIR}/.next-build/.next/BUILD_ID && echo OK",
+                            f"test -f {REMOTE_DIR}/.next-build/.next/BUILD_ID && "
+                            f"test -f {REMOTE_DIR}/.next-build/.next/prerender-manifest.json && echo OK",
                        t=300, label="upload + extract artifact")
         if rc != 0:
-            print("      ! artifact extract failed or .next/BUILD_ID missing — site UNTOUCHED")
+            print("      ! artifact incomplete (.next missing BUILD_ID or prerender-manifest.json) — site UNTOUCHED")
             sys.exit(1)
         # Upload source package files so prisma/runtime stays in sync; reinstall
         # deps only when the lockfile actually changed (else reuse persistent node_modules).

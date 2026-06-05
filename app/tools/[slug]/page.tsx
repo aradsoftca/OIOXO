@@ -8,6 +8,7 @@ import { buildMeta } from '@/lib/seo/meta';
 import { buildRichPage } from '@/lib/seo/content';
 import { RichToolSection } from '@/components/seo/RichToolSection';
 import { PolicyHint } from '@/components/limits/PolicyHint';
+import { ClientOnly } from '@/components/tool/ClientOnly';
 
 function findRelated(toolId: string, category: string, limit = 6) {
   return TOOLS.filter((t) => t.category === category && t.id !== toolId).slice(0, limit);
@@ -17,8 +18,17 @@ interface Props {
   params: Promise<{ slug: string }>;
 }
 
+// Studios are 100% client-side (canvas/WebGL/WebCodecs/WASM) and some touch
+// `document` at module-import time, which throws during static export. Exclude
+// them from build-time prerender — `dynamicParams` (default true) renders them
+// on first request instead, still client-gated by <ClientOnly>. Content tools
+// keep their static SEO pages.
+const NO_PRERENDER = new Set(
+  TOOLS.filter((t) => /(^|-)studio(s|-|$)/.test(t.id)).map((t) => t.id),
+);
+
 export function generateStaticParams() {
-  return TOOLS.map((t) => ({ slug: t.id }));
+  return TOOLS.filter((t) => !NO_PRERENDER.has(t.id)).map((t) => ({ slug: t.id }));
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -482,6 +492,12 @@ const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
   // wave 40 — music
   'audio-music-studio':     dynamic(() => import('@/tools/audio-music-studio/ui'),     { loading }),
 
+  // office studios — were missing from this map (rendered the "not wired" placeholder)
+  'office-studio':          dynamic(() => import('@/tools/office-studio/ui'),          { loading }),
+  'office-docs':            dynamic(() => import('@/tools/office-docs/ui'),            { loading }),
+  'office-slides':          dynamic(() => import('@/tools/office-slides/ui'),          { loading }),
+  'subtitle-studio':        dynamic(() => import('@/tools/subtitle-studio/ui'),        { loading }),
+
   // wave 41 — layout-preserving document translation
   'doc-translate':          dynamic(() => import('@/tools/doc-translate/ui'),          { loading }),
 
@@ -536,7 +552,9 @@ export default async function ToolPage({ params }: Props) {
   return (
     <ToolFrame tool={tool}>
       <PolicyHint toolKey={tool.id} fallbackKey={tool.category} />
-      <ToolUI />
+      <ClientOnly>
+        <ToolUI />
+      </ClientOnly>
       <RichToolSection tool={tool} page={page} related={related} />
       <script
         type="application/ld+json"

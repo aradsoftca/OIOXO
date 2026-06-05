@@ -1,0 +1,117 @@
+name: Build (obfuscated) & Deploy newxonvert
+
+# Fast deploys WITHOUT giving up full obfuscation.
+#
+# Why fast: the heavy work — full OBFUSCATE=1 `next build` + worker encryption —
+# runs HERE on a fast Linux runner, with Next's build cache restored across runs
+# so obfuscation only re-chews the files that changed. The Iceland CPU box never
+# compiles; it just receives the prebuilt artifact and does the same proven
+# env/prisma/swap/PM2/Caddy/smoke steps via deploy.py --from-artifact.
+# Result: ~90 min cold server build → a few minutes, obfuscation fully intact.
+#
+# deploy.py stays the SINGLE SOURCE OF TRUTH for shipping (no parallel recipe to
+# drift). This workflow only moves the build off the server.
+
+on:
+  push:
+    branches: [master]
+    paths: ['newxonvert/**']
+  workflow_dispatch: {}
+
+defaults:
+  run:
+    working-directory: newxonvert
+
+concurrency:
+  group: deploy-newxonvert
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      tool_key: ${{ steps.mintkey.outputs.tool_key }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: newxonvert/package-lock.json
+
+      # Incremental obfuscated builds: restore Next's compiler cache so only
+      # changed files are recompiled/obfuscated.
+      - name: Restore Next build cache
+        uses: actions/cache@v4
+        with:
+          path: newxonvert/.next/cache
+          key: next-${{ hashFiles('newxonvert/package-lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            next-${{ hashFiles('newxonvert/package-lock.json') }}-
+            next-
+
+      - name: Install deps
+        run: npm ci --include=dev --no-audit --no-fund
+
+      # Mint a fresh TOOL_WASM_KEY for this build (same contract as deploy.py's
+      # mint_tool_key): prebuild encrypts the engine workers with it; the ship
+      # step writes the SAME key to the remote .env so the live site unlocks them.
+      - name: Mint tool-worker key
+        id: mintkey
+        run: |
+          KEY=$(openssl rand -base64 32)
+          echo "::add-mask::$KEY"
+          echo "tool_key=$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Build (full obfuscation)
+        env:
+          OBFUSCATE: '1'
+          NEXT_BASE_PATH: ''
+          TOOL_WASM_KEY: ${{ steps.mintkey.outputs.tool_key }}
+        run: npm run build      # prebuild (encrypt-workers, copy assets) + next build
+
+      # The server needs: the built .next, freshly-encrypted public assets
+      # (incl. protected/*.enc workers), and prisma schema. node_modules stays
+      # persistent on the server (deploy.py --from-artifact runs npm ci there
+      # only when the lockfile changed).
+      - name: Package artifact
+        run: tar -czf /tmp/nx-build.tgz .next public prisma
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: newxonvert-build
+          path: /tmp/nx-build.tgz
+          retention-days: 3
+
+  ship:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production       # repo setting can require manual approval here
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: pip install paramiko
+        working-directory: .
+
+      - uses: actions/download-artifact@v4
+        with: { name: newxonvert-build, path: /tmp/art }
+
+      # deploy.py reads creds + the deploy .env from these. We pass the build's
+      # minted key and the artifact path; deploy.py does env/prisma/swap/PM2/
+      # Caddy/smoke exactly as it does for a normal deploy.
+      - name: Deploy (ship prebuilt artifact)
+        working-directory: newxonvert
+        env:
+          ICELAND_HOST: ${{ secrets.ICELAND_HOST }}
+          ICELAND_USER: ${{ secrets.ICELAND_USER }}
+          ICELAND_PASSWORD: ${{ secrets.ICELAND_PASSWORD }}
+          NEWXONVERT_DEPLOY_ENV: ${{ secrets.NEWXONVERT_DEPLOY_ENV }}
+          TOOL_WASM_KEY: ${{ needs.build.outputs.tool_key }}
+        run: |
+          # deploy.py writes .env.deploy.local from the secret, then ships the
+          # prebuilt artifact instead of building on the server.
+          printf '%s\n' "$NEWXONVERT_DEPLOY_ENV" > .env.deploy.local
+          python scripts/deploy.py --from-artifact /tmp/art/nx-build.tgz

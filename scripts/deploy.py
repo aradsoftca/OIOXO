@@ -30,9 +30,12 @@ import paramiko
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
 
-HOST = "194.247.182.248"
-USER = "root"
-PASSWORD = "D%G%CimhX5"
+# Creds: env vars (set by CI / shell) win; fall back to the historical values
+# for a manual local run. Moving the password to an env var keeps it out of
+# source going forward — prefer `set ICELAND_PASSWORD=...` (or a GitHub secret).
+HOST = os.environ.get("ICELAND_HOST", "194.247.182.248")
+USER = os.environ.get("ICELAND_USER", "root")
+PASSWORD = os.environ.get("ICELAND_PASSWORD", "D%G%CimhX5")
 
 REMOTE_DIR = "/root/newxonvert"
 PM2_NAME = "newxonvert"
@@ -109,6 +112,7 @@ EXCLUDES = {
     "target",      # Rust/wasm build output (lib/ai/wasm/target, ~68M) — never ship
     "pkg-node",    # wasm-pack node test build — never ship (browser uses pkg/)
     "_models_plain",  # DEV plaintext model weights — only the .enc ships
+    "oioxo-conductor",  # public/models/oioxo-conductor (~700MB) — load from HF/CDN per no-self-host rule, NOT bundled (was causing the SFTP EOFError on the 763MB tarball)
     "_ai_secret.txt", # the AI master key — NEVER ship the raw file (it's seeded into .env)
     "_hf_token.txt",  # Hugging Face write token — local-only; never leaves this machine
     "_hf_push.py",    # one-off HF upload util — no need on the server
@@ -133,7 +137,7 @@ def excluded(rel: str) -> bool:
     # typecheck (tsconfig includes **/*.ts).
     if base.startswith("_test_") or (base.startswith("_") and base.endswith(".py")):
         return True
-    return any(p in EXCLUDES for p in parts) or rel.endswith((".log", ".gguf", ".onnx", ".bin"))
+    return any(p in EXCLUDES for p in parts) or rel.endswith((".log", ".gguf", ".onnx", ".bin", ".bak"))
 
 
 def open_ssh():
@@ -499,8 +503,18 @@ def ensure_caddy_route(ssh, sftp, serve_primary):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser(description="Deploy newxonvert to Iceland.")
+    ap.add_argument("--from-artifact", metavar="TGZ", default=None,
+                    help="Ship a prebuilt (already-obfuscated) .next/public/prisma tarball "
+                         "built by CI instead of building on the server. The runner already "
+                         "minted+encrypted with $TOOL_WASM_KEY; pass that same value in the env.")
+    args = ap.parse_args()
+    artifact = args.from_artifact
+
     print("=" * 70)
-    print(" DEPLOY: newxonvert -> Iceland (subpath /xonvert) ")
+    print(" DEPLOY: newxonvert -> Iceland (subpath /xonvert) "
+          + ("[FROM ARTIFACT]" if artifact else ""))
     print("=" * 70)
 
     ssh = open_ssh()
@@ -508,6 +522,50 @@ def main():
 
     preflight(ssh)
     ensure_db(ssh)
+
+    if artifact:
+        # ---- FAST PATH: ship the prebuilt artifact (no server build) ----------
+        # CI built the obfuscated .next, ran prebuild (encrypted the engine
+        # workers into public/protected/*.enc with $TOOL_WASM_KEY), and packaged
+        # .next+public+prisma. We just write that SAME key to the remote .env and
+        # swap the prebuilt .next in. node_modules stays persistent on the server.
+        global TOOL_KEY
+        TOOL_KEY = os.environ.get("TOOL_WASM_KEY")
+        if not TOOL_KEY:
+            print("      ! --from-artifact requires $TOOL_WASM_KEY (the key the artifact was built with)")
+            sys.exit(1)
+        mkdir_p(sftp, REMOTE_DIR)
+        write_remote_env(sftp)  # includes TOOL_KEY
+
+        print("\n========== SHIP PREBUILT ARTIFACT ==========")
+        remote_tgz = posixpath.join(REMOTE_DIR, "_artifact.tgz")
+        sftp.put(artifact, remote_tgz)
+        rc, _, _ = run(ssh, f"rm -rf {REMOTE_DIR}/.next-build && mkdir -p {REMOTE_DIR}/.next-build && "
+                            f"tar -xzf {remote_tgz} -C {REMOTE_DIR}/.next-build && rm -f {remote_tgz} && "
+                            f"test -f {REMOTE_DIR}/.next-build/.next/BUILD_ID && echo OK",
+                       t=300, label="upload + extract artifact")
+        if rc != 0:
+            print("      ! artifact extract failed or .next/BUILD_ID missing — site UNTOUCHED")
+            sys.exit(1)
+        # Upload source package files so prisma/runtime stays in sync; reinstall
+        # deps only when the lockfile actually changed (else reuse persistent node_modules).
+        for f in ("package.json", "package-lock.json", "prisma/schema.prisma", "ecosystem.config.js"):
+            lp = PROJECT / f
+            if lp.exists():
+                mkdir_p(sftp, posixpath.join(REMOTE_DIR, posixpath.dirname(f)) if "/" in f else REMOTE_DIR)
+                sftp.put(str(lp), posixpath.join(REMOTE_DIR, f))
+        run(ssh, f"cd {REMOTE_DIR} && (cmp -s package-lock.json .deployed-lock 2>/dev/null && echo same-deps "
+                 f"|| (npm ci --include=dev --no-audit --no-fund && cp package-lock.json .deployed-lock))",
+            t=1200, label="npm ci (only if lockfile changed)")
+        run(ssh, f"cd {REMOTE_DIR} && npx prisma db push --skip-generate && npx prisma generate",
+            t=300, label="prisma")
+        # SWAP: move the prebuilt .next/public into place (mirror the build path).
+        run(ssh, f"cd {REMOTE_DIR} && pm2 stop {PM2_NAME} 2>/dev/null || true; "
+                 f"rm -rf .next.prev public.prev; [ -d .next ] && mv .next .next.prev; [ -d public ] && mv public public.prev; "
+                 f"mv .next-build/.next .next && mv .next-build/public public && rm -rf .next-build",
+            label="swap in prebuilt artifact")
+        _finish_and_smoke(ssh, sftp)
+        return
 
     rotate_brain_key()  # re-encrypt with a fresh key BEFORE upload
     mint_tool_key()     # fresh tool-worker key; server build encrypts with it
@@ -578,6 +636,12 @@ def main():
     # process avoids the stale-prerendered-chunk bug a build-in-place can cause.
     run(ssh, f"cd {REMOTE_DIR} && pm2 stop {PM2_NAME} 2>/dev/null || true && rm -rf .next && mv .next-build .next",
         label="swap in new build")
+    _finish_and_smoke(ssh, sftp)
+
+
+def _finish_and_smoke(ssh, sftp):
+    """Re-register PM2, ensure Caddy + origin cert, smoke test. Shared by the
+    full-build and --from-artifact paths so the post-swap steps never drift."""
     # Use pm2 list (table) rather than jlist (JSON env dump) to keep
     # other tenants' secrets out of the deploy log.
     # Always re-register the process — covers fresh installs AND ensures

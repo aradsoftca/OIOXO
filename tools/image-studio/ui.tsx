@@ -916,6 +916,30 @@ export default function ImageStudioPro() {
     requestAnimationFrame(fitToScreen);
   };
 
+  // Layered PSD export — each studio layer becomes a real Photoshop layer
+  // (name, opacity, visibility) so the comp can be handed to Photoshop/Affinity,
+  // not just a flattened raster. Rendered via the same renderLayer the canvas uses.
+  const exportPsd = async () => {
+    const layerHit = checkLever(POLICY_KEY, 'layers', doc.layers.length, isPro);
+    if (layerHit) { policyGate.fire(layerHit); return; }
+    if (!(await guard())) return;
+    setBusy('Building PSD…');
+    try {
+      const { writePsd } = await import('ag-psd');
+      const psdLayers = doc.layers.map((layer) => {
+        const c = renderLayer(layer, doc.width, doc.height) ?? blankCanvas(doc.width, doc.height);
+        return { name: layer.name, canvas: c, opacity: Math.round((layer.opacity ?? 1) * 255), hidden: !layer.visible };
+      });
+      const psd = { width: doc.width, height: doc.height, children: psdLayers, canvas: composite };
+      const buffer = writePsd(psd as any);
+      downloadBlob(new Blob([buffer], { type: 'image/vnd.adobe.photoshop' }), `${safeFilename(doc.name)}.psd`);
+      toastFor('Exported layered PSD');
+      setExportDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'PSD export failed');
+    } finally { setBusy(''); }
+  };
+
   const exportImage = async () => {
     const sizeMax = Math.max(doc.width, doc.height);
     const resHit = checkLever(POLICY_KEY, 'output-resolution', sizeMax, isPro);
@@ -2071,7 +2095,7 @@ export default function ImageStudioPro() {
         <NewDocDialog onCancel={() => setNewDialog(false)} onCreate={(w, h, n, bg) => { startNew(w, h, n, bg); setNewDialog(false); }} />
       )}
       {exportDialog && (
-        <ExportDialog fmt={exportFmt} setFmt={setExportFmt} q={exportQ} setQ={setExportQ} onCancel={() => setExportDialog(false)} onExport={exportImage} />
+        <ExportDialog fmt={exportFmt} setFmt={setExportFmt} q={exportQ} setQ={setExportQ} onCancel={() => setExportDialog(false)} onExport={exportImage} onPsd={() => void exportPsd()} layerCount={doc.layers.length} />
       )}
       {filterDialog && (
         <FilterDialog kind={filterDialog} value={filterParam} setValue={setFilterParam} onCancel={() => setFilterDialog(null)} onApply={(v) => runFilter(filterDialog, v)} />
@@ -2502,7 +2526,7 @@ function NewDocDialog({ onCancel, onCreate }: { onCancel: () => void; onCreate: 
   );
 }
 
-function ExportDialog({ fmt, setFmt, q, setQ, onCancel, onExport }: { fmt: ImageFormat; setFmt: (f: ImageFormat) => void; q: number; setQ: (n: number) => void; onCancel: () => void; onExport: () => void }) {
+function ExportDialog({ fmt, setFmt, q, setQ, onCancel, onExport, onPsd, layerCount }: { fmt: ImageFormat; setFmt: (f: ImageFormat) => void; q: number; setQ: (n: number) => void; onCancel: () => void; onExport: () => void; onPsd?: () => void; layerCount?: number }) {
   return (
     <DialogShell title="Export" onCancel={onCancel} onConfirm={onExport} confirmLabel="Download">
       <div className="space-y-3">
@@ -2517,6 +2541,11 @@ function ExportDialog({ fmt, setFmt, q, setQ, onCancel, onExport }: { fmt: Image
           <Field label={`Quality ${q}%`}>
             <input type="range" min={10} max={100} value={q} onChange={e => setQ(+e.target.value)} className="w-full" />
           </Field>
+        )}
+        {onPsd && (
+          <div className="border-t border-white/10 pt-2">
+            <button onClick={onPsd} className="w-full rounded bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10">Export layered .PSD ({layerCount ?? 0} layer{layerCount === 1 ? '' : 's'}) — opens in Photoshop/Affinity</button>
+          </div>
         )}
       </div>
     </DialogShell>

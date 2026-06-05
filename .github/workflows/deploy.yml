@@ -61,12 +61,26 @@ jobs:
           echo "::add-mask::$KEY"
           echo "tool_key=$KEY" >> "$GITHUB_OUTPUT"
 
+      # The build itself needs the prod env (POW_SECRET, NEXTAUTH_SECRET, DB URL…)
+      # — some API routes hard-fail at build/page-data collection without them.
+      # The server build gets these because deploy.py writes .env before building;
+      # mirror that here. Next auto-loads .env at build time.
+      - name: Write build .env
+        run: |
+          printf '%s\n' "${{ secrets.NEWXONVERT_DEPLOY_ENV }}" > .env
+          printf 'TOOL_WASM_KEY=%s\n' "${{ steps.mintkey.outputs.tool_key }}" >> .env
+
       - name: Build (full obfuscation)
         env:
           OBFUSCATE: '1'
           NEXT_BASE_PATH: ''
           TOOL_WASM_KEY: ${{ steps.mintkey.outputs.tool_key }}
         run: npm run build      # prebuild (encrypt-workers, copy assets) + next build
+
+      # Never let the build .env leak into the artifact tar.
+      - name: Scrub build .env
+        if: always()
+        run: rm -f .env
 
       # The server needs: the built .next, freshly-encrypted public assets
       # (incl. protected/*.enc workers), and prisma schema. node_modules stays

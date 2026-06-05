@@ -1,0 +1,5418 @@
+{
+  "version": 2,
+  "generated": "2026-05-29",
+  "origin": "https://oioxo.com",
+  "count": 421,
+  "tools": [
+    {
+      "slug": "ai",
+      "category": "apps",
+      "name": "Oioxo AI",
+      "url": "/ai",
+      "keywords": [
+        "ai",
+        "oioxo ai",
+        "ai app",
+        "on-device",
+        "chat",
+        "answers",
+        "across",
+        "the",
+        "web",
+        "with",
+        "citations"
+      ],
+      "appType": "ai",
+      "icon": "✨",
+      "description": "On-device AI chat — answers across the web with citations",
+      "inputType": "none"
+    },
+    {
+      "slug": "add-echo",
+      "category": "audiotools",
+      "name": "add echo - Free Online Audio Tool",
+      "url": "/audiotools/add-echo",
+      "keywords": [
+        "add echo",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-fade-in",
+      "category": "audiotools",
+      "name": "add fade in - Free Online Audio Tool",
+      "url": "/audiotools/add-fade-in",
+      "keywords": [
+        "add fade in",
+        "fade",
+        "add"
+      ],
+      "operations": [
+        "fade",
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-fade-out",
+      "category": "audiotools",
+      "name": "add fade out - Free Online Audio Tool",
+      "url": "/audiotools/add-fade-out",
+      "keywords": [
+        "add fade out",
+        "fade",
+        "add"
+      ],
+      "operations": [
+        "fade",
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "adjust-volume",
+      "category": "audiotools",
+      "name": "adjust volume - Free Online Audio Tool",
+      "url": "/audiotools/adjust-volume",
+      "keywords": [
+        "adjust volume"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "audio-to-text",
+      "category": "audiotools",
+      "name": "audio to text - Free Online Audio Tool",
+      "url": "/audiotools/audio-to-text",
+      "keywords": [
+        "audio to text",
+        "audio",
+        "audio converter",
+        "text",
+        "to text"
+      ],
+      "formatIn": "audio",
+      "formatOut": "text",
+      "inputType": "file"
+    },
+    {
+      "slug": "bass-boost",
+      "category": "audiotools",
+      "name": "bass boost - Free Online Audio Tool",
+      "url": "/audiotools/bass-boost",
+      "keywords": [
+        "bass boost",
+        "boost"
+      ],
+      "operations": [
+        "boost"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-bitrate",
+      "category": "audiotools",
+      "name": "change bitrate - Free Online Audio Tool",
+      "url": "/audiotools/change-bitrate",
+      "keywords": [
+        "change bitrate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-pitch",
+      "category": "audiotools",
+      "name": "change pitch - Free Online Audio Tool",
+      "url": "/audiotools/change-pitch",
+      "keywords": [
+        "change pitch"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-speed",
+      "category": "audiotools",
+      "name": "change speed - Free Online Audio Tool",
+      "url": "/audiotools/change-speed",
+      "keywords": [
+        "change speed"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-tempo",
+      "category": "audiotools",
+      "name": "change tempo - Free Online Audio Tool",
+      "url": "/audiotools/change-tempo",
+      "keywords": [
+        "change tempo"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-volume",
+      "category": "audiotools",
+      "name": "change volume - Free Online Audio Tool",
+      "url": "/audiotools/change-volume",
+      "keywords": [
+        "change volume"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "compress-audio",
+      "category": "audiotools",
+      "name": "compress audio - Free Online Audio Tool",
+      "url": "/audiotools/compress-audio",
+      "keywords": [
+        "compress audio",
+        "compress"
+      ],
+      "operations": [
+        "compress"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "convert-format-audio",
+      "category": "audiotools",
+      "name": "convert format audio - Free Online Audio Tool",
+      "url": "/audiotools/convert-format-audio",
+      "keywords": [
+        "convert format audio",
+        "convert",
+        "audio",
+        "audio converter",
+        "convert audio"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "formatGroup": "audio",
+      "inputType": "file"
+    },
+    {
+      "slug": "echo",
+      "category": "audiotools",
+      "name": "echo - Free Online Audio Tool",
+      "url": "/audiotools/echo",
+      "keywords": [
+        "echo"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "equalizer",
+      "category": "audiotools",
+      "name": "equalizer - Free Online Audio Tool",
+      "url": "/audiotools/equalizer",
+      "keywords": [
+        "equalizer"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-from-video",
+      "category": "audiotools",
+      "name": "extract from video - Free Online Audio Tool",
+      "url": "/audiotools/extract-from-video",
+      "keywords": [
+        "extract from video",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-vocals",
+      "category": "audiotools",
+      "name": "extract vocals - Free Online Audio Tool",
+      "url": "/audiotools/extract-vocals",
+      "keywords": [
+        "extract vocals",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "fade-audio",
+      "category": "audiotools",
+      "name": "fade audio - Free Online Audio Tool",
+      "url": "/audiotools/fade-audio",
+      "keywords": [
+        "fade audio",
+        "fade"
+      ],
+      "operations": [
+        "fade"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "fade-in-out",
+      "category": "audiotools",
+      "name": "fade in out - Free Online Audio Tool",
+      "url": "/audiotools/fade-in-out",
+      "keywords": [
+        "fade in out",
+        "fade"
+      ],
+      "operations": [
+        "fade"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "generate-waveform",
+      "category": "audiotools",
+      "name": "generate waveform - Free Online Audio Tool",
+      "url": "/audiotools/generate-waveform",
+      "keywords": [
+        "generate waveform",
+        "generate"
+      ],
+      "operations": [
+        "generate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "loop-audio",
+      "category": "audiotools",
+      "name": "loop audio - Free Online Audio Tool",
+      "url": "/audiotools/loop-audio",
+      "keywords": [
+        "loop audio"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "merge-audio",
+      "category": "audiotools",
+      "name": "merge audio - Free Online Audio Tool",
+      "url": "/audiotools/merge-audio",
+      "keywords": [
+        "merge audio",
+        "merge"
+      ],
+      "operations": [
+        "merge"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "mono-to-stereo",
+      "category": "audiotools",
+      "name": "mono to stereo - Free Online Audio Tool",
+      "url": "/audiotools/mono-to-stereo",
+      "keywords": [
+        "mono to stereo",
+        "mono",
+        "mono converter",
+        "stereo",
+        "to stereo"
+      ],
+      "formatIn": "mono",
+      "formatOut": "stereo",
+      "inputType": "file"
+    },
+    {
+      "slug": "normalize-audio",
+      "category": "audiotools",
+      "name": "normalize audio - Free Online Audio Tool",
+      "url": "/audiotools/normalize-audio",
+      "keywords": [
+        "normalize audio",
+        "normalize"
+      ],
+      "operations": [
+        "normalize"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "remove-noise",
+      "category": "audiotools",
+      "name": "remove noise - Free Online Audio Tool",
+      "url": "/audiotools/remove-noise",
+      "keywords": [
+        "remove noise",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "remove-silence",
+      "category": "audiotools",
+      "name": "remove silence - Free Online Audio Tool",
+      "url": "/audiotools/remove-silence",
+      "keywords": [
+        "remove silence",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "reverb",
+      "category": "audiotools",
+      "name": "reverb - Free Online Audio Tool",
+      "url": "/audiotools/reverb",
+      "keywords": [
+        "reverb"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "reverse-audio",
+      "category": "audiotools",
+      "name": "reverse audio - Free Online Audio Tool",
+      "url": "/audiotools/reverse-audio",
+      "keywords": [
+        "reverse audio",
+        "reverse"
+      ],
+      "operations": [
+        "reverse"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "split-audio",
+      "category": "audiotools",
+      "name": "split audio - Free Online Audio Tool",
+      "url": "/audiotools/split-audio",
+      "keywords": [
+        "split audio",
+        "split"
+      ],
+      "operations": [
+        "split"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "stereo-to-mono",
+      "category": "audiotools",
+      "name": "stereo to mono - Free Online Audio Tool",
+      "url": "/audiotools/stereo-to-mono",
+      "keywords": [
+        "stereo to mono",
+        "stereo",
+        "stereo converter",
+        "mono",
+        "to mono"
+      ],
+      "formatIn": "stereo",
+      "formatOut": "mono",
+      "inputType": "file"
+    },
+    {
+      "slug": "text-to-speech",
+      "category": "audiotools",
+      "name": "text to speech - Free Online Audio Tool",
+      "url": "/audiotools/text-to-speech",
+      "keywords": [
+        "text to speech",
+        "text",
+        "text converter",
+        "speech",
+        "to speech"
+      ],
+      "formatIn": "text",
+      "formatOut": "speech",
+      "inputType": "file"
+    },
+    {
+      "slug": "treble-boost",
+      "category": "audiotools",
+      "name": "treble boost - Free Online Audio Tool",
+      "url": "/audiotools/treble-boost",
+      "keywords": [
+        "treble boost",
+        "boost"
+      ],
+      "operations": [
+        "boost"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "trim-audio",
+      "category": "audiotools",
+      "name": "trim audio - Free Online Audio Tool",
+      "url": "/audiotools/trim-audio",
+      "keywords": [
+        "trim audio",
+        "trim"
+      ],
+      "operations": [
+        "trim"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "board",
+      "category": "apps",
+      "name": "Oioxo Board",
+      "url": "/board",
+      "keywords": [
+        "board",
+        "oioxo board",
+        "board app",
+        "whiteboard",
+        "+",
+        "sticky",
+        "notes",
+        "for",
+        "live",
+        "collaboration"
+      ],
+      "appType": "board",
+      "icon": "📋",
+      "description": "Whiteboard + sticky notes for live collaboration",
+      "inputType": "none"
+    },
+    {
+      "slug": "age-calculator",
+      "category": "calculators",
+      "name": "Age Calculator - Free Online Calculator",
+      "url": "/calculators/age-calculator",
+      "keywords": [
+        "age calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "basic",
+      "category": "calculators",
+      "name": "basic - Free Online Calculator",
+      "url": "/calculators/basic",
+      "keywords": [
+        "basic"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "binary-calculator",
+      "category": "calculators",
+      "name": "Binary Calculator - Free Online Calculator",
+      "url": "/calculators/binary-calculator",
+      "keywords": [
+        "binary calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "bmi",
+      "category": "calculators",
+      "name": "bmi - Free Online Calculator",
+      "url": "/calculators/bmi",
+      "keywords": [
+        "bmi",
+        "body mass index"
+      ],
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "date-calculator",
+      "category": "calculators",
+      "name": "Date Calculator - Free Online Calculator",
+      "url": "/calculators/date-calculator",
+      "keywords": [
+        "date calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "derivative-calculator",
+      "category": "calculators",
+      "name": "Derivative Calculator - Free Online Tool",
+      "url": "/calculators/derivative-calculator",
+      "keywords": [
+        "derivative calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "equation-solver",
+      "category": "calculators",
+      "name": "Equation Solver - Free Online Calculator",
+      "url": "/calculators/equation-solver",
+      "keywords": [
+        "equation solver"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "hex-calculator",
+      "category": "calculators",
+      "name": "Hex Calculator - Free Online Calculator",
+      "url": "/calculators/hex-calculator",
+      "keywords": [
+        "hex calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "integral-calculator",
+      "category": "calculators",
+      "name": "Integral Calculator - Free Online Tool",
+      "url": "/calculators/integral-calculator",
+      "keywords": [
+        "integral calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "latex-renderer",
+      "category": "calculators",
+      "name": "LaTeX Renderer - Free Online Tool",
+      "url": "/calculators/latex-renderer",
+      "keywords": [
+        "latex renderer",
+        "render"
+      ],
+      "operations": [
+        "render"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "linear-system-solver",
+      "category": "calculators",
+      "name": "Linear System Solver - Free Online Tool",
+      "url": "/calculators/linear-system-solver",
+      "keywords": [
+        "linear system solver"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "loan",
+      "category": "calculators",
+      "name": "loan - Free Online Calculator",
+      "url": "/calculators/loan",
+      "keywords": [
+        "loan"
+      ],
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "matrix-calculator",
+      "category": "calculators",
+      "name": "Matrix Calculator - Free Online Tool",
+      "url": "/calculators/matrix-calculator",
+      "keywords": [
+        "matrix calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "percent",
+      "category": "calculators",
+      "name": "percent - Free Online Calculator",
+      "url": "/calculators/percent",
+      "keywords": [
+        "percent"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "periodic-element",
+      "category": "calculators",
+      "name": "Periodic Element Lookup — All 118 Elements",
+      "url": "/calculators/periodic-element",
+      "keywords": [
+        "periodic element",
+        "periodic table",
+        "element",
+        "atomic number",
+        "element symbol"
+      ],
+      "engine": "element",
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "power",
+      "category": "calculators",
+      "name": "power - Free Online Calculator",
+      "url": "/calculators/power",
+      "keywords": [
+        "power"
+      ],
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "scientific-calculator",
+      "category": "calculators",
+      "name": "Scientific Calculator - Free Online Calculator",
+      "url": "/calculators/scientific-calculator",
+      "keywords": [
+        "scientific calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "temp",
+      "category": "calculators",
+      "name": "temp - Free Online Calculator",
+      "url": "/calculators/temp",
+      "keywords": [
+        "temp"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "time",
+      "category": "calculators",
+      "name": "time - Free Online Calculator",
+      "url": "/calculators/time",
+      "keywords": [
+        "time"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "tip-calculator",
+      "category": "calculators",
+      "name": "Tip Calculator - Free Online Calculator",
+      "url": "/calculators/tip-calculator",
+      "keywords": [
+        "tip calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "call",
+      "category": "apps",
+      "name": "Oioxo Call",
+      "url": "/call",
+      "keywords": [
+        "call",
+        "oioxo call",
+        "call app",
+        "p2p",
+        "video",
+        "+",
+        "voice",
+        "call,",
+        "virtual",
+        "backgrounds,",
+        "in-call",
+        "chat"
+      ],
+      "appType": "call",
+      "icon": "📞",
+      "description": "P2P video + voice call, virtual backgrounds, in-call chat",
+      "inputType": "none"
+    },
+    {
+      "slug": "chat",
+      "category": "apps",
+      "name": "Oioxo Chat",
+      "url": "/chat",
+      "keywords": [
+        "chat",
+        "oioxo chat",
+        "chat app",
+        "group",
+        "over",
+        "webrtc,",
+        "no",
+        "signup,",
+        "end-to-end",
+        "on",
+        "this",
+        "device"
+      ],
+      "appType": "chat",
+      "icon": "💬",
+      "description": "Group chat over WebRTC, no signup, end-to-end on this device",
+      "inputType": "none"
+    },
+    {
+      "slug": "clipboard",
+      "category": "apps",
+      "name": "Oioxo Clipboard",
+      "url": "/clipboard",
+      "keywords": [
+        "clipboard",
+        "oioxo clipboard",
+        "clipboard app",
+        "cross-device",
+        "sync,",
+        "p2p,",
+        "no",
+        "account"
+      ],
+      "appType": "clipboard",
+      "icon": "📋",
+      "description": "Cross-device clipboard sync, P2P, no account",
+      "inputType": "none"
+    },
+    {
+      "slug": "area-converter",
+      "category": "converters",
+      "name": "Area Converter",
+      "url": "/converters/area-converter",
+      "keywords": [
+        "area converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "currency-converter",
+      "category": "converters",
+      "name": "Currency Converter",
+      "url": "/converters/currency-converter",
+      "keywords": [
+        "currency converter",
+        "exchange rate",
+        "usd to eur",
+        "forex",
+        "ecb rate",
+        "convert"
+      ],
+      "skill": "currency",
+      "paramKey": "from",
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "data-size-converter",
+      "category": "converters",
+      "name": "Data Size Converter",
+      "url": "/converters/data-size-converter",
+      "keywords": [
+        "data size converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "energy-converter",
+      "category": "converters",
+      "name": "Energy Converter",
+      "url": "/converters/energy-converter",
+      "keywords": [
+        "energy converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "length-converter",
+      "category": "converters",
+      "name": "Length Converter - Free Online Tool",
+      "url": "/converters/length-converter",
+      "keywords": [
+        "length converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "speed-converter",
+      "category": "converters",
+      "name": "Speed Converter",
+      "url": "/converters/speed-converter",
+      "keywords": [
+        "speed converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "temperature-converter",
+      "category": "converters",
+      "name": "Temperature Converter - Free Online Tool",
+      "url": "/converters/temperature-converter",
+      "keywords": [
+        "temperature converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "time-converter",
+      "category": "converters",
+      "name": "Time Converter",
+      "url": "/converters/time-converter",
+      "keywords": [
+        "time converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "volume-converter",
+      "category": "converters",
+      "name": "Volume Converter",
+      "url": "/converters/volume-converter",
+      "keywords": [
+        "volume converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "weight-converter",
+      "category": "converters",
+      "name": "Weight Converter",
+      "url": "/converters/weight-converter",
+      "keywords": [
+        "weight converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "air-quality",
+      "category": "datatools",
+      "name": "air-quality - Free Data Tool | Oioxo",
+      "url": "/datatools/air-quality",
+      "keywords": [
+        "air quality",
+        "aqi",
+        "pm2.5",
+        "pm10",
+        "pollution",
+        "smog"
+      ],
+      "skill": "airquality",
+      "paramKey": "city",
+      "inputType": "text"
+    },
+    {
+      "slug": "astronomy",
+      "category": "datatools",
+      "name": "astronomy - Free Data Tool | Oioxo",
+      "url": "/datatools/astronomy",
+      "keywords": [
+        "astronomy",
+        "sunrise",
+        "sunset",
+        "moon phase",
+        "daylight"
+      ],
+      "skill": "astro",
+      "paramKey": "city",
+      "inputType": "text"
+    },
+    {
+      "slug": "book-lookup",
+      "category": "datatools",
+      "name": "book-lookup - Free Data Tool | Oioxo",
+      "url": "/datatools/book-lookup",
+      "keywords": [
+        "book lookup",
+        "book search",
+        "find book",
+        "openlibrary",
+        "isbn lookup"
+      ],
+      "skill": "book",
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "country-profile",
+      "category": "datatools",
+      "name": "country-profile - Free Data Tool | Oioxo",
+      "url": "/datatools/country-profile",
+      "keywords": [
+        "country profile",
+        "country info",
+        "country facts",
+        "capital of",
+        "population of",
+        "flag of"
+      ],
+      "skill": "country",
+      "paramKey": "country",
+      "inputType": "text"
+    },
+    {
+      "slug": "crypto-price",
+      "category": "datatools",
+      "name": "crypto-price - Free Data Tool | Oioxo",
+      "url": "/datatools/crypto-price",
+      "keywords": [
+        "crypto price",
+        "bitcoin price",
+        "btc usd",
+        "eth usd",
+        "coingecko",
+        "cryptocurrency"
+      ],
+      "skill": "crypto",
+      "paramKey": "coin",
+      "inputType": "text"
+    },
+    {
+      "slug": "currency-converter",
+      "category": "datatools",
+      "name": "currency-converter - Free Data Tool | Oioxo",
+      "url": "/datatools/currency-converter",
+      "keywords": [
+        "currency converter",
+        "exchange rate",
+        "usd to eur",
+        "forex",
+        "ecb rate",
+        "convert"
+      ],
+      "skill": "currency",
+      "paramKey": "from",
+      "operations": [
+        "convert"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "holidays",
+      "category": "datatools",
+      "name": "holidays - Free Data Tool | Oioxo",
+      "url": "/datatools/holidays",
+      "keywords": [
+        "holidays",
+        "public holidays",
+        "national holidays",
+        "next holiday",
+        "holiday calendar"
+      ],
+      "skill": "holidays",
+      "paramKey": "country",
+      "inputType": "text"
+    },
+    {
+      "slug": "lyrics",
+      "category": "datatools",
+      "name": "lyrics - Free Data Tool | Oioxo",
+      "url": "/datatools/lyrics",
+      "keywords": [
+        "lyrics",
+        "song lyrics",
+        "lyrics finder",
+        "lyrics of"
+      ],
+      "skill": "lyrics",
+      "paramKey": "title",
+      "inputType": "text"
+    },
+    {
+      "slug": "nasa-apod",
+      "category": "datatools",
+      "name": "nasa-apod - Free Data Tool | Oioxo",
+      "url": "/datatools/nasa-apod",
+      "keywords": [
+        "nasa apod",
+        "nasa picture",
+        "astronomy picture of the day",
+        "apod",
+        "space picture today"
+      ],
+      "skill": "nasa",
+      "inputType": "text"
+    },
+    {
+      "slug": "recipe",
+      "category": "datatools",
+      "name": "recipe - Free Data Tool | Oioxo",
+      "url": "/datatools/recipe",
+      "keywords": [
+        "recipe",
+        "how to cook",
+        "how to make",
+        "recipe for",
+        "themealdb"
+      ],
+      "skill": "recipe",
+      "paramKey": "dish",
+      "inputType": "text"
+    },
+    {
+      "slug": "weather",
+      "category": "datatools",
+      "name": "weather - Free Data Tool | Oioxo",
+      "url": "/datatools/weather",
+      "keywords": [
+        "weather",
+        "weather now",
+        "current weather",
+        "temperature",
+        "forecast",
+        "weather today"
+      ],
+      "skill": "weather",
+      "paramKey": "city",
+      "inputType": "text"
+    },
+    {
+      "slug": "wikipedia-pageviews",
+      "category": "datatools",
+      "name": "wikipedia-pageviews - Free Data Tool | Oioxo",
+      "url": "/datatools/wikipedia-pageviews",
+      "keywords": [
+        "wikipedia pageviews",
+        "public interest",
+        "topic trend",
+        "wikipedia traffic"
+      ],
+      "skill": "pageviews",
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "base64-decoder",
+      "category": "devtools",
+      "name": "base64-decoder - Free Online Developer Tool",
+      "url": "/devtools/base64-decoder",
+      "keywords": [
+        "base64 decoder",
+        "decode",
+        "base 64"
+      ],
+      "engine": "base64",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "base64-encoder",
+      "category": "devtools",
+      "name": "base64-encoder - Free Online Developer Tool",
+      "url": "/devtools/base64-encoder",
+      "keywords": [
+        "base64 encoder",
+        "encode",
+        "base 64"
+      ],
+      "engine": "base64",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "bcrypt-generator",
+      "category": "devtools",
+      "name": "bcrypt-generator - Free Online Developer Tool",
+      "url": "/devtools/bcrypt-generator",
+      "keywords": [
+        "bcrypt generator"
+      ],
+      "engine": "hash",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "binary-diff",
+      "category": "devtools",
+      "name": "Binary Diff - Free Online Developer Tool",
+      "url": "/devtools/binary-diff",
+      "keywords": [
+        "binary diff"
+      ],
+      "paramKey": "a",
+      "inputType": "text"
+    },
+    {
+      "slug": "certificate-inspector",
+      "category": "devtools",
+      "name": "Certificate Inspector - Free Online Tool",
+      "url": "/devtools/certificate-inspector",
+      "keywords": [
+        "certificate inspector",
+        "x509",
+        "pem"
+      ],
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "citation-generator",
+      "category": "devtools",
+      "name": "Citation Generator — APA, MLA, Chicago",
+      "url": "/devtools/citation-generator",
+      "keywords": [
+        "citation generator",
+        "apa citation",
+        "mla citation",
+        "chicago citation"
+      ],
+      "engine": "citations",
+      "paramKey": "urls",
+      "inputType": "text"
+    },
+    {
+      "slug": "csr-decoder",
+      "category": "devtools",
+      "name": "CSR Decoder - Free Online Tool",
+      "url": "/devtools/csr-decoder",
+      "keywords": [
+        "csr decoder",
+        "certificate signing request"
+      ],
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "css-animation-generator",
+      "category": "devtools",
+      "name": "CSS Animation Generator - Free Online Tool",
+      "url": "/devtools/css-animation-generator",
+      "keywords": [
+        "css animation generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-border-radius-generator",
+      "category": "devtools",
+      "name": "CSS Border Radius Generator - Free Online Tool",
+      "url": "/devtools/css-border-radius-generator",
+      "keywords": [
+        "css border radius generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-box-shadow-generator",
+      "category": "devtools",
+      "name": "CSS Box Shadow Generator - Free Online Tool",
+      "url": "/devtools/css-box-shadow-generator",
+      "keywords": [
+        "css box shadow generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-filter-generator",
+      "category": "devtools",
+      "name": "CSS Filter Generator - Free Online Tool",
+      "url": "/devtools/css-filter-generator",
+      "keywords": [
+        "css filter generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-flexbox-generator",
+      "category": "devtools",
+      "name": "CSS Flexbox Generator - Free Online Tool",
+      "url": "/devtools/css-flexbox-generator",
+      "keywords": [
+        "css flexbox generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-formatter",
+      "category": "devtools",
+      "name": "css-formatter - Free Online Developer Tool",
+      "url": "/devtools/css-formatter",
+      "keywords": [
+        "css formatter"
+      ],
+      "engine": "css",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "css-gradient-generator",
+      "category": "devtools",
+      "name": "CSS Gradient Generator - Free Online Tool",
+      "url": "/devtools/css-gradient-generator",
+      "keywords": [
+        "css gradient generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-grid-generator",
+      "category": "devtools",
+      "name": "CSS Grid Generator - Free Online Tool",
+      "url": "/devtools/css-grid-generator",
+      "keywords": [
+        "css grid generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-text-shadow-generator",
+      "category": "devtools",
+      "name": "CSS Text Shadow Generator - Free Online Tool",
+      "url": "/devtools/css-text-shadow-generator",
+      "keywords": [
+        "css text shadow generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "css-transform-generator",
+      "category": "devtools",
+      "name": "CSS Transform Generator - Free Online Tool",
+      "url": "/devtools/css-transform-generator",
+      "keywords": [
+        "css transform generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "diff-checker",
+      "category": "devtools",
+      "name": "diff-checker - Free Online Developer Tool",
+      "url": "/devtools/diff-checker",
+      "keywords": [
+        "diff checker",
+        "compare",
+        "difference"
+      ],
+      "paramKey": "a",
+      "inputType": "text"
+    },
+    {
+      "slug": "github-repo",
+      "category": "devtools",
+      "name": "GitHub Repo Lookup — Find Top Open-Source Libraries",
+      "url": "/devtools/github-repo",
+      "keywords": [
+        "github repo",
+        "github search",
+        "find library",
+        "open source library"
+      ],
+      "skill": "github",
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "guid-generator",
+      "category": "devtools",
+      "name": "guid-generator - Free Online Developer Tool",
+      "url": "/devtools/guid-generator",
+      "keywords": [
+        "guid generator",
+        "uuid",
+        "guid",
+        "unique id"
+      ],
+      "engine": "uuid",
+      "inputType": "text"
+    },
+    {
+      "slug": "hex-viewer",
+      "category": "devtools",
+      "name": "Hex Viewer - Free Online Developer Tool",
+      "url": "/devtools/hex-viewer",
+      "keywords": [
+        "hex viewer"
+      ],
+      "engine": "hex",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "hmac-generator",
+      "category": "devtools",
+      "name": "HMAC Generator - Free Online Developer Tool",
+      "url": "/devtools/hmac-generator",
+      "keywords": [
+        "hmac generator"
+      ],
+      "engine": "hash",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "html-formatter",
+      "category": "devtools",
+      "name": "html-formatter - Free Online Developer Tool",
+      "url": "/devtools/html-formatter",
+      "keywords": [
+        "html formatter"
+      ],
+      "engine": "html",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "js-formatter",
+      "category": "devtools",
+      "name": "js-formatter - Free Online Developer Tool",
+      "url": "/devtools/js-formatter",
+      "keywords": [
+        "js formatter"
+      ],
+      "engine": "js",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "json-formatter",
+      "category": "devtools",
+      "name": "json-formatter - Free Online Developer Tool",
+      "url": "/devtools/json-formatter",
+      "keywords": [
+        "json formatter",
+        "pretty print",
+        "beautify json"
+      ],
+      "engine": "json",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "json-minify",
+      "category": "devtools",
+      "name": "json-minify - Free Online Developer Tool",
+      "url": "/devtools/json-minify",
+      "keywords": [
+        "json minify",
+        "minify json",
+        "compress json"
+      ],
+      "engine": "json",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "json-to-yaml",
+      "category": "devtools",
+      "name": "json-to-yaml - Free Online Developer Tool",
+      "url": "/devtools/json-to-yaml",
+      "keywords": [
+        "json to yaml",
+        "yaml convert",
+        "json",
+        "json converter",
+        "yaml",
+        "to yaml"
+      ],
+      "paramKey": "text",
+      "formatIn": "json",
+      "formatOut": "yaml",
+      "inputType": "text"
+    },
+    {
+      "slug": "json-validator",
+      "category": "devtools",
+      "name": "json-validator - Free Online Developer Tool",
+      "url": "/devtools/json-validator",
+      "keywords": [
+        "json validator",
+        "validate json",
+        "json schema"
+      ],
+      "engine": "json",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "jwt-decoder",
+      "category": "devtools",
+      "name": "jwt-decoder - Free Online Developer Tool",
+      "url": "/devtools/jwt-decoder",
+      "keywords": [
+        "jwt decoder",
+        "json web token",
+        "jwt"
+      ],
+      "paramKey": "token",
+      "inputType": "text"
+    },
+    {
+      "slug": "jwt-signature-validator",
+      "category": "devtools",
+      "name": "JWT Signature Validator - Free Online Tool",
+      "url": "/devtools/jwt-signature-validator",
+      "keywords": [
+        "jwt signature validator"
+      ],
+      "paramKey": "token",
+      "inputType": "text"
+    },
+    {
+      "slug": "log-parser",
+      "category": "devtools",
+      "name": "Log Parser - Free Online Developer Tool",
+      "url": "/devtools/log-parser",
+      "keywords": [
+        "log parser"
+      ],
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "lorem-ipsum",
+      "category": "devtools",
+      "name": "lorem-ipsum - Free Online Developer Tool",
+      "url": "/devtools/lorem-ipsum",
+      "keywords": [
+        "lorem ipsum",
+        "placeholder text",
+        "dummy text"
+      ],
+      "engine": "lorem",
+      "inputType": "text"
+    },
+    {
+      "slug": "md5-generator",
+      "category": "devtools",
+      "name": "md5-generator - Free Online Developer Tool",
+      "url": "/devtools/md5-generator",
+      "keywords": [
+        "md5 generator",
+        "md5 hash",
+        "checksum"
+      ],
+      "engine": "hash",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "password-generator",
+      "category": "devtools",
+      "name": "password-generator - Free Online Developer Tool",
+      "url": "/devtools/password-generator",
+      "keywords": [
+        "password generator",
+        "random password",
+        "secure password"
+      ],
+      "engine": "pwd",
+      "inputType": "text"
+    },
+    {
+      "slug": "regex-tester",
+      "category": "devtools",
+      "name": "regex-tester - Free Online Developer Tool",
+      "url": "/devtools/regex-tester",
+      "keywords": [
+        "regex tester",
+        "regular expression",
+        "regexp",
+        "match",
+        "pattern"
+      ],
+      "engine": "regex",
+      "paramKey": "pattern",
+      "inputType": "text"
+    },
+    {
+      "slug": "rsa-key-generator",
+      "category": "devtools",
+      "name": "RSA Key Generator - Free Online Tool",
+      "url": "/devtools/rsa-key-generator",
+      "keywords": [
+        "rsa key generator"
+      ],
+      "engine": "rsa",
+      "inputType": "text"
+    },
+    {
+      "slug": "sha1-generator",
+      "category": "devtools",
+      "name": "sha1-generator - Free Online Developer Tool",
+      "url": "/devtools/sha1-generator",
+      "keywords": [
+        "sha1 generator",
+        "sha-1 hash"
+      ],
+      "engine": "hash",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "sha256-generator",
+      "category": "devtools",
+      "name": "sha256-generator - Free Online Developer Tool",
+      "url": "/devtools/sha256-generator",
+      "keywords": [
+        "sha256 generator",
+        "sha-256 hash"
+      ],
+      "engine": "hash",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "slug-generator",
+      "category": "devtools",
+      "name": "Slug Generator - Free Online Developer Tool",
+      "url": "/devtools/slug-generator",
+      "keywords": [
+        "slug generator",
+        "url slug",
+        "kebab case"
+      ],
+      "engine": "slug",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "sql-formatter",
+      "category": "devtools",
+      "name": "sql-formatter - Free Online Developer Tool",
+      "url": "/devtools/sql-formatter",
+      "keywords": [
+        "sql formatter"
+      ],
+      "engine": "sql",
+      "paramKey": "text",
+      "inputType": "text"
+    },
+    {
+      "slug": "ssh-key-generator",
+      "category": "devtools",
+      "name": "SSH Key Generator - Free Online Tool",
+      "url": "/devtools/ssh-key-generator",
+      "keywords": [
+        "ssh key generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "totp-generator",
+      "category": "devtools",
+      "name": "TOTP Generator - Free Online Tool",
+      "url": "/devtools/totp-generator",
+      "keywords": [
+        "totp generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "uuid-generator",
+      "category": "devtools",
+      "name": "uuid-generator - Free Online Developer Tool",
+      "url": "/devtools/uuid-generator",
+      "keywords": [
+        "uuid generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "xml-formatter",
+      "category": "devtools",
+      "name": "xml-formatter - Free Online Developer Tool",
+      "url": "/devtools/xml-formatter",
+      "keywords": [
+        "xml formatter"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "yaml-to-json",
+      "category": "devtools",
+      "name": "yaml-to-json - Free Online Developer Tool",
+      "url": "/devtools/yaml-to-json",
+      "keywords": [
+        "yaml to json",
+        "yaml",
+        "yaml converter",
+        "json",
+        "to json"
+      ],
+      "formatIn": "yaml",
+      "formatOut": "json",
+      "inputType": "text"
+    },
+    {
+      "slug": "budget",
+      "category": "finance",
+      "name": "budget - Free Online Finance Tool",
+      "url": "/finance/budget",
+      "keywords": [
+        "budget"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "investment",
+      "category": "finance",
+      "name": "investment - Free Online Finance Tool",
+      "url": "/finance/investment",
+      "keywords": [
+        "investment"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "loan-comparison",
+      "category": "finance",
+      "name": "loan-comparison - Free Online Finance Tool",
+      "url": "/finance/loan-comparison",
+      "keywords": [
+        "loan comparison"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "mortgage",
+      "category": "finance",
+      "name": "mortgage - Free Online Finance Tool",
+      "url": "/finance/mortgage",
+      "keywords": [
+        "mortgage",
+        "home loan",
+        "house payment"
+      ],
+      "paramKey": "q",
+      "inputType": "text"
+    },
+    {
+      "slug": "retirement",
+      "category": "finance",
+      "name": "retirement - Free Online Finance Tool",
+      "url": "/finance/retirement",
+      "keywords": [
+        "retirement"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "savings",
+      "category": "finance",
+      "name": "savings - Free Online Finance Tool",
+      "url": "/finance/savings",
+      "keywords": [
+        "savings"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "tax",
+      "category": "finance",
+      "name": "tax - Free Online Finance Tool",
+      "url": "/finance/tax",
+      "keywords": [
+        "tax"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "font-converter",
+      "category": "fonttools",
+      "name": "Font Converter",
+      "url": "/fonttools/font-converter",
+      "keywords": [
+        "font converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "font-inspector",
+      "category": "fonttools",
+      "name": "Font Inspector",
+      "url": "/fonttools/font-inspector",
+      "keywords": [
+        "font inspector"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "font-preview",
+      "category": "fonttools",
+      "name": "Font Preview",
+      "url": "/fonttools/font-preview",
+      "keywords": [
+        "font preview"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "font-subset-creator",
+      "category": "fonttools",
+      "name": "Font Subset Creator",
+      "url": "/fonttools/font-subset-creator",
+      "keywords": [
+        "font subset creator"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "web-font-generator",
+      "category": "fonttools",
+      "name": "Web Font",
+      "url": "/fonttools/web-font-generator",
+      "keywords": [
+        "web font generator"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "achievement-name-generator",
+      "category": "gametools",
+      "name": "achievement-name-generator - Free Online Game Tool",
+      "url": "/gametools/achievement-name-generator",
+      "keywords": [
+        "achievement name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "aspect-ratio",
+      "category": "gametools",
+      "name": "aspect-ratio - Free Online Game Tool",
+      "url": "/gametools/aspect-ratio",
+      "keywords": [
+        "aspect ratio"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "build-optimizer",
+      "category": "gametools",
+      "name": "build-optimizer - Free Online Game Tool",
+      "url": "/gametools/build-optimizer",
+      "keywords": [
+        "build optimizer",
+        "build"
+      ],
+      "operations": [
+        "build"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "challenge-generator",
+      "category": "gametools",
+      "name": "challenge-generator - Free Online Game Tool",
+      "url": "/gametools/challenge-generator",
+      "keywords": [
+        "challenge generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "character-name-generator",
+      "category": "gametools",
+      "name": "character-name-generator - Free Online Game Tool",
+      "url": "/gametools/character-name-generator",
+      "keywords": [
+        "character name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "clan-name-generator",
+      "category": "gametools",
+      "name": "clan-name-generator - Free Online Game Tool",
+      "url": "/gametools/clan-name-generator",
+      "keywords": [
+        "clan name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "coin-flip",
+      "category": "gametools",
+      "name": "coin-flip - Free Online Game Tool",
+      "url": "/gametools/coin-flip",
+      "keywords": [
+        "coin flip"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "color-blind-simulator",
+      "category": "gametools",
+      "name": "color-blind-simulator - Free Online Game Tool",
+      "url": "/gametools/color-blind-simulator",
+      "keywords": [
+        "color blind simulator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "crosshair-generator",
+      "category": "gametools",
+      "name": "crosshair-generator - Free Online Game Tool",
+      "url": "/gametools/crosshair-generator",
+      "keywords": [
+        "crosshair generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "dice-roller",
+      "category": "gametools",
+      "name": "dice-roller - Free Online Game Tool",
+      "url": "/gametools/dice-roller",
+      "keywords": [
+        "dice roller"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "dpi-calculator",
+      "category": "gametools",
+      "name": "dpi-calculator - Free Online Game Tool",
+      "url": "/gametools/dpi-calculator",
+      "keywords": [
+        "dpi calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "dps-calculator",
+      "category": "gametools",
+      "name": "dps-calculator - Free Online Game Tool",
+      "url": "/gametools/dps-calculator",
+      "keywords": [
+        "dps calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "drop-rate",
+      "category": "gametools",
+      "name": "drop-rate - Free Online Game Tool",
+      "url": "/gametools/drop-rate",
+      "keywords": [
+        "drop rate"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "fantasy-name-generator",
+      "category": "gametools",
+      "name": "fantasy-name-generator - Free Online Game Tool",
+      "url": "/gametools/fantasy-name-generator",
+      "keywords": [
+        "fantasy name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "fov-calculator",
+      "category": "gametools",
+      "name": "fov-calculator - Free Online Game Tool",
+      "url": "/gametools/fov-calculator",
+      "keywords": [
+        "fov calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "gacha-simulator",
+      "category": "gametools",
+      "name": "gacha-simulator - Free Online Game Tool",
+      "url": "/gametools/gacha-simulator",
+      "keywords": [
+        "gacha simulator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "gaming-name-generator",
+      "category": "gametools",
+      "name": "gaming-name-generator - Free Online Game Tool",
+      "url": "/gametools/gaming-name-generator",
+      "keywords": [
+        "gaming name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "guild-name-generator",
+      "category": "gametools",
+      "name": "guild-name-generator - Free Online Game Tool",
+      "url": "/gametools/guild-name-generator",
+      "keywords": [
+        "guild name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "loadout-randomizer",
+      "category": "gametools",
+      "name": "loadout-randomizer - Free Online Game Tool",
+      "url": "/gametools/loadout-randomizer",
+      "keywords": [
+        "loadout randomizer"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "location-name-generator",
+      "category": "gametools",
+      "name": "location-name-generator - Free Online Game Tool",
+      "url": "/gametools/location-name-generator",
+      "keywords": [
+        "location name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "loot-box",
+      "category": "gametools",
+      "name": "loot-box - Free Online Game Tool",
+      "url": "/gametools/loot-box",
+      "keywords": [
+        "loot box"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "map-generator",
+      "category": "gametools",
+      "name": "map-generator - Free Online Game Tool",
+      "url": "/gametools/map-generator",
+      "keywords": [
+        "map generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "map-randomizer",
+      "category": "gametools",
+      "name": "map-randomizer - Free Online Game Tool",
+      "url": "/gametools/map-randomizer",
+      "keywords": [
+        "map randomizer"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "npc-name",
+      "category": "gametools",
+      "name": "npc-name - Free Online Game Tool",
+      "url": "/gametools/npc-name",
+      "keywords": [
+        "npc name"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "password-generator",
+      "category": "gametools",
+      "name": "password-generator - Free Online Game Tool",
+      "url": "/gametools/password-generator",
+      "keywords": [
+        "password generator",
+        "random password",
+        "secure password"
+      ],
+      "engine": "pwd",
+      "inputType": "none"
+    },
+    {
+      "slug": "pet-name",
+      "category": "gametools",
+      "name": "pet-name - Free Online Game Tool",
+      "url": "/gametools/pet-name",
+      "keywords": [
+        "pet name"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "ping-calculator",
+      "category": "gametools",
+      "name": "ping-calculator - Free Online Game Tool",
+      "url": "/gametools/ping-calculator",
+      "keywords": [
+        "ping calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "quest-name-generator",
+      "category": "gametools",
+      "name": "quest-name-generator - Free Online Game Tool",
+      "url": "/gametools/quest-name-generator",
+      "keywords": [
+        "quest name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "random-number",
+      "category": "gametools",
+      "name": "random-number - Free Online Game Tool",
+      "url": "/gametools/random-number",
+      "keywords": [
+        "random number"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "random-number-generator",
+      "category": "gametools",
+      "name": "random-number-generator - Free Online Game Tool",
+      "url": "/gametools/random-number-generator",
+      "keywords": [
+        "random number generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "random-picker",
+      "category": "gametools",
+      "name": "random-picker - Free Online Game Tool",
+      "url": "/gametools/random-picker",
+      "keywords": [
+        "random picker"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "rank-calculator",
+      "category": "gametools",
+      "name": "rank-calculator - Free Online Game Tool",
+      "url": "/gametools/rank-calculator",
+      "keywords": [
+        "rank calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "sci-fi-name-generator",
+      "category": "gametools",
+      "name": "sci-fi-name-generator - Free Online Game Tool",
+      "url": "/gametools/sci-fi-name-generator",
+      "keywords": [
+        "sci fi name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "sensitivity-calculator",
+      "category": "gametools",
+      "name": "sensitivity-calculator - Free Online Game Tool",
+      "url": "/gametools/sensitivity-calculator",
+      "keywords": [
+        "sensitivity calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "sensitivity-converter",
+      "category": "gametools",
+      "name": "sensitivity-converter - Free Online Game Tool",
+      "url": "/gametools/sensitivity-converter",
+      "keywords": [
+        "sensitivity converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "server-name-generator",
+      "category": "gametools",
+      "name": "server-name-generator - Free Online Game Tool",
+      "url": "/gametools/server-name-generator",
+      "keywords": [
+        "server name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "spell-name-generator",
+      "category": "gametools",
+      "name": "spell-name-generator - Free Online Game Tool",
+      "url": "/gametools/spell-name-generator",
+      "keywords": [
+        "spell name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "stat-calculator",
+      "category": "gametools",
+      "name": "stat-calculator - Free Online Game Tool",
+      "url": "/gametools/stat-calculator",
+      "keywords": [
+        "stat calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "team-generator",
+      "category": "gametools",
+      "name": "team-generator - Free Online Game Tool",
+      "url": "/gametools/team-generator",
+      "keywords": [
+        "team generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "team-name-generator",
+      "category": "gametools",
+      "name": "team-name-generator - Free Online Game Tool",
+      "url": "/gametools/team-name-generator",
+      "keywords": [
+        "team name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "team-randomizer",
+      "category": "gametools",
+      "name": "team-randomizer - Free Online Game Tool",
+      "url": "/gametools/team-randomizer",
+      "keywords": [
+        "team randomizer"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "title-generator",
+      "category": "gametools",
+      "name": "title-generator - Free Online Game Tool",
+      "url": "/gametools/title-generator",
+      "keywords": [
+        "title generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "username-generator",
+      "category": "gametools",
+      "name": "username-generator - Free Online Game Tool",
+      "url": "/gametools/username-generator",
+      "keywords": [
+        "username generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "weapon-name-generator",
+      "category": "gametools",
+      "name": "weapon-name-generator - Free Online Game Tool",
+      "url": "/gametools/weapon-name-generator",
+      "keywords": [
+        "weapon name generator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "xp-calculator",
+      "category": "gametools",
+      "name": "xp-calculator - Free Online Game Tool",
+      "url": "/gametools/xp-calculator",
+      "keywords": [
+        "xp calculator"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "barcode",
+      "category": "generators",
+      "name": "barcode - Free Online",
+      "url": "/generators/barcode",
+      "keywords": [
+        "barcode",
+        "ean",
+        "upc",
+        "code128",
+        "isbn"
+      ],
+      "paramKey": "text",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "color-contrast-checker",
+      "category": "generators",
+      "name": "Color Contrast Checker - Free Online Tool",
+      "url": "/generators/color-contrast-checker",
+      "keywords": [
+        "color contrast checker",
+        "wcag",
+        "contrast",
+        "a11y"
+      ],
+      "engine": "color",
+      "paramKey": "color",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "color-converter",
+      "category": "generators",
+      "name": "Color Converter - Free Online",
+      "url": "/generators/color-converter",
+      "keywords": [
+        "color converter",
+        "hex",
+        "rgb",
+        "hsl",
+        "rgba",
+        "convert"
+      ],
+      "engine": "color",
+      "paramKey": "color",
+      "operations": [
+        "convert"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "color-name-finder",
+      "category": "generators",
+      "name": "Color Name Finder - Free Online Tool",
+      "url": "/generators/color-name-finder",
+      "keywords": [
+        "color name finder",
+        "name",
+        "css color"
+      ],
+      "engine": "color",
+      "paramKey": "color",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "color-palette",
+      "category": "generators",
+      "name": "color-palette - Free Online",
+      "url": "/generators/color-palette",
+      "keywords": [
+        "color palette",
+        "palette",
+        "swatch",
+        "scheme"
+      ],
+      "engine": "color",
+      "paramKey": "color",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "gradient",
+      "category": "generators",
+      "name": "gradient - Free Online",
+      "url": "/generators/gradient",
+      "keywords": [
+        "gradient"
+      ],
+      "engine": "color",
+      "paramKey": "color",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "invoice",
+      "category": "generators",
+      "name": "invoice - Free Online",
+      "url": "/generators/invoice",
+      "keywords": [
+        "invoice",
+        "bill",
+        "receipt"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "qr-code",
+      "category": "generators",
+      "name": "qr-code - Free Online",
+      "url": "/generators/qr-code",
+      "keywords": [
+        "qr code",
+        "qr",
+        "qrcode",
+        "barcode",
+        "square"
+      ],
+      "engine": "qr",
+      "paramKey": "text",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "random-data",
+      "category": "generators",
+      "name": "random-data - Free Online",
+      "url": "/generators/random-data",
+      "keywords": [
+        "random data",
+        "mock",
+        "fake",
+        "dummy",
+        "test data"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "resume",
+      "category": "generators",
+      "name": "resume - Free Online",
+      "url": "/generators/resume",
+      "keywords": [
+        "resume",
+        "cv",
+        "curriculum"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "shade-tint-generator",
+      "category": "generators",
+      "name": "Shade & Tint Generator - Free Online Tool",
+      "url": "/generators/shade-tint-generator",
+      "keywords": [
+        "shade tint generator"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "coordinate-converter",
+      "category": "gistools",
+      "name": "Coordinate Converter",
+      "url": "/gistools/coordinate-converter",
+      "keywords": [
+        "coordinate converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "distance-calculator",
+      "category": "gistools",
+      "name": "Distance Calculator",
+      "url": "/gistools/distance-calculator",
+      "keywords": [
+        "distance calculator"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "geojson-viewer",
+      "category": "gistools",
+      "name": "GeoJSON Viewer",
+      "url": "/gistools/geojson-viewer",
+      "keywords": [
+        "geojson viewer"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "kml-to-geojson",
+      "category": "gistools",
+      "name": "KML to GeoJSON",
+      "url": "/gistools/kml-to-geojson",
+      "keywords": [
+        "kml to geojson",
+        "kml",
+        "kml converter",
+        "geojson",
+        "to geojson"
+      ],
+      "formatIn": "kml",
+      "formatOut": "geojson",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "utm-converter",
+      "category": "gistools",
+      "name": "UTM Converter",
+      "url": "/gistools/utm-converter",
+      "keywords": [
+        "utm converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "what3words-converter",
+      "category": "gistools",
+      "name": "What3Words Converter",
+      "url": "/gistools/what3words-converter",
+      "keywords": [
+        "what3words converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "mixed"
+    },
+    {
+      "slug": "add-shadow",
+      "category": "imagetools",
+      "name": "add shadow - Free Online Image Tool",
+      "url": "/imagetools/add-shadow",
+      "keywords": [
+        "add shadow",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-text",
+      "category": "imagetools",
+      "name": "add text - Free Online Image Tool",
+      "url": "/imagetools/add-text",
+      "keywords": [
+        "add text",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "base64-to-image",
+      "category": "imagetools",
+      "name": "base64 to image - Free Online Image Tool",
+      "url": "/imagetools/base64-to-image",
+      "keywords": [
+        "base64 to image",
+        "base64",
+        "base64 converter",
+        "image",
+        "to image"
+      ],
+      "formatIn": "base64",
+      "formatOut": "image",
+      "inputType": "file"
+    },
+    {
+      "slug": "batch-compress",
+      "category": "imagetools",
+      "name": "batch compress - Free Online Image Tool",
+      "url": "/imagetools/batch-compress",
+      "keywords": [
+        "batch compress",
+        "compress"
+      ],
+      "operations": [
+        "compress"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "batch-convert",
+      "category": "imagetools",
+      "name": "batch convert - Free Online Image Tool",
+      "url": "/imagetools/batch-convert",
+      "keywords": [
+        "batch convert",
+        "convert",
+        "image",
+        "image converter",
+        "convert image"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "formatGroup": "image",
+      "inputType": "file"
+    },
+    {
+      "slug": "batch-rename",
+      "category": "imagetools",
+      "name": "batch rename - Free Online Image Tool",
+      "url": "/imagetools/batch-rename",
+      "keywords": [
+        "batch rename"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "batch-resize",
+      "category": "imagetools",
+      "name": "batch resize - Free Online Image Tool",
+      "url": "/imagetools/batch-resize",
+      "keywords": [
+        "batch resize",
+        "resize"
+      ],
+      "operations": [
+        "resize"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "batch-watermark",
+      "category": "imagetools",
+      "name": "batch watermark - Free Online Image Tool",
+      "url": "/imagetools/batch-watermark",
+      "keywords": [
+        "batch watermark"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "blur",
+      "category": "imagetools",
+      "name": "blur - Free Online Image Tool",
+      "url": "/imagetools/blur",
+      "keywords": [
+        "blur"
+      ],
+      "operations": [
+        "blur"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "border-image",
+      "category": "imagetools",
+      "name": "border image - Free Online Image Tool",
+      "url": "/imagetools/border-image",
+      "keywords": [
+        "border image"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "brightness",
+      "category": "imagetools",
+      "name": "brightness - Free Online Image Tool",
+      "url": "/imagetools/brightness",
+      "keywords": [
+        "brightness"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-background",
+      "category": "imagetools",
+      "name": "change background - Free Online Image Tool",
+      "url": "/imagetools/change-background",
+      "keywords": [
+        "change background"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "colorize",
+      "category": "imagetools",
+      "name": "colorize - Free Online Image Tool",
+      "url": "/imagetools/colorize",
+      "keywords": [
+        "colorize"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "compare-images",
+      "category": "imagetools",
+      "name": "compare images - Free Online Image Tool",
+      "url": "/imagetools/compare-images",
+      "keywords": [
+        "compare images"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "compress-image",
+      "category": "imagetools",
+      "name": "compress image - Free Online Image Tool",
+      "url": "/imagetools/compress-image",
+      "keywords": [
+        "compress image",
+        "compress"
+      ],
+      "operations": [
+        "compress"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "contrast",
+      "category": "imagetools",
+      "name": "contrast - Free Online Image Tool",
+      "url": "/imagetools/contrast",
+      "keywords": [
+        "contrast"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "convert-format",
+      "category": "imagetools",
+      "name": "convert format - Free Online Image Tool",
+      "url": "/imagetools/convert-format",
+      "keywords": [
+        "convert format",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "create-collage",
+      "category": "imagetools",
+      "name": "create collage - Free Online Image Tool",
+      "url": "/imagetools/create-collage",
+      "keywords": [
+        "create collage",
+        "create"
+      ],
+      "operations": [
+        "create"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "crop-image",
+      "category": "imagetools",
+      "name": "crop image - Free Online Image Tool",
+      "url": "/imagetools/crop-image",
+      "keywords": [
+        "crop image",
+        "crop"
+      ],
+      "operations": [
+        "crop"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "denoise",
+      "category": "imagetools",
+      "name": "denoise - Free Online Image Tool",
+      "url": "/imagetools/denoise",
+      "keywords": [
+        "denoise"
+      ],
+      "operations": [
+        "denoise"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "enhance",
+      "category": "imagetools",
+      "name": "enhance - Free Online Image Tool",
+      "url": "/imagetools/enhance",
+      "keywords": [
+        "enhance"
+      ],
+      "operations": [
+        "enhance"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-colors",
+      "category": "imagetools",
+      "name": "extract colors - Free Online Image Tool",
+      "url": "/imagetools/extract-colors",
+      "keywords": [
+        "extract colors",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "face-detection",
+      "category": "imagetools",
+      "name": "face detection - Free Online Image Tool",
+      "url": "/imagetools/face-detection",
+      "keywords": [
+        "face detection"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "flip-image",
+      "category": "imagetools",
+      "name": "flip image - Free Online Image Tool",
+      "url": "/imagetools/flip-image",
+      "keywords": [
+        "flip image"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "generate-placeholder",
+      "category": "imagetools",
+      "name": "generate placeholder - Free Online Image Tool",
+      "url": "/imagetools/generate-placeholder",
+      "keywords": [
+        "generate placeholder",
+        "generate"
+      ],
+      "operations": [
+        "generate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "grayscale",
+      "category": "imagetools",
+      "name": "grayscale - Free Online Image Tool",
+      "url": "/imagetools/grayscale",
+      "keywords": [
+        "grayscale"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "hue",
+      "category": "imagetools",
+      "name": "hue - Free Online Image Tool",
+      "url": "/imagetools/hue",
+      "keywords": [
+        "hue"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "image-info",
+      "category": "imagetools",
+      "name": "image info - Free Online Image Tool",
+      "url": "/imagetools/image-info",
+      "keywords": [
+        "image info"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "image-to-base64",
+      "category": "imagetools",
+      "name": "image to base64 - Free Online Image Tool",
+      "url": "/imagetools/image-to-base64",
+      "keywords": [
+        "image to base64",
+        "image",
+        "image converter",
+        "base64",
+        "to base64"
+      ],
+      "formatIn": "image",
+      "formatOut": "base64",
+      "inputType": "file"
+    },
+    {
+      "slug": "invert-colors",
+      "category": "imagetools",
+      "name": "invert colors - Free Online Image Tool",
+      "url": "/imagetools/invert-colors",
+      "keywords": [
+        "invert colors"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "merge-images",
+      "category": "imagetools",
+      "name": "merge images - Free Online Image Tool",
+      "url": "/imagetools/merge-images",
+      "keywords": [
+        "merge images",
+        "merge"
+      ],
+      "operations": [
+        "merge"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "object-removal",
+      "category": "imagetools",
+      "name": "object removal - Free Online Image Tool",
+      "url": "/imagetools/object-removal",
+      "keywords": [
+        "object removal"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "optimize-image",
+      "category": "imagetools",
+      "name": "optimize image - Free Online Image Tool",
+      "url": "/imagetools/optimize-image",
+      "keywords": [
+        "optimize image"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "perspective-correction",
+      "category": "imagetools",
+      "name": "perspective correction - Free Online Image Tool",
+      "url": "/imagetools/perspective-correction",
+      "keywords": [
+        "perspective correction"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "pixelate",
+      "category": "imagetools",
+      "name": "pixelate - Free Online Image Tool",
+      "url": "/imagetools/pixelate",
+      "keywords": [
+        "pixelate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "remove-background",
+      "category": "imagetools",
+      "name": "remove background - Free Online Image Tool",
+      "url": "/imagetools/remove-background",
+      "keywords": [
+        "remove background",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "rename-images",
+      "category": "imagetools",
+      "name": "rename images - Free Online Image Tool",
+      "url": "/imagetools/rename-images",
+      "keywords": [
+        "rename images"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "resize-image",
+      "category": "imagetools",
+      "name": "resize image - Free Online Image Tool",
+      "url": "/imagetools/resize-image",
+      "keywords": [
+        "resize image",
+        "resize"
+      ],
+      "operations": [
+        "resize"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "rotate-image",
+      "category": "imagetools",
+      "name": "rotate image - Free Online Image Tool",
+      "url": "/imagetools/rotate-image",
+      "keywords": [
+        "rotate image",
+        "rotate"
+      ],
+      "operations": [
+        "rotate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "round-corners",
+      "category": "imagetools",
+      "name": "round corners - Free Online Image Tool",
+      "url": "/imagetools/round-corners",
+      "keywords": [
+        "round corners"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "saturation",
+      "category": "imagetools",
+      "name": "saturation - Free Online Image Tool",
+      "url": "/imagetools/saturation",
+      "keywords": [
+        "saturation"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "sepia",
+      "category": "imagetools",
+      "name": "sepia - Free Online Image Tool",
+      "url": "/imagetools/sepia",
+      "keywords": [
+        "sepia"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "sharpen",
+      "category": "imagetools",
+      "name": "sharpen - Free Online Image Tool",
+      "url": "/imagetools/sharpen",
+      "keywords": [
+        "sharpen"
+      ],
+      "operations": [
+        "sharpen"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "split-image",
+      "category": "imagetools",
+      "name": "split image - Free Online Image Tool",
+      "url": "/imagetools/split-image",
+      "keywords": [
+        "split image",
+        "split"
+      ],
+      "operations": [
+        "split"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "upscale-image",
+      "category": "imagetools",
+      "name": "upscale image - Free Online Image Tool",
+      "url": "/imagetools/upscale-image",
+      "keywords": [
+        "upscale image"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "vignette",
+      "category": "imagetools",
+      "name": "vignette - Free Online Image Tool",
+      "url": "/imagetools/vignette",
+      "keywords": [
+        "vignette"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "vintage",
+      "category": "imagetools",
+      "name": "vintage - Free Online Image Tool",
+      "url": "/imagetools/vintage",
+      "keywords": [
+        "vintage"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "watermark-image",
+      "category": "imagetools",
+      "name": "watermark image - Free Online Image Tool",
+      "url": "/imagetools/watermark-image",
+      "keywords": [
+        "watermark image"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "binary-to-ip",
+      "category": "iptools",
+      "name": "binary-to-ip - Free Online IP Tool",
+      "url": "/iptools/binary-to-ip",
+      "keywords": [
+        "binary to ip",
+        "binary ipv4",
+        "binary",
+        "binary converter",
+        "ip",
+        "to ip"
+      ],
+      "paramKey": "binary",
+      "formatIn": "binary",
+      "formatOut": "ip",
+      "inputType": "none"
+    },
+    {
+      "slug": "cidr-calculator",
+      "category": "iptools",
+      "name": "cidr-calculator - Free Online IP Tool",
+      "url": "/iptools/cidr-calculator",
+      "keywords": [
+        "cidr calculator",
+        "cidr range",
+        "network mask"
+      ],
+      "paramKey": "cidr",
+      "inputType": "none"
+    },
+    {
+      "slug": "dns-lookup",
+      "category": "iptools",
+      "name": "dns-lookup - Free Online IP Tool",
+      "url": "/iptools/dns-lookup",
+      "keywords": [
+        "dns lookup",
+        "dns query",
+        "nslookup"
+      ],
+      "paramKey": "domain",
+      "inputType": "none"
+    },
+    {
+      "slug": "dns-propagation",
+      "category": "iptools",
+      "name": "dns-propagation - Free Online IP Tool",
+      "url": "/iptools/dns-propagation",
+      "keywords": [
+        "dns propagation"
+      ],
+      "paramKey": "domain",
+      "inputType": "none"
+    },
+    {
+      "slug": "http-headers",
+      "category": "iptools",
+      "name": "http-headers - Free Online IP Tool",
+      "url": "/iptools/http-headers",
+      "keywords": [
+        "http headers",
+        "headers",
+        "curl headers"
+      ],
+      "paramKey": "url",
+      "inputType": "none"
+    },
+    {
+      "slug": "ip-geolocation",
+      "category": "iptools",
+      "name": "ip-geolocation - Free Online IP Tool",
+      "url": "/iptools/ip-geolocation",
+      "keywords": [
+        "ip geolocation",
+        "ip location",
+        "geoip",
+        "geolocate"
+      ],
+      "paramKey": "ip",
+      "inputType": "none"
+    },
+    {
+      "slug": "ip-lookup",
+      "category": "iptools",
+      "name": "ip-lookup - Free Online IP Tool",
+      "url": "/iptools/ip-lookup",
+      "keywords": [
+        "ip lookup",
+        "who is this ip"
+      ],
+      "paramKey": "ip",
+      "inputType": "none"
+    },
+    {
+      "slug": "ip-to-binary",
+      "category": "iptools",
+      "name": "ip-to-binary - Free Online IP Tool",
+      "url": "/iptools/ip-to-binary",
+      "keywords": [
+        "ip to binary",
+        "ipv4 binary",
+        "ip",
+        "ip converter",
+        "binary",
+        "to binary"
+      ],
+      "paramKey": "ip",
+      "formatIn": "ip",
+      "formatOut": "binary",
+      "inputType": "none"
+    },
+    {
+      "slug": "mac-lookup",
+      "category": "iptools",
+      "name": "mac-lookup - Free Online IP Tool",
+      "url": "/iptools/mac-lookup",
+      "keywords": [
+        "mac lookup",
+        "mac address",
+        "oui"
+      ],
+      "paramKey": "mac",
+      "inputType": "none"
+    },
+    {
+      "slug": "my-ip",
+      "category": "iptools",
+      "name": "my-ip - Free Online IP Tool",
+      "url": "/iptools/my-ip",
+      "keywords": [
+        "my ip",
+        "whats my ip",
+        "public ip",
+        "ipv4",
+        "ipv6"
+      ],
+      "engine": "myip",
+      "inputType": "none"
+    },
+    {
+      "slug": "ping-test",
+      "category": "iptools",
+      "name": "ping-test - Free Online IP Tool",
+      "url": "/iptools/ping-test",
+      "keywords": [
+        "ping test",
+        "ping",
+        "latency"
+      ],
+      "paramKey": "host",
+      "inputType": "none"
+    },
+    {
+      "slug": "port-scanner",
+      "category": "iptools",
+      "name": "port-scanner - Free Online IP Tool",
+      "url": "/iptools/port-scanner",
+      "keywords": [
+        "port scanner"
+      ],
+      "paramKey": "host",
+      "inputType": "none"
+    },
+    {
+      "slug": "reverse-ip",
+      "category": "iptools",
+      "name": "reverse-ip - Free Online IP Tool",
+      "url": "/iptools/reverse-ip",
+      "keywords": [
+        "reverse ip",
+        "reverse dns",
+        "ptr",
+        "reverse"
+      ],
+      "paramKey": "ip",
+      "operations": [
+        "reverse"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "ssl-checker",
+      "category": "iptools",
+      "name": "ssl-checker - Free Online IP Tool",
+      "url": "/iptools/ssl-checker",
+      "keywords": [
+        "ssl checker",
+        "ssl certificate",
+        "tls"
+      ],
+      "paramKey": "host",
+      "inputType": "none"
+    },
+    {
+      "slug": "subnet-calculator",
+      "category": "iptools",
+      "name": "subnet-calculator - Free Online IP Tool",
+      "url": "/iptools/subnet-calculator",
+      "keywords": [
+        "subnet calculator",
+        "subnet mask",
+        "cidr"
+      ],
+      "paramKey": "cidr",
+      "inputType": "none"
+    },
+    {
+      "slug": "traceroute",
+      "category": "iptools",
+      "name": "traceroute - Free Online IP Tool",
+      "url": "/iptools/traceroute",
+      "keywords": [
+        "traceroute",
+        "network path",
+        "hop"
+      ],
+      "paramKey": "host",
+      "inputType": "none"
+    },
+    {
+      "slug": "url-encoder",
+      "category": "iptools",
+      "name": "url-encoder - Free Online IP Tool",
+      "url": "/iptools/url-encoder",
+      "keywords": [
+        "url encoder",
+        "url encode",
+        "percent encoding"
+      ],
+      "engine": "url",
+      "paramKey": "text",
+      "inputType": "none"
+    },
+    {
+      "slug": "user-agent",
+      "category": "iptools",
+      "name": "user-agent - Free Online IP Tool",
+      "url": "/iptools/user-agent",
+      "keywords": [
+        "user agent",
+        "my user agent",
+        "browser ua"
+      ],
+      "inputType": "none"
+    },
+    {
+      "slug": "whois-lookup",
+      "category": "iptools",
+      "name": "whois-lookup - Free Online IP Tool",
+      "url": "/iptools/whois-lookup",
+      "keywords": [
+        "whois lookup",
+        "whois",
+        "domain owner"
+      ],
+      "paramKey": "domain",
+      "inputType": "none"
+    },
+    {
+      "slug": "note",
+      "category": "apps",
+      "name": "Oioxo Note",
+      "url": "/note",
+      "keywords": [
+        "note",
+        "oioxo note",
+        "note app",
+        "quick",
+        "on-device",
+        "notes",
+        "with",
+        "sync"
+      ],
+      "appType": "note",
+      "icon": "📝",
+      "description": "Quick on-device notes with sync",
+      "inputType": "none"
+    },
+    {
+      "slug": "password-generator",
+      "category": "flat",
+      "name": "Password Generator",
+      "url": "/password-generator",
+      "keywords": [
+        "password generator",
+        "random password",
+        "secure password"
+      ],
+      "engine": "pwd",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "add-page-numbers",
+      "category": "pdftools",
+      "name": "Add Page Numbers to PDF Online Free",
+      "url": "/pdftools/add-page-numbers",
+      "keywords": [
+        "add page numbers",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-watermark",
+      "category": "pdftools",
+      "name": "Add Watermark to PDF Online Free - Protect Documents",
+      "url": "/pdftools/add-watermark",
+      "keywords": [
+        "add watermark",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "compress",
+      "category": "pdftools",
+      "name": "Compress PDF Online Free - Shrink PDF Size",
+      "url": "/pdftools/compress",
+      "keywords": [
+        "compress"
+      ],
+      "operations": [
+        "compress"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "compress-pdf",
+      "category": "pdftools",
+      "name": "Compress PDF Online Free - Reduce PDF File Size",
+      "url": "/pdftools/compress-pdf",
+      "keywords": [
+        "compress pdf",
+        "compress"
+      ],
+      "operations": [
+        "compress"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "delete-pages",
+      "category": "pdftools",
+      "name": "Delete Pages from PDF Online Free - Remove PDF Pages",
+      "url": "/pdftools/delete-pages",
+      "keywords": [
+        "delete pages"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-pages",
+      "category": "pdftools",
+      "name": "Extract Pages from PDF Online Free",
+      "url": "/pdftools/extract-pages",
+      "keywords": [
+        "extract pages",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "merge",
+      "category": "pdftools",
+      "name": "Merge PDF Files Online Free - Combine PDFs",
+      "url": "/pdftools/merge",
+      "keywords": [
+        "merge"
+      ],
+      "operations": [
+        "merge"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "merge-pdf",
+      "category": "pdftools",
+      "name": "Merge PDF Files Online Free - Combine PDFs Instantly",
+      "url": "/pdftools/merge-pdf",
+      "keywords": [
+        "merge pdf",
+        "merge"
+      ],
+      "operations": [
+        "merge"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "pdf-to-images",
+      "category": "pdftools",
+      "name": "Convert PDF to Images Online Free - PDF to JPG/PNG",
+      "url": "/pdftools/pdf-to-images",
+      "keywords": [
+        "pdf to images",
+        "pdf",
+        "pdf converter",
+        "images",
+        "to images"
+      ],
+      "formatIn": "pdf",
+      "formatOut": "images",
+      "inputType": "file"
+    },
+    {
+      "slug": "reorder-pages",
+      "category": "pdftools",
+      "name": "Reorder PDF Pages Online Free - Rearrange Pages",
+      "url": "/pdftools/reorder-pages",
+      "keywords": [
+        "reorder pages"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "rotate",
+      "category": "pdftools",
+      "name": "Rotate PDF Online Free - Fix Sideways Pages",
+      "url": "/pdftools/rotate",
+      "keywords": [
+        "rotate"
+      ],
+      "operations": [
+        "rotate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "rotate-pdf",
+      "category": "pdftools",
+      "name": "Rotate PDF Pages Online Free - Fix Page Orientation",
+      "url": "/pdftools/rotate-pdf",
+      "keywords": [
+        "rotate pdf",
+        "rotate"
+      ],
+      "operations": [
+        "rotate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "split",
+      "category": "pdftools",
+      "name": "Split PDF Online Free - Divide PDF Pages",
+      "url": "/pdftools/split",
+      "keywords": [
+        "split"
+      ],
+      "operations": [
+        "split"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "split-pdf",
+      "category": "pdftools",
+      "name": "Split PDF Online Free - Separate PDF Pages",
+      "url": "/pdftools/split-pdf",
+      "keywords": [
+        "split pdf",
+        "split"
+      ],
+      "operations": [
+        "split"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "qrcode",
+      "category": "flat",
+      "name": "Qrcode",
+      "url": "/qrcode",
+      "keywords": [
+        "qrcode",
+        "qr",
+        "qr code"
+      ],
+      "engine": "qr",
+      "paramKey": "text",
+      "inputType": "mixed"
+    },
+    {
+      "slug": "send",
+      "category": "apps",
+      "name": "Oioxo Send",
+      "url": "/send",
+      "keywords": [
+        "send",
+        "oioxo send",
+        "send app",
+        "webrtc",
+        "file",
+        "transfer,",
+        "browser-to-browser,",
+        "any",
+        "size"
+      ],
+      "appType": "send",
+      "icon": "📦",
+      "description": "WebRTC file transfer, browser-to-browser, any size",
+      "inputType": "none"
+    },
+    {
+      "slug": "canonical-url-checker",
+      "category": "seotools",
+      "name": "Canonical URL Checker",
+      "url": "/seotools/canonical-url-checker",
+      "keywords": [
+        "canonical url checker"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "heading-structure-analyzer",
+      "category": "seotools",
+      "name": "Heading Structure Analyzer",
+      "url": "/seotools/heading-structure-analyzer",
+      "keywords": [
+        "heading structure analyzer"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "keyword-density-checker",
+      "category": "seotools",
+      "name": "Keyword Density Checker",
+      "url": "/seotools/keyword-density-checker",
+      "keywords": [
+        "keyword density checker"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "meta-tag-analyzer",
+      "category": "seotools",
+      "name": "Meta Tag Analyzer",
+      "url": "/seotools/meta-tag-analyzer",
+      "keywords": [
+        "meta tag analyzer"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "mobile-friendly-checker",
+      "category": "seotools",
+      "name": "Mobile-Friendly Checker",
+      "url": "/seotools/mobile-friendly-checker",
+      "keywords": [
+        "mobile friendly checker"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "open-graph-preview",
+      "category": "seotools",
+      "name": "Open Graph Preview",
+      "url": "/seotools/open-graph-preview",
+      "keywords": [
+        "open graph preview"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "page-speed-estimator",
+      "category": "seotools",
+      "name": "Page Speed Estimator",
+      "url": "/seotools/page-speed-estimator",
+      "keywords": [
+        "page speed estimator"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "robots-txt-generator",
+      "category": "seotools",
+      "name": "Robots.txt",
+      "url": "/seotools/robots-txt-generator",
+      "keywords": [
+        "robots txt generator"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "seo-score-calculator",
+      "category": "seotools",
+      "name": "SEO Score Calculator",
+      "url": "/seotools/seo-score-calculator",
+      "keywords": [
+        "seo score calculator"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "sitemap-generator",
+      "category": "seotools",
+      "name": "Sitemap",
+      "url": "/seotools/sitemap-generator",
+      "keywords": [
+        "sitemap generator"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "structured-data-generator",
+      "category": "seotools",
+      "name": "Structured Data",
+      "url": "/seotools/structured-data-generator",
+      "keywords": [
+        "structured data generator"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "twitter-card-preview",
+      "category": "seotools",
+      "name": "Twitter Card Preview",
+      "url": "/seotools/twitter-card-preview",
+      "keywords": [
+        "twitter card preview"
+      ],
+      "inputType": "url"
+    },
+    {
+      "slug": "banner-cover-creator",
+      "category": "socialtools",
+      "name": "Banner / Cover Creator",
+      "url": "/socialtools/banner-cover-creator",
+      "keywords": [
+        "banner cover creator"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "favicon-generator",
+      "category": "socialtools",
+      "name": "Favicon",
+      "url": "/socialtools/favicon-generator",
+      "keywords": [
+        "favicon generator"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "hn-top",
+      "category": "socialtools",
+      "name": "Hacker News Top — Live Top Stories",
+      "url": "/socialtools/hn-top",
+      "keywords": [
+        "hn top",
+        "hacker news",
+        "tech news today",
+        "hn front page"
+      ],
+      "skill": "hn",
+      "inputType": "file"
+    },
+    {
+      "slug": "og-image-creator",
+      "category": "socialtools",
+      "name": "OG Image Creator",
+      "url": "/socialtools/og-image-creator",
+      "keywords": [
+        "og image creator"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "profile-picture-maker",
+      "category": "socialtools",
+      "name": "Profile Picture Maker",
+      "url": "/socialtools/profile-picture-maker",
+      "keywords": [
+        "profile picture maker",
+        "make"
+      ],
+      "operations": [
+        "make"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "screenshot-mockup-generator",
+      "category": "socialtools",
+      "name": "Screenshot Mockup",
+      "url": "/socialtools/screenshot-mockup-generator",
+      "keywords": [
+        "screenshot mockup generator"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "social-media-image-resizer",
+      "category": "socialtools",
+      "name": "Social Media Image Resizer",
+      "url": "/socialtools/social-media-image-resizer",
+      "keywords": [
+        "social media image resizer",
+        "resize"
+      ],
+      "operations": [
+        "resize"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "avatar",
+      "category": "studios",
+      "name": "Free Profile Picture & Avatar Maker Online",
+      "url": "/studios/avatar",
+      "keywords": [
+        "avatar"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "background",
+      "category": "studios",
+      "name": "Free Background Remover & Replacer Studio",
+      "url": "/studios/background",
+      "keywords": [
+        "background"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "collage",
+      "category": "studios",
+      "name": "Free Photo Collage & Grid Maker Online",
+      "url": "/studios/collage",
+      "keywords": [
+        "collage"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "gif",
+      "category": "studios",
+      "name": "Free GIF Maker & Studio Online",
+      "url": "/studios/gif",
+      "keywords": [
+        "gif"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "invoice",
+      "category": "studios",
+      "name": "Free Invoice Generator & Studio",
+      "url": "/studios/invoice",
+      "keywords": [
+        "invoice",
+        "bill",
+        "receipt"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "meme",
+      "category": "studios",
+      "name": "Free Meme Generator & Maker Online",
+      "url": "/studios/meme",
+      "keywords": [
+        "meme"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "poster",
+      "category": "studios",
+      "name": "Free Poster, Flyer & Card Maker Online",
+      "url": "/studios/poster",
+      "keywords": [
+        "poster"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "qr",
+      "category": "studios",
+      "name": "Free QR Code Designer & Studio",
+      "url": "/studios/qr",
+      "keywords": [
+        "qr"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "resume",
+      "category": "studios",
+      "name": "Free Resume Builder & CV Studio",
+      "url": "/studios/resume",
+      "keywords": [
+        "resume",
+        "cv",
+        "curriculum"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "sticker",
+      "category": "studios",
+      "name": "Free Custom Sticker Maker & Studio",
+      "url": "/studios/sticker",
+      "keywords": [
+        "sticker"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "thumbnail",
+      "category": "studios",
+      "name": "Free YouTube Thumbnail Maker & Creator",
+      "url": "/studios/thumbnail",
+      "keywords": [
+        "thumbnail"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-character-counter",
+      "category": "subtitletools",
+      "name": "Subtitle Character Counter",
+      "url": "/subtitletools/subtitle-character-counter",
+      "keywords": [
+        "subtitle character counter",
+        "subtitle"
+      ],
+      "operations": [
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-cleaner",
+      "category": "subtitletools",
+      "name": "Subtitle Cleaner",
+      "url": "/subtitletools/subtitle-cleaner",
+      "keywords": [
+        "subtitle cleaner",
+        "subtitle"
+      ],
+      "operations": [
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-fps-converter",
+      "category": "subtitletools",
+      "name": "Subtitle FPS Converter",
+      "url": "/subtitletools/subtitle-fps-converter",
+      "keywords": [
+        "subtitle fps converter",
+        "convert",
+        "subtitle"
+      ],
+      "operations": [
+        "convert",
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-merger",
+      "category": "subtitletools",
+      "name": "Subtitle Merger",
+      "url": "/subtitletools/subtitle-merger",
+      "keywords": [
+        "subtitle merger",
+        "merge",
+        "subtitle"
+      ],
+      "operations": [
+        "merge",
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-splitter",
+      "category": "subtitletools",
+      "name": "Subtitle Splitter",
+      "url": "/subtitletools/subtitle-splitter",
+      "keywords": [
+        "subtitle splitter",
+        "split",
+        "subtitle"
+      ],
+      "operations": [
+        "split",
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-style-editor",
+      "category": "subtitletools",
+      "name": "Subtitle Style Editor",
+      "url": "/subtitletools/subtitle-style-editor",
+      "keywords": [
+        "subtitle style editor",
+        "edit",
+        "subtitle"
+      ],
+      "operations": [
+        "edit",
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-sync-fixer",
+      "category": "subtitletools",
+      "name": "Subtitle Sync Fixer",
+      "url": "/subtitletools/subtitle-sync-fixer",
+      "keywords": [
+        "subtitle sync fixer",
+        "subtitle"
+      ],
+      "operations": [
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-timing-shifter",
+      "category": "subtitletools",
+      "name": "Subtitle Timing Shifter",
+      "url": "/subtitletools/subtitle-timing-shifter",
+      "keywords": [
+        "subtitle timing shifter",
+        "subtitle"
+      ],
+      "operations": [
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-to-plain-text",
+      "category": "subtitletools",
+      "name": "Subtitle to Plain Text",
+      "url": "/subtitletools/subtitle-to-plain-text",
+      "keywords": [
+        "subtitle to plain text",
+        "subtitle"
+      ],
+      "operations": [
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "subtitle-translator-prep",
+      "category": "subtitletools",
+      "name": "Subtitle Translator Prep",
+      "url": "/subtitletools/subtitle-translator-prep",
+      "keywords": [
+        "subtitle translator prep",
+        "subtitle"
+      ],
+      "operations": [
+        "subtitle"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "summarize",
+      "category": "apps",
+      "name": "Oioxo Summarize",
+      "url": "/summarize",
+      "keywords": [
+        "summarize",
+        "oioxo summarize",
+        "summarize app",
+        "ai",
+        "for",
+        "articles,",
+        "videos,",
+        "pdfs"
+      ],
+      "appType": "summarize",
+      "icon": "📰",
+      "description": "AI summarize for articles, videos, PDFs",
+      "inputType": "none"
+    },
+    {
+      "slug": "add-line-breaks",
+      "category": "texttools",
+      "name": "add-line-breaks - Free Online Text Tool",
+      "url": "/texttools/add-line-breaks",
+      "keywords": [
+        "add line breaks",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "add-line-numbers",
+      "category": "texttools",
+      "name": "add-line-numbers - Free Online Text Tool",
+      "url": "/texttools/add-line-numbers",
+      "keywords": [
+        "add line numbers",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "add-prefix",
+      "category": "texttools",
+      "name": "add-prefix - Free Online Text Tool",
+      "url": "/texttools/add-prefix",
+      "keywords": [
+        "add prefix",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "add-spaces",
+      "category": "texttools",
+      "name": "add-spaces - Free Online Text Tool",
+      "url": "/texttools/add-spaces",
+      "keywords": [
+        "add spaces",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "add-suffix",
+      "category": "texttools",
+      "name": "add-suffix - Free Online Text Tool",
+      "url": "/texttools/add-suffix",
+      "keywords": [
+        "add suffix",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "base64-decode",
+      "category": "texttools",
+      "name": "base64-decode - Free Online Text Tool",
+      "url": "/texttools/base64-decode",
+      "keywords": [
+        "base64 decode"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "base64-encode",
+      "category": "texttools",
+      "name": "base64-encode - Free Online Text Tool",
+      "url": "/texttools/base64-encode",
+      "keywords": [
+        "base64 encode"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "camel-case",
+      "category": "texttools",
+      "name": "camel-case - Free Online Text Tool",
+      "url": "/texttools/camel-case",
+      "keywords": [
+        "camel case"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "etymology",
+      "category": "texttools",
+      "name": "Etymology Lookup — Word Origins from Wiktionary",
+      "url": "/texttools/etymology",
+      "keywords": [
+        "etymology",
+        "word origin",
+        "word history",
+        "wiktionary etymology"
+      ],
+      "skill": "etymology",
+      "paramKey": "word",
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-emails",
+      "category": "texttools",
+      "name": "extract-emails - Free Online Text Tool",
+      "url": "/texttools/extract-emails",
+      "keywords": [
+        "extract emails",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-hashtags",
+      "category": "texttools",
+      "name": "extract-hashtags - Free Online Text Tool",
+      "url": "/texttools/extract-hashtags",
+      "keywords": [
+        "extract hashtags",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-ip-addresses",
+      "category": "texttools",
+      "name": "extract-ip-addresses - Free Online Text Tool",
+      "url": "/texttools/extract-ip-addresses",
+      "keywords": [
+        "extract ip addresses",
+        "extract",
+        "add"
+      ],
+      "operations": [
+        "extract",
+        "add"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-mentions",
+      "category": "texttools",
+      "name": "extract-mentions - Free Online Text Tool",
+      "url": "/texttools/extract-mentions",
+      "keywords": [
+        "extract mentions",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-numbers",
+      "category": "texttools",
+      "name": "extract-numbers - Free Online Text Tool",
+      "url": "/texttools/extract-numbers",
+      "keywords": [
+        "extract numbers",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-phone-numbers",
+      "category": "texttools",
+      "name": "extract-phone-numbers - Free Online Text Tool",
+      "url": "/texttools/extract-phone-numbers",
+      "keywords": [
+        "extract phone numbers",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "extract-urls",
+      "category": "texttools",
+      "name": "extract-urls - Free Online Text Tool",
+      "url": "/texttools/extract-urls",
+      "keywords": [
+        "extract urls",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "find-replace",
+      "category": "texttools",
+      "name": "find-replace - Free Online Text Tool",
+      "url": "/texttools/find-replace",
+      "keywords": [
+        "find replace"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "find-replace-regex",
+      "category": "texttools",
+      "name": "find-replace-regex - Free Online Text Tool",
+      "url": "/texttools/find-replace-regex",
+      "keywords": [
+        "find replace regex"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "html-entities-decode",
+      "category": "texttools",
+      "name": "html-entities-decode - Free Online Text Tool",
+      "url": "/texttools/html-entities-decode",
+      "keywords": [
+        "html entities decode"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "html-entities-encode",
+      "category": "texttools",
+      "name": "html-entities-encode - Free Online Text Tool",
+      "url": "/texttools/html-entities-encode",
+      "keywords": [
+        "html entities encode"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "kebab-case",
+      "category": "texttools",
+      "name": "kebab-case - Free Online Text Tool",
+      "url": "/texttools/kebab-case",
+      "keywords": [
+        "kebab case"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "keep-lines-containing",
+      "category": "texttools",
+      "name": "keep-lines-containing - Free Online Text Tool",
+      "url": "/texttools/keep-lines-containing",
+      "keywords": [
+        "keep lines containing"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "keyword-density",
+      "category": "texttools",
+      "name": "Keyword Density Analyzer - Free Online Tool",
+      "url": "/texttools/keyword-density",
+      "keywords": [
+        "keyword density"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "lowercase",
+      "category": "texttools",
+      "name": "lowercase - Free Online Text Tool",
+      "url": "/texttools/lowercase",
+      "keywords": [
+        "lowercase"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "normalize-whitespace",
+      "category": "texttools",
+      "name": "normalize-whitespace - Free Online Text Tool",
+      "url": "/texttools/normalize-whitespace",
+      "keywords": [
+        "normalize whitespace",
+        "normalize"
+      ],
+      "operations": [
+        "normalize"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "pascal-case",
+      "category": "texttools",
+      "name": "pascal-case - Free Online Text Tool",
+      "url": "/texttools/pascal-case",
+      "keywords": [
+        "pascal case"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "pronounce",
+      "category": "texttools",
+      "name": "Pronounce It — IPA + Spoken Audio for Any Word",
+      "url": "/texttools/pronounce",
+      "keywords": [
+        "pronounce",
+        "pronunciation",
+        "ipa",
+        "how to say"
+      ],
+      "skill": "pronounce",
+      "paramKey": "word",
+      "inputType": "text"
+    },
+    {
+      "slug": "readability-score",
+      "category": "texttools",
+      "name": "Readability Score - Free Online Tool",
+      "url": "/texttools/readability-score",
+      "keywords": [
+        "readability score"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-all-spaces",
+      "category": "texttools",
+      "name": "remove-all-spaces - Free Online Text Tool",
+      "url": "/texttools/remove-all-spaces",
+      "keywords": [
+        "remove all spaces",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-characters",
+      "category": "texttools",
+      "name": "remove-characters - Free Online Text Tool",
+      "url": "/texttools/remove-characters",
+      "keywords": [
+        "remove characters",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-duplicates",
+      "category": "texttools",
+      "name": "remove-duplicates - Free Online Text Tool",
+      "url": "/texttools/remove-duplicates",
+      "keywords": [
+        "remove duplicates",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-empty-lines",
+      "category": "texttools",
+      "name": "remove-empty-lines - Free Online Text Tool",
+      "url": "/texttools/remove-empty-lines",
+      "keywords": [
+        "remove empty lines",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-extra-spaces",
+      "category": "texttools",
+      "name": "remove-extra-spaces - Free Online Text Tool",
+      "url": "/texttools/remove-extra-spaces",
+      "keywords": [
+        "remove extra spaces",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-letters",
+      "category": "texttools",
+      "name": "remove-letters - Free Online Text Tool",
+      "url": "/texttools/remove-letters",
+      "keywords": [
+        "remove letters",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-line-breaks",
+      "category": "texttools",
+      "name": "remove-line-breaks - Free Online Text Tool",
+      "url": "/texttools/remove-line-breaks",
+      "keywords": [
+        "remove line breaks",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-line-numbers",
+      "category": "texttools",
+      "name": "remove-line-numbers - Free Online Text Tool",
+      "url": "/texttools/remove-line-numbers",
+      "keywords": [
+        "remove line numbers",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-lines-containing",
+      "category": "texttools",
+      "name": "remove-lines-containing - Free Online Text Tool",
+      "url": "/texttools/remove-lines-containing",
+      "keywords": [
+        "remove lines containing",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-numbers",
+      "category": "texttools",
+      "name": "remove-numbers - Free Online Text Tool",
+      "url": "/texttools/remove-numbers",
+      "keywords": [
+        "remove numbers",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "remove-special-chars",
+      "category": "texttools",
+      "name": "remove-special-chars - Free Online Text Tool",
+      "url": "/texttools/remove-special-chars",
+      "keywords": [
+        "remove special chars",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "reverse-line-order",
+      "category": "texttools",
+      "name": "reverse-line-order - Free Online Text Tool",
+      "url": "/texttools/reverse-line-order",
+      "keywords": [
+        "reverse line order",
+        "reverse"
+      ],
+      "operations": [
+        "reverse"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "reverse-text",
+      "category": "texttools",
+      "name": "reverse-text - Free Online Text Tool",
+      "url": "/texttools/reverse-text",
+      "keywords": [
+        "reverse text",
+        "reverse"
+      ],
+      "operations": [
+        "reverse"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "rot13",
+      "category": "texttools",
+      "name": "rot13 - Free Online Text Tool",
+      "url": "/texttools/rot13",
+      "keywords": [
+        "rot13"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "sentence-case",
+      "category": "texttools",
+      "name": "sentence-case - Free Online Text Tool",
+      "url": "/texttools/sentence-case",
+      "keywords": [
+        "sentence case"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "snake-case",
+      "category": "texttools",
+      "name": "snake-case - Free Online Text Tool",
+      "url": "/texttools/snake-case",
+      "keywords": [
+        "snake case"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "sort-lines",
+      "category": "texttools",
+      "name": "sort-lines - Free Online Text Tool",
+      "url": "/texttools/sort-lines",
+      "keywords": [
+        "sort lines"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "title-case",
+      "category": "texttools",
+      "name": "title-case - Free Online Text Tool",
+      "url": "/texttools/title-case",
+      "keywords": [
+        "title case"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "translate",
+      "category": "texttools",
+      "name": "Translate — 35 Languages, Free Online Translator",
+      "url": "/texttools/translate",
+      "keywords": [
+        "translate",
+        "translator",
+        "translate to",
+        "mymemory"
+      ],
+      "skill": "translate",
+      "paramKey": "text",
+      "operations": [
+        "translate"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "trim-whitespace",
+      "category": "texttools",
+      "name": "trim-whitespace - Free Online Text Tool",
+      "url": "/texttools/trim-whitespace",
+      "keywords": [
+        "trim whitespace",
+        "trim"
+      ],
+      "operations": [
+        "trim"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "uppercase",
+      "category": "texttools",
+      "name": "uppercase - Free Online Text Tool",
+      "url": "/texttools/uppercase",
+      "keywords": [
+        "uppercase"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "url-decode",
+      "category": "texttools",
+      "name": "url-decode - Free Online Text Tool",
+      "url": "/texttools/url-decode",
+      "keywords": [
+        "url decode"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "url-encode",
+      "category": "texttools",
+      "name": "url-encode - Free Online Text Tool",
+      "url": "/texttools/url-encode",
+      "keywords": [
+        "url encode"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "word-counter",
+      "category": "texttools",
+      "name": "word-counter - Free Online Text Tool",
+      "url": "/texttools/word-counter",
+      "keywords": [
+        "word counter"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "word-relations",
+      "category": "texttools",
+      "name": "Word Relations — Rhymes, Synonyms, Anagrams & More",
+      "url": "/texttools/word-relations",
+      "keywords": [
+        "word relations",
+        "rhymes with",
+        "synonyms",
+        "antonyms",
+        "anagrams",
+        "homophones"
+      ],
+      "skill": "wordrel",
+      "paramKey": "word",
+      "inputType": "text"
+    },
+    {
+      "slug": "countdown-timer-generator",
+      "category": "timetools",
+      "name": "Countdown Timer",
+      "url": "/timetools/countdown-timer-generator",
+      "keywords": [
+        "countdown timer generator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "cron-expression-builder",
+      "category": "timetools",
+      "name": "Cron Expression Builder",
+      "url": "/timetools/cron-expression-builder",
+      "keywords": [
+        "cron expression builder",
+        "build"
+      ],
+      "operations": [
+        "build"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "date-difference-calculator",
+      "category": "timetools",
+      "name": "Date Difference Calculator",
+      "url": "/timetools/date-difference-calculator",
+      "keywords": [
+        "date difference calculator"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "iso-8601-formatter",
+      "category": "timetools",
+      "name": "ISO 8601 Formatter",
+      "url": "/timetools/iso-8601-formatter",
+      "keywords": [
+        "iso 8601 formatter"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "timezone-converter",
+      "category": "timetools",
+      "name": "Timezone Converter",
+      "url": "/timetools/timezone-converter",
+      "keywords": [
+        "timezone converter",
+        "convert"
+      ],
+      "engine": "time",
+      "paramKey": "city",
+      "operations": [
+        "convert"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "unix-timestamp-converter",
+      "category": "timetools",
+      "name": "Unix Timestamp Converter",
+      "url": "/timetools/unix-timestamp-converter",
+      "keywords": [
+        "unix timestamp converter",
+        "convert"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "inputType": "text"
+    },
+    {
+      "slug": "world-clock",
+      "category": "timetools",
+      "name": "World Clock",
+      "url": "/timetools/world-clock",
+      "keywords": [
+        "world clock"
+      ],
+      "engine": "time",
+      "paramKey": "city",
+      "inputType": "text"
+    },
+    {
+      "slug": "add-audio",
+      "category": "videotools",
+      "name": "add-audio - Free Online Video Tool",
+      "url": "/videotools/add-audio",
+      "keywords": [
+        "add audio",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-subtitles",
+      "category": "videotools",
+      "name": "add-subtitles - Free Online Video Tool",
+      "url": "/videotools/add-subtitles",
+      "keywords": [
+        "add subtitles",
+        "subtitle",
+        "add"
+      ],
+      "operations": [
+        "subtitle",
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-text",
+      "category": "videotools",
+      "name": "add-text - Free Online Video Tool",
+      "url": "/videotools/add-text",
+      "keywords": [
+        "add text",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-text-video",
+      "category": "videotools",
+      "name": "add-text-video - Free Online Video Tool",
+      "url": "/videotools/add-text-video",
+      "keywords": [
+        "add text video",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-watermark",
+      "category": "videotools",
+      "name": "add-watermark - Free Online Video Tool",
+      "url": "/videotools/add-watermark",
+      "keywords": [
+        "add watermark",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "add-watermark-video",
+      "category": "videotools",
+      "name": "add-watermark-video - Free Online Video Tool",
+      "url": "/videotools/add-watermark-video",
+      "keywords": [
+        "add watermark video",
+        "add"
+      ],
+      "operations": [
+        "add"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "adjust-brightness",
+      "category": "videotools",
+      "name": "adjust-brightness - Free Online Video Tool",
+      "url": "/videotools/adjust-brightness",
+      "keywords": [
+        "adjust brightness"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "adjust-speed",
+      "category": "videotools",
+      "name": "adjust-speed - Free Online Video Tool",
+      "url": "/videotools/adjust-speed",
+      "keywords": [
+        "adjust speed"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "adjust-volume",
+      "category": "videotools",
+      "name": "adjust-volume - Free Online Video Tool",
+      "url": "/videotools/adjust-volume",
+      "keywords": [
+        "adjust volume"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "blur-video",
+      "category": "videotools",
+      "name": "blur-video - Free Online Video Tool",
+      "url": "/videotools/blur-video",
+      "keywords": [
+        "blur video",
+        "blur"
+      ],
+      "operations": [
+        "blur"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-background",
+      "category": "videotools",
+      "name": "change-background - Free Online Video Tool",
+      "url": "/videotools/change-background",
+      "keywords": [
+        "change background"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "change-bitrate",
+      "category": "videotools",
+      "name": "change-bitrate - Free Online Video Tool",
+      "url": "/videotools/change-bitrate",
+      "keywords": [
+        "change bitrate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "compress-video",
+      "category": "videotools",
+      "name": "compress-video - Free Online Video Tool",
+      "url": "/videotools/compress-video",
+      "keywords": [
+        "compress video",
+        "compress"
+      ],
+      "operations": [
+        "compress"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "convert-format-video",
+      "category": "videotools",
+      "name": "convert-format-video - Free Online Video Tool",
+      "url": "/videotools/convert-format-video",
+      "keywords": [
+        "convert format video",
+        "convert",
+        "video",
+        "video converter",
+        "convert video"
+      ],
+      "operations": [
+        "convert"
+      ],
+      "formatGroup": "video",
+      "inputType": "file"
+    },
+    {
+      "slug": "crop-video",
+      "category": "videotools",
+      "name": "crop-video - Free Online Video Tool",
+      "url": "/videotools/crop-video",
+      "keywords": [
+        "crop video",
+        "crop"
+      ],
+      "operations": [
+        "crop"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-audio",
+      "category": "videotools",
+      "name": "extract-audio - Free Online Video Tool",
+      "url": "/videotools/extract-audio",
+      "keywords": [
+        "extract audio",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-frames",
+      "category": "videotools",
+      "name": "extract-frames - Free Online Video Tool",
+      "url": "/videotools/extract-frames",
+      "keywords": [
+        "extract frames",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "extract-segment",
+      "category": "videotools",
+      "name": "extract-segment - Free Online Video Tool",
+      "url": "/videotools/extract-segment",
+      "keywords": [
+        "extract segment",
+        "extract"
+      ],
+      "operations": [
+        "extract"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "filters-video",
+      "category": "videotools",
+      "name": "filters-video - Free Online Video Tool",
+      "url": "/videotools/filters-video",
+      "keywords": [
+        "filters video"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "flip-video",
+      "category": "videotools",
+      "name": "flip-video - Free Online Video Tool",
+      "url": "/videotools/flip-video",
+      "keywords": [
+        "flip video"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "generate-thumbnail",
+      "category": "videotools",
+      "name": "generate-thumbnail - Free Online Video Tool",
+      "url": "/videotools/generate-thumbnail",
+      "keywords": [
+        "generate thumbnail",
+        "generate"
+      ],
+      "operations": [
+        "generate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "gif-to-video",
+      "category": "videotools",
+      "name": "gif-to-video - Free Online Video Tool",
+      "url": "/videotools/gif-to-video",
+      "keywords": [
+        "gif to video",
+        "gif",
+        "gif converter",
+        "video",
+        "to video"
+      ],
+      "formatIn": "gif",
+      "formatOut": "video",
+      "inputType": "file"
+    },
+    {
+      "slug": "loop-video",
+      "category": "videotools",
+      "name": "loop-video - Free Online Video Tool",
+      "url": "/videotools/loop-video",
+      "keywords": [
+        "loop video"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "merge-videos",
+      "category": "videotools",
+      "name": "merge-videos - Free Online Video Tool",
+      "url": "/videotools/merge-videos",
+      "keywords": [
+        "merge videos",
+        "merge"
+      ],
+      "operations": [
+        "merge"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "remove-audio",
+      "category": "videotools",
+      "name": "remove-audio - Free Online Video Tool",
+      "url": "/videotools/remove-audio",
+      "keywords": [
+        "remove audio",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "remove-segment",
+      "category": "videotools",
+      "name": "remove-segment - Free Online Video Tool",
+      "url": "/videotools/remove-segment",
+      "keywords": [
+        "remove segment",
+        "remove"
+      ],
+      "operations": [
+        "remove"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "resize-video",
+      "category": "videotools",
+      "name": "resize-video - Free Online Video Tool",
+      "url": "/videotools/resize-video",
+      "keywords": [
+        "resize video",
+        "resize"
+      ],
+      "operations": [
+        "resize"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "reverse-video",
+      "category": "videotools",
+      "name": "reverse-video - Free Online Video Tool",
+      "url": "/videotools/reverse-video",
+      "keywords": [
+        "reverse video",
+        "reverse"
+      ],
+      "operations": [
+        "reverse"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "rotate-video",
+      "category": "videotools",
+      "name": "rotate-video - Free Online Video Tool",
+      "url": "/videotools/rotate-video",
+      "keywords": [
+        "rotate video",
+        "rotate"
+      ],
+      "operations": [
+        "rotate"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "speed-video",
+      "category": "videotools",
+      "name": "speed-video - Free Online Video Tool",
+      "url": "/videotools/speed-video",
+      "keywords": [
+        "speed video"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "split-video",
+      "category": "videotools",
+      "name": "split-video - Free Online Video Tool",
+      "url": "/videotools/split-video",
+      "keywords": [
+        "split video",
+        "split"
+      ],
+      "operations": [
+        "split"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "stabilize-video",
+      "category": "videotools",
+      "name": "stabilize-video - Free Online Video Tool",
+      "url": "/videotools/stabilize-video",
+      "keywords": [
+        "stabilize video"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "trim-video",
+      "category": "videotools",
+      "name": "trim-video - Free Online Video Tool",
+      "url": "/videotools/trim-video",
+      "keywords": [
+        "trim video",
+        "trim"
+      ],
+      "operations": [
+        "trim"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "video-collage",
+      "category": "videotools",
+      "name": "video-collage - Free Online Video Tool",
+      "url": "/videotools/video-collage",
+      "keywords": [
+        "video collage"
+      ],
+      "inputType": "file"
+    },
+    {
+      "slug": "video-to-gif",
+      "category": "videotools",
+      "name": "video-to-gif - Free Online Video Tool",
+      "url": "/videotools/video-to-gif",
+      "keywords": [
+        "video to gif",
+        "video",
+        "video converter",
+        "gif",
+        "to gif"
+      ],
+      "formatIn": "video",
+      "formatOut": "gif",
+      "inputType": "file"
+    },
+    {
+      "slug": "watch",
+      "category": "apps",
+      "name": "Oioxo Watch",
+      "url": "/watch",
+      "keywords": [
+        "watch",
+        "oioxo watch",
+        "watch app",
+        "synchronized",
+        "party",
+        "videos",
+        "in",
+        "sync",
+        "across",
+        "friends"
+      ],
+      "appType": "watch",
+      "icon": "📺",
+      "description": "Synchronized watch party — videos in sync across friends",
+      "inputType": "none"
+    }
+  ],
+  "formatGroups": {
+    "audio": [
+      "mp3",
+      "wav",
+      "flac",
+      "aac",
+      "ogg",
+      "m4a",
+      "wma",
+      "aiff",
+      "opus",
+      "alac",
+      "amr"
+    ],
+    "video": [
+      "mp4",
+      "avi",
+      "mov",
+      "mkv",
+      "webm",
+      "flv",
+      "wmv",
+      "m4v",
+      "mpg",
+      "mpeg",
+      "3gp",
+      "ogv",
+      "ts",
+      "vob"
+    ],
+    "image": [
+      "jpg",
+      "jpeg",
+      "png",
+      "webp",
+      "gif",
+      "bmp",
+      "tiff",
+      "tif",
+      "svg",
+      "heic",
+      "heif",
+      "avif",
+      "ico",
+      "raw",
+      "dng",
+      "psd"
+    ],
+    "doc": [
+      "pdf",
+      "docx",
+      "doc",
+      "txt",
+      "rtf",
+      "odt",
+      "epub",
+      "mobi",
+      "pages",
+      "html",
+      "md",
+      "tex"
+    ],
+    "data": [
+      "json",
+      "xml",
+      "csv",
+      "yaml",
+      "yml",
+      "toml",
+      "tsv"
+    ],
+    "archive": [
+      "zip",
+      "rar",
+      "7z",
+      "tar",
+      "gz",
+      "bz2",
+      "xz"
+    ],
+    "ebook": [
+      "epub",
+      "mobi",
+      "azw",
+      "azw3",
+      "fb2"
+    ],
+    "font": [
+      "ttf",
+      "otf",
+      "woff",
+      "woff2",
+      "eot"
+    ]
+  },
+  "operationVerbs": [
+    "compress",
+    "merge",
+    "split",
+    "rotate",
+    "resize",
+    "extract",
+    "remove",
+    "trim",
+    "crop",
+    "reverse",
+    "enhance",
+    "blur",
+    "sharpen",
+    "convert",
+    "edit",
+    "normalize",
+    "denoise",
+    "boost",
+    "fade",
+    "mute",
+    "amplify",
+    "translate",
+    "transcribe",
+    "caption",
+    "subtitle",
+    "add",
+    "overlay",
+    "create",
+    "generate",
+    "make",
+    "build",
+    "design",
+    "render"
+  ]
+}

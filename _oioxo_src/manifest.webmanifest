@@ -1,0 +1,22 @@
+{
+  "name": "oioxo — frontier search",
+  "short_name": "oioxo",
+  "start_url": "/search?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a73e8",
+  "description": "Wikidata-grounded, cross-language, open-access, zero-server frontier search engine.",
+  "lang": "en",
+  "dir": "auto",
+  "categories": ["education", "productivity", "utilities", "news"],
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

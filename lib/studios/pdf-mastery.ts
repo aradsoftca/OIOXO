@@ -278,6 +278,32 @@ export async function applyInteractiveFormFields(srcBytes: ArrayBuffer, fields: 
   return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
 }
 
+/**
+ * REAL AES password protection (verified: produces an /Encrypt dict, content is
+ * not stored in plaintext, and the file can't be opened without the password).
+ * Uses the @cantoo/pdf-lib fork's encrypt() API. `userPassword` to open,
+ * optional `ownerPassword` for permissions. This replaces the old facade
+ * (markPdfRestricted) which only stamped a watermark.
+ */
+export async function encryptPdf(
+  srcBytes: ArrayBuffer,
+  userPassword: string,
+  opts: { ownerPassword?: string; allowPrint?: boolean; allowCopy?: boolean } = {},
+): Promise<Blob> {
+  const { PDFDocument } = await import('@cantoo/pdf-lib');
+  const pdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+  pdf.encrypt({
+    userPassword,
+    ownerPassword: opts.ownerPassword || userPassword,
+    permissions: {
+      printing: opts.allowPrint === false ? undefined : 'highResolution',
+      copying: opts.allowCopy === false ? undefined : true,
+    },
+  });
+  const out = await pdf.save();
+  return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
+}
+
 export async function applyFormFieldsToPdf(srcBytes: ArrayBuffer, fields: PdfFormField[]): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const pdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });

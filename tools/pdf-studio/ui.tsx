@@ -96,6 +96,7 @@ export default function PdfStudioPro() {
   const redo = () => { const p = stack.current.redo(); if (p) { setDoc(p); force(); } };
 
   const [compressLevel, setCompressLevel] = React.useState<'none' | 'light' | 'balanced' | 'strong'>('none');
+  const [pdfPassword, setPdfPassword] = React.useState('');
   const [tool, setTool] = React.useState<Tool>('text');
   const [textColor, setTextColor] = React.useState('#000000');
   const [textSize, setTextSize] = React.useState(16);
@@ -490,6 +491,12 @@ export default function PdfStudioPro() {
         blob = smaller;
         note = ratio < 1 ? `Exported — ${Math.round((1 - ratio) * 100)}% smaller` : 'Exported (already optimized)';
       }
+      // Real AES password protection (last, so it wraps the finished file).
+      if (pdfPassword.trim()) {
+        const { encryptPdf } = await import('@/lib/studios');
+        blob = await encryptPdf(await blob.arrayBuffer(), pdfPassword.trim());
+        note = note.replace('Exported', 'Exported (password-protected)');
+      }
       downloadBlob(blob, `${safeFilename(doc.name)}.pdf`);
       toastFor(note);
       setExportDialog(false);
@@ -829,6 +836,11 @@ export default function PdfStudioPro() {
           </label>
           {compressLevel !== 'none' && <div className="rounded bg-amber-500/10 p-2 text-[11px] text-amber-200">Compression flattens pages to images — selectable text is lost. Best for scans/photos. We keep the original if it’s already smaller.</div>}
           {formFields.length > 0 && compressLevel === 'none' && <div className="rounded bg-cyan-500/10 p-2 text-[11px] text-cyan-200">{formFields.length} fillable form field{formFields.length === 1 ? '' : 's'} will be added — recipients can type into them in any PDF reader.</div>}
+          <label className="flex items-center justify-between gap-2 text-xs text-zinc-300">
+            <span>Password (AES)</span>
+            <input type="password" value={pdfPassword} onChange={e => setPdfPassword(e.target.value)} placeholder="leave blank for none" className="w-44 rounded border border-white/10 bg-[#0a0b0e] px-2 py-1 text-xs text-zinc-100" />
+          </label>
+          {pdfPassword.trim() && <div className="rounded bg-cyan-500/10 p-2 text-[11px] text-cyan-200">Real AES encryption — the file can't be opened without this password. Don't lose it; it can't be recovered.</div>}
           <div className="rounded bg-emerald-500/10 p-2 text-xs text-emerald-200">Redacted pages are flattened to an image so the hidden text is permanently removed — not just covered. Other pages keep their selectable vector text.</div>
           <button type="button" onClick={() => void exportImages()} className="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10">Or export every page as PNG images (.zip)</button>
         </Dialog>

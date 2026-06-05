@@ -519,6 +519,38 @@ export default function VideoStudioPro() {
     toastFor(`Applied ${grade.name} to all clips`);
   };
 
+  // Auto-reframe: find the subject in the current preview frame (on-device
+  // segmentation) and set the first video clip's PiP transform so the subject
+  // stays centered + filled — the "make my 16:9 into 9:16 keeping the person"
+  // move. Static (one detection); graceful if no subject is found.
+  const autoReframe = async () => {
+    const firstVideo = doc.clips.find(c => c.kind === 'video') as VideoClip | undefined;
+    if (!firstVideo) { toastFor('Add a video clip first'); return; }
+    const c = previewRef.current;
+    if (!c || c.width === 0) { toastFor('Move the playhead to a frame with your subject, then try again'); return; }
+    if (!(await guard())) return;
+    setBusy('Finding your subject on-device…');
+    try {
+      const { findSubjectCenter } = await import('@/lib/studios/ai-bgremove');
+      // Copy the preview into a same-origin canvas for segmentation.
+      const work = document.createElement('canvas'); work.width = c.width; work.height = c.height;
+      work.getContext('2d')!.drawImage(c, 0, 0);
+      const subj = await findSubjectCenter(work);
+      const next = cloneDoc(doc);
+      const vc = next.clips.find(x => x.id === firstVideo.id) as VideoClip | undefined;
+      if (!vc) return;
+      // Fill the frame ('cover') and shift so the subject's center sits at the
+      // frame center. cx/cy are 0..1; transform.x/y offset from center in frame units.
+      vc.fit = 'cover';
+      const cx = subj?.cx ?? 0.5, cy = subj?.cy ?? 0.5;
+      vc.transform = { x: (0.5 - cx), y: (0.5 - cy) * 0.6, scale: 1.15, rotation: 0 };
+      commit('auto-reframe', next);
+      toastFor(subj ? 'Reframed around your subject — tweak in Transform (PiP)' : 'No clear subject — centered the frame');
+    } catch (e) {
+      toastFor((e as Error).message || 'Auto-reframe failed');
+    } finally { setBusy(''); }
+  };
+
   const addTextClip = () => {
     const next = cloneDoc(doc);
     const tt = next.tracks.find(t => t.kind === 'text');
@@ -1163,6 +1195,7 @@ export default function VideoStudioPro() {
             <div className="space-y-1.5">
               <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={() => void autoReframe()} title="Find your subject on-device and reframe the clip to keep them centered"><Sparkles className="h-3 w-3" /> Auto-reframe</StudioButton>
             </div>
           </StudioPanel>
           <StudioPanel title="Color grade">

@@ -63,6 +63,33 @@ export async function removeBackgroundAuto(src: HTMLCanvasElement, onProgress?: 
   return out;
 }
 
+/**
+ * Find the subject's centroid + bounding box (normalized 0..1) by running the
+ * selfie segmenter once. Used for auto-reframe (smart crop to 9:16 etc. keeping
+ * the person in frame). Returns null if no subject is found (caller centers).
+ */
+export async function findSubjectCenter(src: HTMLCanvasElement): Promise<{ cx: number; cy: number; minX: number; minY: number; maxX: number; maxY: number } | null> {
+  const seg = await loadSelfieSegmenter();
+  const result = seg.segment(src);
+  const mask = result.categoryMask;
+  if (!mask) return null;
+  const data: Uint8Array = mask.getAsUint8Array();
+  const mw = mask.width, mh = mask.height;
+  let sx = 0, sy = 0, n = 0, minX = mw, minY = mh, maxX = 0, maxY = 0;
+  for (let y = 0; y < mh; y++) {
+    for (let x = 0; x < mw; x++) {
+      if (data[y * mw + x] !== 0) { // foreground
+        sx += x; sy += y; n++;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
+  }
+  try { mask.close?.(); } catch {}
+  if (n < mw * mh * 0.01) return null; // too little foreground → no clear subject
+  return { cx: sx / n / mw, cy: sy / n / mh, minX: minX / mw, minY: minY / mh, maxX: maxX / mw, maxY: maxY / mh };
+}
+
 export async function removeBackgroundByLuma(src: HTMLCanvasElement, tolerance = 32): Promise<HTMLCanvasElement> {
   const w = src.width, h = src.height;
   const out = document.createElement('canvas');

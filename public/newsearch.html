@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>newsearch — relevance-first brain (prototype)</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 system-ui, sans-serif; max-width: 820px; margin: 0 auto; padding: 24px;
+         background: #0b0d10; color: #e6e8eb; }
+  h1 { font-size: 16px; color: #9aa4b2; font-weight: 600; }
+  #q { width: 100%; padding: 12px 14px; font-size: 16px; border-radius: 10px;
+       border: 1px solid #2a2f37; background: #14171c; color: #e6e8eb; }
+  #status { color: #7d8896; font-size: 12px; margin: 8px 0; min-height: 16px; }
+  .r { padding: 12px 0; border-bottom: 1px solid #1c2128; }
+  .r .top { display: flex; gap: 8px; align-items: baseline; }
+  .score { font-variant-numeric: tabular-nums; color: #6ee7b7; font-weight: 700; min-width: 44px; }
+  .src { font-size: 10px; color: #8b95a3; background: #1c2128; padding: 1px 6px; border-radius: 4px; }
+  .title { font-weight: 600; color: #cdd5e0; text-decoration: none; }
+  .title:hover { text-decoration: underline; }
+  .url { font-size: 11px; color: #59636f; }
+  .snip { font-size: 13px; color: #9aa4b2; margin-top: 3px; }
+  .dim { opacity: .45; }
+  #answer { margin: 10px 0 4px; }
+  .likely { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+  .likely .lbl { color: #6ee7b7; font-weight: 700; }
+  .likely .chip { background: #11221c; border: 1px solid #1e4034; border-radius: 999px; padding: 4px 12px; color: #d7f5e8; }
+  .sec { margin-top: 26px; font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: #59636f; border-bottom: 1px solid #1c2128; padding-bottom: 5px; }
+  #videos { margin-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .vid { background: #14171c; border: 1px solid #1c2128; border-radius: 10px; overflow: hidden; }
+  .vid img { width: 100%; aspect-ratio: 16/9; object-fit: cover; background: #0b0d10; display: block; }
+  .vid .vt { padding: 8px 10px 4px; font-size: 12px; color: #cdd5e0; text-decoration: none; display: block; line-height: 1.35; }
+  .vid .vc { padding: 0 10px 9px; font-size: 10px; color: #59636f; }
+  .ans-card { border-radius: 12px; padding: 13px 16px; margin: 12px 0 4px; }
+  .ans-card.ok { background: #0e1f18; border: 1px solid #1e4034; }
+  .ans-card.refuse { background: #1c1810; border: 1px solid #3a3220; }
+  .ans-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+  .ans-card.ok .ans-lbl { color: #6ee7b7; }
+  .ans-card.refuse .ans-lbl { color: #e7c86e; }
+  .ans-txt { font-size: 18px; color: #eef4f0; font-weight: 600; }
+  .ans-src { font-size: 11px; color: #6b7682; margin-top: 7px; }
+  .ans-card.tool { background: #0e1a22; border: 1px solid #1e3a4a; }
+  .ans-card.tool .ans-lbl { color: #6ec8e7; }
+  .ans-card.meta { background: #161320; border: 1px solid #2c2640; }
+  .ans-card.meta .ans-lbl { color: #b79ee7; }
+  .tool-go { display: inline-block; margin-top: 9px; font-size: 13px; color: #6ec8e7; text-decoration: none;
+             border: 1px solid #1e3a4a; border-radius: 8px; padding: 5px 12px; }
+  .tool-go:hover { background: #0c2531; }
+  #route { font-size: 12px; color: #7d8896; margin: 4px 0 2px; min-height: 15px; }
+  #route .rk { color: #cdd5e0; background: #1c2128; border-radius: 5px; padding: 2px 9px; }
+</style>
+</head>
+<body>
+<h1>newsearch — relevance-first brain · <span style="color:#6ee7b7">pure semantic ranking, zero rules</span></h1>
+<input id="q" placeholder="ask anything…" autofocus>
+<div id="status"></div>
+<div id="route"></div>
+<div id="readans"></div>
+<div id="answer"></div>
+<div id="out"></div>
+<div id="vidsec" class="sec" style="display:none">🎬 Videos — separate shelf (never mixed into results)</div>
+<div id="videos"></div>
+
+<!-- Ported from the legacy engine: self-contained instant-answer compute (math/units/currency/date).
+     NOT ranking — pure computation/data. The clean router's `compute`/`data-lookup` routes feed it,
+     so "17% of 350", "10 miles to km", "100 usd to eur" get real answers, not just a tool deep-link.
+     Each is an IIFE registering on window.oioxoEngines/oioxoSkills; compute.js reads them at call-time. -->
+<script src="/engines/units.js"></script>
+<script src="/engines/datemath.js"></script>
+<script src="/skills/currency.js"></script>
+<script src="/router/compute.js"></script>
+<!-- data-lookup skills (open-meteo, CORS-clean): weather first (astro/airquality reuse its geocode). -->
+<script src="/skills/weather.js"></script>
+<script src="/skills/astro.js"></script>
+<script src="/skills/airquality.js"></script>
+<script type="module">
+// ─────────────────────────────────────────────────────────────────────────────
+// newsearch — a clean-slate retrieval brain. ONE principle: results are ranked by
+// what they MEAN relative to the query (bi-encoder cosine), nothing else. No fame,
+// no freshness, no domain-trust, no consensus, no per-source boosts, no homonym
+// lists, no video flooding. If the ranking is wrong, the fix is a better signal —
+// never another rule. This file is the experiment that proves (or disproves) that
+// meaning-ranking alone gives correct first results.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const $ = s => document.querySelector(s);
+const setStatus = t => { $('#status').textContent = t; };
+
+// ── RETRIEVAL: CORS-clean sources only. Each returns [{url,title,snippet,source}].
+// Broad recall is the goal here; relevance is decided later by meaning, not by source.
+const enc = encodeURIComponent;
+
+// ── UNDERSTANDING (step 0): a non-English query is the SAME information need in another
+// language. Pivot it to English so the (far richer) English web is searched, then rank by
+// meaning. gtx is a free CORS-clean translate endpoint (auto-detects source). No language
+// rules, no per-language handling — one general translate. ASCII/English passes through.
+async function toEnglish(q) {
+  // ALWAYS ask gtx (auto-detect). It returns the DETECTED source language; if it's not English
+  // we use the translation. This catches Latin-script languages (Italian/Spanish/French/German)
+  // that a non-ASCII test misses — without any per-language list. The translator does the
+  // understanding. (~200ms; on English queries it detects 'en' and we keep the original.)
+  try {
+    const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=${enc(q)}`, { signal: AbortSignal.timeout(7000) });
+    const j = await r.json();
+    const src = (j[2] || '').slice(0, 2);
+    if (!src || src === 'en') return q;
+    const t = (j[0] || []).map(s => s[0]).join('').trim();
+    return t || q;
+  } catch { return q; }
+}
+
+// ── LAYER 2 — DISTILL (the "art of search" step). A keyword index (Mwmbl/DDG) needs SEARCH
+// TERMS, not a 10-line story. RAKE-style keyphrase extraction pulls the few words that carry the
+// need ("horror movie woman television japanese") out of the noise — an algorithm, not a rule,
+// not the LLM (which failed this exact task). Short queries pass through; only long ones distill.
+const _STOP = new Set(("a an the and or but of to in on at for with from by is am are was were be been being do does did " +
+  "have has had will would can could should may might must what when where who whom which how why that this these those " +
+  "there here now then so if as about into out up down off over under again very really just some any all no not too also " +
+  "i me my you your we our they them he she it its his her their main came come out really scary saw watched last night " +
+  "name names dress wearing wore worn look looks looked looking face really tell told ask asked thing things really " +
+  "movie film show one someone something really good bad nice yesterday today really").split(/\s+/));
+function distill(text) {
+  const toks = String(text).toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
+  const phrases = []; let cur = [];
+  for (const t of toks) { if (_STOP.has(t) || t.length < 2) { if (cur.length) { phrases.push(cur); cur = []; } } else cur.push(t); }
+  if (cur.length) phrases.push(cur);
+  if (!phrases.length) return text;
+  const freq = {}, deg = {};
+  for (const p of phrases) { const d = p.length; for (const w of p) { freq[w] = (freq[w] || 0) + 1; deg[w] = (deg[w] || 0) + d; } }
+  const ws = w => deg[w] / freq[w];
+  const seen = new Set(), scored = [];
+  for (const p of phrases) { const k = p.join(' '); if (seen.has(k)) continue; seen.add(k); scored.push({ p, s: p.reduce((a, w) => a + ws(w), 0) }); }
+  scored.sort((a, b) => b.s - a.s);
+  const used = new Set(), out = []; let n = 0;
+  for (const it of scored) { const fresh = it.p.filter(w => !used.has(w)); if (!fresh.length) continue; out.push(it.p.join(' ')); it.p.forEach(w => used.add(w)); n += fresh.length; if (n >= 6) break; }
+  return out.join(' ') || text;
+}
+
+const SOURCES = {
+  async wikipedia(q) {
+    const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${enc(q)}&format=json&origin=*&srlimit=10`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    return (j.query?.search || []).map((s, i) => ({
+      url: `https://en.wikipedia.org/wiki/${enc(s.title.replace(/ /g, '_'))}`,
+      title: s.title,
+      snippet: (s.snippet || '').replace(/<[^>]+>/g, ''),
+      source: 'wikipedia',
+      wikiRank: i,   // preserve Wikipedia's full-text relevance order (the reading stage trusts it for explanatory articles)
+    }));
+  },
+  async mwmbl(q) {
+    const r = await fetch(`https://api.mwmbl.org/search?s=${enc(q)}`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    return (Array.isArray(j) ? j : (j.results || [])).map(x => ({
+      url: x.url,
+      title: (x.title || []).map?.(t => t.value).join('') || x.title || '',
+      snippet: (x.extract || []).map?.(t => t.value).join('') || x.extract || '',
+      source: 'mwmbl',
+    })).filter(x => x.url && x.title);
+  },
+  async hn(q) {
+    const r = await fetch(`https://hn.algolia.com/api/v1/search?query=${enc(q)}&tags=story&hitsPerPage=10`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    return (j.hits || []).map(h => ({
+      url: h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+      title: h.title || '',
+      snippet: (h.story_text || '').replace(/<[^>]+>/g, '').slice(0, 300),
+      source: 'hn',
+    })).filter(x => x.title);
+  },
+  async ddg(q) {
+    const r = await fetch(`https://api.duckduckgo.com/?q=${enc(q)}&format=json&no_html=1&skip_disambig=1`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json();
+    const out = [];
+    if (j.AbstractURL && j.AbstractText) out.push({ url: j.AbstractURL, title: j.Heading || q, snippet: j.AbstractText, source: 'ddg' });
+    for (const t of (j.RelatedTopics || [])) {
+      if (t.FirstURL && t.Text) out.push({ url: t.FirstURL, title: t.Text.split(' - ')[0], snippet: t.Text, source: 'ddg' });
+    }
+    return out;
+  },
+  async lemmy(q) {
+    for (const base of ['https://lemmy.world', 'https://lemmy.ml', 'https://sh.itjust.works']) {
+      try {
+        const r = await fetch(`${base}/api/v3/search?q=${enc(q)}&type_=Posts&sort=TopAll&limit=8`, { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) continue;
+        const j = await r.json();
+        const posts = j.posts || [];
+        if (posts.length) return posts.map(p => ({ url: p.post.ap_id || p.post.url, title: p.post.name || '', snippet: (p.post.body || '').replace(/\s+/g, ' ').slice(0, 300), source: 'lemmy' })).filter(x => x.title);
+      } catch {}
+    }
+    return [];
+  },
+};
+
+// ── CONTENT-AWARE rerank: the snippet is a few words; the PAGE BODY disambiguates far better
+// ("relives the same day" → Groundhog Day's plot beats Reminiscence's memory-diving plot). For
+// the top candidates we fetch fuller text where CORS allows (Wikipedia REST is clean + reliable)
+// and re-rank on THAT. No rules — just a richer signal for the same meaning-ranking.
+async function enrichContent(results) {
+  await Promise.allSettled(results.map(async r => {
+    const wiki = /^https?:\/\/([a-z]{2})\.wikipedia\.org\/wiki\/(.+)$/.exec(r.url || '');
+    if (!wiki) return;
+    try {
+      const res = await fetch(`https://${wiki[1]}.wikipedia.org/api/rest_v1/page/summary/${wiki[2]}`, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) { const j = await res.json(); if (j.extract) r.content = j.extract; }
+    } catch {}
+  }));
+  return results;
+}
+
+async function gather(q) {
+  const settled = await Promise.allSettled(Object.entries(SOURCES).map(async ([name, fn]) => {
+    try { return await fn(q); } catch (e) { console.warn(name, 'failed', e.message); return []; }
+  }));
+  const all = settled.flatMap(s => s.status === 'fulfilled' ? s.value : []);
+  // dedup by URL (keep first) — the ONLY non-relevance operation, and it's lossless.
+  const seen = new Set(); const out = [];
+  for (const r of all) { const k = (r.url || '').split('#')[0]; if (k && !seen.has(k)) { seen.add(k); out.push(r); } }
+  return out;
+}
+
+// ── RANKING: pure semantic relevance. cosine(query, title+snippet). That's it.
+let _embedder = null;
+async function loadEmbedder() {
+  if (_embedder) return _embedder;
+  setStatus('loading semantic model (one-time, ~23MB)…');
+  const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+  tf.env.allowLocalModels = false;
+  try { tf.env.backends.onnx.wasm.numThreads = 1; } catch {}
+  try { _embedder = await tf.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { device: 'webgpu' }); }
+  catch { _embedder = await tf.pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { device: 'wasm', dtype: 'q8' }); }
+  return _embedder;
+}
+const cos = (a, b) => { let d = 0; for (let i = 0; i < a.length; i++) d += a[i] * b[i]; return d; };
+
+async function rank(q, cands) {
+  if (!cands.length) return [];
+  const emb = await loadEmbedder();
+  const texts = [q, ...cands.map(c => `${c.title}. ${c.snippet}`.slice(0, 400))];
+  const out = await emb(texts, { pooling: 'mean', normalize: true });
+  const v = out.tolist();
+  const qv = v[0];
+  return cands.map((c, i) => ({ ...c, score: cos(qv, v[i + 1]) })).sort((a, b) => b.score - a.score);
+}
+
+// ── READING MACHINE — read the top results and produce a GROUNDED answer or an HONEST refusal.
+// Extractive QA pulls the answer SPAN from the results (can't confabulate); the embedder VERIFIES
+// the span actually answers the question. Two signals → answer when confident+relevant, else
+// "I don't have a real answer." This is the layer the FUSION/Qwen models hallucinated; here it's
+// grounded by construction. ~65MB QA head + the embedder we already load.
+let _qa = null;
+async function loadQA() {
+  if (_qa) return _qa;
+  const tf = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+  tf.env.allowLocalModels = false; try { tf.env.backends.onnx.wasm.numThreads = 1; } catch {}
+  _qa = await tf.pipeline('question-answering', 'Xenova/distilbert-base-uncased-distilled-squad');
+  return _qa;
+}
+const _QSTOP = new Set('what when where which whose about does have having there their these those would could should other being more most into your with that this from they will have been the and for are was were has had can you how why who whom does did is it a an of to in on by as at or'.split(' '));
+// ── ESCALATING READ. Your idea: snippet → not enough? read FULL pages of the best candidates →
+// still not? pivot to other languages. The QA+VERIFY check is the same at every depth; only the
+// CONTEXT gets richer. A perfectly answerable question ("how many oxygen atoms in water") lives in
+// the page BODY, never the snippet — so we must escalate to reading the page, not give up.
+const _txt = r => String(r.content || r.snippet || '');   // coerce — a source field can be non-string
+
+// QA over one context block + VERIFY it (extract span, embedder-relevance, question-term coverage).
+async function _qaVerify(query, ctx, srcResults) {
+  if (!ctx || ctx.length < 40) return null;
+  const qa = await loadQA();
+  const o = await qa(query, ctx.slice(0, 3800), { topk: 1 });
+  const r = Array.isArray(o) ? o[0] : o;
+  if (!r || !r.answer) return null;
+  // The QA model is UNCASED → lowercase answer ("jane austen") vs capitalized source ("Jane Austen").
+  // Match case-INSENSITIVELY, else `sent` falls back to the bare span and coverage scores 0.
+  const _ra = r.answer.toLowerCase();
+  // Find the source sentence by WHOLE-WORD match — a short answer like "one" must not match inside
+  // "m·one·y"/"st·one", which would grab the wrong sentence and tank coverage (why "one oxygen atom"
+  // failed while "two" worked). Fall back to substring, then the bare span.
+  const _re = new RegExp('\\b' + _ra.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+  const _sents = ctx.split(/(?<=[.!?])\s+/);
+  const sent = _sents.find(s => _re.test(s)) || _sents.find(s => s.toLowerCase().includes(_ra)) || r.answer;
+  const emb = await loadEmbedder();
+  const v = (await emb([query, sent], { pooling: 'mean', normalize: true })).tolist();
+  const relevance = cos(v[0], v[1]);
+  const qTerms = (query.toLowerCase().match(/[a-zÀ-ɏ0-9]{3,}/g) || []).filter(w => !_QSTOP.has(w));
+  const sl = sent.toLowerCase();
+  const coverage = qTerms.length ? qTerms.filter(w => sl.includes(w)).length / qTerms.length : 1;
+  const accepted = r.score >= 0.12 && relevance >= 0.30 && coverage >= 0.45;
+  const source = (srcResults || []).find(t => _txt(t).toLowerCase().includes(_ra)) || null;
+  return { answer: r.answer, qaScore: r.score, relevance, coverage, accepted, source };
+}
+
+// FULL Wikipedia ARTICLE text (not the lead summary) — CORS-clean, no proxy. The atom-count of water
+// is in the body, so reading the whole article is what answers it.
+async function wikiFullText(title) {
+  try {
+    const r = await fetch(`https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&redirects=1&format=json&origin=*&titles=${enc(title)}`, { signal: AbortSignal.timeout(9000) });
+    const j = await r.json();
+    const p = Object.values(j.query?.pages || {})[0];
+    return p && p.extract ? String(p.extract).replace(/\s+/g, ' ') : '';
+  } catch { return ''; }
+}
+
+// Read ANY URL's full page on-device via Common Crawl (index + data hosts send CORS `*`; no proxy,
+// no Jina, no server). This is how a niche site / foreign forum gets read — not just Wikipedia.
+const _CC = { id: null };
+async function ccReadUrl(url) {
+  try {
+    if (!_CC.id) { const r = await fetch('https://index.commoncrawl.org/collinfo.json', { signal: AbortSignal.timeout(6000) }); _CC.id = (await r.json())?.[0]?.id || 'CC-MAIN-2026-21'; }
+    const ix = await fetch(`https://index.commoncrawl.org/${_CC.id}-index?url=${enc(url)}&output=json&limit=4`, { signal: AbortSignal.timeout(6000) });
+    if (!ix.ok) return '';
+    const recs = (await ix.text()).trim().split('\n').filter(Boolean).map(l => { try { return JSON.parse(l); } catch { return null; } })
+      .filter(x => x && x.filename && x.status === '200').sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+    const rec = recs[0]; if (!rec) return '';
+    const off = +rec.offset, len = +rec.length;
+    const dr = await fetch(`https://data.commoncrawl.org/${rec.filename}`, { headers: { Range: `bytes=${off}-${off + len - 1}` }, signal: AbortSignal.timeout(12000) });
+    if (!dr.ok && dr.status !== 206) return '';
+    const raw = await new Response(new Response(await dr.arrayBuffer()).body.pipeThrough(new DecompressionStream('gzip'))).text();
+    const start = Math.max(raw.indexOf('<!'), raw.indexOf('<html'), raw.indexOf('<HTML'));
+    return (start >= 0 ? raw.slice(start) : raw)
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ').replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&#?[a-z0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+  } catch { return ''; }
+}
+
+window.readAnswer = async function (query, ranked) {
+  const hasText = r => _txt(r).replace(/\s+/g, ' ').trim().length >= 60;
+  // Pick Wikipedia by WIKIPEDIA's full-text relevance (wikiRank), not our title-cosine.
+  const wikis = ranked.filter(r => r.source === 'wikipedia').sort((a, b) => (a.wikiRank ?? 99) - (b.wikiRank ?? 99)).slice(0, 3);
+  try { await enrichContent(wikis); } catch (e) {}
+
+  // PASS 1 — snippets + Wikipedia summaries (cheap, fast; keep it CLEAN — no topic noise).
+  const pool = [...wikis.filter(hasText), ...ranked.filter(r => r.source !== 'wikipedia' && hasText(r))];
+  const top1 = (pool.length ? pool : ranked).slice(0, 6);
+  let result = await _qaVerify(query, top1.map(_txt).filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 2800), top1);
+  if (result && result.accepted) return result;
+
+  // PASS 2 (escalation) is BUILT but gated OFF: full-page reading + extractive span-QA is unstable —
+  // it returns wrong/unreasoned spans ("two or three" for oxygen-in-water, a film director for "who
+  // wrote…"). Span-QA reads but cannot REASON, so per "don't fake success" we refuse rather than
+  // fabricate. The retrieval+reading infrastructure below (wikiFullText/ccReadUrl/_focusCtx) is the
+  // input the ABSTRACTIVE READER needs; that's the next decision. For now: honest snippet answer or
+  // honest refusal.
+  return result || null;
+};
+
+// Reduce a full page to the QA-relevant part: the sentences with the most QUERY-TERM overlap. This
+// is LEXICAL (no per-article embedding) so it's fast AND lands directly on the fact sentence ("…two
+// hydrogen atoms and one oxygen atom" for an atom-count question), not a whole noisy article.
+function _focusCtx(query, fullText) {
+  const qt = [...new Set((query.toLowerCase().match(/[a-zà-ÿ]{3,}/g) || []).filter(w => !_QSTOP.has(w)))];
+  const sents = [...new Set(fullText.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length >= 40 && s.length <= 320))];
+  if (sents.length <= 10 || !qt.length) return sents.slice(0, 10).join(' ');
+  return sents.map(s => { const sl = s.toLowerCase(); return { s, n: qt.filter(w => sl.includes(w)).length }; })
+    .filter(x => x.n > 0).sort((a, b) => b.n - a.n).slice(0, 10).map(x => x.s).join(' ') || sents.slice(0, 6).join(' ');
+}
+// light interrogative detector — only to decide whether an HONEST "I don't know" is worth showing
+// (a question deserves an answer-or-refusal; an exploratory query just wants the results).
+window.isQuestion = q => /\b(what|why|how|when|where|who|whom|which|is|are|was|were|does|do|did|has|have|can|could|will|would|should)\b/i.test(q) || /[?؟]/.test(q);
+
+// ── LAYER 4 — ENTITY CONVERGENCE. "Which named thing do the top results point at?" Extract
+// proper-noun candidates (capitalised phrases, quoted titles, parenthetical-with-year work
+// titles) from the ranked results, then score each by RELEVANCE (the rank score of the result
+// it came from) × RECURRENCE (how many results name it) × a title signal. No knowledge base,
+// no per-entity rules — the convergence of relevant results IS the answer signal. Generic
+// query words can't win because they carry no proper-noun specificity.
+function extractEntities(results) {
+  const ents = new Map();
+  const add = (name, score, weight, year, quoted) => {
+    name = name.trim().replace(/\s+/g, ' ').replace(/[.,;:]$/, '');
+    if (name.length < 3 || name.length > 46) return;
+    if (name === name.toUpperCase() && name.length > 5) return; // drop SHOUTING noise
+    // WELL-FORMED entity only: every word starts uppercase/digit or is a small connector. This
+    // rejects quoted sentence-fragments ("…is a series of Error") that aren't real proper nouns.
+    const words = name.split(' ');
+    if (!words.every(w => /^[A-Z0-9]/.test(w) || /^(of|the|and|in|de|la|le|&)$/i.test(w))) return;
+    if (/^(of|the|and|in|&)$/i.test(words[0]) || /^(of|the|and|in|&)$/i.test(words[words.length - 1])) return;
+    const key = name.toLowerCase();
+    const e = ents.get(key) || { name, count: 0, best: 0, year: false, quoted: false };
+    e.count += weight; e.best = Math.max(e.best, score); e.year = e.year || year; e.quoted = e.quoted || quoted;
+    ents.set(key, e);
+  };
+  for (const r of results) {
+    const t = `${r.title}. ${r.snippet}`;
+    for (const m of t.matchAll(/\b[A-Z][A-Za-z'’&-]+(?:\s+(?:[A-Z][A-Za-z'’&0-9-]+|of|the|and|in)){0,4}\b/g)) add(m[0], r.score, 1, false, false);
+    for (const m of t.matchAll(/["“']([A-Za-z0-9][^"”'\n]{1,42})["”']/g)) add(m[1], r.score, 2, false, true);
+    // "Ringu (The Ring, 1998)" / "X (1999)" → strong WORK-title signal
+    for (const m of t.matchAll(/([A-Z][A-Za-z'’ &:-]{2,32})\s*\([^)]*\b(?:19|20)\d{2}\b[^)]*\)/g)) add(m[1], r.score, 2, true, false);
+    for (const m of t.matchAll(/\(([A-Z][A-Za-z'’ &:-]{2,32}),?\s*(?:19|20)\d{2}\)/g)) add(m[1], r.score, 3, true, false);
+  }
+  // stopword-y / query-echo generics carry no specificity — let them rank themselves out by
+  // having no proper-noun weight; only drop the obvious function-word-only phrases.
+  const FUNC = /^(the|a|an|of|and|in|on|for|to|is|it|this|that|how|what|why|i|you|we|news|review|reviews|video|videos|watch|online|free|best|top)(\s|$)/i;
+  return [...ents.values()].filter(e => !FUNC.test(e.name) && /[A-Za-z]{3}/.test(e.name));
+}
+
+window.identify = function (query, ranked) {
+  const cands = extractEntities(ranked.slice(0, 10));
+  if (!cands.length) return [];
+  // NOVELTY: the user described the thing ("horror, woman, TV, Japanese") and asked for its
+  // NAME — so the answer is the proper noun they did NOT say. Entities whose words echo the
+  // query carry no new information; the salient NEW entity is the answer. This kills generic
+  // echoes ("Japanese", "Horror") without any stopword list of "non-answers".
+  const qTokens = new Set(
+    (distill(query) + ' ' + query).toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean)
+  );
+  return cands.map(e => {
+    const ew = e.name.toLowerCase().split(/\s+/);
+    const overlap = ew.filter(w => qTokens.has(w)).length / ew.length;
+    const novelty = 1 - 0.85 * overlap;
+    return {
+      name: e.name,
+      score: e.best * (1 + 0.4 * (e.count - 1)) * (e.year ? 1.3 : 1) * (e.quoted ? 1.2 : 1) * novelty,
+      count: e.count, year: e.year,
+    };
+  }).sort((a, b) => b.score - a.score).slice(0, 6);
+};
+
+// ── VIDEO SHELF — videos are gathered SEPARATELY (SepiaSearch / PeerTube federated, CORS-clean)
+// and shown in their own shelf. They NEVER enter the organic web ranking — that's the whole fix
+// for the deployed engine's "PeerTube floods everything" failure.
+async function gatherVideos(q) {
+  try {
+    const r = await fetch(`https://sepiasearch.org/api/v1/search/videos?search=${enc(q)}&count=14&sort=-match`, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return [];
+    const j = await r.json();
+    return (j.data || []).map(v => ({
+      url: v.url, title: v.name || '', snippet: (v.description || '').replace(/\s+/g, ' ').slice(0, 140),
+      thumb: v.thumbnailUrl ? (v.thumbnailUrl.startsWith('http') ? v.thumbnailUrl : 'https://sepiasearch.org' + v.thumbnailUrl) : '',
+      channel: (v.channel && v.channel.displayName) || '', source: 'video',
+    })).filter(v => v.url && v.title);
+  } catch { return []; }
+}
+window.gatherVideos = gatherVideos;
+window.toEnglish = toEnglish;
+window.rank = rank;
+
+// ── THE ROUTER (the brain's first layer). One trained logistic head (157 KB, no model download)
+// over the SAME frozen embedder, plus two structural signals embeddings can't represent. It does
+// not answer — it decides the SITUATION TYPE so each layer below can give the right kind of response.
+// A classifier can't hallucinate and can't be lobotomized; this is the only learned artifact.
+let HEAD = null, CAPS = null, CAPV = null;
+const _VERB = /\b(translat\w*|convert\w*|compress\w*|resiz\w*|crop\w*|remov\w*|merg\w*|split\w*|transcrib\w*|summari[sz]\w*|extract\w*|download\w*|make|create|generat\w*|format\w*|encod\w*|decod\w*|rotat\w*|turn it into|send|email|add)\b/i;
+
+async function routeQuery(eq) {
+  // COMPOUND ("X then Y") and BARE-AMBIGUOUS (a lone word) are structural, not semantic — parse them.
+  if (/\b(then|and then|after that|followed by)\b/i.test(eq) && _VERB.test(eq)) return 'chain';
+  if (eq.trim().split(/\s+/).filter(Boolean).length <= 1) return 'clarify';
+  if (!HEAD) HEAD = await (await fetch('/router/head_weights.json')).json();
+  const emb = await loadEmbedder();
+  const x = (await emb([eq], { pooling: 'mean', normalize: true })).tolist()[0];
+  let best = -1e9, bi = 0;
+  for (let i = 0; i < HEAD.classes.length; i++) {
+    let s = HEAD.b[i]; const w = HEAD.W[i];
+    for (let j = 0; j < x.length; j++) s += w[j] * x[j];
+    if (s > best) { best = s; bi = i; }
+  }
+  return HEAD.classes[bi];
+}
+window.routeQuery = routeQuery;
+
+// CAPABILITY RETRIEVAL — once the head says "this is a tool action", which of the 421 tools is it?
+// Nearest capability (by meaning) whose route matches the head's decision. Frozen, no training.
+async function pickTool(eq, route) {
+  if (!CAPV) {
+    CAPS = await (await fetch('/router/capability_index.json')).json();
+    const emb = await loadEmbedder();
+    CAPV = [];
+    for (let i = 0; i < CAPS.length; i += 64) {
+      const o = await emb(CAPS.slice(i, i + 64).map(c => c.capabilityText), { pooling: 'mean', normalize: true });
+      CAPV.push(...o.tolist());
+    }
+  }
+  const emb = await loadEmbedder();
+  const qv = (await emb([eq], { pooling: 'mean', normalize: true })).tolist()[0];
+  let inB = -1, inI = -1, anyB = -1, anyI = 0;
+  for (let i = 0; i < CAPV.length; i++) {
+    const s = cos(qv, CAPV[i]);
+    if (s > anyB) { anyB = s; anyI = i; }
+    if (CAPS[i].route === route && s > inB) { inB = s; inI = i; }
+  }
+  // Prefer the route the head chose, UNLESS a tool of another route matches much better.
+  // The head's coarse route and the catalog's label can disagree (a password generator lives
+  // under dev/text, not 'generate') — when the gap is large, meaning wins over the label.
+  const useIn = inI >= 0 && inB >= anyB - 0.08;
+  const i = useIn ? inI : anyI;
+  return { tool: CAPS[i], score: useIn ? inB : anyB };
+}
+window.pickTool = pickTool;
+
+// Route → how the engine should RESPOND. Anything not listed here is an action → a tool/app.
+const ROUTE_META = {
+  'wiki-fast':    { kind: 'knowledge', label: 'factual lookup' },
+  'web-research': { kind: 'knowledge', label: 'research / how-to' },
+  'news':         { kind: 'knowledge', label: 'recent news' },
+  'clarify':      { kind: 'meta', label: 'ambiguous — which did you mean?' },
+  'refuse':       { kind: 'meta', label: "out of scope — I won't pretend to answer" },
+  'chat':         { kind: 'meta', label: 'conversational' },
+  'chain':        { kind: 'meta', label: 'multi-step request' },
+};
+const isAction = r => !ROUTE_META[r];
+
+// ── ORCHESTRATION
+window.newsearch = async function (q) {
+  const t0 = performance.now();
+  const eq = await toEnglish(q);
+  if (eq !== q) console.log(`PIVOT: "${q}" -> "${eq}"`);
+  // DISTILL the gather query (keyword sources need terms, not a story); RANK against the full
+  // need (the embedder handles the whole sentence and ranks by meaning).
+  const gq = eq.split(/\s+/).filter(Boolean).length > 6 ? distill(eq) : eq;
+  if (gq !== eq) console.log(`DISTILL: "${eq}" -> "${gq}"`);
+  setStatus(`gathering "${gq}"…`);
+  const cands = await gather(gq);
+  setStatus(`gathered ${cands.length} candidates — ranking by meaning…`);
+  let ranked = await rank(eq, cands);   // stage 1: snippet meaning-rank
+  // stage 2: content-aware rerank of the head (richer body → sharper disambiguation)
+  const head = ranked.slice(0, 12);
+  await enrichContent(head);
+  if (head.some(r => r.content)) {
+    const emb = await loadEmbedder();
+    const texts = [eq, ...head.map(c => `${c.title}. ${(c.content || c.snippet || '').slice(0, 500)}`)];
+    const v = (await emb(texts, { pooling: 'mean', normalize: true })).tolist();
+    const qv = v[0];
+    head.forEach((c, i) => { c.score = cos(qv, v[i + 1]); });
+    head.sort((a, b) => b.score - a.score);
+    ranked = [...head, ...ranked.slice(12)];
+  }
+  setStatus(`${ranked.length} results · ${Math.round(performance.now() - t0)}ms · pure relevance${eq !== q ? ` · pivoted to "${eq}"` : ''}`);
+  return ranked;
+};
+
+const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+function renderAnswer(entities) {
+  // Only surface a "most likely" hint for a YEAR-TAGGED entity — a dated work (film/album/book),
+  // the genuine "identify this thing" signal. Ordinary queries (soup, tv, drive) have none, so we
+  // stay quiet instead of guessing a title fragment.
+  const top = (entities || []).filter(e => e.year).slice(0, 3);
+  $('#answer').innerHTML = top.length
+    ? `<div class="likely"><span class="lbl">🧠 most likely:</span>${top.map(e => `<span class="chip">${esc(e.name)}</span>`).join('')}</div>`
+    : '';
+}
+function renderReadAnswer(a, rawQ) {
+  const el = $('#readans');
+  if (a && a.accepted) {
+    const src = ((a.source && a.source.url) || '').replace(/^https?:\/\/(www\.)?/, '').split('/')[0];
+    el.innerHTML = `<div class="ans-card ok"><div class="ans-lbl">✅ answer · grounded in the results</div>
+      <div class="ans-txt">${esc(a.answer)}</div>
+      <div class="ans-src">from ${esc(src)} · extract ${a.qaScore.toFixed(2)} · verify ${a.relevance.toFixed(2)}</div></div>`;
+  } else if (window.isQuestion(rawQ)) {
+    // an honest "I don't know" is only worth showing for an actual question
+    el.innerHTML = `<div class="ans-card refuse"><div class="ans-lbl">🤔 no confident answer</div>
+      <div class="ans-txt">I couldn't find a real answer in these results.</div>
+      <div class="ans-src">the results below may still help — or search more</div></div>`;
+  } else { el.innerHTML = ''; }
+}
+function renderWeb(ranked) {
+  $('#out').innerHTML = ranked.map(r => `
+    <div class="r ${r.score < 0.22 ? 'dim' : ''}">
+      <div class="top">
+        <span class="score">${(r.score * 100).toFixed(0)}</span>
+        <span class="src">${esc(r.source)}</span>
+        <a class="title" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a>
+      </div>
+      <div class="url">${esc((r.url || '').replace(/^https?:\/\/(www\.)?/, '').slice(0, 90))}</div>
+      <div class="snip">${esc((r.content || r.snippet || '').slice(0, 220))}</div>
+    </div>`).join('');
+}
+function renderVideos(vids) {
+  if (!vids.length) { $('#vidsec').style.display = 'none'; $('#videos').innerHTML = ''; return; }
+  $('#vidsec').style.display = 'block';
+  $('#videos').innerHTML = vids.map(v => `
+    <div class="vid">
+      ${v.thumb ? `<a href="${esc(v.url)}" target="_blank" rel="noopener"><img src="${esc(v.thumb)}" alt="" loading="lazy" onerror="this.style.display='none'"></a>` : ''}
+      <a class="vt" href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.title.slice(0, 90))}</a>
+      ${v.channel ? `<div class="vc">${esc(v.channel)}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderRoute(route) {
+  const m = ROUTE_META[route];
+  const label = m ? m.label : (route === 'data-lookup' ? 'live data' : route === 'compute' ? 'calculation' : 'tool action');
+  $('#route').innerHTML = `<span class="rk">🧭 understood as: ${esc(label)}</span>`;
+}
+function renderTool(tool, route) {
+  const href = 'https://oioxo.com' + tool.url;
+  const desc = (tool.capabilityText || '').split(' · ')[1] || tool.category;
+  $('#readans').innerHTML = `<div class="ans-card tool">
+    <div class="ans-lbl">⚡ OIOXO TOOL · best match for this action</div>
+    <div class="ans-txt">${esc(tool.name)}</div>
+    <div class="ans-src">${esc(desc)}</div>
+    <a class="tool-go" href="${esc(href)}" target="_blank" rel="noopener">Open tool →</a></div>`;
+}
+// ── DATA-LOOKUP — live structured values (weather/air/sun/time). Reuses the ported skill DATA
+// fetchers (open-meteo, CORS-clean), rendered with the clean engine's own cards (NOT the legacy
+// card-renderer). Bounded subtype dispatch + place extraction — data-source selection, not ranking.
+function _extractPlace(q) {
+  let s = q.replace(/[?]/g, '').trim();
+  let m = s.match(/\b(?:in|at|for|of)\s+([a-zà-ÿ][a-zà-ÿ\s,'’.\-]*?)(?:\s+(?:right now|today|tonight|tomorrow|now|currently|this week))?\s*$/i);
+  if (m) return m[1].trim();
+  s = s.replace(/^(?:what(?:'s| is| time is it)?\s+)?(?:the\s+)?(weather|temperature|forecast|air quality|aqi|pollution|smog|sunrise|sunset|daylight|local time|current time|time|clock)\b/i, '')
+       .replace(/^\s*(?:is it\s+)?(?:in|at|for|of)\s+/i, '').replace(/\b(right now|today|tonight|tomorrow|now|currently)\b/ig, '').trim();
+  return s || null;
+}
+async function dataLookup(q) {
+  const S = window.oioxoSkills || {}; const ql = q.toLowerCase();
+  const place = _extractPlace(q);
+  if (!place) return null;
+  if (/\b(weather|temperature|forecast|how (hot|cold|warm)|rain|raining|snow)\b/i.test(ql) && S.weather) {
+    const w = await S.weather.getWeather(place); if (w && w.cur) return { kind: 'weather', place, w };
+  }
+  if (/\b(air quality|aqi|pollution|smog)\b/i.test(ql) && S.airquality) {
+    const a = await S.airquality.getAirQuality(place); if (a && a.cur) return { kind: 'air', place, a };
+  }
+  if (/\b(sunrise|sunset|daylight)\b/i.test(ql) && S.astro) {
+    const x = await S.astro.getAstro(place); if (x && x.sunrise) return { kind: 'astro', place, x };
+  }
+  if (/\b(time|clock|hour)\b/i.test(ql) && S.weather) {
+    const geo = await S.weather.geocode(place);
+    if (geo && geo.tz) return { kind: 'time', place: geo.name || place, t: new Date().toLocaleString('en-US', { timeZone: geo.tz, weekday: 'long', hour: '2-digit', minute: '2-digit', hour12: true }), tz: geo.tz };
+  }
+  return null;
+}
+function renderData(d) {
+  const S = window.oioxoSkills; let lbl, big, sub;
+  if (d.kind === 'weather') {
+    const [emo, desc] = S.weather.describeWMO(d.w.cur.weather_code); const dly = d.w.daily;
+    lbl = `${emo} weather · ${esc(d.w.geo.name)}${d.w.geo.country ? ', ' + esc(d.w.geo.country) : ''}`;
+    big = `${Math.round(d.w.cur.temperature_2m)}°C · ${esc(desc)}`;
+    sub = `feels ${Math.round(d.w.cur.apparent_temperature)}° · humidity ${d.w.cur.relative_humidity_2m}% · wind ${Math.round(d.w.cur.wind_speed_10m)} km/h${dly ? ` · today ${Math.round(dly.temperature_2m_min[0])}–${Math.round(dly.temperature_2m_max[0])}°` : ''}`;
+  } else if (d.kind === 'air') {
+    const aqi = d.a.cur.european_aqi, band = S.airquality.describeAqi(aqi);
+    lbl = `🌫 air quality · ${esc(d.a.geo.name)}`; big = `AQI ${aqi} · ${esc(band.label)}`;
+    sub = `${esc(band.advice)} · PM2.5 ${d.a.cur.pm2_5} · PM10 ${d.a.cur.pm10}`;
+  } else if (d.kind === 'astro') {
+    const fmt = s => new Date(s).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    lbl = `🌅 sun · ${esc((d.x.geo && d.x.geo.name) || d.place)}`; big = `↑ ${fmt(d.x.sunrise)}   ↓ ${fmt(d.x.sunset)}`;
+    sub = `daylight ${Math.floor(d.x.daylight / 3600)} h ${Math.round((d.x.daylight % 3600) / 60)} m`;
+  } else { lbl = `🕐 local time · ${esc(d.place)}`; big = esc(d.t); sub = esc(d.tz); }
+  $('#readans').innerHTML = `<div class="ans-card ok"><div class="ans-lbl">${lbl} · live</div>
+    <div class="ans-txt" style="font-size:24px">${big}</div><div class="ans-src">${sub}</div></div>`;
+}
+function renderCompute(a) {
+  // Instant computed answer (ported legacy compute engine). Big result + the working underneath.
+  let display, detail;
+  if (a.kind === 'compute-currency') { display = `${Number(a.result).toLocaleString(undefined, { maximumFractionDigits: 2 })} ${a.to}`; detail = `${a.input} ${a.from} · rate ${a.rate}${a.date ? ' · ' + a.date : ''}`; }
+  else if (a.kind === 'compute-units') { display = `${a.formatted} ${a.to}`; detail = `${a.input} ${a.from}`; }
+  else if (a.kind === 'compute-math') { display = a.formatted; detail = a.expression; }
+  else { display = a.formatted; detail = a.target || ''; }
+  $('#readans').innerHTML = `<div class="ans-card ok"><div class="ans-lbl">${esc(a.icon || '🧮')} instant answer · computed on-device</div>
+    <div class="ans-txt" style="font-size:28px">${esc(display)}</div>
+    <div class="ans-src">${esc(detail)}</div></div>`;
+}
+function renderMeta(route) {
+  const txt = {
+    refuse: "This is outside what a search can answer (an action to take, an unknowable, or a false premise). The results below may still help — but I won't invent an answer.",
+    chat:   "This reads like conversation, not a search. Showing related results, but you may want the AI chat instead.",
+    chain:  "This is a multi-step request. Search handles the first part; chain the rest through the matching tools.",
+  }[route];
+  if (!txt) { $('#readans').innerHTML = ''; return; }
+  $('#readans').innerHTML = `<div class="ans-card meta"><div class="ans-lbl">🧭 ${esc(ROUTE_META[route].label)}</div>
+    <div class="ans-txt" style="font-size:14px;font-weight:500">${esc(txt)}</div></div>`;
+}
+
+let busy = false;
+async function go() {
+  const q = $('#q').value.trim();
+  if (!q || busy) return;
+  busy = true;
+  $('#out').innerHTML = ''; $('#answer').innerHTML = ''; $('#readans').innerHTML = ''; $('#route').innerHTML = ''; $('#videos').innerHTML = ''; $('#vidsec').style.display = 'none';
+  try {
+    const eq = await window.toEnglish(q);
+    // LAYER 1 — the brain reads the SITUATION TYPE before doing anything.
+    const route = await routeQuery(eq);
+    renderRoute(route);
+
+    // ACTION → the user wants to DO something. Surface the matching OIOXO tool as the answer;
+    // web results stay underneath as context. No fabricated read-answer for an action.
+    if (isAction(route)) {
+      // COMPUTE / DATA-LOOKUP deserve a DIRECT computed answer when we can produce one — a real
+      // number beats a calculator deep-link. Falls through to the tool card if nothing computes.
+      if ((route === 'compute' || route === 'data-lookup') && window.oioxoCompute) {
+        const ans = await window.oioxoCompute.try(eq).catch(() => null);
+        if (ans) {
+          renderCompute(ans);
+          const web = await window.newsearch(q);
+          renderWeb(web);
+          busy = false; return;
+        }
+      }
+      // DATA-LOOKUP — a live structured value (weather/air/sun/time). Direct answer beats a deep-link.
+      if (route === 'data-lookup' && window.oioxoSkills) {
+        const d = await dataLookup(eq).catch(() => null);
+        if (d) {
+          renderData(d);
+          const web = await window.newsearch(q);
+          renderWeb(web);
+          busy = false; return;
+        }
+      }
+      const { tool, score } = await pickTool(eq, route);
+      // CAPABILITY FLOOR (calibrated: real tools land ≥0.57, true gaps ≤0.45). Below it the head
+      // saw an action but the catalog has no tool for it — be honest, don't force a wrong card.
+      if (score >= 0.50) renderTool(tool, route);
+      else {
+        $('#route').innerHTML = `<span class="rk">🧭 understood as: action — but no exact tool</span>`;
+        $('#readans').innerHTML = `<div class="ans-card meta"><div class="ans-lbl">🧭 no exact tool for that</div>
+          <div class="ans-txt" style="font-size:14px;font-weight:500">I don't have a tool that does this exactly. The web results below may help.</div></div>`;
+      }
+      const web = await window.newsearch(q);
+      renderWeb(web);
+      busy = false; return;
+    }
+
+    // KNOWLEDGE / META → the search pipeline, shaped by the route.
+    const knowledge = ROUTE_META[route].kind === 'knowledge';
+    const vidsP = knowledge ? window.gatherVideos(eq) : null;   // videos only make sense for knowledge
+    const web = await window.newsearch(q);
+    if (knowledge || route === 'clarify') renderAnswer(window.identify(eq, web)); // entity senses / "most likely"
+    renderWeb(web);
+    if (knowledge) {
+      try { renderReadAnswer(await window.readAnswer(eq, web), q); } catch (e) {} // grounded answer / honest refusal
+    } else {
+      // GROUNDED RESCUE — a clear factual question can misroute to chat/clarify (the router's known
+      // hard-pragmatics ceiling, e.g. "who wrote pride and prejudice"). Rather than overfit the
+      // router, let GROUNDING decide: if the reading-machine finds a CONFIDENT, grounded answer in
+      // the results, show it; otherwise the honest banner. Confidence is the gate — never fabrication.
+      let rescued = null;
+      if ((route === 'chat' || route === 'clarify') && window.isQuestion(eq)) {
+        try { const a = await window.readAnswer(eq, web); if (a && a.accepted) rescued = a; } catch (e) {}
+      }
+      if (rescued) renderReadAnswer(rescued, q);
+      else renderMeta(route);   // refuse / chain / genuine chat → honest banner, never a fabricated answer
+    }
+    if (vidsP) { const vidsRaw = await vidsP; if (vidsRaw.length) renderVideos((await window.rank(eq, vidsRaw)).slice(0, 8)); }
+  } catch (e) { setStatus('error: ' + e.message); }
+  busy = false;
+}
+window.go = go;
+$('#q').addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+// URL ?q= for shareable/testable runs
+const urlQ = new URLSearchParams(location.search).get('q');
+if (urlQ) { $('#q').value = urlQ; go(); }
+</script>
+</body>
+</html>

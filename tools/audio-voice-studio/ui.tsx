@@ -254,6 +254,9 @@ export default function VoiceStudioPro() {
   const [ttsStyle, setTtsStyle] = React.useState<VoiceStyle>(VOICE_STYLES[0]);
   // On-device transcript per clip id (Whisper) → transcript panel + SRT export.
   const [transcripts, setTranscripts] = React.useState<Record<string, { start: number; end: number; text: string }[]>>({});
+  // Descript-style word-level transcript: per-clip word timings (clip-local
+  // seconds), for edit-audio-by-deleting-words. NEEDS BROWSER QA.
+  const [words, setWords] = React.useState<Record<string, { text: string; start: number; end: number }[]>>({});
   // Crash-recovery banner — populated on mount if a fresh snapshot exists.
   const [recovery, setRecovery] = React.useState<RecoverySnapshot | null>(null);
   // Ripple mode: ON = delete/move closes the gap downstream across ALL tracks
@@ -343,7 +346,8 @@ export default function VoiceStudioPro() {
   };
 
   const importFile = async (file: File) => {
-    if (!(await guard())) return;
+    // Importing audio is FREE (like any DAW) — the credit is charged on Export
+    // and on the heavy AI ops (denoise / stem-separation / transcribe).
     setBusy('Decoding…');
     try {
       const ab = await file.arrayBuffer();
@@ -767,6 +771,64 @@ export default function VoiceStudioPro() {
     } finally { setBusy(''); setProgress(0); }
   };
 
+  // Descript-style: transcribe the clip into editable WORDS (clip-local times),
+  // so deleting a word splices that audio out. On-device Whisper word-timestamps.
+  const transcribeWords = async (id: string) => {
+    const c = doc.clips.find(x => x.id === id);
+    if (!c) { toastFor('Select a clip first'); return; }
+    const entry = buffers.current.get(c.bufferKey);
+    if (!entry) return;
+    if (!(await guard())) return;
+    setBusy('Transcribing words on your device…');
+    setProgress(0);
+    try {
+      const { transcribe } = await import('@/engines/transcribe');
+      // Transcribe the AUDIBLE part of the clip (respect its trim) so word times
+      // line up with what's actually in the clip.
+      const trimmed = audio.trim(entry.buffer, c.trimStart, c.trimEnd);
+      const wav = audio.encodeWav(trimmed);
+      const res = await transcribe(wav, {
+        size: 'base', wordTimestamps: true,
+        onProgress: (p) => { setBusy(p.phase || 'Transcribing…'); setProgress(Math.round((p.ratio || 0) * 100)); },
+      });
+      // chunks are per-word when wordTimestamps:true; times are clip-local.
+      const ws = res.chunks.map(ch => ({ text: (ch.text || '').trim(), start: ch.start, end: ch.end })).filter(w => w.text);
+      setWords(w => ({ ...w, [id]: ws }));
+      toastFor(ws.length ? `${ws.length} words — delete any to cut that audio` : 'No speech detected');
+    } catch (e) {
+      toastFor((e as Error).message || 'Transcribe failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
+  // Delete a transcribed word → splice its audio range out of the clip, rebuilt
+  // as back-to-back sub-clips (same proven mechanic as removeSilencesFromClip).
+  const deleteWord = (id: string, wordIdx: number) => {
+    const c = doc.clips.find(x => x.id === id);
+    const ws = words[id];
+    if (!c || !ws || !ws[wordIdx]) return;
+    const w = ws[wordIdx];
+    const speed = c.speed;
+    const dur = c.trimEnd - c.trimStart;
+    // Keep everything EXCEPT [w.start, w.end] (clip-local, pre-speed seconds).
+    const segs: { srcStart: number; srcEnd: number }[] = [];
+    if (w.start > 0.02) segs.push({ srcStart: c.trimStart, srcEnd: c.trimStart + w.start * speed });
+    if (dur - w.end * speed > 0.02) segs.push({ srcStart: c.trimStart + w.end * speed, srcEnd: c.trimEnd });
+    const next = cloneDoc(doc);
+    next.clips = next.clips.filter(x => x.id !== id);
+    let curStart = c.start;
+    for (const seg of segs) {
+      const len = (seg.srcEnd - seg.srcStart) / speed;
+      next.clips.push({ ...c, id: nid(), start: curStart, trimStart: seg.srcStart, trimEnd: seg.srcEnd });
+      curStart += len;
+    }
+    commit('delete word', next);
+    // Drop the word from the displayed transcript (keep the rest, shift nothing —
+    // remaining words' times no longer map perfectly after a cut, so re-transcribe
+    // for further precise edits; we just remove the chip here).
+    setWords(state => ({ ...state, [id]: ws.filter((_, i) => i !== wordIdx) }));
+    toastFor(`Removed “${w.text}”`);
+  };
+
   const downloadSrt = async () => {
     const all = Object.values(transcripts).flat().sort((a, b) => a.start - b.start);
     if (!all.length) { toastFor('Transcribe a clip first'); return; }
@@ -1072,6 +1134,24 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => applyDeEss(selectedClip.id)}><Sparkles className="h-3 w-3" /> De-ess (reduce sibilance)</StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => void denoiseClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Enhance voice (remove noise)</StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => void splitVocalsFromClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Split vocals / music</StudioButton>
+                </div>
+              </StudioPanel>
+              <StudioPanel title="Transcript — edit by word">
+                <div className="space-y-2">
+                  <StudioButton size="sm" variant="soft" onClick={() => void transcribeWords(selectedClip.id)}><FileText className="h-3 w-3" /> Transcribe (words)</StudioButton>
+                  {(words[selectedClip.id]?.length ?? 0) > 0 && (
+                    <>
+                      <div className="text-[10px] text-zinc-500">Click a word to delete it — that audio is cut. Re-transcribe for further precise edits.</div>
+                      <div className="flex max-h-48 flex-wrap gap-1 overflow-y-auto">
+                        {words[selectedClip.id].map((w, i) => (
+                          <button key={i} onClick={() => deleteWord(selectedClip.id, i)} title="Click to delete this word + its audio"
+                            className="rounded bg-white/5 px-1.5 py-0.5 text-[12px] text-zinc-200 hover:bg-rose-500/30 hover:text-rose-100 hover:line-through">
+                            {w.text}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </div>
               </StudioPanel>
               <ClipInspector clip={selectedClip} buffer={buffers.current.get(selectedClip.bufferKey) ?? null} onChange={(mut) => updateClip(selectedClip.id, mut, 'props')} />

@@ -1,0 +1,16 @@
+{
+  "name": "brain-core",
+  "type": "module",
+  "description": "Xonvert AI brain core — pure decision logic compiled to WASM so the IP ships as bytecode, not readable JS.",
+  "version": "0.1.0",
+  "files": [
+    "brain_core_bg.wasm",
+    "brain_core.js",
+    "brain_core.d.ts"
+  ],
+  "main": "brain_core.js",
+  "types": "brain_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

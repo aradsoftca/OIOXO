@@ -133,8 +133,14 @@ jobs:
       # (incl. protected/*.enc workers), and prisma schema. node_modules stays
       # persistent on the server (deploy.py --from-artifact runs npm ci there
       # only when the lockfile changed).
+      # Carry the build's TOOL_WASM_KEY inside the artifact. (A ::add-mask::'d
+      # value becomes "" when passed via needs.*.outputs across jobs, so we
+      # can't hand it over that way — ship it in the tarball instead.)
       - name: Package artifact
-        run: tar -czf /tmp/nx-build.tgz .next public prisma
+        run: |
+          printf '%s' "${{ steps.mintkey.outputs.tool_key }}" > .tool_wasm_key
+          tar -czf /tmp/nx-build.tgz .next public prisma .tool_wasm_key
+          rm -f .tool_wasm_key
 
       - uses: actions/upload-artifact@v4
         with:
@@ -165,9 +171,13 @@ jobs:
           ICELAND_USER: ${{ secrets.ICELAND_USER }}
           ICELAND_PASSWORD: ${{ secrets.ICELAND_PASSWORD }}
           NEWXONVERT_DEPLOY_ENV: ${{ secrets.NEWXONVERT_DEPLOY_ENV }}
-          TOOL_WASM_KEY: ${{ needs.build.outputs.tool_key }}
         run: |
           # deploy.py writes .env.deploy.local from the secret, then ships the
-          # prebuilt artifact instead of building on the server.
+          # prebuilt artifact. The TOOL_WASM_KEY the workers were encrypted with
+          # travels INSIDE the tarball (.tool_wasm_key) — read it from there
+          # (masked job-outputs arrive empty across jobs, so we don't use that).
           printf '%s\n' "$NEWXONVERT_DEPLOY_ENV" > .env.deploy.local
+          KEY=$(tar -xzOf /tmp/art/nx-build.tgz .tool_wasm_key)
+          echo "::add-mask::$KEY"
+          export TOOL_WASM_KEY="$KEY"
           python scripts/deploy.py --from-artifact /tmp/art/nx-build.tgz

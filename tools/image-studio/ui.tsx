@@ -589,6 +589,10 @@ export default function ImageStudioPro() {
     const next = stack.current.redo();
     if (next) { setDoc(next); force(); }
   };
+  const jumpHistory = (index: number) => {
+    const target = stack.current.jumpTo(index, cloneDoc(doc));
+    if (target) { setDoc(target); force(); }
+  };
 
   const [tool, setTool] = React.useState<ToolKind>('move');
   const [fgColor, setFgColor] = React.useState('#111111');
@@ -2106,7 +2110,7 @@ export default function ImageStudioPro() {
         {showHistoryPanel ? (
           <StudioSidebar width={200}>
             <StudioPanel title="History">
-              <HistoryList stack={stack.current} onJump={() => {}} />
+              <HistoryList stack={stack.current} onJump={jumpHistory} />
             </StudioPanel>
           </StudioSidebar>
         ) : null}
@@ -2505,15 +2509,28 @@ function HistoryList({ stack, onJump }: { stack: UndoStack<DocState>; onJump: (i
   const hist = stack.history();
   return (
     <div className="space-y-0.5">
-      {hist.past.map((label, i) => (
-        <div key={i} className={cn('flex items-center gap-2 rounded px-2 py-1 text-xs', i === hist.past.length - 1 ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400')}>
-          <span className="text-zinc-500">{i + 1}.</span>
-          <span className="truncate">{label}</span>
-        </div>
-      ))}
+      {hist.past.map((label, i) => {
+        const isCurrent = i === hist.past.length - 1;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => { if (!isCurrent) onJump(i); }}
+            disabled={isCurrent}
+            title={isCurrent ? 'Current state' : `Jump to: ${label}`}
+            className={cn(
+              'flex w-full items-center gap-2 rounded px-2 py-1 text-left text-xs transition',
+              isCurrent ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200',
+            )}
+          >
+            <span className="text-zinc-500">{i + 1}.</span>
+            <span className="truncate">{label}</span>
+          </button>
+        );
+      })}
       {hist.future.length > 0 && <div className="my-1 h-px bg-white/5" />}
       {hist.future.map((label, i) => (
-        <div key={'f' + i} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-zinc-600">
+        <div key={'f' + i} className="flex items-center gap-2 rounded px-2 py-1 text-xs text-zinc-600" title="Redo to reach this state">
           <span>{hist.past.length + i + 1}.</span>
           <span className="truncate">{label}</span>
         </div>

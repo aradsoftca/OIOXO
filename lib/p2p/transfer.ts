@@ -83,6 +83,89 @@ export interface Handlers {
   onStat?: (s: Stat) => void;
 }
 
+// --- receive sink (memory-bounded) ------------------------------------------
+// A FileSink writes incoming chunks to a backing store and hands back a Blob at
+// the end. Two implementations:
+//   • OpfsSink   — streams each chunk to the Origin Private File System
+//                  (navigator.storage, no user gesture needed), so peak memory
+//                  is ONE chunk, not the whole file. This is what lets Send
+//                  receive files larger than available RAM without crashing —
+//                  the old path buffered every ArrayBuffer in an array and then
+//                  called new Blob(chunks), which OOM'd past ~2 GB.
+//   • MemorySink — the original in-memory fallback for browsers without a
+//                  writable OPFS (older Safari/Firefox); unchanged behaviour.
+interface FileSink {
+  write(chunk: ArrayBuffer): Promise<void>;
+  finish(mime: string): Promise<Blob>;
+  discard(): Promise<void>;
+}
+
+/** True when we can stream received chunks to disk instead of buffering in RAM. */
+function opfsAvailable(): boolean {
+  try {
+    const g = globalThis as any;
+    return typeof navigator !== 'undefined'
+      && !!navigator.storage?.getDirectory
+      // createWritable is the streaming API; without it OPFS can't append cheaply.
+      // Reach via globalThis so a missing constructor is undefined, not a ReferenceError.
+      && typeof g.FileSystemFileHandle?.prototype?.createWritable === 'function';
+  } catch { return false; }
+}
+
+class OpfsSink implements FileSink {
+  private writable: FileSystemWritableFileStream | null = null;
+  private handle: FileSystemFileHandle | null = null;
+  private dir: FileSystemDirectoryHandle | null = null;
+  private name: string;
+  constructor(name: string) {
+    // Unique temp name so concurrent/aborted transfers never collide.
+    const rnd = crypto.getRandomValues(new Uint32Array(2));
+    this.name = `recv-${rnd[0].toString(36)}${rnd[1].toString(36)}-${name}`.slice(0, 200);
+  }
+  private async ensure(): Promise<FileSystemWritableFileStream> {
+    if (this.writable) return this.writable;
+    this.dir = await navigator.storage.getDirectory();
+    this.handle = await this.dir.getFileHandle(this.name, { create: true });
+    this.writable = await this.handle.createWritable();
+    return this.writable;
+  }
+  async write(chunk: ArrayBuffer): Promise<void> {
+    const w = await this.ensure();
+    await w.write(chunk);
+  }
+  async finish(_mime: string): Promise<Blob> {
+    void _mime; // OPFS File carries its own type; the receiver only needs bytes.
+    if (this.writable) { await this.writable.close(); this.writable = null; }
+    if (!this.handle) return new Blob([]);
+    const file = await this.handle.getFile();
+    // The browser keeps the bytes on disk; the Blob is a thin handle over the
+    // OPFS file, so reading it for download does not re-buffer the whole file.
+    return file;
+  }
+  async discard(): Promise<void> {
+    try { if (this.writable) await this.writable.close(); } catch { /* */ }
+    this.writable = null;
+    try { await this.dir?.removeEntry(this.name); } catch { /* best-effort */ }
+  }
+}
+
+class MemorySink implements FileSink {
+  private chunks: ArrayBuffer[] = [];
+  // Accepts (and ignores) the name so both sinks share makeSink(name)'s shape.
+  constructor(_name: string) { void _name; }
+  async write(chunk: ArrayBuffer): Promise<void> { this.chunks.push(chunk); }
+  async finish(mime: string): Promise<Blob> {
+    const blob = new Blob(this.chunks, { type: mime || 'application/octet-stream' });
+    this.chunks = [];
+    return blob;
+  }
+  async discard(): Promise<void> { this.chunks = []; }
+}
+
+function makeSink(name: string): FileSink {
+  return opfsAvailable() ? new OpfsSink(name) : new MemorySink(name);
+}
+
 /** Pull the `typ X` token (host/srflx/prflx/relay) out of a candidate line. */
 function candType(c?: string): string {
   const m = c && /(?:^|\s)typ (\w+)/.exec(c);
@@ -323,6 +406,27 @@ export function startSend(files: File[], handlers: Handlers): { code: string; tr
         await new Promise((r) => setTimeout(r, 100));
       }
       if (dc.readyState === 'open') dc.send(JSON.stringify({ t: 'end' }));
+      // Wait for the receiver's ACK before declaring Done, so "Done ✓" means the
+      // bytes actually landed on the other device (and were flushed to disk),
+      // not just that our own send buffer drained. Fall back to Done after a
+      // grace period if the ack never arrives (older receiver / channel closed
+      // right after the last byte) — never hang on a missing ack.
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const finish = () => { if (settled) return; settled = true; cleanupAck(); resolve(); };
+        const onMsg = (e: MessageEvent) => {
+          if (typeof e.data !== 'string') return;
+          try { if ((JSON.parse(e.data) as { t?: string }).t === 'ack') finish(); } catch { /* ignore */ }
+        };
+        const cleanupAck = () => {
+          dc.removeEventListener('message', onMsg);
+          dc.removeEventListener('close', finish);
+          clearTimeout(timer);
+        };
+        const timer = setTimeout(finish, 8000); // grace fallback
+        dc.addEventListener('message', onMsg);
+        dc.addEventListener('close', finish);
+      });
       handlers.onPhase?.('done');
       void totalBytes;
     } catch (err) {
@@ -391,7 +495,14 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
 
   let meta: FileMeta[] = [];
   let cur = -1;
-  let chunks: ArrayBuffer[] = [];
+  // Per-file streaming sink (OPFS when available, else in-memory). Chunks are
+  // written as they arrive so peak memory is one chunk, not the whole file.
+  let sink: FileSink | null = null;
+  // Serialize the async sink writes: data-channel onmessage is synchronous and
+  // delivers chunks in order, but sink.write() is async. We chain each write
+  // onto the previous so they commit in arrival order and a fileend awaits them.
+  let writeChain: Promise<void> = Promise.resolve();
+  let dcRef: RTCDataChannel | null = null;
   // Running per-file byte count. Used to be `chunks.reduce(...)` recomputed on
   // every chunk and every progress event — O(n²) over a 1 GB transfer
   // (16384 chunks × 16384 iters = 268M ops). A counter makes it O(1) per chunk.
@@ -404,7 +515,13 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
     if (offerWatch) { clearTimeout(offerWatch); offerWatch = null; }
     if (connectWatch) { clearTimeout(connectWatch); connectWatch = null; }
   };
-  const cleanup = () => { cancelled = true; clearTimers(); signal.stop(); try { pc?.close(); } catch { /* ignore */ } };
+  const cleanup = () => {
+    cancelled = true; clearTimers(); signal.stop();
+    // Drop any half-written streaming sink so we don't leave orphaned OPFS temp
+    // files behind on cancel/failure.
+    if (sink) { void sink.discard(); sink = null; }
+    try { pc?.close(); } catch { /* ignore */ }
+  };
   const fail = (codeOrMsg: string) => {
     if (cancelled || connected) return;
     handlers.onPhase?.('error', codeOrMsg);
@@ -417,6 +534,7 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
 
   const onDataChannel = (ev: RTCDataChannelEvent) => {
     const dc = ev.channel;
+    dcRef = dc;
     dc.binaryType = 'arraybuffer';
     dc.onopen = () => { markConnected(); handlers.onPhase?.('transferring'); };
     dc.onmessage = (e) => {
@@ -463,38 +581,63 @@ export function startReceive(code: string, handlers: Handlers): Transfer {
         else if (msg.t === 'file') {
           const i = typeof msg.i === 'number' ? msg.i : 0;
           cur = i >= 0 && i < meta.length ? i : -1;
-          chunks = [];
+          // Discard any half-written sink from an aborted previous file, then
+          // open a fresh streaming sink for this one.
+          if (sink) { void sink.discard(); sink = null; }
+          if (cur >= 0) sink = makeSink(meta[cur]?.name || `file-${cur + 1}`);
+          writeChain = Promise.resolve();
           curBytes = 0;
         }
         else if (msg.t === 'fileend') {
-          if (cur < 0) { chunks = []; curBytes = 0; return; }
+          if (cur < 0 || !sink) { curBytes = 0; return; }
           const fm = meta[cur];
-          const blob = new Blob(chunks, { type: fm?.mime || 'application/octet-stream' });
-          chunks = [];
+          const theSink = sink;
+          sink = null;
           curBytes = 0;
           filesDone += 1;
-          handlers.onFile?.({ name: fm?.name || `file-${cur + 1}`, blob });
+          // Wait for all queued chunk writes to commit, THEN finalize the blob.
+          // Done off the sync handler so we don't block the data channel.
+          void writeChain
+            .then(() => theSink.finish(fm?.mime || 'application/octet-stream'))
+            .then((blob) => handlers.onFile?.({ name: fm?.name || `file-${cur + 1}`, blob }))
+            .catch((err) => { handlers.onPhase?.('error', (err as Error).message || 'save failed'); cleanup(); });
         } else if (msg.t === 'end') {
-          handlers.onPhase?.('done');
-          signal.stop();
+          // The sender has sent everything. Only NOW — after the last file's
+          // writes have flushed to disk — do we ack + show "done", so the
+          // sender's Done is truthful (it waits for this ack). Previously the
+          // sender declared Done on its own buffer draining, before the receiver
+          // had necessarily written anything.
+          void writeChain
+            .catch(() => { /* a failed write already surfaced via fileend */ })
+            .then(() => {
+              try { if (dcRef?.readyState === 'open') dcRef.send(JSON.stringify({ t: 'ack', received: filesDone })); } catch { /* */ }
+              handlers.onPhase?.('done');
+              signal.stop();
+            });
         }
       } else {
         // Binary chunk arrived before any valid 'file' control message — drop
         // it rather than push into a phantom file the user never sees. Without
         // this, a peer that skips the meta/file header would silently leak
         // chunks into chunks[] indefinitely (memory blow-up on a bad peer).
-        if (cur < 0) return;
+        if (cur < 0 || !sink) return;
         const buf = e.data as ArrayBuffer;
         const fm0 = meta[cur];
         // Reject overrun: a peer claiming a 100KB file then streaming 100GB
-        // would otherwise buffer all of it in memory before fileend.
+        // would otherwise stream all of it before fileend.
         const max = (fm0?.size || 0) + 64 * 1024; // allow one chunk of slack
         if (curBytes + buf.byteLength > max) {
           handlers.onPhase?.('error', 'sender exceeded declared size');
           cleanup();
           return;
         }
-        chunks.push(buf);
+        // Stream the chunk to the sink. Chain writes so they commit in arrival
+        // order; a write failure (e.g. disk full) surfaces as an error.
+        const theSink = sink;
+        writeChain = writeChain.then(() => theSink.write(buf)).catch((err) => {
+          handlers.onPhase?.('error', (err as Error)?.message || 'could not write to disk');
+          cleanup();
+        });
         curBytes += buf.byteLength;
         received += buf.byteLength;
         const fm = meta[cur];

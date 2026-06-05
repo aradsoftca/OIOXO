@@ -60,6 +60,26 @@ export class UndoStack<S> {
   history(): { past: string[]; future: string[] } {
     return { past: this.past.map(p => p.label), future: this.future.map(f => f.label) };
   }
+  /**
+   * Time-travel to an arbitrary committed state by its index in the `past`
+   * list (as rendered by history().past). Frames after the target move to
+   * `future` so redo still reaches them; frames currently in `future` are
+   * reachable by jumping forward once they're surfaced. `current` is the live
+   * state, captured into the most-recent frame before the jump so an in-flight
+   * edit isn't lost. Returns the target state, or null if the index is invalid
+   * or already current.
+   */
+  jumpTo(index: number, current: S): S | null {
+    if (index < 0 || index >= this.past.length) return null;
+    if (index === this.past.length - 1) return null; // already here
+    // Preserve any uncommitted live edit in the top frame before we move it.
+    this.past[this.past.length - 1] = { ...this.past[this.past.length - 1], state: current };
+    // Everything strictly after the target rolls into `future` (newest first
+    // so a subsequent redo replays them in order).
+    const moved = this.past.splice(index + 1);
+    for (let i = moved.length - 1; i >= 0; i--) this.future.push(moved[i]);
+    return this.past[this.past.length - 1].state;
+  }
 }
 
 const DB_NAME = 'xon-studios';

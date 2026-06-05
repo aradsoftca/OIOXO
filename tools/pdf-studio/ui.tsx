@@ -539,6 +539,19 @@ export default function PdfStudioPro() {
         blob = smaller;
         note = ratio < 1 ? `Exported — ${Math.round((1 - ratio) * 100)}% smaller` : 'Exported (already optimized)';
       }
+      // When the page content was redacted, also SANITIZE the file so nothing
+      // leaks out of band: clear Info/XMP metadata, drop embedded JavaScript and
+      // attached files, and force a full (non-incremental) rewrite so no prior
+      // revision survives. Redaction removes the visible content; this removes
+      // the invisible copies. Runs before encryption so the wrapper is the last
+      // thing applied.
+      if (hasRedaction) {
+        setBusy('Sanitizing — removing hidden metadata…');
+        const { sanitizePdf } = await import('@/engines/pdf');
+        const clean = await sanitizePdf(await blob.arrayBuffer());
+        blob = new Blob([clean.slice().buffer as ArrayBuffer], { type: 'application/pdf' });
+        note = note.replace('Exported', 'Exported (redacted & sanitized)');
+      }
       // Real AES password protection (last, so it wraps the finished file).
       if (pdfPassword.trim()) {
         const { encryptPdf } = await import('@/lib/studios');

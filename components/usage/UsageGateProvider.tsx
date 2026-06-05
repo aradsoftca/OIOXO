@@ -226,6 +226,10 @@ export function UsageGateProvider() {
           setFfmpegWatermark(false);
           const { setPdfWatermark } = await import('@/engines/pdf');
           setPdfWatermark(null);
+          // Video Studio compositor burns an in-frame mark (the WebCodecs encode
+          // path bypasses the global toBlob patch) — turn it off for Pro too.
+          const { setVideoWatermark } = await import('@/engines/video/compositor');
+          setVideoWatermark(false);
         }
       } catch { /* free-safe: leave the stamp on */ }
     })();

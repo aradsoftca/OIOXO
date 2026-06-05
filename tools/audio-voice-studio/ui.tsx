@@ -537,6 +537,81 @@ export default function VoiceStudioPro() {
     } finally { setBusy(''); }
   };
 
+  // One-click on-device voice enhance (RNNoise). The engine shipped in the repo
+  // but was never wired into a studio. Free + private; matches Adobe Podcast
+  // Enhance / Audacity noise-reduction but nothing leaves the device.
+  const denoiseClip = async (id: string) => {
+    const c = doc.clips.find(x => x.id === id);
+    if (!c) { toastFor('Select a clip first'); return; }
+    const entry = buffers.current.get(c.bufferKey);
+    if (!entry) return;
+    if (!(await guard())) return;
+    setBusy('Enhancing voice…'); setProgress(0);
+    try {
+      const { denoise } = await import('@/engines/audio/denoise');
+      const processed = await denoise(entry.buffer, {
+        strength: 1,
+        onProgress: (p) => { setBusy(p.phase || 'Enhancing voice…'); setProgress(Math.round((p.ratio || 0) * 100)); },
+      });
+      const key = nid();
+      const peaks = computeWaveformPeaks(processed);
+      buffers.current.set(key, { buffer: processed, peaks, name: entry.name + ' (enhanced)' });
+      const next = cloneDoc(doc);
+      const cc = next.clips.find(x => x.id === id);
+      if (cc) cc.bufferKey = key;
+      commit('enhance voice', next);
+      toastFor('Voice enhanced — nothing left your device');
+    } catch (e) {
+      toastFor((e as Error).message || 'Enhance failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
+  // Split a clip into VOCALS + MUSIC on-device (Spleeter 2-stems). Replaces the
+  // selected clip's audio with the vocal stem and drops the accompaniment as a
+  // new clip on a free track at the same start, so they stay in sync. Free +
+  // private — this is lalal.ai's whole product, on-device.
+  const splitVocalsFromClip = async (id: string) => {
+    const c = doc.clips.find(x => x.id === id);
+    if (!c) { toastFor('Select a clip first'); return; }
+    const entry = buffers.current.get(c.bufferKey);
+    if (!entry) return;
+    if (!(await guard())) return;
+    setBusy('Separating vocals…'); setProgress(0);
+    try {
+      const { separateStem } = await import('@/lib/studios/stem-separation');
+      const vocals = await separateStem(entry.buffer, 'vocals', (p) => {
+        setBusy(p.phase || 'Separating vocals…'); setProgress(Math.round((p.ratio || 0) * 50));
+      });
+      const musicBuf = await separateStem(entry.buffer, 'accompaniment', (p) => {
+        setBusy(p.phase || 'Separating music…'); setProgress(50 + Math.round((p.ratio || 0) * 50));
+      });
+      const vKey = nid(), mKey = nid();
+      buffers.current.set(vKey, { buffer: vocals, peaks: computeWaveformPeaks(vocals), name: entry.name + ' (vocals)' });
+      buffers.current.set(mKey, { buffer: musicBuf, peaks: computeWaveformPeaks(musicBuf), name: entry.name + ' (music)' });
+      const next = cloneDoc(doc);
+      const cc = next.clips.find(x => x.id === id);
+      if (!cc) return;
+      cc.bufferKey = vKey;
+      cc.name = (cc.name || entry.name) + ' (vocals)';
+      // Accompaniment as a sibling clip on a free track, same start/trim → in
+      // sync. Copy the clip's geometry but reset per-clip FX to neutral.
+      const trackId = pickFreeTrackId(next, cc.start);
+      const music: Clip = {
+        id: nid(), trackId, bufferKey: mKey, start: cc.start,
+        trimStart: cc.trimStart, trimEnd: cc.trimEnd,
+        gainDb: 0, fadeIn: 0, fadeOut: 0, pitch: 0, speed: cc.speed,
+        bassDb: 0, trebleDb: 0, reverb: 0, echo: 0,
+        normalized: false, reversed: false, name: (entry.name || 'clip') + ' (music)',
+      };
+      next.clips.push(music);
+      next.selectedId = cc.id;
+      commit('split vocals / music', next);
+      toastFor('Split into vocals + music — on-device');
+    } catch (e) {
+      toastFor((e as Error).message || 'Separation failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
   // Transcribe a clip ON-DEVICE (Whisper) → store timed lines, offset to the
   // clip's timeline position. Engine was in the repo but never imported here.
   const transcribeClip = async (id: string) => {
@@ -840,6 +915,8 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => removeSilencesFromClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Remove silences</StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => applyBroadcastPreset(selectedClip.id)}><Sparkles className="h-3 w-3" /> Broadcast preset</StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => applyDeEss(selectedClip.id)}><Sparkles className="h-3 w-3" /> De-ess (reduce sibilance)</StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => void denoiseClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Enhance voice (remove noise)</StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => void splitVocalsFromClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Split vocals / music</StudioButton>
                 </div>
               </StudioPanel>
               <ClipInspector clip={selectedClip} buffer={buffers.current.get(selectedClip.bufferKey) ?? null} onChange={(mut) => updateClip(selectedClip.id, mut, 'props')} />

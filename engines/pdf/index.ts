@@ -48,6 +48,54 @@ async function saveBranded(doc: PDFDocument): Promise<Uint8Array> {
   return doc.save();
 }
 
+/**
+ * Sanitize a finished PDF so it leaks NOTHING beyond its visible pages — the
+ * companion to true (destructive) redaction. Pixel-redaction removes the visible
+ * content, but a PDF can still carry the original data out of band:
+ *   • Document Info metadata (Title/Author/Subject/Keywords/Producer/Creator) —
+ *     often holds the author's name, the original filename, the source app.
+ *   • XMP metadata stream — a parallel copy of the same, plus edit history.
+ *   • Embedded JavaScript and embedded/attached files (/Names → /JavaScript,
+ *     /EmbeddedFiles) — can carry hidden payloads or copies of the document.
+ * We also force a FULL (non-incremental) rewrite so no prior revision survives
+ * inside the byte stream that a determined reader could roll back to.
+ *
+ * Returns sanitized bytes. Defensive: any single step failing never throws — a
+ * partially-sanitized file is still strictly safer than the original, and we
+ * must never turn a redaction export into a hard error.
+ */
+export async function sanitizePdf(buffer: ArrayBuffer): Promise<Uint8Array> {
+  const doc = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
+
+  // 1. Clear all Document Info dictionary fields.
+  try {
+    doc.setTitle('');
+    doc.setAuthor('');
+    doc.setSubject('');
+    doc.setKeywords([]);
+    doc.setProducer('');
+    doc.setCreator('');
+  } catch { /* keep going */ }
+
+  // 2-3. Remove, via the document catalog (public pdf-lib API):
+  //   /Metadata     — the XMP stream (a parallel copy of the info + edit history)
+  //   /Names        — where /JavaScript and /EmbeddedFiles attachments live
+  //   /OpenAction   — script auto-run on open
+  //   /AA           — additional (event) actions
+  try {
+    const { PDFName } = await import('pdf-lib');
+    const catalog = doc.catalog;
+    for (const key of ['Metadata', 'Names', 'OpenAction', 'AA']) {
+      const name = PDFName.of(key);
+      if (catalog.has(name)) catalog.delete(name);
+    }
+  } catch { /* none present / unsupported — a partial scrub is still safer */ }
+
+  // 4. Full rewrite (objectStreams keeps size sane; this is NOT an incremental
+  //    save, so no prior revision is appended/retained in the output stream).
+  return doc.save({ useObjectStreams: true });
+}
+
 export interface PdfInfo {
   pageCount: number;
   title: string;

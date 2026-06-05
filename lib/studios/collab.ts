@@ -304,6 +304,69 @@ export function makeBroadcastChannelSignal(roomId: string): SignalSender {
   };
 }
 
+/**
+ * Real CROSS-DEVICE signaling over the same-origin HTTP relay (/api/collab).
+ * This is what makes Studio collaboration / watch-party actually work between
+ * two different machines — BroadcastChannel only connects tabs in ONE browser
+ * on ONE device, so attaching makeBroadcastChannelSignal made the advertised
+ * "collaborate with your team over the internet" impossible.
+ *
+ * The relay forwards ONLY the WebRTC handshake (opaque SDP/ICE/awareness JSON);
+ * the document/media/chat never touch it (they go peer-to-peer over the data
+ * channels). Transport is HTTP long-poll — no WebSocket server. `peerId` MUST be
+ * this client's CollabSession.self.id so the relay can exclude our own messages.
+ */
+export function makeHttpSignal(roomId: string, peerId: string): SignalSender {
+  if (typeof fetch === 'undefined') {
+    return { send: () => {}, onMessage: () => {}, close: () => {} };
+  }
+  const base = `/api/collab/${encodeURIComponent(roomId)}`;
+  let handler: ((s: string) => void) | null = null;
+  let cursor = 0;
+  let stopped = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const POLL_MS = 700;
+
+  const poll = async () => {
+    if (stopped) return;
+    let backoff = POLL_MS;
+    try {
+      const res = await fetch(`${base}?peer=${encodeURIComponent(peerId)}&after=${cursor}&_=${Date.now()}`, { cache: 'no-store' });
+      if (res.ok) {
+        const json = await res.json() as { messages: { seq: number; data: unknown }[]; cursor: number };
+        for (const m of json.messages) {
+          // The relay carries the JSON payload; collab expects a string.
+          try { handler?.(typeof m.data === 'string' ? m.data : JSON.stringify(m.data)); } catch { /* one bad message must not kill the poll */ }
+        }
+        if (typeof json.cursor === 'number') cursor = Math.max(cursor, json.cursor);
+        backoff = POLL_MS;
+      } else {
+        backoff = Math.min(backoff * 2, 10_000);
+      }
+    } catch {
+      backoff = Math.min(backoff * 2, 10_000);
+    }
+    if (!stopped) timer = setTimeout(poll, backoff);
+  };
+  void poll();
+
+  return {
+    send: (payload: string) => {
+      // The collab layer hands us a JSON string; forward it as opaque data.
+      let data: unknown = payload;
+      try { data = JSON.parse(payload); } catch { /* keep as string */ }
+      void fetch(base, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peer: peerId, data }),
+        cache: 'no-store',
+      }).catch(() => { /* transient — next action / poll recovers */ });
+    },
+    onMessage: (h) => { handler = h; },
+    close: () => { stopped = true; if (timer) clearTimeout(timer); },
+  };
+}
+
 const PEER_COLORS = ['#22d3ee', '#a855f7', '#f59e0b', '#22c55e', '#ec4899', '#3b82f6', '#ef4444', '#84cc16'];
 export function pickPeerColor(seed: string): string {
   let n = 0;

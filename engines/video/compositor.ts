@@ -26,6 +26,44 @@ import {
   type ColorWheels, type CurveSet,
 } from '@/lib/studios/color-wheels';
 import { sampleAnimated, type AnimatedParam } from '@/lib/studios/keyframes';
+import { BRAND_DOMAIN } from '@/lib/brand';
+
+// ---- Brand watermark (free tier) --------------------------------------------
+// The global canvas-patch (lib/watermark/canvas-patch) stamps toBlob()/toDataURL,
+// but the WebCodecs encode path feeds the canvas straight into `new VideoFrame()`
+// and never calls toBlob — so it would ship UNbranded. We therefore burn the mark
+// directly into every composited frame inside renderTimelineFrame(), gated on this
+// module flag. Default ON (free-safe); UsageGateProvider calls
+// setVideoWatermark(false) only after confirming a Pro session. The ffmpeg path's
+// per-frame canvas carries data-nowm so the global patch does NOT double-stamp it.
+let _videoWm = true;
+/** Free tier → draw the brand mark on each frame; Pro → clean. */
+export function setVideoWatermark(on: boolean): void { _videoWm = on; }
+
+/** Burn a small bottom-right domain mark into the frame (matches the canvas-patch
+ *  style: white, soft shadow, ~2.6% of width). Never throws. */
+function drawFrameWatermark(
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
+  frameW: number, frameH: number,
+): void {
+  if (!_videoWm) return;
+  try {
+    ctx.save();
+    (ctx as any).filter = 'none';
+    ctx.globalAlpha = 0.55;
+    const fontPx = Math.max(12, Math.round(frameW * 0.026));
+    const pad = Math.round(frameW * 0.02);
+    ctx.font = `600 ${fontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = Math.max(2, Math.round(fontPx * 0.18));
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(BRAND_DOMAIN, frameW - pad, frameH - pad);
+    ctx.restore();
+  } catch { /* never break an export */ }
+}
 
 // ---- Timeline model (mirrors the UI's DocState, decoupled so the engine has
 // no React dependency) --------------------------------------------------------
@@ -355,8 +393,14 @@ export async function renderTimelineFrame(
       if (active.transition === 'fade') {
         ctx.globalAlpha = p;
         drawClipFrame(ctx, frame, frameW, frameH, active, localT);
+      } else if (active.transition === 'slide') {
+        // SLIDE: the incoming clip translates in from the right edge, covering
+        // the outgoing clip as it moves — distinct from 'wipe' (a static reveal).
+        ctx.translate(frameW * (1 - p), 0);
+        drawClipFrame(ctx, frame, frameW, frameH, active, localT);
       } else {
-        // 'slide'/'wipe' → reveal the incoming clip left-to-right via a clip rect.
+        // WIPE: reveal the incoming clip left-to-right through a growing clip
+        // rect, while it stays in place.
         ctx.beginPath();
         ctx.rect(0, 0, frameW * p, frameH);
         ctx.clip();
@@ -373,6 +417,10 @@ export async function renderTimelineFrame(
     const txts = doc.clips.filter((cl) => cl.trackId === textTrack.id && cl.kind === 'text' && t >= cl.start && t < clipEnd(cl)) as CompTextClip[];
     for (const tx of txts) drawTextClip(ctx, tx, frameW, frameH, t);
   }
+
+  // Brand mark LAST, over all content (free tier only). Covers BOTH the WebCodecs
+  // and ffmpeg encode paths uniformly since both render through this function.
+  drawFrameWatermark(ctx, frameW, frameH);
 }
 
 // ---- Audio mixdown (ALL clips/tracks, per-clip fades + speed) ----------------
@@ -634,6 +682,9 @@ async function encodeFfmpeg(
 ): Promise<Blob> {
   const { runFfmpegMulti } = await import('@/engines/ffmpeg');
   const canvas = Object.assign(document.createElement('canvas'), { width, height });
+  // renderTimelineFrame() already burns the brand mark into each frame, so opt this
+  // per-frame canvas OUT of the global toBlob watermark patch to avoid a double mark.
+  canvas.dataset.nowm = '1';
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
 
   const totalFrames = Math.max(1, Math.ceil(doc.duration * fps));

@@ -33,6 +33,7 @@ export default function ReframeTool() {
   const [duration, setDuration] = React.useState(0);
   const [ratio, setRatio] = React.useState(RATIOS[0]);
   const [focus, setFocus] = React.useState(0.5);
+  const [autoTrack, setAutoTrack] = React.useState(false); // smart subject-follow crop
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [outUrl, setOutUrl] = React.useState('');
@@ -74,8 +75,19 @@ export default function ReframeTool() {
     setBusy(true); setProgress(0); setOutUrl('');
     try {
       const { w, h } = ratio;
+      // Smart subject-follow: detect the subject on-device and center the crop
+      // on the median face position (vs a fixed left/center/right guess). Falls
+      // back to the manual focus if no subject is found. NEEDS BROWSER QA.
+      let cropFocus = focus;
+      if (autoTrack) {
+        try {
+          const { trackSubject, medianFocus } = await import('@/lib/studios/face-track');
+          const pts = await trackSubject(file, { fps: 2 });
+          cropFocus = medianFocus(pts, focus);
+        } catch { /* fall back to manual focus */ }
+      }
       // Scale to COVER the target, then crop to exact size with chosen H focus.
-      const vf = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(in_w-out_w)*${focus}:(in_h-out_h)/2`;
+      const vf = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h}:(in_w-out_w)*${cropFocus}:(in_h-out_h)/2`;
       const blob = await runFfmpeg({
         input: file,
         inputName: 'in.mp4',
@@ -145,7 +157,11 @@ export default function ReframeTool() {
 
         <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Keep in frame</div>
-          <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <label className="mt-2 flex items-center gap-2 text-[12px] text-[var(--color-fg)]">
+            <input type="checkbox" checked={autoTrack} onChange={(e) => setAutoTrack(e.target.checked)} />
+            Auto — track the subject (on-device face detection)
+          </label>
+          <div className={cn('mt-2 grid grid-cols-3 gap-1.5', autoTrack && 'pointer-events-none opacity-40')}>
             {FOCUS.map((f) => (
               <button key={f.id} type="button" onClick={() => setFocus(f.v)}
                 className={cn('border px-2 py-2 text-[11px] font-bold transition', focus === f.v ? 'border-[var(--color-cat-video)] bg-[var(--color-cat-video)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)] hover:border-black/20')}>
@@ -153,6 +169,7 @@ export default function ReframeTool() {
               </button>
             ))}
           </div>
+          {autoTrack && <div className="mt-1 text-[10px] text-[var(--color-fg-subtle)]">Detects the subject and centers the crop on them. Falls back to manual if none found.</div>}
         </div>
 
         {file && !outUrl && (

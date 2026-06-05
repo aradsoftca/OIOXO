@@ -7,6 +7,7 @@ import { recordRange, downloadBlob, fmtDuration } from '@/engines/video';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { shouldWatermark } from '@/lib/watermark/config';
 
 const POLICY_KEY = 'video-trim';
 
@@ -40,6 +41,9 @@ export default function Tool() {
       const blob = await recordRange(item.video, range[0], range[1], {
         withVideo: true,
         withAudio: withAudio && item.info.hasAudio,
+        // Free sessions bake the corner brand into every recorded frame
+        // (policy.watermarkFree); Pro/clean → false → raw captureStream path.
+        watermark: shouldWatermark(POLICY_KEY),
         onProgress: (t) => setProgress(Math.round((t / dur) * 100)),
       });
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '-trim.webm');

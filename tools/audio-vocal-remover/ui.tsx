@@ -2,12 +2,12 @@
 
 import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
-import { Download, Loader2, AlertTriangle } from 'lucide-react';
+import { Download, Loader2, AlertTriangle, Crown } from 'lucide-react';
 import { AudioDrop, type AudioFileItem } from '@/components/tool/AudioDrop';
 import { Waveform } from '@/components/tool/Waveform';
 import { removeVocals, isolateVocals, encodeWav, encodeMp3, downloadBlob } from '@/engines/audio';
 import { encodeAudio } from '@/lib/compute/audioMerge';
-import { checkLever } from '@/lib/limits/policy';
+import { getPolicy, type LimitHit } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
 import { enforcePolicy } from '@/lib/limits/server-check';
@@ -57,8 +57,29 @@ export default function AudioVocalRemoverTool() {
     finally { setBusy(false); setBusyMsg(''); }
   };
 
+  // Free = preview-only (play in-app). The full-resolution separated stems are
+  // a Pro-only download — this is the differentiated audio feature rivals gate
+  // hardest, so free users hit the upgrade wall when they try to SAVE the file
+  // (in-app playback above stays free). Pro downloads untouched.
+  const proDownloadGate = (): boolean => {
+    if (isPro) return true;
+    const policy = getPolicy(POLICY_KEY);
+    if (!policy) return true; // no policy → don't block (fail open)
+    const hit: LimitHit = {
+      key: POLICY_KEY,
+      policy,
+      lever: policy.levers[0],
+      observed: 0,
+      upgradeTo: 'pro',
+      friendly: 'Preview the separated stems free, in-app. Downloading the full-resolution audio is a Pro feature.',
+    };
+    policyGate.fire(hit);
+    return false;
+  };
+
   const download = async () => {
     if (!item) return;
+    if (!proDownloadGate()) return;
     const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
       { type: 'lever', lever: 'input-size', value: item.file.size },
       { type: 'lever', lever: 'input-duration', value: item.info.duration },
@@ -151,8 +172,9 @@ export default function AudioVocalRemoverTool() {
               </button>
               <button type="button" onClick={download} disabled={busy || (isMono && !ai)}
                 className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-audio)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">
-                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />} Download .{format}
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : isPro ? <Download className="h-3.5 w-3.5" /> : <Crown className="h-3.5 w-3.5" />} Download .{format}
               </button>
+              {!isPro && <div className="text-[11px] text-[var(--color-fg-muted)]">Preview plays free in-app. Full-resolution download is a Pro feature.</div>}
               {busy && busyMsg && <div className="text-[11px] text-[var(--color-fg-muted)]">{busyMsg}</div>}
               {error && <div className="text-[12px] text-red-600">{error}</div>}
             </aside>

@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Save, Upload, FileText, Undo2, Redo2,
   Eye, EyeOff, Lock, Unlock, SkipBack, SkipForward, Magnet,
   ImageIcon, AudioLines, X, Sparkles, LayoutTemplate, Palette,
-  Activity, BarChart3,
+  Activity, BarChart3, History,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -685,6 +685,37 @@ export default function VideoStudioPro() {
     commit('ripple delete', next);
   };
 
+  // Trim around the playhead — CapCut's Q ("delete left of cursor") and W
+  // ("delete right of cursor"), the fast-trim verbs power users live on. We trim
+  // the SELECTED clip if the playhead sits inside it; otherwise we trim every
+  // clip the playhead crosses (a quick "topp/tail at the cursor" on all tracks).
+  const trimToPlayhead = (side: 'left' | 'right') => {
+    const t = doc.playhead;
+    const sel = doc.clips.find(c => c.id === doc.selectedId);
+    const targets = (sel && t > sel.start && t < clipEnd(sel))
+      ? [sel]
+      : doc.clips.filter(c => t > c.start && t < clipEnd(c));
+    if (!targets.length) { toastFor('Put the playhead over a clip first'); return; }
+    const next = cloneDoc(doc);
+    let changed = 0;
+    for (const tc of targets) {
+      const c = next.clips.find(x => x.id === tc.id);
+      if (!c) continue;
+      const local = t - c.start;
+      if (c.kind === 'text') {
+        if (side === 'left') { c.duration = c.duration - local; c.start = t; }
+        else { c.duration = local; }
+      } else {
+        const v = c as VideoClip | AudioClip;
+        if (side === 'left') { v.srcStart = v.srcStart + local * v.speed; v.start = t; }
+        else { v.srcEnd = v.srcStart + local * v.speed; }
+      }
+      changed++;
+    }
+    if (!changed) return;
+    commit(side === 'left' ? 'trim left of playhead' : 'trim right of playhead', next);
+  };
+
   const selectedClip = doc.clips.find(c => c.id === doc.selectedId) ?? null;
 
   const drawPreviewFrame = React.useCallback((t: number) => {
@@ -1040,6 +1071,134 @@ export default function VideoStudioPro() {
     }
   };
 
+  // ── Clipboard paste ────────────────────────────────────────────────────────
+  // CapCut/Veed parity: paste a screenshot or copied image/video straight onto
+  // the timeline (Ctrl+V). The fastest path from "took a screenshot" to "it's in
+  // my edit". Ignored while typing in a text field so it never steals the caret.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (/^(INPUT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const files: File[] = [];
+      for (const it of Array.from(items)) {
+        if (it.type.startsWith('image/') || it.type.startsWith('video/') || it.type.startsWith('audio/')) {
+          const f = it.getAsFile();
+          if (f) files.push(f);
+        }
+      }
+      if (files.length) {
+        e.preventDefault();
+        void (async () => {
+          await ingestFiles(files);
+          toastFor(`Pasted ${files.length} item${files.length > 1 ? 's' : ''} — added to the media pool`);
+        })();
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Drag-and-drop import ──────────────────────────────────────────────────
+  // The rival's signature opening move: drag a folder of clips straight onto the
+  // page. A full-window drop overlay highlights the canvas, and nothing uploads
+  // (a privacy toast confirms "processed on your device"). We count nested drag
+  // enter/leave so the overlay doesn't flicker over child elements.
+  const [dragOver, setDragOver] = React.useState(false);
+  const dragDepth = React.useRef(0);
+  React.useEffect(() => {
+    const hasFiles = (e: DragEvent) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+    const onEnter = (e: DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth.current++; setDragOver(true); };
+    const onOver = (e: DragEvent) => { if (!hasFiles(e)) return; e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; };
+    const onLeave = (e: DragEvent) => { if (!hasFiles(e)) return; dragDepth.current = Math.max(0, dragDepth.current - 1); if (dragDepth.current === 0) setDragOver(false); };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0; setDragOver(false);
+      const files = e.dataTransfer?.files;
+      if (files && files.length) {
+        void (async () => {
+          await ingestFiles(files);
+          toastFor('Imported on your device — nothing uploaded');
+        })();
+      }
+    };
+    window.addEventListener('dragenter', onEnter);
+    window.addEventListener('dragover', onOver);
+    window.addEventListener('dragleave', onLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragenter', onEnter);
+      window.removeEventListener('dragover', onOver);
+      window.removeEventListener('dragleave', onLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Autosave + crash recovery ──────────────────────────────────────────────
+  // Turn rivals' single most-damaging failure (browser crash mid-edit → lost
+  // project) into our strength. The working doc is plain JSON (clips reference
+  // media by id), so ~2s after the last edit we snapshot it to a dedicated
+  // localStorage slot. On next load, a fresh (<7d) snapshot surfaces an amber
+  // "Recover your last session" banner. Media blobs can't be persisted (they live
+  // only in this tab), so the banner is honest: it restores the EDIT and prompts
+  // a one-click reimport of the same filenames.
+  const RECOVERY_KEY = 'xonvert.video-studio.recovery';
+  React.useEffect(() => {
+    // Only autosave a doc that actually has timeline content — never clobber the
+    // recovery slot with the empty default project.
+    if (doc.clips.length === 0) return;
+    const id = window.setTimeout(() => {
+      try {
+        const snap = {
+          at: Date.now(),
+          name: doc.name,
+          doc: { ...doc, selectedId: null },
+          mediaRefs: media.map(m => ({ id: m.id, name: m.name, kind: m.kind, duration: m.duration, width: m.width, height: m.height, thumb: m.thumb })),
+        };
+        const payload = JSON.stringify(snap);
+        // localStorage caps ~5MB; thumbnails dominate the size. If we're over
+        // budget, drop the thumbs (the edit still recovers fully).
+        if (payload.length < 4_500_000) {
+          localStorage.setItem(RECOVERY_KEY, payload);
+        } else {
+          snap.mediaRefs = snap.mediaRefs.map(r => ({ ...r, thumb: undefined }));
+          try { localStorage.setItem(RECOVERY_KEY, JSON.stringify(snap)); } catch { /* quota → skip */ }
+        }
+      } catch { /* never let autosave throw into the editor */ }
+    }, 2000);
+    return () => window.clearTimeout(id);
+  }, [doc, media]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [recovery, setRecovery] = React.useState<{ at: number; name: string; doc: DocState; mediaRefs: DocStateLite['mediaRefs'] } | null>(null);
+  const recoveryChecked = React.useRef(false);
+  React.useEffect(() => {
+    if (recoveryChecked.current) return;
+    recoveryChecked.current = true;
+    try {
+      const raw = localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      // Only offer a reasonably fresh snapshot, and only if there's real content.
+      if (!parsed?.doc || !Array.isArray(parsed.doc.clips) || parsed.doc.clips.length === 0) { localStorage.removeItem(RECOVERY_KEY); return; }
+      if (Date.now() - (parsed.at ?? 0) > 7 * 864e5) { localStorage.removeItem(RECOVERY_KEY); return; }
+      setRecovery({ at: parsed.at, name: parsed.name ?? 'Untitled', doc: parsed.doc, mediaRefs: parsed.mediaRefs ?? [] });
+    } catch { /* ignore corrupt recovery */ }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doRecover = () => {
+    if (!recovery) return;
+    const restored: DocState = { ...recovery.doc, selectedId: null, playhead: 0, duration: computeDuration(recovery.doc.clips) };
+    setDoc(restored);
+    stack.current.reset(cloneDoc(restored), 'recover');
+    force();
+    const need = recovery.mediaRefs.length;
+    toastFor(need ? `Recovered your edit — reimport ${need} file${need > 1 ? 's' : ''} to see the media` : 'Recovered your last session');
+    setRecovery(null);
+  };
+  const dismissRecovery = () => { try { localStorage.removeItem(RECOVERY_KEY); } catch {} setRecovery(null); };
+
   useRegisterShortcuts([
     {
       label: 'Playback',
@@ -1066,8 +1225,12 @@ export default function VideoStudioPro() {
       label: 'Edit',
       items: [
         { combo: 's', description: 'Split clip at playhead' },
+        { combo: 'mod+b', description: 'Split at playhead (CapCut)' },
+        { combo: 'q', description: 'Trim left of playhead' },
+        { combo: 'w', description: 'Trim right of playhead' },
         { combo: 'mod+d', description: 'Duplicate clip' },
         { combo: 'delete', description: 'Delete clip' },
+        { combo: 'shift+delete', description: 'Ripple delete (close gap)' },
         { combo: 'mod+z', description: 'Undo' },
         { combo: 'mod+shift+z', description: 'Redo' },
       ],
@@ -1110,8 +1273,17 @@ export default function VideoStudioPro() {
     { combo: 'mod+o', handler: () => { void openSaved(); } },
     { combo: 'delete', handler: () => doc.selectedId && deleteClip(doc.selectedId) },
     { combo: 'backspace', handler: () => doc.selectedId && deleteClip(doc.selectedId) },
+    { combo: 'shift+delete', handler: () => doc.selectedId && rippleDelete(doc.selectedId) },
     { combo: 'mod+d', handler: () => doc.selectedId && duplicateClip(doc.selectedId) },
     { combo: 's', handler: () => doc.selectedId && splitAt(doc.selectedId, doc.playhead) },
+    // CapCut's core gesture — split at the playhead. We split the selected clip,
+    // or whatever clip the playhead is currently over if nothing is selected.
+    { combo: 'mod+b', handler: () => {
+      const id = doc.selectedId ?? doc.clips.find(c => doc.playhead > c.start && doc.playhead < clipEnd(c))?.id;
+      if (id) splitAt(id, doc.playhead);
+    } },
+    { combo: 'q', handler: () => trimToPlayhead('left') },
+    { combo: 'w', handler: () => trimToPlayhead('right') },
     { combo: '+', handler: () => setZoom(z => Math.min(800, z * 1.25)) },
     { combo: '-', handler: () => setZoom(z => Math.max(20, z / 1.25)) },
   ]);
@@ -1119,6 +1291,17 @@ export default function VideoStudioPro() {
   return (
     <StudioShell>
       {policyGate.element}
+      {recovery && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+          <History className="h-4 w-4 shrink-0" />
+          <span className="flex-1">
+            Recovered an unsaved session{recovery.name && recovery.name !== 'Untitled' ? ` — "${recovery.name}"` : ''}
+            {recovery.doc.clips.length ? ` (${recovery.doc.clips.length} clips)` : ''}. Restore it?
+          </span>
+          <button onClick={doRecover} className="rounded bg-amber-400 px-3 py-1 font-semibold text-zinc-900 hover:bg-amber-300">Restore</button>
+          <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-white/5">Dismiss</button>
+        </div>
+      )}
       <StudioTopBar
         title="Video Studio Pro"
         left={
@@ -1236,8 +1419,9 @@ export default function VideoStudioPro() {
                     { label: 'Open from Library', description: 'Continue a saved project', icon: <FileText className="h-4 w-4" />, onClick: openSaved },
                   ]}
                   hints={[
-                    { label: 'Multi-track timeline', description: 'Video, audio, and text tracks with trim, split, ripple delete' },
-                    { label: 'Color wheels + RGB curves', description: 'Pro grading per clip, plus 14 preset LUTs' },
+                    { label: 'Drag & drop or paste', description: 'Drop a folder of clips anywhere, or paste a screenshot with Ctrl+V' },
+                    { label: 'Multi-track timeline', description: 'Trim, split (Ctrl+B), ripple delete, Q/W trim around the playhead' },
+                    { label: 'Crash-proof autosave', description: 'Your edit is recovered automatically if the tab ever closes' },
                     { label: 'Press ?', description: 'See every keyboard shortcut' },
                   ]}
                 />
@@ -1355,6 +1539,15 @@ export default function VideoStudioPro() {
       )}
       {toast && (
         <div className="pointer-events-none fixed bottom-12 left-1/2 -translate-x-1/2 rounded-md bg-cyan-500/90 px-3 py-1.5 text-xs font-medium text-zinc-900 shadow-lg">{toast}</div>
+      )}
+      {dragOver && (
+        <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-cyan-500/10 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3 rounded-2xl border-2 border-dashed border-cyan-400/70 bg-[#0a0b0e]/80 px-12 py-10 shadow-2xl">
+            <Upload className="h-10 w-10 text-cyan-300" />
+            <div className="text-lg font-semibold text-zinc-100">Drop your media to import</div>
+            <div className="text-xs text-zinc-400">Video, audio, or images · processed on your device — nothing uploads</div>
+          </div>
+        </div>
       )}
       {gate}
 
@@ -1481,27 +1674,34 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
     onSeek(Math.max(0, t));
   };
 
-  const snappedT = (t: number, excludeId?: string): number => {
-    if (!snap) return t;
+  // Live drag feedback: the matched snap point (for the visible guide line) and a
+  // floating tooltip showing the clip's new position/duration as it's dragged —
+  // CapCut's signature "you can see exactly where it lands" feel. Held in state so
+  // the guide + tooltip re-render on every move; the actual edit stays in `doc`.
+  const [snapLine, setSnapLine] = React.useState<number | null>(null);
+  const [dragTip, setDragTip] = React.useState<{ x: number; y: number; text: string } | null>(null);
+
+  // Snap and report which guide point was hit (null = free placement) so the
+  // caller can draw the alignment guide exactly where the edge locked.
+  const snappedT = (t: number, excludeId?: string): { t: number; hit: number | null } => {
+    if (!snap) return { t, hit: null };
     const snaps: number[] = [0, doc.playhead];
     for (const c of doc.clips) {
       if (excludeId && c.id === excludeId) continue;
       snaps.push(c.start, clipEnd(c));
     }
-    let best = t, bestD = 0.25;
+    let best = t, bestD = 0.25, hit: number | null = null;
     for (const s of snaps) {
       const d = Math.abs(s - t);
-      if (d < bestD) { bestD = d; best = s; }
+      if (d < bestD) { bestD = d; best = s; hit = s; }
     }
-    return best;
+    return { t: best, hit };
   };
 
   const onPointerDownClip = (e: React.PointerEvent, c: TimelineClip, mode: 'move' | 'trim-l' | 'trim-r') => {
     e.stopPropagation();
     onSelect(c.id);
     if (tool === 'razor' && mode === 'move') {
-      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      const t = xToT(e.clientX - r.left) + c.start;
       onSplit(c.id);
       return;
     }
@@ -1509,26 +1709,44 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
     drag.current = { type: mode, id: c.id, startMouse: e.clientX, startVal: mode === 'trim-r' ? c.start + clipDuration(c) : c.start };
   };
 
+  // Place the tooltip near the cursor, in the scroll container's coordinate space.
+  const tipAt = (e: React.PointerEvent, text: string) => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r) return;
+    setDragTip({ x: e.clientX - r.left + (ref.current?.scrollLeft ?? 0), y: e.clientY - r.top + (ref.current?.scrollTop ?? 0), text });
+  };
+
   const onPointerMoveBg = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
     const dx = (e.clientX - d.startMouse) / zoom;
     if (d.type === 'move' && d.id) {
-      const newStart = Math.max(0, snappedT(d.startVal + dx, d.id));
+      const s = snappedT(d.startVal + dx, d.id);
+      const newStart = Math.max(0, s.t);
       onMoveClip(d.id, newStart);
+      setSnapLine(s.hit);
+      const c = doc.clips.find(x => x.id === d.id);
+      tipAt(e, c ? `${fmtT(newStart)} → ${fmtT(newStart + clipDuration(c))}` : fmtT(newStart));
     } else if (d.type === 'trim-l' && d.id) {
-      const t = snappedT(d.startVal + dx, d.id);
-      onTrimClip(d.id, 'l', Math.max(0, t));
+      const s = snappedT(d.startVal + dx, d.id);
+      const t = Math.max(0, s.t);
+      onTrimClip(d.id, 'l', t);
+      setSnapLine(s.hit);
+      const c = doc.clips.find(x => x.id === d.id);
+      tipAt(e, c ? `−${fmtT(Math.max(0, c.start - t) || 0)} · ${fmtT(Math.max(0, clipEnd(c) - t))}` : fmtT(t));
     } else if (d.type === 'trim-r' && d.id) {
-      const t = snappedT(d.startVal + dx, d.id);
-      onTrimClip(d.id, 'r', t);
+      const s = snappedT(d.startVal + dx, d.id);
+      onTrimClip(d.id, 'r', s.t);
+      setSnapLine(s.hit);
+      const c = doc.clips.find(x => x.id === d.id);
+      tipAt(e, c ? `${fmtT(Math.max(0, s.t - c.start))} long` : fmtT(s.t));
     } else if (d.type === 'scrub') {
       const r = (ref.current as HTMLElement).getBoundingClientRect();
       onSeek(Math.max(0, xToT(e.clientX - r.left + ref.current!.scrollLeft)));
     }
   };
 
-  const onPointerUp = () => { drag.current = null; };
+  const onPointerUp = () => { drag.current = null; setSnapLine(null); setDragTip(null); };
 
   let yAccum = 0;
   const trackY: { id: string; y: number; h: number }[] = doc.tracks.map(t => {
@@ -1657,6 +1875,25 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
             >
               <div className="absolute -left-1.5 -top-1 h-3 w-4 rounded-sm bg-cyan-400" />
             </div>
+
+            {/* Snap alignment guide — a bright dashed line at the snap target so
+                the user SEES the edge lock to a neighbor/playhead/start. */}
+            {snapLine !== null && (
+              <div
+                style={{ position: 'absolute', left: tToX(snapLine), top: 0, height: tlHeight, width: 1 }}
+                className="pointer-events-none border-l border-dashed border-fuchsia-400/90 shadow-[0_0_6px_rgba(232,121,249,.7)]"
+              />
+            )}
+
+            {/* Live drag tooltip — new position / duration as the clip moves. */}
+            {dragTip && (
+              <div
+                style={{ position: 'absolute', left: dragTip.x + 10, top: Math.max(0, dragTip.y - 26) }}
+                className="pointer-events-none z-20 whitespace-nowrap rounded bg-black/85 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-cyan-200 shadow-lg"
+              >
+                {dragTip.text}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -16,6 +16,11 @@ export interface RichMsg {
   parentId?: number;
   reactions?: Record<string, string[]>;
   pollId?: number;
+  /** Delivery state for messages I sent: optimistic echo → wire-confirmed →
+   *  acked by a peer. Undefined on received messages. */
+  status?: 'sending' | 'sent' | 'delivered';
+  /** Stable client id used to correlate a delivery ack across the wire. */
+  cid?: string;
 }
 
 export function indexById(msgs: RichMsg[]): Map<number, RichMsg> {

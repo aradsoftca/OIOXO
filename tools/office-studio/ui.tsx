@@ -394,6 +394,104 @@ function formatValue(v: any, style?: CellStyle, locale = 'en-US', currency = 'US
   return String(v);
 }
 
+// ── Fill-series intelligence ────────────────────────────────────────────────
+// Given the source cells (raw strings) the user selected before grabbing the
+// fill handle, produce `count` extrapolated values. Mirrors the Sheets
+// autofill: numeric step (1,2,3 / 10,20,30), date step, weekday/month names,
+// "Item 1, Item 2" suffix counting, otherwise copy/cycle.
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function _nameSeries(raw: string, names: string[]): { idx: number; cap: boolean; abbr: boolean } | null {
+  const t = raw.trim();
+  const low = t.toLowerCase();
+  for (const n of names) {
+    if (low === n) return { idx: names.indexOf(n), cap: t[0] === t[0]?.toUpperCase(), abbr: false };
+    if (low === n.slice(0, 3)) return { idx: names.indexOf(n), cap: t[0] === t[0]?.toUpperCase(), abbr: true };
+  }
+  return null;
+}
+function _emitName(idx: number, names: string[], cap: boolean, abbr: boolean): string {
+  let n = names[((idx % names.length) + names.length) % names.length];
+  if (abbr) n = n.slice(0, 3);
+  return cap ? n[0].toUpperCase() + n.slice(1) : n;
+}
+
+function detectFillSeries(source: string[], count: number, reverse = false): string[] {
+  const out: string[] = [];
+  const dir = reverse ? -1 : 1;
+  const nonEmpty = source.filter(s => s.trim() !== '');
+  if (nonEmpty.length === 0) return new Array(count).fill('');
+
+  // Pure numbers → arithmetic step (default +1, or inferred from last two)
+  const nums = source.map(s => (/^-?\d+(\.\d+)?$/.test(s.trim()) ? parseFloat(s.trim()) : NaN));
+  if (nums.every(n => !isNaN(n)) && source.every(s => s.trim() !== '')) {
+    const step = nums.length >= 2 ? nums[nums.length - 1] - nums[nums.length - 2] : 1;
+    let v = reverse ? nums[0] : nums[nums.length - 1];
+    for (let i = 0; i < count; i++) { v += step * dir; out.push(_fmtNum(v)); }
+    return out;
+  }
+
+  // Month / weekday names
+  const lastRaw = reverse ? source.find(s => s.trim() !== '')! : [...source].reverse().find(s => s.trim() !== '')!;
+  for (const names of [MONTHS, DAYS]) {
+    const m = _nameSeries(lastRaw, names);
+    if (m) {
+      let idx = m.idx;
+      for (let i = 0; i < count; i++) { idx += dir; out.push(_emitName(idx, names, m.cap, m.abbr)); }
+      return out;
+    }
+  }
+
+  // Dates (ISO/parseable) → +1 day step. Checked BEFORE the prefix-number
+  // branch so "2024-01-30" extends as a date, not by bumping "30".
+  const isDateLike = (s: string) => /^\d{4}-\d{1,2}-\d{1,2}/.test(s.trim()) || /^\d{1,2}\/\d{1,2}\/\d{2,4}/.test(s.trim());
+  if (source.every(s => s.trim() !== '' && isDateLike(s))) {
+    const dParsed = source.map(s => Date.parse(s.trim()));
+    if (dParsed.every(d => !isNaN(d))) {
+      const DAYMS = 86400000;
+      const stepDays = dParsed.length >= 2 ? Math.round((dParsed[dParsed.length - 1] - dParsed[dParsed.length - 2]) / DAYMS) || 1 : 1;
+      let t = reverse ? dParsed[0] : dParsed[dParsed.length - 1];
+      for (let i = 0; i < count; i++) { t += stepDays * DAYMS * dir; out.push(new Date(t).toISOString().slice(0, 10)); }
+      return out;
+    }
+  }
+
+  // "Prefix <n>" suffix counting (Item 1, Item 2 / Q1, Q2)
+  const sm = /^(.*?)(-?\d+)(\D*)$/.exec(lastRaw.trim());
+  if (sm) {
+    const prefix = sm[1], suffix = sm[3];
+    let n = parseInt(sm[2], 10);
+    // step from two trailing numeric tails if available
+    let step = 1;
+    const tails = source.filter(s => s.trim() !== '').map(s => { const mm = /^(.*?)(-?\d+)(\D*)$/.exec(s.trim()); return mm ? parseInt(mm[2], 10) : NaN; }).filter(x => !isNaN(x));
+    if (tails.length >= 2) step = tails[tails.length - 1] - tails[tails.length - 2] || 1;
+    for (let i = 0; i < count; i++) { n += step * dir; out.push(`${prefix}${n}${suffix}`); }
+    return out;
+  }
+
+  // Fallback: cycle/copy the source pattern
+  for (let i = 0; i < count; i++) out.push(source[i % source.length] ?? source[source.length - 1] ?? '');
+  return out;
+}
+function _fmtNum(v: number): string {
+  if (Number.isInteger(v)) return String(v);
+  return String(Math.round(v * 1e10) / 1e10);
+}
+
+// Offset relative references in a formula when copied to a new origin.
+function offsetFormula(raw: string, dR: number, dC: number): string {
+  if (!raw.startsWith('=')) return raw;
+  return raw.replace(/(\$?)([A-Z]+)(\$?)(\d+)/g, (m, dollarC, colL, dollarR, rowN) => {
+    let c = letterToCol(colL);
+    let r = parseInt(rowN, 10) - 1;
+    if (!dollarC) c += dC;
+    if (!dollarR) r += dR;
+    if (c < 0 || r < 0) return m;
+    return `${dollarC}${colToLetter(c)}${dollarR}${r + 1}`;
+  });
+}
+
 export default function OfficeStudioPro() {
   const { guard, gate } = useUsageGate('office-studio'); // real gated key — 'text' is ungated, so the daily cap was never firing (revenue leak)
   const isPro = useIsPro();
@@ -444,6 +542,20 @@ export default function OfficeStudioPro() {
   const [exportFmt, setExportFmt] = React.useState<'csv' | 'tsv' | 'json'>('csv');
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
 
+  // Crash-recovery: 2s-debounced snapshot of the working doc to localStorage,
+  // and an amber "Recovered an unsaved session" banner if a fresh one exists on
+  // mount. Weaponizes the rival's #1 complaint ("lost my work / network errors
+  // blocking files"). serialize/deserialize reuse the same plain-JSON shape the
+  // Library save path already uses (newProject('office', doc.name, doc)).
+  const RECOVERY_KEY = 'office-studio:recovery';
+  const [recovery, setRecovery] = React.useState<{ doc: DocState; ts: number } | null>(null);
+  const lastSnapshot = React.useRef('');
+  const recoveryDismissed = React.useRef(false);
+
+  // Autofill ("fill handle") drag state + post-fill options chip.
+  const [fillDrag, setFillDrag] = React.useState<{ toR: number; toC: number } | null>(null);
+  const [fillChip, setFillChip] = React.useState<{ r0: number; c0: number; r1: number; c1: number; srcR0: number; srcC0: number; srcR1: number; srcC1: number; mode: 'series' | 'copy' | 'format' } | null>(null);
+
   const sel = doc.selection;
   const selCell = sheet.cells[cellKey(sel.r, sel.c)];
   // Sync the formula bar with the selected cell. Includes `selCell?.raw` in
@@ -478,6 +590,239 @@ export default function OfficeStudioPro() {
     commit('style', next);
   };
 
+  // ── Crash recovery: check for a snapshot once on mount ────────────────────
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const snap = JSON.parse(raw) as { doc: DocState; ts: number };
+      const fresh = Date.now() - snap.ts < 7 * 24 * 3600 * 1000; // <7d
+      const hasContent = snap.doc?.sheets?.some(s => Object.keys(s.cells ?? {}).length > 0);
+      if (fresh && hasContent) setRecovery(snap);
+      else window.localStorage.removeItem(RECOVERY_KEY);
+    } catch { /* corrupt snapshot — ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Debounced (2s) autosave of the working doc. Skips the untouched blank doc so
+  // we never resurrect an empty session.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hasContent = doc.sheets.some(s => Object.keys(s.cells).length > 0);
+    if (!hasContent) return;
+    const t = window.setTimeout(() => {
+      try {
+        const payload = JSON.stringify({ doc, ts: Date.now() });
+        if (payload === lastSnapshot.current) return;
+        lastSnapshot.current = payload;
+        window.localStorage.setItem(RECOVERY_KEY, payload);
+      } catch { /* quota — ignore */ }
+    }, 2000);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc]);
+
+  const restoreRecovery = () => {
+    if (!recovery) return;
+    const restored = cloneDoc(recovery.doc);
+    setDoc(restored);
+    stack.current.reset(cloneDoc(restored), 'restore');
+    setRecovery(null);
+    force();
+    toastFor('Session restored');
+  };
+  const dismissRecovery = () => {
+    recoveryDismissed.current = true;
+    setRecovery(null);
+    try { window.localStorage.removeItem(RECOVERY_KEY); } catch {}
+  };
+
+  // ── OS clipboard: copy / cut / paste tabular data ─────────────────────────
+  const selectionAsTsv = (cut = false): { tsv: string; next?: DocState } => {
+    const rr0 = Math.min(sel.r, sel.r2), rr1 = Math.max(sel.r, sel.r2);
+    const cc0 = Math.min(sel.c, sel.c2), cc1 = Math.max(sel.c, sel.c2);
+    const lines: string[] = [];
+    const next = cut ? cloneDoc(doc) : undefined;
+    const sh = next?.sheets.find(s => s.id === sheet.id);
+    for (let r = rr0; r <= rr1; r++) {
+      const row: string[] = [];
+      for (let c = cc0; c <= cc1; c++) {
+        row.push(sheet.cells[cellKey(r, c)]?.raw ?? '');
+        if (sh) delete sh.cells[cellKey(r, c)];
+      }
+      lines.push(row.join('\t'));
+    }
+    return { tsv: lines.join('\n'), next };
+  };
+
+  const writeClipboard = (text: string) => {
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  const copySelection = () => { const { tsv } = selectionAsTsv(false); writeClipboard(tsv); toastFor('Copied'); };
+  const cutSelection = () => {
+    const { tsv, next } = selectionAsTsv(true);
+    writeClipboard(tsv);
+    if (next) commit('cut', next);
+    toastFor('Cut');
+  };
+
+  const pasteTsvAt = (text: string, baseR: number, baseC: number) => {
+    if (!text) return;
+    // Detect TSV vs CSV; tab is the spreadsheet-interop default.
+    const sep = text.includes('\t') ? '\t' : (text.includes(',') && !/^[^,\n]*$/.test(text) ? ',' : '\t');
+    const rows = sep === ',' ? parseCSV(text, ',') : text.replace(/\r/g, '').split('\n').map(l => l.split('\t'));
+    while (rows.length && rows[rows.length - 1].every(c => c === '')) rows.pop();
+    if (!rows.length) return;
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    let maxR = baseR, maxC = baseC;
+    for (let i = 0; i < rows.length; i++) {
+      for (let j = 0; j < rows[i].length; j++) {
+        const r = baseR + i, c = baseC + j;
+        const v = rows[i][j];
+        if (v === '' || v == null) { delete sh.cells[cellKey(r, c)]; continue; }
+        sh.cells[cellKey(r, c)] = { ...(sh.cells[cellKey(r, c)] ?? {}), raw: v };
+        if (r > maxR) maxR = r; if (c > maxC) maxC = c;
+      }
+    }
+    sh.rows = Math.max(sh.rows, maxR + 5);
+    sh.cols = Math.max(sh.cols, maxC + 2);
+    next.selection = { r: baseR, c: baseC, r2: maxR, c2: maxC };
+    commit('paste', next);
+    toastFor(`Pasted ${rows.length}×${rows[0]?.length ?? 0}`);
+  };
+
+  // ── Fill operations ───────────────────────────────────────────────────────
+  // Build the source matrix the user selected, then extend it `count` rows
+  // (down) or cols (right) using series intelligence; preserves styles.
+  const applyFill = React.useCallback((
+    srcR0: number, srcC0: number, srcR1: number, srcC1: number,
+    toR: number, toC: number, mode: 'series' | 'copy' | 'format',
+  ) => {
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    const down = toR > srcR1;
+    const right = toC > srcC1;
+    if (!down && !right) return;
+    // Formulas always extend by offsetting their relative references — both in
+    // copy and series mode — never by naively bumping a digit.
+    const isFormulaCol = (vals: string[]) => vals.some(v => v.startsWith('='));
+    if (down) {
+      for (let c = srcC0; c <= srcC1; c++) {
+        const colSrc: string[] = [];
+        for (let r = srcR0; r <= srcR1; r++) colSrc.push(sh.cells[cellKey(r, c)]?.raw ?? '');
+        const formulaSrc = isFormulaCol(colSrc);
+        const count = toR - srcR1;
+        const filled = mode === 'series' && !formulaSrc ? detectFillSeries(colSrc, count) : null;
+        for (let i = 1; i <= count; i++) {
+          const r = srcR1 + i;
+          const srcRowIdx = srcR0 + ((i - 1) % colSrc.length);
+          const srcCell = sh.cells[cellKey(srcRowIdx, c)];
+          const style = srcCell?.style ? { ...srcCell.style } : undefined;
+          if (mode === 'format') { if (style) sh.cells[cellKey(r, c)] = { ...(sh.cells[cellKey(r, c)] ?? { raw: '' }), style }; continue; }
+          let raw = filled ? filled[i - 1] : (colSrc[(i - 1) % colSrc.length] ?? '');
+          if (raw.startsWith('=')) raw = offsetFormula(raw, r - srcRowIdx, 0);
+          if (raw === '') delete sh.cells[cellKey(r, c)];
+          else sh.cells[cellKey(r, c)] = { raw, style };
+        }
+      }
+    } else {
+      for (let r = srcR0; r <= srcR1; r++) {
+        const rowSrc: string[] = [];
+        for (let c = srcC0; c <= srcC1; c++) rowSrc.push(sh.cells[cellKey(r, c)]?.raw ?? '');
+        const formulaSrc = isFormulaCol(rowSrc);
+        const count = toC - srcC1;
+        const filled = mode === 'series' && !formulaSrc ? detectFillSeries(rowSrc, count) : null;
+        for (let i = 1; i <= count; i++) {
+          const c = srcC1 + i;
+          const srcColIdx = srcC0 + ((i - 1) % rowSrc.length);
+          const srcCell = sh.cells[cellKey(r, srcColIdx)];
+          const style = srcCell?.style ? { ...srcCell.style } : undefined;
+          if (mode === 'format') { if (style) sh.cells[cellKey(r, c)] = { ...(sh.cells[cellKey(r, c)] ?? { raw: '' }), style }; continue; }
+          let raw = filled ? filled[i - 1] : (rowSrc[(i - 1) % rowSrc.length] ?? '');
+          if (raw.startsWith('=')) raw = offsetFormula(raw, 0, c - srcColIdx);
+          if (raw === '') delete sh.cells[cellKey(r, c)];
+          else sh.cells[cellKey(r, c)] = { raw, style };
+        }
+      }
+    }
+    next.selection = { r: srcR0, c: srcC0, r2: toR, c2: toC };
+    commit('fill', next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [doc, sheet.id]);
+
+  // Drop the fill handle: commit the fill and show the autofill-options chip.
+  const commitFillDrag = (toR: number, toC: number) => {
+    const sr0 = Math.min(sel.r, sel.r2), sr1 = Math.max(sel.r, sel.r2);
+    const sc0 = Math.min(sel.c, sel.c2), sc1 = Math.max(sel.c, sel.c2);
+    const down = toR > sr1, right = toC > sc1;
+    if (!down && !right) { setFillDrag(null); return; }
+    // Constrain to a single axis (whichever the user dragged further).
+    const tR = down ? toR : sr1;
+    const tC = right && !down ? toC : sc1;
+    applyFill(sr0, sc0, sr1, sc1, tR, tC, 'series');
+    setFillChip({ r0: sr0, c0: sc0, r1: down ? tR : sr1, c1: right && !down ? tC : sc1, srcR0: sr0, srcC0: sc0, srcR1: sr1, srcC1: sc1, mode: 'series' });
+    setFillDrag(null);
+  };
+
+  // Double-click the handle: fill down to the extent of the adjacent column.
+  const fillDownToData = () => {
+    const sr0 = Math.min(sel.r, sel.r2), sr1 = Math.max(sel.r, sel.r2);
+    const sc0 = Math.min(sel.c, sel.c2), sc1 = Math.max(sel.c, sel.c2);
+    // probe the column just left of the selection (or right if at col 0)
+    const probe = sc0 > 0 ? sc0 - 1 : sc1 + 1;
+    let end = sr1;
+    for (let r = sr1 + 1; r < sheet.rows; r++) {
+      if ((sheet.cells[cellKey(r, probe)]?.raw ?? '') === '') break;
+      end = r;
+    }
+    if (end <= sr1) { toastFor('No adjacent data to fill into'); return; }
+    applyFill(sr0, sc0, sr1, sc1, end, sc1, 'series');
+    setFillChip({ r0: sr0, c0: sc0, r1: end, c1: sc1, srcR0: sr0, srcC0: sc0, srcR1: sr1, srcC1: sc1, mode: 'series' });
+  };
+
+  const changeFillMode = (mode: 'series' | 'copy' | 'format') => {
+    if (!fillChip) return;
+    applyFill(fillChip.srcR0, fillChip.srcC0, fillChip.srcR1, fillChip.srcC1, fillChip.r1, fillChip.c1, mode);
+    setFillChip({ ...fillChip, mode });
+  };
+
+  // Ctrl+D / Ctrl+R / Ctrl+Enter fills.
+  const fillDownShortcut = () => {
+    const sr0 = Math.min(sel.r, sel.r2), sr1 = Math.max(sel.r, sel.r2);
+    const sc0 = Math.min(sel.c, sel.c2), sc1 = Math.max(sel.c, sel.c2);
+    if (sr1 <= sr0) { toastFor('Select a range spanning multiple rows'); return; }
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    for (let c = sc0; c <= sc1; c++) {
+      const top = sh.cells[cellKey(sr0, c)];
+      for (let r = sr0 + 1; r <= sr1; r++) {
+        if (!top) { delete sh.cells[cellKey(r, c)]; continue; }
+        const raw = top.raw.startsWith('=') ? offsetFormula(top.raw, r - sr0, 0) : top.raw;
+        sh.cells[cellKey(r, c)] = { raw, style: top.style ? { ...top.style } : undefined };
+      }
+    }
+    commit('fill down', next);
+  };
+  const fillRightShortcut = () => {
+    const sr0 = Math.min(sel.r, sel.r2), sr1 = Math.max(sel.r, sel.r2);
+    const sc0 = Math.min(sel.c, sel.c2), sc1 = Math.max(sel.c, sel.c2);
+    if (sc1 <= sc0) { toastFor('Select a range spanning multiple columns'); return; }
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    for (let r = sr0; r <= sr1; r++) {
+      const left = sh.cells[cellKey(r, sc0)];
+      for (let c = sc0 + 1; c <= sc1; c++) {
+        if (!left) { delete sh.cells[cellKey(r, c)]; continue; }
+        const raw = left.raw.startsWith('=') ? offsetFormula(left.raw, 0, c - sc0) : left.raw;
+        sh.cells[cellKey(r, c)] = { raw, style: left.style ? { ...left.style } : undefined };
+      }
+    }
+    commit('fill right', next);
+  };
+
   const beginEdit = (r: number, c: number, prefill?: string) => {
     const cur = sheet.cells[cellKey(r, c)]?.raw ?? '';
     setEditor({ r, c, value: prefill ?? cur });
@@ -501,6 +846,29 @@ export default function OfficeStudioPro() {
 
   const selectCell = (r: number, c: number, extend = false) => {
     if (editor) commitEdit();
+    setDoc(d => extend ? { ...d, selection: { ...d.selection, r2: r, c2: c } } : { ...d, selection: { r, c, r2: r, c2: c } });
+  };
+
+  // Ctrl+Arrow: rocket to the edge of the contiguous data block in a direction
+  // (Sheets/Excel parity). From inside data → jump to last filled cell before a
+  // gap; from a gap → jump to the next filled cell.
+  const jumpToEdge = (dr: number, dc: number, extend = false) => {
+    if (editor) commitEdit();
+    const sh = sheet;
+    const filled = (r: number, c: number) => (sh.cells[cellKey(r, c)]?.raw ?? '') !== '';
+    let r = extend ? sel.r2 : sel.r;
+    let c = extend ? sel.c2 : sel.c;
+    const inData = filled(r + dr, c + dc);
+    const maxR = sh.rows - 1, maxC = sh.cols - 1;
+    if (inData) {
+      // walk while next cell is filled; stop at the last filled before a gap
+      while (r + dr >= 0 && r + dr <= maxR && c + dc >= 0 && c + dc <= maxC && filled(r + dr, c + dc)) { r += dr; c += dc; }
+    } else {
+      // skip the gap to the next filled cell (or sheet edge)
+      let moved = false;
+      while (r + dr >= 0 && r + dr <= maxR && c + dc >= 0 && c + dc <= maxC) { r += dr; c += dc; moved = true; if (filled(r, c)) break; }
+      if (!moved) return;
+    }
     setDoc(d => extend ? { ...d, selection: { ...d.selection, r2: r, c2: c } } : { ...d, selection: { r, c, r2: r, c2: c } });
   };
 
@@ -659,6 +1027,12 @@ export default function OfficeStudioPro() {
       items: [
         { combo: 'mod+z', description: 'Undo' },
         { combo: 'mod+shift+z', description: 'Redo' },
+        { combo: 'mod+c', description: 'Copy' },
+        { combo: 'mod+x', description: 'Cut' },
+        { combo: 'mod+v', description: 'Paste (splits tabular data into cells)' },
+        { combo: 'mod+d', description: 'Fill down' },
+        { combo: 'mod+r', description: 'Fill right' },
+        { combo: 'mod+enter', description: 'Fill selection' },
         { combo: 'enter', description: 'Edit current cell' },
         { combo: 'delete', description: 'Clear selection' },
       ],
@@ -675,6 +1049,8 @@ export default function OfficeStudioPro() {
       items: [
         { combo: 'arrows', description: 'Move selection' },
         { combo: 'shift+arrows', description: 'Extend selection' },
+        { combo: 'mod+arrows', description: 'Jump to data edge' },
+        { combo: 'mod+shift+arrows', description: 'Extend to data edge' },
         { combo: 'tab', description: 'Next cell' },
         { combo: 'enter', description: 'Edit / commit' },
       ],
@@ -695,12 +1071,27 @@ export default function OfficeStudioPro() {
     const onKey = (e: KeyboardEvent) => {
       if (editor) return;
       const target = e.target as HTMLElement;
-      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable) return;
+      const mod = e.ctrlKey || e.metaKey;
+      // Ctrl+D / Ctrl+R fills, Ctrl+Enter fill-selection
+      if (mod && (e.key === 'd' || e.key === 'D')) { e.preventDefault(); fillDownShortcut(); return; }
+      if (mod && (e.key === 'r' || e.key === 'R')) { e.preventDefault(); fillRightShortcut(); return; }
+      if (mod && e.key === 'Enter') { e.preventDefault(); fillDownShortcut(); return; }
+      // Ctrl+Arrow → data-edge jump (Ctrl+Shift+Arrow extends)
+      if (mod && e.key.startsWith('Arrow')) {
+        e.preventDefault();
+        const d = e.key === 'ArrowUp' ? [-1, 0] : e.key === 'ArrowDown' ? [1, 0] : e.key === 'ArrowLeft' ? [0, -1] : [0, 1];
+        jumpToEdge(d[0], d[1], e.shiftKey);
+        return;
+      }
       if (e.key === 'ArrowUp') { e.preventDefault(); moveSelection(-1, 0, e.shiftKey); }
       else if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1, 0, e.shiftKey); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); moveSelection(0, -1, e.shiftKey); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); moveSelection(0, 1, e.shiftKey); }
+      else if (e.key === 'Home') { e.preventDefault(); selectCell(mod ? 0 : sel.r, 0, e.shiftKey); }
+      else if (e.key === 'End') { e.preventDefault(); jumpToEdge(0, 1, e.shiftKey); }
       else if (e.key === 'Enter' || e.key === 'F2') { e.preventDefault(); beginEdit(sel.r, sel.c); }
+      else if (e.key === 'Tab') { e.preventDefault(); moveSelection(0, e.shiftKey ? -1 : 1); }
       else if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault();
         const next = cloneDoc(doc);
@@ -710,6 +1101,9 @@ export default function OfficeStudioPro() {
         for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) delete sh.cells[cellKey(r, c)];
         commit('clear', next);
       }
+      else if (mod && (e.key === 'c' || e.key === 'C')) { /* handled by copy listener */ }
+      else if (mod && (e.key === 'x' || e.key === 'X')) { /* handled by cut listener */ }
+      else if (mod && (e.key === 'v' || e.key === 'V')) { /* handled by paste listener */ }
       else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         beginEdit(sel.r, sel.c, e.key);
         e.preventDefault();
@@ -717,6 +1111,42 @@ export default function OfficeStudioPro() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, doc, sheet, sel.r, sel.c, sel.r2, sel.c2]);
+
+  // OS-clipboard listeners. Run on the document so a paste from Excel/Sheets
+  // lands in the grid; ignore while the user types in an input/textarea/editor.
+  React.useEffect(() => {
+    const isTyping = (t: EventTarget | null) => {
+      const el = t as HTMLElement | null;
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    };
+    const onCopy = (e: ClipboardEvent) => {
+      if (editor || isTyping(e.target)) return;
+      const { tsv } = selectionAsTsv(false);
+      if (e.clipboardData) { e.clipboardData.setData('text/plain', tsv); e.preventDefault(); toastFor('Copied'); }
+    };
+    const onCut = (e: ClipboardEvent) => {
+      if (editor || isTyping(e.target)) return;
+      const { tsv, next } = selectionAsTsv(true);
+      if (e.clipboardData) { e.clipboardData.setData('text/plain', tsv); e.preventDefault(); if (next) commit('cut', next); toastFor('Cut'); }
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      if (editor || isTyping(e.target)) return;
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      if (!text) return;
+      e.preventDefault();
+      pasteTsvAt(text, sel.r, sel.c);
+    };
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
+    document.addEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+      document.removeEventListener('paste', onPaste);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, doc, sheet, sel.r, sel.c, sel.r2, sel.c2]);
 
   const r0 = Math.min(sel.r, sel.r2), r1 = Math.max(sel.r, sel.r2);
@@ -1028,6 +1458,17 @@ export default function OfficeStudioPro() {
 
       <StudioBody>
         <div className="relative flex flex-1 min-w-0 flex-col bg-[#0a0b0e]">
+          {recovery && !recoveryDismissed.current && (
+            <div className="z-30 flex shrink-0 items-center gap-2 border-b border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+              <span className="flex-1">
+                Recovered an unsaved session from {timeAgo(recovery.ts)}
+                {(() => { const n = recovery.doc.sheets.reduce((a, s) => a + Object.keys(s.cells).length, 0); return n ? <span className="text-amber-300/70"> · {n} cells</span> : null; })()}
+              </span>
+              <button onClick={restoreRecovery} className="rounded bg-amber-400/90 px-2.5 py-1 font-medium text-amber-950 hover:bg-amber-300">Restore</button>
+              <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-amber-400/10">Dismiss</button>
+            </div>
+          )}
           {!sheetsWelcomed && doc.name === 'Untitled' && doc.sheets.length === 1 && Object.keys(doc.sheets[0].cells).length === 0 && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0a0b0e]/95 backdrop-blur-sm">
               <EmptyState
@@ -1068,6 +1509,13 @@ export default function OfficeStudioPro() {
             onEditChange={(v) => setEditor(e => e ? { ...e, value: v } : null)}
             onEditCommit={(dr, dc) => { commitEdit(); if (dr || dc) moveSelection(dr, dc); }}
             onEditCancel={() => setEditor(null)}
+            fillDrag={fillDrag}
+            onFillDragMove={(r, c) => { setFillChip(null); setFillDrag({ toR: r, toC: c }); }}
+            onFillDragEnd={commitFillDrag}
+            onFillDragCancel={() => setFillDrag(null)}
+            onFillDoubleClick={() => { setFillChip(null); fillDownToData(); }}
+            onResizeCol={(c, w) => { const next = cloneDoc(doc); const sh = next.sheets.find(s => s.id === sheet.id)!; sh.colWidths = { ...sh.colWidths, [c]: Math.max(40, Math.round(w)) }; commit('resize col', next); }}
+            onAutofitCol={(c, w) => { const next = cloneDoc(doc); const sh = next.sheets.find(s => s.id === sheet.id)!; sh.colWidths = { ...sh.colWidths, [c]: Math.max(40, Math.round(w)) }; commit('autofit col', next); }}
           />
           <div className="flex h-8 shrink-0 items-center gap-1 border-t border-white/5 bg-[#0f1115] px-3">
             {doc.sheets.map(s => (
@@ -1094,6 +1542,22 @@ export default function OfficeStudioPro() {
         </div>
       )}
       {toast && <div className="pointer-events-none fixed bottom-12 left-1/2 -translate-x-1/2 rounded-md bg-cyan-500/90 px-3 py-1.5 text-xs font-medium text-zinc-900 shadow-lg">{toast}</div>}
+
+      {/* Post-fill "Autofill options" chip (Sheets parity): switch the just-
+          applied fill between Copy / Fill series / Fill formatting only. */}
+      {fillChip && (
+        <div className="fixed bottom-14 left-1/2 z-40 flex -translate-x-1/2 items-center gap-1 rounded-lg border border-white/10 bg-[#111317] p-1 text-[11px] shadow-2xl">
+          <span className="px-2 text-zinc-500">Autofill</span>
+          {([['series', 'Fill series'], ['copy', 'Copy cells'], ['format', 'Formatting only']] as const).map(([m, label]) => (
+            <button
+              key={m}
+              onClick={() => changeFillMode(m)}
+              className={cn('rounded px-2 py-1 font-medium', fillChip.mode === m ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/10')}
+            >{label}</button>
+          ))}
+          <button onClick={() => setFillChip(null)} className="ml-1 rounded p-1 text-zinc-500 hover:bg-white/10 hover:text-zinc-300"><X className="h-3 w-3" /></button>
+        </div>
+      )}
       {gate}
 
       {sheet.charts && sheet.charts.length > 0 && (
@@ -1218,7 +1682,7 @@ export default function OfficeStudioPro() {
   );
 }
 
-function Grid({ sheet, evaluated, selection, editor, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel }: {
+function Grid({ sheet, evaluated, selection, editor, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
   evaluated: Record<string, any>;
   selection: { r: number; c: number; r2: number; c2: number };
@@ -1231,15 +1695,53 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
   onEditChange: (v: string) => void;
   onEditCommit: (dr: number, dc: number) => void;
   onEditCancel: () => void;
+  fillDrag: { toR: number; toC: number } | null;
+  onFillDragMove: (r: number, c: number) => void;
+  onFillDragEnd: (r: number, c: number) => void;
+  onFillDragCancel: () => void;
+  onFillDoubleClick: () => void;
+  onResizeCol: (c: number, w: number) => void;
+  onAutofitCol: (c: number, w: number) => void;
 }) {
   const headerW = 48;
   const cellH = 24;
   const dragging = React.useRef(false);
+  const filling = React.useRef(false);
   const r0 = Math.min(selection.r, selection.r2), r1 = Math.max(selection.r, selection.r2);
   const c0 = Math.min(selection.c, selection.c2), c1 = Math.max(selection.c, selection.c2);
 
-  const colW = (c: number) => sheet.colWidths[c] ?? 96;
+  // Live column-resize: drag the right border of a column header. Shows a width
+  // tooltip; double-click autofits to the widest visible content in the column.
+  const [resize, setResize] = React.useState<{ c: number; startX: number; startW: number; w: number } | null>(null);
+
+  const baseColW = (c: number) => sheet.colWidths[c] ?? 96;
+  const colW = (c: number) => (resize && resize.c === c ? resize.w : baseColW(c));
   const rowH = (r: number) => sheet.rowHeights[r] ?? cellH;
+
+  React.useEffect(() => {
+    if (!resize) return;
+    const onMove = (e: PointerEvent) => {
+      const w = Math.max(40, resize.startW + (e.clientX - resize.startX));
+      setResize(r => r ? { ...r, w } : r);
+    };
+    const onUp = () => { onResizeCol(resize.c, resize.w); setResize(null); };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resize?.c, resize?.startX, resize?.startW]);
+
+  const autofitCol = (c: number) => {
+    let max = 56;
+    for (let r = 0; r < sheet.rows; r++) {
+      const cell = sheet.cells[cellKey(r, c)];
+      if (!cell) continue;
+      const txt = formatValue(evaluated[cellKey(r, c)] ?? cell.raw ?? '', cell.style, locale, currency);
+      const w = txt.length * 7.2 + 16 + (cell.style?.bold ? txt.length * 0.6 : 0);
+      if (w > max) max = w;
+    }
+    onAutofitCol(c, Math.min(max, 480));
+  };
 
   const scrollerRef = React.useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = React.useState(0);
@@ -1271,16 +1773,43 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
     else if (target > el.scrollTop + el.clientHeight - cellH - 30) el.scrollTop = target - el.clientHeight + cellH + 30;
   }, [selection.r]);
 
+  // Ghost-preview range while dragging the fill handle (constrained to one axis,
+  // matching the commit logic). A dashed band shows what will be extended.
+  let ghost: { r0: number; c0: number; r1: number; c1: number } | null = null;
+  if (fillDrag) {
+    const down = fillDrag.toR > r1;
+    const right = fillDrag.toC > c1 && !down;
+    if (down) ghost = { r0, c0, r1: fillDrag.toR, c1 };
+    else if (right) ghost = { r0, c0, r1, c1: fillDrag.toC };
+  }
+  const inGhost = (r: number, c: number) => !!ghost && r >= ghost.r0 && r <= ghost.r1 && c >= ghost.c0 && c <= ghost.c1 && !(r >= r0 && r <= r1 && c >= c0 && c <= c1);
+
   return (
-    <div ref={scrollerRef} className="relative flex-1 overflow-auto" onPointerUp={() => { dragging.current = false; }}>
+    <div
+      ref={scrollerRef}
+      className="relative flex-1 overflow-auto"
+      onPointerUp={() => {
+        if (filling.current && fillDrag) onFillDragEnd(fillDrag.toR, fillDrag.toC);
+        else if (filling.current) onFillDragCancel();
+        filling.current = false;
+        dragging.current = false;
+      }}
+    >
       <div style={{ position: 'sticky', top: 0, left: 0, zIndex: 30 }} className="flex border-b border-white/10 bg-[#0f1115]">
         <div style={{ width: headerW, height: cellH }} className="sticky left-0 z-30 shrink-0 border-r border-white/10 bg-[#0f1115]" />
         {Array.from({ length: sheet.cols }, (_, c) => (
-          <div key={c} style={{ width: colW(c), height: cellH }} className={cn(
-            'shrink-0 border-r border-white/10 px-1 text-center text-[10px] font-medium leading-[24px]',
+          <div key={c} style={{ width: colW(c), height: cellH, position: 'relative' }} className={cn(
+            'group shrink-0 border-r border-white/10 px-1 text-center text-[10px] font-medium leading-[24px]',
             c >= c0 && c <= c1 ? 'bg-cyan-500/20 text-cyan-200' : 'bg-[#0f1115] text-zinc-500',
           )}>
             {colToLetter(c)}
+            {/* resize grip on the right border */}
+            <div
+              onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setResize({ c, startX: e.clientX, startW: colW(c), w: colW(c) }); }}
+              onDoubleClick={(e) => { e.stopPropagation(); autofitCol(c); }}
+              title="Drag to resize · double-click to autofit"
+              className="absolute right-0 top-0 z-10 h-full w-1.5 translate-x-1/2 cursor-col-resize hover:bg-cyan-400/60"
+            />
           </div>
         ))}
       </div>
@@ -1311,24 +1840,27 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
                   }
                   condFmt = evalCondFormat(v, condRange, all);
                 }
+                const ghosted = inGhost(r, c);
+                const isFillAnchor = r === r1 && c === c1; // bottom-right of selection
                 return (
                   <div
                     key={c}
                     style={{
                       width: colW(c), height: rowH(r),
-                      background: condFmt.bg ?? cell?.style?.bg ?? (inSel ? 'rgba(34,211,238,.08)' : undefined),
+                      background: condFmt.bg ?? cell?.style?.bg ?? (inSel ? 'rgba(34,211,238,.08)' : ghosted ? 'rgba(34,211,238,.05)' : undefined),
                       color: condFmt.color ?? cell?.style?.color,
                       fontWeight: cell?.style?.bold ? 700 : undefined,
                       fontStyle: cell?.style?.italic ? 'italic' : undefined,
                       textAlign: cell?.style?.align ?? (typeof v === 'number' ? 'right' : 'left'),
                       position: 'relative',
+                      boxShadow: ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
                     }}
                     className={cn(
                       'shrink-0 overflow-hidden border-b border-r border-white/5 px-1.5 text-[12px] leading-[24px] whitespace-nowrap',
                       isCursor && 'ring-2 ring-cyan-400 ring-inset z-10',
                     )}
-                    onPointerDown={(e) => { dragging.current = true; onSelect(r, c, e.shiftKey); }}
-                    onPointerEnter={() => { if (dragging.current) onSelect(r, c, true); }}
+                    onPointerDown={(e) => { if (filling.current) return; dragging.current = true; onSelect(r, c, e.shiftKey); }}
+                    onPointerEnter={() => { if (filling.current) onFillDragMove(r, c); else if (dragging.current) onSelect(r, c, true); }}
                     onDoubleClick={() => onBeginEdit(r, c)}
                   >
                     {condFmt.bar && (
@@ -1336,6 +1868,15 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
                     )}
                     {commentedCells.has(`${r}_${c}`) && (
                       <div style={{ position: 'absolute', right: 0, top: 0, width: 0, height: 0, borderTop: '6px solid #fbbf24', borderLeft: '6px solid transparent', zIndex: 5 }} />
+                    )}
+                    {isFillAnchor && !isEditing && (
+                      <div
+                        title="Drag to fill series · double-click to fill down"
+                        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); filling.current = true; dragging.current = false; (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); }}
+                        onDoubleClick={(e) => { e.stopPropagation(); onFillDoubleClick(); }}
+                        style={{ position: 'absolute', right: -3, bottom: -3, width: 7, height: 7, zIndex: 20 }}
+                        className="cursor-crosshair rounded-[1px] border border-[#0a0b0e] bg-cyan-400"
+                      />
                     )}
                     {isEditing ? (
                       <input
@@ -1365,6 +1906,11 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
           );
         })}
       </div>
+      {resize && (
+        <div className="pointer-events-none fixed left-1/2 top-24 z-50 -translate-x-1/2 rounded-md bg-black/85 px-2.5 py-1 text-[11px] font-medium text-cyan-200 shadow-lg backdrop-blur">
+          {colToLetter(resize.c)} · {Math.round(resize.w)}px
+        </div>
+      )}
     </div>
   );
 }
@@ -1637,6 +2183,17 @@ function parseCSV(text: string, sep = ','): string[][] {
 function csvEscape(v: string, sep: string): string {
   if (v.includes(sep) || v.includes('\n') || v.includes('"')) return '"' + v.replace(/"/g, '""') + '"';
   return v;
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 60) return 'moments ago';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
 }
 
 function Dialog({ title, children, onCancel, onConfirm, confirmLabel = 'OK' }: { title: string; children: React.ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel?: string }) {

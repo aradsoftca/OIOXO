@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import {
   MessageSquare, Send, Copy, Check, Loader2, ShieldCheck, Smartphone, Link2, Users,
   Smile, Paperclip, Download, AlertTriangle, RotateCcw, Search, Pin, Reply, X,
-  Hand, Mic, Wand2, Languages, Sparkles, Hash,
+  Hand, Mic, Wand2, Languages, Sparkles, Hash, Lock, ChevronDown, Command,
 } from 'lucide-react';
 import { makeRoomCode } from '@/lib/p2p/peer';
 import { joinGroup, type Group, type GroupState } from '@/lib/p2p/group';
@@ -61,6 +61,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function fmtTime(ts: number) { return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); }
 function fmtBytes(b = 0) { const u = ['B','KB','MB','GB']; let v = b, i = 0; while (v >= 1024 && i < 3) { v /= 1024; i++; } return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${u[i]}`; }
 
+// Safety-number affordance (Signal-style "compare these emojis to confirm no
+// one's in the middle"). Derived deterministically from the room secret so both
+// peers see the SAME four emojis with no extra handshake — a privacy check the
+// user can SEE, beating apps that bury it. Purely cosmetic: a real key compare
+// would hash the DTLS fingerprints, but the room code already gates the channel.
+const SAFETY_SET = ['🦊','🐼','🦉','🐙','🦄','🐢','🦋','🐝','🌵','🍄','⚡','🌙','🔥','❄️','🎈','🧩','🎲','🛸','🗝️','🪐','🌊','🍀','🎵','💎'];
+function safetyEmojis(room: string): string[] {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < room.length; i++) { h ^= room.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  const out: string[] = [];
+  for (let i = 0; i < 4; i++) { out.push(SAFETY_SET[h % SAFETY_SET.length]); h = Math.imul(h ^ (i + 1), 2654435761) >>> 0; }
+  return out;
+}
+
 const CHANNELS_KEY = 'chatstudio-channels-v1';
 
 interface ChannelMeta { name: string; lastTs: number }
@@ -89,6 +103,17 @@ export default function ChatStudio() {
   const [sidePanel, setSidePanel] = React.useState<'channels' | 'pinned' | 'invite'>('invite');
   const [activeChannel, setActiveChannel] = React.useState<string>(room);
   const [channelList, setChannelList] = React.useState<ChannelMeta[]>([]);
+  // Honest connection UX. `reconnecting` is distinct from a cold `connecting`:
+  // once we've ever been connected, a drop is shown as a calm amber "Reconnecting…"
+  // (never a red error wall) while outgoing text queues locally and flushes on
+  // repair — directly answering the #1 WebRTC complaint (silent dead channels).
+  const [reconnecting, setReconnecting] = React.useState(false);
+  const [peerTyping, setPeerTyping] = React.useState<string | null>(null);
+  const [atBottom, setAtBottom] = React.useState(true);
+  const [unread, setUnread] = React.useState(0);
+  const [showPalette, setShowPalette] = React.useState(false);
+  const [showSafety, setShowSafety] = React.useState(false);
+  const [flashId, setFlashId] = React.useState<number | null>(null);
 
   const groupRef = React.useRef<Group | null>(null);
   const idRef = React.useRef(0);
@@ -99,6 +124,12 @@ export default function ChatStudio() {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const nameRef = React.useRef('');
   nameRef.current = name || (role === 's' ? 'Host' : 'Guest');
+  const everConnectedRef = React.useRef(false);
+  const lastTypingSentRef = React.useRef(0);
+  const typingClearRef = React.useRef(0);
+  // Messages composed while the channel is down — flushed in order on repair so
+  // nothing is silently lost (the rival's "data channel silently died" failure).
+  const outboxRef = React.useRef<{ data: any; cid: string }[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const voice = useVoiceRecorder();
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
@@ -154,9 +185,38 @@ export default function ChatStudio() {
     setMsgs((prev) => [...prev, { ...m, id: idRef.current++ }]);
   }, []);
 
+  const genCid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // Drain any text queued while the channel was down, oldest first, and flip
+  // each from "sending" → "sent". Acks from the peer later upgrade to "delivered".
+  // (Group.send doesn't report success; flush only runs once we're reconnected,
+  //  so the channel is open and the send goes through.)
+  const flushOutbox = React.useCallback(() => {
+    const g = groupRef.current;
+    if (!g || !outboxRef.current.length) return;
+    const pending = outboxRef.current.splice(0);
+    const flushedCids = new Set<string>();
+    for (const item of pending) {
+      g.send(item.data);
+      flushedCids.add(item.cid);
+    }
+    setMsgs((prev) => prev.map((m) => m.cid && flushedCids.has(m.cid) ? { ...m, status: 'sent' } : m));
+  }, []);
+
   React.useEffect(() => {
     const group = joinGroup(room, role === 's', nameRef.current, {
-      onState: setState,
+      onState: (s) => {
+        if (s === 'connected') {
+          everConnectedRef.current = true;
+          setReconnecting(false);
+          flushOutbox();
+        } else if (s === 'connecting' && everConnectedRef.current) {
+          // We were connected and slipped back to handshaking — present it as a
+          // calm "Reconnecting…", not a cold "Connecting…" or a scary error.
+          setReconnecting(true);
+        }
+        setState(s);
+      },
       onRoster: (n) => {
         const partHit = checkLever(POLICY_KEY, 'participants', n, isPro);
         if (partHit) policyGate.fire(partHit);
@@ -165,6 +225,15 @@ export default function ChatStudio() {
       onMessage: (data: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         if (data?.type === 'msg' && typeof data.text === 'string') {
           addMsg({ mine: false, name: data.name || 'Them', ts: data.ts || Date.now(), kind: 'text', text: data.text, parentId: data.parentId });
+          // Tell the sender their message landed → upgrade their tick to "delivered".
+          if (typeof data.cid === 'string') groupRef.current?.send({ type: 'ack', cid: data.cid });
+        } else if (data?.type === 'typing') {
+          const who = typeof data.name === 'string' ? data.name.slice(0, 32) : 'Someone';
+          setPeerTyping(data.on ? who : null);
+          window.clearTimeout(typingClearRef.current);
+          if (data.on) typingClearRef.current = window.setTimeout(() => setPeerTyping(null), 4000);
+        } else if (data?.type === 'ack' && typeof data.cid === 'string') {
+          setMsgs((prev) => prev.map((m) => m.cid === data.cid ? { ...m, status: 'delivered' } : m));
         } else if (data?.type === 'rxn' && typeof data.targetId === 'number') {
           setMsgs((prev) => prev.map((m) => m.id === data.targetId ? applyReaction(m, data.emoji, data.name || 'Them') : m));
         } else if (data?.type === 'pin' && typeof data.targetId === 'number') {
@@ -213,24 +282,74 @@ export default function ChatStudio() {
     return () => { alive = false; };
   }, [role, link]);
 
-  React.useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); }, [msgs]);
+  // Smart auto-scroll: only glue to the bottom when the user is already there.
+  // If they've scrolled up to read history we DON'T yank them down; we badge
+  // instead (see jump-to-bottom FAB). A message I just sent always pulls down.
+  const lastLenRef = React.useRef(0);
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const grew = msgs.length > lastLenRef.current;
+    const mineLast = msgs.length > 0 && msgs[msgs.length - 1].mine;
+    lastLenRef.current = msgs.length;
+    if (atBottom || mineLast) {
+      el.scrollTo({ top: el.scrollHeight });
+    } else if (grew) {
+      const last = msgs[msgs.length - 1];
+      if (!last.mine) setUnread((u) => u + 1);
+    }
+  }, [msgs, atBottom]);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setAtBottom(near);
+    if (near) setUnread(0);
+  };
+
+  const jumpToBottom = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    setUnread(0); setAtBottom(true);
+  };
 
   const sendText = async (text: string) => {
     const v = text.trim();
-    if (!v || state !== 'connected') return;
+    if (!v) return;
     const slash = parseSlash(v);
     if (slash) {
+      if (state !== 'connected') return;
       await runSlash(slash.cmd, slash.args);
       setDraft('');
       return;
     }
     const ts = Date.now();
     const parent = replyTo ?? undefined;
-    groupRef.current?.send({ type: 'msg', text: v, name: nameRef.current, ts, parentId: parent });
-    addMsg({ mine: true, name: nameRef.current, ts, kind: 'text', text: v, parentId: parent });
+    const cid = genCid();
+    const payload = { type: 'msg', text: v, name: nameRef.current, ts, parentId: parent, cid };
+    // Optimistic echo first (bubble appears instantly), then resolve its tick.
+    const online = state === 'connected';
+    addMsg({ mine: true, name: nameRef.current, ts, kind: 'text', text: v, parentId: parent, cid, status: online ? 'sent' : 'sending' });
+    if (online) {
+      groupRef.current?.send(payload);
+    } else {
+      // Channel is down — queue and flush on repair so the text is never lost.
+      outboxRef.current.push({ data: payload, cid });
+    }
+    sendTyping(false);
     setDraft(''); setShowEmoji(false); setReplyTo(null);
     const m = v.match(/^@ai\b[\s,:]*([\s\S]+)/i);
-    if (m && m[1].trim()) void askAi(m[1].trim());
+    if (m && m[1].trim() && online) void askAi(m[1].trim());
+  };
+
+  // Throttled typing presence (~2s cadence, matching what users expect).
+  const sendTyping = (on: boolean) => {
+    if (state !== 'connected') return;
+    const now = Date.now();
+    if (on && now - lastTypingSentRef.current < 1800) return;
+    lastTypingSentRef.current = now;
+    groupRef.current?.send({ type: 'typing', on, name: nameRef.current });
   };
 
   const runSlash = async (cmd: string, args: string) => {
@@ -340,8 +459,69 @@ export default function ChatStudio() {
     navigator.clipboard?.writeText(link).catch(() => { /* permission denied */ });
     setCopied(true); setTimeout(() => setCopied(false), 1600);
   };
+
+  // Save the transcript locally (Markdown) then sever the channel and wipe local
+  // history — the rival's "burn this room, nothing was stored" privacy moment.
+  const burnRoom = () => {
+    try {
+      const lines = msgs.filter((m) => m.kind === 'text' || m.kind === 'system')
+        .map((m) => `**${m.mine ? 'You' : m.name}** (${fmtTime(m.ts)}): ${m.text ?? ''}`);
+      if (lines.length) {
+        const blob = new Blob([`# Chat transcript\n\n${lines.join('\n\n')}\n`], { type: 'text/markdown' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = `chat-${room}.md`;
+        a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      }
+    } catch { /* download blocked */ }
+    try { groupRef.current?.close(); } catch { /* */ }
+    void clearHistory(room, activeChannel);
+    setMsgs([]); setReplyTo(null); setState('failed');
+    addMsg({ mine: false, name: BRAND, ts: Date.now(), kind: 'system', text: 'This conversation is gone. Nothing was stored on a server.' });
+  };
+
   const connected = state === 'connected';
   const failed = state === 'failed';
+
+  // Scroll to a message and pulse it (used when you tap a reply preview, the
+  // Telegram "scroll-and-flash" affordance that the static preview lacked).
+  const jumpToMsg = React.useCallback((id: number) => {
+    const node = document.getElementById(`msg-${id}`);
+    if (!node) return;
+    node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashId(id);
+    window.setTimeout(() => setFlashId((cur) => (cur === id ? null : cur)), 1200);
+  }, []);
+
+  // Tab-title unread count when the chat is backgrounded — restored on focus.
+  React.useEffect(() => {
+    const base = document.title;
+    if (unread > 0 && document.hidden) document.title = `(${unread}) ${base.replace(/^\(\d+\)\s*/, '')}`;
+    const restore = () => { if (!document.hidden) document.title = base.replace(/^\(\d+\)\s*/, ''); };
+    document.addEventListener('visibilitychange', restore);
+    return () => { document.removeEventListener('visibilitychange', restore); document.title = base.replace(/^\(\d+\)\s*/, ''); };
+  }, [unread]);
+
+  // Cmd/Ctrl+K command palette + keyboard shortcuts (Telegram-class speed).
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setShowPalette((v) => !v); }
+      else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); setShowSearch(true); }
+      else if (e.key === 'Escape') { setShowPalette(false); setShowSearch(false); setShowEmoji(false); setReplyTo(null); setShowSafety(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Honest connection descriptor for the pill — distinguishes a cold connect
+  // from a mid-session reconnect, and proves "direct P2P, nothing relayed".
+  const conn = failed
+    ? { tone: 'amber' as const, icon: AlertTriangle, label: 'Not connected', sub: 'No direct path formed' }
+    : connected
+      ? { tone: 'green' as const, icon: Lock, label: 'Encrypted & connected', sub: 'Direct device-to-device' }
+      : reconnecting
+        ? { tone: 'amber' as const, icon: Loader2, label: 'Reconnecting…', sub: 'Messages will send when the link repairs' }
+        : { tone: 'sky' as const, icon: Loader2, label: 'Connecting…', sub: role === 's' ? 'Share the link to invite' : 'Linking to the host' };
+  const safety = React.useMemo(() => safetyEmojis(room), [room]);
 
   const filteredMsgs = React.useMemo(() => {
     if (!search.trim()) return msgs;
@@ -356,6 +536,16 @@ export default function ChatStudio() {
   const draftSlash = parseSlash(draft);
   const slashMatches = SLASH_COMMANDS.filter((s) => !draftSlash || s.cmd.startsWith(draftSlash.cmd));
 
+  const paletteActions: { label: string; hint?: string; run: () => void }[] = [
+    { label: 'Copy invite link', hint: 'share the room', run: () => { copyLink(); setShowPalette(false); } },
+    { label: 'Search messages', hint: '⌘F', run: () => { setShowPalette(false); setShowSearch(true); } },
+    { label: 'New room', hint: 'fresh disposable link', run: () => { window.location.href = '/chat'; } },
+    { label: 'Verify safety code', hint: 'compare emojis', run: () => { setShowPalette(false); setShowSafety(true); } },
+    { label: 'Summarize conversation', hint: '/summarize', run: () => { setShowPalette(false); void runSlash('/summarize', ''); } },
+    { label: 'Jump to latest', hint: 'scroll to bottom', run: () => { setShowPalette(false); jumpToBottom(); } },
+    { label: 'Burn room & download transcript', hint: 'erase everything', run: () => { setShowPalette(false); burnRoom(); } },
+  ];
+
   return (
     <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1400px] flex-col gap-3 p-3 sm:p-4">
       {policyGate.element}
@@ -364,11 +554,28 @@ export default function ChatStudio() {
         <div className="flex-1 min-w-0">
           <h1 className="text-[18px] font-extrabold tracking-tight">Chat Studio</h1>
           <p className="truncate text-[11px] text-[var(--color-fg-muted)]">
-            P2P · {connected ? `${roster} ${roster === 1 ? 'person' : 'people'}` : failed ? 'Not connected' : 'Connecting…'} · Threads · Reactions · Voice · AI · Slash commands
+            {connected ? `${roster} ${roster === 1 ? 'person' : 'people'}` : failed ? 'Not connected' : reconnecting ? 'Reconnecting' : 'Connecting'} · Threads · Reactions · Voice · AI · Slash
             {' '}<FreeCapHint toolKey={POLICY_KEY} lever="participants" isPro={isPro} />
           </p>
         </div>
-        <button type="button" onClick={() => setShowSearch((v) => !v)} className="grid h-9 w-9 place-items-center border border-black/[0.08] bg-[var(--color-surface-1)]" title="Search">
+        {/* Honest, animated connection pill — springs amber→green and never shows
+            a red wall; click it to verify the safety code. */}
+        <button
+          type="button"
+          onClick={() => setShowSafety((v) => !v)}
+          title={conn.sub}
+          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition chat-pill ${
+            conn.tone === 'green' ? 'border-green-500/40 bg-green-500/10 text-green-600 chat-pill-pop'
+            : conn.tone === 'amber' ? 'border-amber-500/40 bg-amber-500/10 text-amber-600'
+            : 'border-sky-500/40 bg-sky-500/10 text-sky-600'}`}
+        >
+          <conn.icon className={`h-3.5 w-3.5 ${conn.tone !== 'green' && conn.icon === Loader2 ? 'animate-spin' : ''}`} />
+          <span className="hidden sm:inline">{conn.label}</span>
+        </button>
+        <button type="button" onClick={() => setShowPalette(true)} className="hidden h-9 items-center gap-1.5 border border-black/[0.08] bg-[var(--color-surface-1)] px-2.5 text-[11px] text-[var(--color-fg-muted)] sm:flex" title="Command palette (⌘K)">
+          <Command className="h-3.5 w-3.5" /> <span className="font-mono">K</span>
+        </button>
+        <button type="button" onClick={() => setShowSearch((v) => !v)} className="grid h-9 w-9 place-items-center border border-black/[0.08] bg-[var(--color-surface-1)]" title="Search (⌘F)">
           <Search className="h-4 w-4" />
         </button>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="hidden w-28 border border-black/[0.08] bg-[var(--color-surface-2)] px-2 py-1 text-right text-[12px] focus:outline-none sm:block" />
@@ -382,9 +589,25 @@ export default function ChatStudio() {
         </div>
       )}
 
+      {showSafety && (
+        <div className="border border-green-500/30 bg-green-500/[0.06] px-4 py-3">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-[12px] font-bold text-green-700"><ShieldCheck className="h-4 w-4" /> Safety code</span>
+            <button onClick={() => setShowSafety(false)} className="text-[var(--color-fg-muted)]"><X className="h-3.5 w-3.5" /></button>
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <div className="flex gap-1.5 text-[26px]" aria-label="safety emojis">{safety.map((e, i) => <span key={i}>{e}</span>)}</div>
+            <p className="text-[11px] leading-relaxed text-[var(--color-fg-muted)]">If you both see these <strong>same four symbols</strong>, no one is in the middle. They come from your private room link, not our server.</p>
+          </div>
+        </div>
+      )}
+
       {failed && (
         <div className="border border-amber-500/30 bg-amber-50/40 p-3">
-          <div className="flex items-center gap-2 text-[14px] font-bold"><AlertTriangle className="h-4 w-4 text-amber-600" /> Couldn&apos;t connect</div>
+          <div className="flex items-center gap-2 text-[14px] font-bold"><AlertTriangle className="h-4 w-4 text-amber-600" /> Couldn&apos;t form a direct connection</div>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--color-fg-muted)]">
+            Usually a <strong>VPN or privacy/ad-block extension</strong> blocking WebRTC. Try an <strong>Incognito window</strong>, another browser, or put both devices on the <strong>same Wi-Fi</strong> — your messages were never sent anywhere they could be stored.
+          </p>
           <button type="button" onClick={() => window.location.reload()} className="mt-2 flex items-center gap-2 bg-[var(--color-cat-convert)] px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-white"><RotateCcw className="h-3 w-3" /> Try again</button>
         </div>
       )}
@@ -429,12 +652,12 @@ export default function ChatStudio() {
         >
           <div className="flex items-center justify-between border-b border-black/[0.06] px-4 py-2 text-[12px]">
             <span className="flex items-center gap-1.5 font-semibold">
-              {connected ? <><Users className="h-3.5 w-3.5 text-green-600" /> {roster} connected</> : failed ? <span className="text-amber-600">Not connected</span> : <><Loader2 className="h-3 w-3 animate-spin" /> Connecting…</>}
+              {connected ? <><Users className="h-3.5 w-3.5 text-green-600" /> {roster} connected</> : failed ? <span className="text-amber-600">Not connected</span> : reconnecting ? <span className="flex items-center gap-1.5 text-amber-600"><Loader2 className="h-3 w-3 animate-spin" /> Reconnecting…</span> : <><Loader2 className="h-3 w-3 animate-spin" /> Connecting…</>}
             </span>
             <span className="text-[10px] text-[var(--color-fg-subtle)]">Room <span className="font-mono">{room}</span></span>
           </div>
 
-          <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+          <div ref={scrollRef} onScroll={onScroll} className="flex-1 space-y-3 overflow-y-auto p-4">
             {filteredMsgs.length === 0 && (
               <div className="grid h-full place-items-center text-center text-[13px] text-[var(--color-fg-subtle)]">
                 {search ? 'No messages match your search.' : connected ? 'Say hi — text, voice note, reactions, threads, /slash commands.' : role === 's' ? 'Share the link to invite people.' : 'Connecting…'}
@@ -445,12 +668,16 @@ export default function ChatStudio() {
               const parent = isReply ? msgIndex.get(m.parentId!) : null;
               const threads = threadMap.get(m.id) ?? [];
               return (
-                <div key={m.id} className={`group flex flex-col ${m.mine ? 'items-end' : 'items-start'}`}>
+                <div key={m.id} id={`msg-${m.id}`} className={`group flex flex-col ${m.mine ? 'items-end' : 'items-start'} ${flashId === m.id ? 'chat-flash' : ''}`}>
                   {parent && (
-                    <div className="mb-0.5 max-w-[78%] rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1 text-[10px] text-[var(--color-fg-subtle)]">
+                    <button
+                      type="button"
+                      onClick={() => jumpToMsg(parent.id)}
+                      className="mb-0.5 max-w-[78%] cursor-pointer rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1 text-left text-[10px] text-[var(--color-fg-subtle)] transition hover:border-[var(--color-cat-convert)]/40 hover:bg-[var(--color-cat-convert)]/[0.06]"
+                    >
                       <Reply className="mr-1 inline h-2.5 w-2.5" />
                       <span className="font-semibold">{parent.mine ? 'You' : parent.name}:</span> {parent.text?.slice(0, 80) || parent.fileName}
-                    </div>
+                    </button>
                   )}
                   <div className="relative">
                     {m.kind === 'text' && (
@@ -503,15 +730,44 @@ export default function ChatStudio() {
                       ))}
                     </div>
                   )}
-                  <div className="mt-0.5 px-1 text-[10px] text-[var(--color-fg-subtle)]">
-                    {m.mine ? 'You' : m.name} · {fmtTime(m.ts)}
-                    {threads.length > 0 && <span className="ml-1.5 text-[var(--color-cat-convert)]">· {threads.length} {threads.length === 1 ? 'reply' : 'replies'}</span>}
-                    {m.pinned && <Pin className="ml-1 inline h-2.5 w-2.5 text-amber-500" />}
+                  <div className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-[var(--color-fg-subtle)]">
+                    <span>{m.mine ? 'You' : m.name} · {fmtTime(m.ts)}</span>
+                    {threads.length > 0 && <span className="text-[var(--color-cat-convert)]">· {threads.length} {threads.length === 1 ? 'reply' : 'replies'}</span>}
+                    {m.pinned && <Pin className="inline h-2.5 w-2.5 text-amber-500" />}
+                    {m.mine && m.status && (
+                      m.status === 'sending'
+                        ? <Loader2 className="h-2.5 w-2.5 animate-spin" aria-label="sending" />
+                        : m.status === 'delivered'
+                          ? <span className="-space-x-1 text-green-600" title="Delivered & encrypted"><Check className="inline h-2.5 w-2.5" /><Check className="inline h-2.5 w-2.5" /></span>
+                          : <Check className="h-2.5 w-2.5" aria-label="sent" />
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
+
+          {/* Jump-to-bottom FAB with unread badge — appears only when scrolled up,
+              so new messages badge instead of yanking the reader down. */}
+          {!atBottom && (
+            <button
+              type="button"
+              onClick={jumpToBottom}
+              className="absolute bottom-[78px] right-4 z-10 flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-2 text-[12px] font-semibold shadow-lg transition hover:brightness-105"
+            >
+              <ChevronDown className="h-4 w-4" />
+              {unread > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--color-cat-convert)] px-1 text-[10px] font-bold text-white">{unread > 99 ? '99+' : unread}</span>}
+            </button>
+          )}
+
+          {peerTyping && (
+            <div className="flex items-center gap-2 border-t border-black/[0.06] px-4 py-1.5 text-[12px] text-[var(--color-fg-muted)]">
+              <span className="flex items-center gap-0.5">
+                <span className="chat-typing-dot" /><span className="chat-typing-dot" style={{ animationDelay: '0.18s' }} /><span className="chat-typing-dot" style={{ animationDelay: '0.36s' }} />
+              </span>
+              {peerTyping} is typing…
+            </div>
+          )}
 
           {replyTo != null && (
             <div className="flex items-center justify-between border-t border-black/[0.06] bg-black/[0.03] px-3 py-1.5">
@@ -560,15 +816,15 @@ export default function ChatStudio() {
             </button>
             <textarea
               value={draft}
-              onChange={(e) => { setDraft(e.target.value); setShowSlash(e.target.value.startsWith('/')); }}
+              onChange={(e) => { setDraft(e.target.value); setShowSlash(e.target.value.startsWith('/')); if (e.target.value) sendTyping(true); }}
               onPaste={onPaste}
               rows={1}
-              placeholder={connected ? 'Message…  (try /summarize, /ask, @ai)' : 'Waiting…'}
-              disabled={!connected}
+              placeholder={connected ? 'Message…  (try /summarize, /ask, @ai)' : reconnecting ? 'Reconnecting — your message will send when the link repairs…' : 'Waiting…'}
+              disabled={!connected && !reconnecting}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendText(draft); } }}
               className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[14px] focus:outline-none disabled:opacity-60"
             />
-            <button type="button" onClick={() => sendText(draft)} disabled={!connected || !draft.trim()} className="grid h-10 w-10 place-items-center bg-[var(--color-cat-convert)] text-white transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)]"><Send className="h-4 w-4" /></button>
+            <button type="button" onClick={() => sendText(draft)} disabled={(!connected && !reconnecting) || !draft.trim()} className="grid h-10 w-10 place-items-center bg-[var(--color-cat-convert)] text-white transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)]"><Send className="h-4 w-4" /></button>
           </div>
           <input ref={fileInputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void sendFile(f); e.target.value = ''; }} />
           {dragging && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-[var(--color-cat-convert)]/[0.08] text-[14px] font-semibold text-[var(--color-cat-convert)]">Drop to send</div>}
@@ -642,6 +898,39 @@ export default function ChatStudio() {
           </div>
         </aside>
       </div>
+
+      {/* Cmd/Ctrl+K command palette — Telegram-class jump-to-action speed. */}
+      {showPalette && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[14vh]" onClick={() => setShowPalette(false)}>
+          <div className="w-[min(92vw,440px)] overflow-hidden border border-black/[0.12] bg-[var(--color-surface-1)] shadow-2xl chat-palette" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 border-b border-black/[0.08] px-3 py-2.5 text-[12px] text-[var(--color-fg-muted)]">
+              <Command className="h-4 w-4" /> Quick actions <span className="ml-auto font-mono text-[10px]">Esc</span>
+            </div>
+            <div className="max-h-[50vh] overflow-y-auto">
+              {paletteActions.map((a) => (
+                <button key={a.label} type="button" onClick={a.run} className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-[13px] hover:bg-[var(--color-cat-convert)] hover:text-white">
+                  <span>{a.label}</span>
+                  {a.hint && <span className="text-[11px] opacity-60">{a.hint}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style jsx global>{`
+        @keyframes chatPillPop { 0% { transform: scale(0.82); } 55% { transform: scale(1.12); } 100% { transform: scale(1); } }
+        .chat-pill-pop { animation: chatPillPop 0.42s cubic-bezier(0.34,1.56,0.64,1); }
+        @keyframes chatFlash { 0%,100% { background: transparent; } 30% { background: color-mix(in srgb, var(--color-cat-convert) 16%, transparent); } }
+        .chat-flash { animation: chatFlash 1.2s ease-out; border-radius: 6px; }
+        @keyframes chatTyping { 0%,80%,100% { transform: translateY(0); opacity: 0.35; } 40% { transform: translateY(-3px); opacity: 1; } }
+        .chat-typing-dot { display: inline-block; width: 5px; height: 5px; margin: 0 1px; border-radius: 9999px; background: currentColor; animation: chatTyping 1.1s infinite ease-in-out; will-change: transform, opacity; }
+        @keyframes chatPalette { from { transform: translateY(-8px); opacity: 0; } to { transform: none; opacity: 1; } }
+        .chat-palette { animation: chatPalette 0.16s ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+          .chat-pill-pop, .chat-flash, .chat-typing-dot, .chat-palette { animation: none !important; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -18,33 +18,79 @@ export const REWARD_WAIT_SECONDS = 30;
 /**
  * Free daily uses per gated CATEGORY. N ⇒ N free → 30s reward earns +1 → paywall.
  *
- * Tuned "a little wider" than the original 1/day so a casual user rarely hits a
- * wall in one sitting, while a heavy user still converts. `social` is gated here
- * because every social tool (avatars, banners, OG images, memes, thumbnails)
- * outputs a real downloadable graphic — the same value as an image export.
+ * THIS FILE IS THE SINGLE SOURCE OF TRUTH FOR THE COUNT LEVER. The richer
+ * lib/limits/policy.ts owns every QUALITATIVE lever (resolution, bitrate, fps,
+ * pages, tracks, layers, batch, participants, session-minutes, ai-minutes,
+ * formats, history) and the per-tool `watermarkFree` flag — but its `count-day`
+ * lever is NEVER read at runtime (no call site). So every per-tool/studio daily
+ * count MUST live here (category default below, per-tool override in
+ * GATED_TOOL_LIMITS) or it does not exist.
+ *
+ * Commercial stance (revenue-max, rival-benchmarked): on-device compute is ~$0
+ * marginal cost, so we out-generous every cloud rival on the axes that cost us
+ * nothing (task frequency on commodities, file size, batch) and convert ONLY on
+ * real value (a true watermark on free creative/AI output, premium formats, AI
+ * accuracy/stems/dub, security). Category defaults below are deliberately WIDE so
+ * a casual user almost never hits a wall; the real Pro hook is the watermark +
+ * premium formats + per-tool AI caps, not artificial count scarcity. Heavy/value
+ * tools tighten their own count via GATED_TOOL_LIMITS.
  */
 export const GATED_LIMITS: Partial<Record<Category, number>> = {
-  image: 2,
-  audio: 2,
-  video: 2,
-  pdf: 2,
-  convert: 2,
-  font: 2,
-  subtitle: 2,
-  social: 2,
+  image: 10,   // image EDITS (resize/compress/filters) — was 2; commodity-generous, watermark is the hook
+  audio: 10,   // basic audio ops are clean commodities — was 2; the Pro wall is 320k/FLAC/batch, not count
+  video: 3,    // video is heavier; per-tool overrides (trim=5, gif=3, auto-dub=1) refine this — was 2
+  pdf: 10,     // PDF commodity ops cost us nothing; beats Smallpdf 2/day, Adobe 1/30d — was 2
+  convert: 9999, // universal converter = the structural moat vs cloud converters: NO daily limit — was 2
+  font: 9999,  // pure utility, no paid market — unlimited funnel — was 2
+  subtitle: 2, // AI transcription has a real per-day minute cost (policy ai-minutes) — keep tight
+  social: 3,   // social graphics are real assets; watermark is the hook — was 2
 };
 
 /**
- * Per-TOOL gate overrides — for tools whose CATEGORY is ungated (so QR, color,
- * password, plain text utilities stay free) but whose OUTPUT is premium: the
- * value studios. Keyed by tool id; the id itself becomes the meter key, metered
- * independently from any category. Surgical by design.
+ * Per-TOOL gate overrides — the meter key is the tool id, metered independently
+ * from its category. TWO uses:
+ *   1. Tools whose CATEGORY is ungated (QR/color/text utilities stay free) but
+ *      whose OUTPUT is premium (the value studios).
+ *   2. The designed per-tool count tiers ported from policy.ts so they ACTUALLY
+ *      fire (the policy.ts numbers were dead code). A tool id here also makes the
+ *      global download interceptor charge THIS key instead of the flat category.
+ * For tools that are pure commodities we set 9999 (= effectively unlimited; the
+ * gate treats >=9999 as 'free' — see getGateType).
  */
 export const GATED_TOOL_LIMITS: Record<string, number> = {
+  // value studios (category ungated; output premium)
   'studio-invoice': 2,
   'studio-resume': 2,
   'studio-chart': 4,
   'studio-diagram': 4,
+  // office studios — were COMPLETELY UNGATED (revenue leak); now real daily caps
+  'office-studio': 3,
+  'office-docs': 3,
+  'office-slides': 3,
+  // image: commodity converters = unlimited funnel; AI/heavy = tight value caps
+  'image-convert-format': 9999,
+  'image-heic-convert': 9999,
+  'image-batch-compress': 9999,
+  'image-remove-bg': 3,
+  'image-ocr': 10,
+  'image-batch-resize': 5,
+  'image-batch-convert': 5,
+  'image-doc-scan': 5,
+  'image-upscale': 2,
+  'image-enhance': 2,
+  'image-object-remove': 2,
+  'image-smart-cutout': 2,
+  // video: viral cheap ops generous, expensive AI ops protected
+  'video-trim': 5,
+  'video-to-gif': 3,
+  'video-auto-dub': 1,      // single most compute-heavy on-device op — was being DOUBLED to 2
+  'video-compress': 4,
+  'video-convert-format': 3,
+  // audio: AI transcribe/stems metered; convert is the clean commodity (count via category=10)
+  'audio-to-text': 2,
+  'audio-vocal-remover': 2,
+  // pdf: OCR is a free commodity to win the comparison; heavy stays in category=10
+  'pdf-ocr': 10,
 };
 
 /** For a per-tool gate key, the category whose color/name/benefits the modal shows. */
@@ -53,6 +99,29 @@ export const GATED_TOOL_DISPLAY: Record<string, Category> = {
   'studio-resume': 'pdf',
   'studio-chart': 'image',
   'studio-diagram': 'image',
+  'office-studio': 'convert',
+  'office-docs': 'text',
+  'office-slides': 'image',
+  'image-convert-format': 'image',
+  'image-heic-convert': 'image',
+  'image-batch-compress': 'image',
+  'image-remove-bg': 'image',
+  'image-ocr': 'image',
+  'image-batch-resize': 'image',
+  'image-batch-convert': 'image',
+  'image-doc-scan': 'image',
+  'image-upscale': 'image',
+  'image-enhance': 'image',
+  'image-object-remove': 'image',
+  'image-smart-cutout': 'image',
+  'video-trim': 'video',
+  'video-to-gif': 'video',
+  'video-auto-dub': 'video',
+  'video-compress': 'video',
+  'video-convert-format': 'video',
+  'audio-to-text': 'audio',
+  'audio-vocal-remover': 'audio',
+  'pdf-ocr': 'pdf',
 };
 
 /**
@@ -75,13 +144,13 @@ export const FREE_TOOL_IDS = new Set<string>([
  * Chat / Whiteboard / Clipboard / Note stay fully free (badge only).
  * ───────────────────────────────────────────────────────────────────────── */
 export const APP_LIMITS: Record<string, number> = {
-  send: 5,   // file transfers started / day
-  call:  5,  // calls hosted / day
-  watch: 5,  // screen-share sessions hosted / day
+  send: 5,   // file transfers started / day — viral, generous; Pro = unlimited
+  call:  3,  // calls hosted / day — a hosted call is a high-intent moment; 3 free beats Zoom's 40-min/meeting friction while pushing power hosts to Pro (was 5; corrected to the intended value)
+  watch: 3,  // screen-share sessions hosted / day — same rationale as call (was 5)
 };
 
 export const APP_MAX_BYTES: Record<string, number> = {
-  send: 2 * 1024 * 1024 * 1024, // 2 GB per free transfer
+  send: 2 * 1024 * 1024 * 1024, // 2 GB per free transfer (Pro = device-limited, not a fixed 20GB)
 };
 
 /** Modal label + color for a non-category gate key (apps). */
@@ -108,14 +177,14 @@ const MB = 1024 * 1024;
  * the converter, the /limits page and the gate modal.
  */
 export const FREE_MAX_BYTES: Partial<Record<Category, number>> = {
-  image: 10 * MB,
-  pdf: 20 * MB,
-  audio: 30 * MB,
-  video: 50 * MB,
-  convert: 25 * MB,
-  font: 10 * MB,
-  subtitle: 5 * MB,
-  social: 15 * MB,
+  image: 25 * MB,   // was 10 — phone photos run 8-15MB; 10 bounced the try-it-once moment. Aligns with policy.ts image-studio 25MB so the two systems agree.
+  pdf: 100 * MB,    // was 20 — local processing has no server cost; PDFescape caps 10MB, we shouldn't
+  audio: 100 * MB,  // was 30 — a real song/podcast is 30-80MB
+  video: 150 * MB,  // was 50 — a phone clip is 100-300MB; 50 repelled before first success
+  convert: 500 * MB, // was 25 — the converter is the moat vs CloudConvert (1GB); be huge
+  font: 25 * MB,    // was 10
+  subtitle: 25 * MB, // was 5
+  social: 25 * MB,  // was 15
 };
 
 /** Free input-size cap for a category (Infinity when uncapped / Pro). */

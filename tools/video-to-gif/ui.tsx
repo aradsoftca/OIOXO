@@ -8,11 +8,35 @@ import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { ProBadge } from '@/components/limits/ProBadge';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { shouldWatermarkHere, WM_DOMAIN } from '@/lib/watermark/config';
 
 const POLICY_KEY = 'video-to-gif';
 
 const WIDTHS = [320, 480, 640, 800];
 const FPS_OPTIONS = [10, 15, 20, 24];
+
+/** gif.js encodes raw canvas pixels and never hits the toBlob/toDataURL canvas
+ *  patch, so a free GIF would ship CLEAN. Stamp the brand domain bottom-right on
+ *  each frame in place BEFORE encoding — same corner-mark style as the universal
+ *  canvas watermark (600-weight, ~2.6% width, white, alpha 0.55, soft shadow). */
+function stampFrameBrand(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const w = canvas.width;
+  const fontPx = Math.max(12, Math.round(w * 0.026));
+  const pad = Math.round(w * 0.02);
+  ctx.save();
+  ctx.font = `600 ${fontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+  ctx.globalAlpha = 0.55;
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = Math.max(2, Math.round(fontPx * 0.18));
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(WM_DOMAIN, w - pad, canvas.height - pad);
+  ctx.restore();
+}
 
 export default function Tool() {
   const isPro = useIsPro();
@@ -50,10 +74,14 @@ export default function Tool() {
       const totalFrames = Math.max(2, Math.floor(duration * fps));
       const frames: HTMLCanvasElement[] = [];
       const scale = width / item.info.width;
+      // Free sessions brand every frame; Pro / clean-intent leaves them untouched.
+      const brand = shouldWatermarkHere();
       for (let i = 0; i < totalFrames; i++) {
         const t = range[0] + (i / Math.max(1, totalFrames - 1)) * duration;
         await seekTo(item.video, t);
-        frames.push(captureFrame(item.video, scale));
+        const frame = captureFrame(item.video, scale);
+        if (brand) stampFrameBrand(frame);
+        frames.push(frame);
         setProgress(Math.round((i + 1) / totalFrames * 50));
       }
       setProgress(50);

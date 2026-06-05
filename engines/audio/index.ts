@@ -8,7 +8,7 @@
 
 import * as dsp from './dsp';
 import { normalizeLoudness } from '@/lib/studios/loudness';
-import { watermarkOnSync, WM_DOMAIN, WM_MADE_WITH } from '@/lib/watermark/config';
+import { shouldWatermarkHere, WM_DOMAIN, WM_MADE_WITH } from '@/lib/watermark/config';
 
 let _ctx: AudioContext | null = null;
 function ctx(): AudioContext {
@@ -381,8 +381,10 @@ export function encodeWav(ab: AudioBuffer): Blob {
   const byteRate = sr * blockAlign;
   const dataSize = len * blockAlign;
 
-  // Optional LIST/INFO chunk (free → branded, Pro → none).
-  const listChunk = watermarkOnSync() ? buildWavListInfo() : null;
+  // Optional LIST/INFO chunk (free + asset-tool → branded; Pro OR a clean-intent
+  // tool like audio convert/merge/DSP → none). shouldWatermarkHere() consults the
+  // active tool's policy.watermarkFree, so raw conversions ship byte-clean.
+  const listChunk = shouldWatermarkHere() ? buildWavListInfo() : null;
   const listSize = listChunk ? listChunk.length : 0;
 
   const headerSize = 12 + 24 + listSize + 8; // RIFF+WAVE + fmt + LIST + data header

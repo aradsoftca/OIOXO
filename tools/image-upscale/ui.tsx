@@ -129,11 +129,16 @@ export default function ImageUpscaleTool() {
     if (next) void loadFile(next);
   };
 
-  const download = () => {
+  const download = async () => {
     if (!outputBlob || !file) return;
+    // Stamp the visible brand into the pixels for free sessions — the raw upscale
+    // blob bypasses the canvas toBlob() patch, so without this the free output is
+    // CLEAN and the Pro "no watermark" line is hollow. Pro → unchanged.
+    const { stampImageBlob } = await import('@/lib/watermark/download');
+    const blob = await stampImageBlob(outputBlob, { format: 'image/png' });
     const base = file.name.replace(/\.[^.]+$/, '');
     const a = document.createElement('a');
-    const href = URL.createObjectURL(outputBlob);
+    const href = URL.createObjectURL(blob);
     a.href = href;
     a.download = `${base}-${factor}x.png`;
     document.body.appendChild(a);

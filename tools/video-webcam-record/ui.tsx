@@ -12,6 +12,8 @@ import { enforcePolicy } from '@/lib/limits/server-check';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
 import { freeCap } from '@/lib/limits/policy';
+import { shouldWatermark } from '@/lib/watermark/config';
+import { watermarkVideoStream } from '@/lib/watermark/stream-overlay';
 
 const POLICY_KEY = 'video-webcam-record';
 
@@ -38,6 +40,9 @@ export default function WebcamRecorderUI() {
   const recRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<BlobPart[]>([]);
   const streamRef = React.useRef<MediaStream | null>(null);
+  // Stops the canvas-composite + capture tracks of the watermarked recording
+  // stream (free only). noop for Pro / when no badge was applied.
+  const wmStopRef = React.useRef<() => void>(() => {});
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   // mountedRef so rec.onstop doesn't create a blob URL after unmount —
@@ -61,6 +66,8 @@ export default function WebcamRecorderUI() {
     // setVideoUrl can't accept (component is dead), leaking the URL.
     try { recRef.current?.stop(); } catch { /* */ }
     recRef.current = null;
+    // Stop the watermark canvas-capture tracks (rec.onstop may not run post-unmount).
+    try { wmStopRef.current(); } catch { /* */ }
     if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
     if (photoUrlRef.current) URL.revokeObjectURL(photoUrlRef.current);
   }, []);
@@ -84,10 +91,19 @@ export default function WebcamRecorderUI() {
     if (!ok) return;
     if (videoUrl) { URL.revokeObjectURL(videoUrl); setVideoUrl(''); }
     const mimeType = pickMime(); setExt(mimeType.includes('mp4') ? 'mp4' : 'webm');
-    const rec = new MediaRecorder(streamRef.current, mimeType ? { mimeType } : undefined);
+    // Free sessions: route the camera stream through a canvas that paints the
+    // brand badge each frame and record THAT, so the saved file carries the
+    // mark (mirrors the screen-record path). Pro records the raw stream — when
+    // shouldWatermark() is false, watermarkVideoStream returns it unchanged.
+    wmStopRef.current();
+    const wrapped = await watermarkVideoStream(streamRef.current, shouldWatermark(POLICY_KEY));
+    wmStopRef.current = wrapped.stop;
+    const rec = new MediaRecorder(wrapped.stream, mimeType ? { mimeType } : undefined);
     chunksRef.current = [];
     rec.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
     rec.onstop = () => {
+      // Halt the watermark canvas-capture (camera stream stays live for re-record).
+      wmStopRef.current(); wmStopRef.current = () => {};
       if (!mountedRef.current) return; // post-unmount onstop would leak the URL
       const blob = new Blob(chunksRef.current, { type: mimeType || 'video/webm' });
       setVideoUrl(URL.createObjectURL(blob));
@@ -97,6 +113,7 @@ export default function WebcamRecorderUI() {
     // Mid-recording failure (codec drop, OOM, background throttle) was silent
     // and produced a corrupt file — surface it instead.
     rec.onerror = (ev) => {
+      wmStopRef.current(); wmStopRef.current = () => {};
       const err = (ev as unknown as { error?: { message?: string } }).error;
       setError(err?.message || 'Recording stopped unexpectedly.');
       if (timerRef.current) clearInterval(timerRef.current);

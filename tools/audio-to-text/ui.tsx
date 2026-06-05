@@ -54,6 +54,10 @@ export default function AudioToTextTool() {
   const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [audioUrl, setAudioUrl] = React.useState<string>('');
+  // Real media length (seconds), read from the loaded file's metadata, so the
+  // policy 'input-duration' lever can fire on free over the 5-min cap before we
+  // spend time loading the model and transcribing.
+  const [duration, setDuration] = React.useState(0);
   const [language, setLanguage] = React.useState<string>('');
   const [size, setSize] = React.useState<TranscribeSize>('tiny');
   const [translate, setTranslate] = React.useState(false);
@@ -68,6 +72,12 @@ export default function AudioToTextTool() {
   const run = React.useCallback(async (target: File) => {
     const sizeHit = checkLever(POLICY_KEY, 'input-size', target.size, isPro);
     if (sizeHit) { policyGate.fire(sizeHit); return; }
+    // Block free users whose audio/video exceeds the 5-min input-duration cap
+    // before we load the model and transcribe. `duration` is 0 until metadata
+    // resolves; checkLever returns null at 0, so a not-yet-probed file isn't
+    // falsely blocked (it would fail the cap on the next run once known).
+    const durHit = checkLever(POLICY_KEY, 'input-duration', duration, isPro);
+    if (durHit) { policyGate.fire(durHit); return; }
     setRunning(true);
     setResult(null);
     setProgress({ phase: 'Preparing', ratio: 0 });
@@ -85,7 +95,7 @@ export default function AudioToTextTool() {
       setRunning(false);
       setProgress(null);
     }
-  }, [size, language, translate, isPro, policyGate]);
+  }, [size, language, translate, isPro, policyGate, duration]);
 
   const loadFile = React.useCallback(async (next: File) => {
     if (!next.type.startsWith('audio/') && !next.type.startsWith('video/')) return;
@@ -93,6 +103,16 @@ export default function AudioToTextTool() {
     setFile(next);
     setAudioUrl(URL.createObjectURL(next));
     setResult(null);
+    // Read the true media duration up front so the policy gate has a real value.
+    // A <video> element reports duration for audio-only files too.
+    setDuration(0);
+    const probe = document.createElement('video');
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = () => {
+      if (Number.isFinite(probe.duration)) setDuration(probe.duration);
+      URL.revokeObjectURL(probe.src);
+    };
+    probe.src = URL.createObjectURL(next);
   }, [audioUrl]);
 
   const onDrop = (e: React.DragEvent) => {

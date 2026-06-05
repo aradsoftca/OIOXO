@@ -9,6 +9,7 @@ import { consumeDownloadBypass } from '@/lib/usage/gate-bridge';
 import { registerSizeGate, type SizeGateInfo } from '@/lib/usage/size-gate';
 import { brandedName, brandedNameSync } from '@/lib/watermark/download';
 import { WM_DOMAIN } from '@/lib/watermark/config';
+import { getPolicy } from '@/lib/limits/policy';
 import { installCanvasWatermark, setCanvasWatermarkEnabled, installAnchorBrand } from '@/lib/watermark/canvas-patch';
 import { GateModal } from './use-usage-gate';
 
@@ -56,10 +57,41 @@ function gateTargetForPath(pathname: string | null): { key: string; display: Cat
   return { key, display: displayCategoryForKey(key) };
 }
 
+/**
+ * Does the current tool route opt OUT of the filename brand? A tool whose policy
+ * declares `watermarkFree: false` (raw format conversions, audio convert/merge,
+ * transcription, encrypt/dev utilities) is a function-utility, not an asset — its
+ * output must stay clean, including the `-xonvert` filename suffix. We resolve by
+ * the tool id first (per-tool policy), then its category. Defaults to "do brand"
+ * (returns false) when there's no policy — the free-safe default. Pure/sync so the
+ * capture-phase interceptor can call it before the browser acts on a.download.
+ */
+function isCleanIntentPath(pathname: string | null): boolean {
+  const m = pathname?.match(/^\/tools\/([^/?#]+)/);
+  if (!m) return false;
+  const tool = getTool(m[1]);
+  if (!tool) return false;
+  const policy = getPolicy(tool.id) ?? getPolicy(tool.category);
+  return policy ? policy.watermarkFree === false : false;
+}
+
 export function UsageGateProvider() {
   const pathname = usePathname();
   const pathRef = React.useRef(pathname);
   pathRef.current = pathname;
+
+  // Publish the active tool id to the engines (audio/image/ffmpeg) so their
+  // embedded brand can honor a clean-intent tool's policy (watermarkFree:false).
+  React.useEffect(() => {
+    const m = pathname?.match(/^\/tools\/([^/?#]+)/);
+    const tool = m ? getTool(m[1]) : undefined;
+    void (async () => {
+      try {
+        const { setCurrentToolKey } = await import('@/lib/watermark/config');
+        setCurrentToolKey(tool?.id, tool?.category);
+      } catch { /* ignore */ }
+    })();
+  }, [pathname]);
 
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [seconds, setSeconds] = React.useState(0);
@@ -248,8 +280,10 @@ export function UsageGateProvider() {
         if (consumeDownloadBypass()) {
           // An explicit gate (e.g. the converter, image filters) already metered
           // this action and armed a bypass so we don't double-charge — but the
-          // brand filename must STILL apply, so rename before letting it through.
-          try { a.download = brandedNameSync(a.download || 'download'); } catch { /* */ }
+          // brand filename must STILL apply (unless this tool is clean-intent).
+          if (!isCleanIntentPath(pathRef.current)) {
+            try { a.download = brandedNameSync(a.download || 'download'); } catch { /* */ }
+          }
           return;
         }
         const gt = gateTargetForPath(pathRef.current);
@@ -259,7 +293,7 @@ export function UsageGateProvider() {
           // files, chat media…). No quota — but free outputs still carry the brand
           // filename. Rename in place (sync) and let the native download proceed.
           const p = pathRef.current || '';
-          if (/^\/tools\//.test(p) || /^\/(convert|board|send|chat|clipboard|note|viewer|call|watch)\b/.test(p)) {
+          if ((/^\/tools\//.test(p) || /^\/(convert|board|send|chat|clipboard|note|viewer|call|watch)\b/.test(p)) && !isCleanIntentPath(p)) {
             try { a.download = brandedNameSync(a.download || 'download'); } catch { /* */ }
           }
           return;
@@ -278,7 +312,8 @@ export function UsageGateProvider() {
           const url = URL.createObjectURL(blob);
           const el = document.createElement('a');
           el.href = url;
-          el.download = await brandedName(name); // free → photo-xonvert.webp
+          // free → photo-xonvert.webp, unless the tool is clean-intent (watermarkFree:false)
+          el.download = isCleanIntentPath(pathRef.current) ? name : await brandedName(name);
           el.dataset.xgatePass = '1';
           document.body.appendChild(el);
           el.click();

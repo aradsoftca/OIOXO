@@ -8,6 +8,7 @@ import {
   Table as TableIcon, Image as ImageIcon, X, Type as TypeIcon, Palette, Highlighter,
   Indent, Outdent, Eraser, Eye, EyeOff, Sparkles, Wand2, Languages, Users, Share2,
   History, Check, X as XIcon, Volume2, MicVocal, Sigma, BookOpen,
+  Clock, Calendar, Minus, CornerDownLeft, RotateCcw, Pilcrow,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -16,6 +17,10 @@ import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
 
 const POLICY_KEY = 'office-docs';
+const RECOVERY_KEY = 'docs-studio-recovery-v1';
+const RECOVERY_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+interface RecoverySnapshot { at: number; doc: DocState; }
 import {
   StudioShell, StudioTopBar, StudioBody, StudioSidebar, StudioPanel,
   StudioButton, StudioStatusBar,
@@ -127,6 +132,28 @@ export default function OfficeDocsPro() {
   const [voiceTyping, setVoiceTyping] = React.useState(false);
   const voiceTypingRef = React.useRef<VoiceTypingHandler | null>(null);
   const [equationDialog, setEquationDialog] = React.useState(false);
+
+  // ── Autosave + crash recovery ───────────────────────────────────────────
+  // Google Docs' silent auto-save is table stakes; its weakness is being
+  // cloud-only/offline-weak. We auto-snapshot to localStorage so a tab crash,
+  // reload, or accidental close never loses work — fully on-device.
+  type SaveState = 'idle' | 'saving' | 'saved';
+  const [saveState, setSaveState] = React.useState<SaveState>('idle');
+  const [lastSavedAt, setLastSavedAt] = React.useState<number | null>(null);
+  const [recovery, setRecovery] = React.useState<RecoverySnapshot | null>(null);
+  const recoveryDismissed = React.useRef(false);
+  const autosaveTimer = React.useRef<number | null>(null);
+  const dirtyRef = React.useRef(false);
+
+  // Slash command menu (Smart Canvas analogue) + floating selection toolbar +
+  // markdown-as-you-type chip.
+  const [slash, setSlash] = React.useState<{ x: number; y: number; query: string } | null>(null);
+  const [slashIndex, setSlashIndex] = React.useState(0);
+  const slashRange = React.useRef<Range | null>(null);
+  const [floatBar, setFloatBar] = React.useState<{ x: number; y: number } | null>(null);
+  const [mdAutoformat, setMdAutoformat] = React.useState(true);
+  const [autoformatUndo, setAutoformatUndo] = React.useState<{ label: string } | null>(null);
+  const autoformatUndoTimer = React.useRef<number | null>(null);
 
   const startReadAloud = () => {
     const el = editorRef.current;
@@ -323,11 +350,84 @@ export default function OfficeDocsPro() {
     } finally { setBusy(''); }
   };
 
+  // Serialize the live working document (editor HTML is the source of truth;
+  // doc.html lags by a render). Used by both autosave and recovery.
+  const serializeDoc = React.useCallback((): DocState => {
+    const el = editorRef.current;
+    return { ...doc, html: el ? el.innerHTML : doc.html };
+  }, [doc]);
+
+  const writeRecovery = React.useCallback(() => {
+    try {
+      const snap: RecoverySnapshot = { at: Date.now(), doc: serializeDoc() };
+      localStorage.setItem(RECOVERY_KEY, JSON.stringify(snap));
+      setSaveState('saved');
+      setLastSavedAt(snap.at);
+    } catch { /* quota / private mode — never block typing */ }
+  }, [serializeDoc]);
+
+  const scheduleAutosave = React.useCallback(() => {
+    dirtyRef.current = true;
+    setSaveState('saving');
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = window.setTimeout(() => {
+      writeRecovery();
+      dirtyRef.current = false;
+    }, 2000);
+  }, [writeRecovery]);
+
   const persistHtml = React.useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
     setDoc(d => ({ ...d, html: el.innerHTML }));
     refreshDerived();
+    scheduleAutosave();
+  }, [scheduleAutosave]);
+
+  // Flush a pending autosave the moment the tab is hidden/closed so the very
+  // last keystrokes survive a hard close (the 2s debounce might not fire).
+  React.useEffect(() => {
+    const flush = () => { if (dirtyRef.current) writeRecovery(); };
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('beforeunload', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => {
+      window.removeEventListener('beforeunload', flush);
+      document.removeEventListener('visibilitychange', onHide);
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+    };
+  }, [writeRecovery]);
+
+  // On mount, surface a fresh recovery snapshot if the doc is still untouched.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const snap = JSON.parse(raw) as RecoverySnapshot;
+      if (!snap?.doc || typeof snap.at !== 'number') return;
+      if (Date.now() - snap.at > RECOVERY_MAX_AGE) { localStorage.removeItem(RECOVERY_KEY); return; }
+      // Don't bother offering an effectively-empty snapshot.
+      const plain = (snap.doc.html || '').replace(/<[^>]*>/g, '').trim();
+      if (plain.length < 12 || snap.doc.html === NEW_DOC().html) { localStorage.removeItem(RECOVERY_KEY); return; }
+      setRecovery(snap);
+    } catch { /* corrupt snapshot — ignore */ }
+  }, []);
+
+  const restoreRecovery = React.useCallback(() => {
+    if (!recovery) return;
+    setDoc(recovery.doc);
+    if (editorRef.current) editorRef.current.innerHTML = sanitizeHtml(recovery.doc.html);
+    refreshDerived();
+    setRecovery(null);
+    recoveryDismissed.current = true;
+    toastFor('Session restored');
+  }, [recovery]);
+
+  const dismissRecovery = React.useCallback(() => {
+    setRecovery(null);
+    recoveryDismissed.current = true;
+    try { localStorage.removeItem(RECOVERY_KEY); } catch {}
   }, []);
 
   const exec = (cmd: string, value?: string) => {
@@ -337,6 +437,238 @@ export default function OfficeDocsPro() {
   };
 
   const formatBlock = (tag: string) => exec('formatBlock', `<${tag}>`);
+
+  // ── Clipboard smart paste ──────────────────────────────────────────────
+  // Google Docs pastes images inline; we go further — paste an image from
+  // anywhere (screenshot, browser, file manager) straight into the caret,
+  // entirely on-device. A window-level listener so it works wherever the
+  // caret is, but we bail while typing in our own dialog inputs.
+  // Matches the (ungated) toolbar image-insert path — pasting an image is the
+  // same on-device operation, just from the clipboard instead of a picker.
+  const handlePasteImage = React.useCallback(async (file: File) => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    const url = await new Promise<string>((res) => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result as string);
+      fr.readAsDataURL(file);
+    });
+    exec('insertHTML', `<img src="${url}" alt="" style="max-width:100%;margin:8px 0" />`);
+    toastFor('Image pasted');
+  }, []);
+
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const inField = !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable && t !== editorRef.current);
+      // Only intercept when an image is present and we're not typing in a
+      // form field (the editor itself is contentEditable, which is allowed).
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imgItem = Array.from(items).find(i => i.type.startsWith('image/'));
+      if (!imgItem || inField) return;
+      const file = imgItem.getAsFile();
+      if (!file) return;
+      e.preventDefault();
+      void handlePasteImage(file);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [handlePasteImage]);
+
+  // ── Markdown-as-you-type autoformat (with undo chip) ───────────────────
+  // A signature Google-Docs flow. Recognise "# ", "- ", "1. ", "> ", "``` "
+  // at the start of a line and convert in place — under 50ms, fully undoable.
+  const runMarkdownAutoformat = React.useCallback((): boolean => {
+    if (!mdAutoformat) return false;
+    const sel = window.getSelection();
+    if (!sel || !sel.isCollapsed || !sel.anchorNode) return false;
+    const node = sel.anchorNode;
+    const text = node.nodeType === Node.TEXT_NODE ? (node.textContent ?? '') : '';
+    const offset = sel.anchorOffset;
+    const before = text.slice(0, offset);
+    type Rule = { re: RegExp; block?: string; cmd?: string; label: string };
+    const rules: Rule[] = [
+      { re: /^#\s$/, block: 'h1', label: 'Heading 1' },
+      { re: /^##\s$/, block: 'h2', label: 'Heading 2' },
+      { re: /^###\s$/, block: 'h3', label: 'Heading 3' },
+      { re: /^>\s$/, block: 'blockquote', label: 'Quote' },
+      { re: /^[-*]\s$/, cmd: 'insertUnorderedList', label: 'Bullet list' },
+      { re: /^1\.\s$/, cmd: 'insertOrderedList', label: 'Numbered list' },
+    ];
+    for (const rule of rules) {
+      if (!rule.re.test(before)) continue;
+      // Delete the markdown prefix the user just typed, then apply the block.
+      const r = document.createRange();
+      r.setStart(node, 0);
+      r.setEnd(node, offset);
+      sel.removeAllRanges();
+      sel.addRange(r);
+      document.execCommand('delete');
+      if (rule.block) formatBlock(rule.block);
+      else if (rule.cmd) exec(rule.cmd);
+      offerAutoformatUndo(rule.label);
+      return true;
+    }
+    return false;
+  }, [mdAutoformat]);
+
+  const offerAutoformatUndo = (label: string) => {
+    setAutoformatUndo({ label });
+    if (autoformatUndoTimer.current) clearTimeout(autoformatUndoTimer.current);
+    autoformatUndoTimer.current = window.setTimeout(() => setAutoformatUndo(null), 4000);
+  };
+
+  const revertAutoformat = () => {
+    exec('undo');
+    setAutoformatUndo(null);
+    if (autoformatUndoTimer.current) clearTimeout(autoformatUndoTimer.current);
+  };
+
+  React.useEffect(() => () => {
+    if (autoformatUndoTimer.current) clearTimeout(autoformatUndoTimer.current);
+  }, []);
+
+  // ── Slash command menu (Smart-Canvas analogue) ─────────────────────────
+  const SLASH_COMMANDS = React.useMemo(() => ([
+    { id: 'h1', label: 'Heading 1', hint: 'Large section title', icon: <Heading1 className="h-4 w-4" />, run: () => formatBlock('h1') },
+    { id: 'h2', label: 'Heading 2', hint: 'Sub-section', icon: <Heading2 className="h-4 w-4" />, run: () => formatBlock('h2') },
+    { id: 'h3', label: 'Heading 3', hint: 'Minor heading', icon: <Heading3 className="h-4 w-4" />, run: () => formatBlock('h3') },
+    { id: 'p', label: 'Paragraph', hint: 'Body text', icon: <Pilcrow className="h-4 w-4" />, run: () => formatBlock('p') },
+    { id: 'ul', label: 'Bullet list', hint: 'Unordered list', icon: <List className="h-4 w-4" />, run: () => exec('insertUnorderedList') },
+    { id: 'ol', label: 'Numbered list', hint: 'Ordered list', icon: <ListOrdered className="h-4 w-4" />, run: () => exec('insertOrderedList') },
+    { id: 'quote', label: 'Quote', hint: 'Block quote', icon: <Quote className="h-4 w-4" />, run: () => formatBlock('blockquote') },
+    { id: 'code', label: 'Code block', hint: 'Monospace block', icon: <Code className="h-4 w-4" />, run: () => formatBlock('pre') },
+    { id: 'table', label: 'Table', hint: 'Insert 3×3 table', icon: <TableIcon className="h-4 w-4" />, run: () => insertTable(3, 3) },
+    { id: 'divider', label: 'Divider', hint: 'Horizontal rule', icon: <Minus className="h-4 w-4" />, run: () => exec('insertHorizontalRule') },
+    { id: 'date', label: "Today's date", hint: new Date().toLocaleDateString(undefined, { dateStyle: 'long' } as any), icon: <Calendar className="h-4 w-4" />, run: () => exec('insertText', new Date().toLocaleDateString(undefined, { dateStyle: 'long' } as any)) },
+    { id: 'equation', label: 'Equation', hint: 'LaTeX math', icon: <Sigma className="h-4 w-4" />, run: () => setEquationDialog(true) },
+    { id: 'toc', label: 'Table of contents', hint: 'From your headings', icon: <BookOpen className="h-4 w-4" />, run: () => insertToc() },
+    { id: 'image', label: 'Image', hint: 'Insert from file', icon: <ImageIcon className="h-4 w-4" />, run: () => insertImageBtn() },
+  ]), []);
+
+  const slashFiltered = React.useMemo(() => {
+    if (!slash) return [];
+    const q = slash.query.toLowerCase().trim();
+    if (!q) return SLASH_COMMANDS;
+    return SLASH_COMMANDS.filter(c => c.label.toLowerCase().includes(q) || c.id.includes(q));
+  }, [slash, SLASH_COMMANDS]);
+
+  const openSlashAtCaret = () => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0).cloneRange();
+    // Only fire at a word boundary so "/" inside a URL like http:// is left
+    // alone — the menu is for fresh block insertion, mirroring Notion/Docs.
+    const node = range.startContainer;
+    if (node.nodeType === Node.TEXT_NODE) {
+      const txt = node.textContent ?? '';
+      const prev = txt[range.startOffset - 2]; // char before the just-typed "/"
+      if (prev && !/\s/.test(prev)) return;
+    }
+    slashRange.current = range;
+    const rect = range.getBoundingClientRect();
+    setSlash({ x: rect.left, y: rect.bottom, query: '' });
+    setSlashIndex(0);
+  };
+
+  const closeSlash = () => { setSlash(null); slashRange.current = null; };
+
+  // Remove the "/query" text the user typed before running the command.
+  const consumeSlashText = () => {
+    if (!slash) return;
+    const sel = window.getSelection();
+    const range = slashRange.current;
+    if (!sel || !range) return;
+    try {
+      const node = range.startContainer;
+      const end = range.startOffset;
+      // length of "/" + query that we want to delete
+      const len = slash.query.length + 1;
+      const start = Math.max(0, end - len);
+      const del = document.createRange();
+      del.setStart(node, start);
+      del.setEnd(node, end);
+      sel.removeAllRanges();
+      sel.addRange(del);
+      document.execCommand('delete');
+    } catch { /* selection drifted — just run the command at caret */ }
+  };
+
+  const runSlashCommand = (idx: number) => {
+    const cmd = slashFiltered[idx];
+    closeSlash();
+    if (!cmd) return;
+    consumeSlashText();
+    cmd.run();
+  };
+
+  // ── Floating selection toolbar ─────────────────────────────────────────
+  const updateFloatBar = React.useCallback(() => {
+    const sel = window.getSelection();
+    const el = editorRef.current;
+    if (!sel || sel.isCollapsed || !sel.rangeCount || !el) { setFloatBar(null); return; }
+    const anchor = sel.anchorNode;
+    if (!anchor || !el.contains(anchor)) { setFloatBar(null); return; }
+    const text = sel.toString().trim();
+    if (!text) { setFloatBar(null); return; }
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) { setFloatBar(null); return; }
+    setFloatBar({ x: rect.left + rect.width / 2, y: rect.top });
+  }, []);
+
+  React.useEffect(() => {
+    const onSelChange = () => {
+      // Slash menu and float bar are mutually exclusive surfaces.
+      if (slashRange.current) return;
+      updateFloatBar();
+    };
+    document.addEventListener('selectionchange', onSelChange);
+    return () => document.removeEventListener('selectionchange', onSelChange);
+  }, [updateFloatBar]);
+
+  // Keydown on the editor: drive slash menu navigation + open trigger.
+  const onEditorKeyDown = (e: React.KeyboardEvent) => {
+    if (slash) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIndex(i => Math.min(i + 1, slashFiltered.length - 1)); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIndex(i => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlashCommand(slashIndex); return; }
+      if (e.key === 'Escape') { e.preventDefault(); closeSlash(); return; }
+      // Backspace past the "/" closes the menu; otherwise re-read query below.
+    }
+    if (e.key === '/' && !slash) {
+      // Defer so the "/" is in the DOM; open menu anchored at the caret.
+      setTimeout(openSlashAtCaret, 0);
+    }
+  };
+
+  // After each input, refresh slash query text or run markdown autoformat.
+  const onEditorInput = () => {
+    // Markdown autoformat first (it may swallow the space the user typed).
+    const consumed = runMarkdownAutoformat();
+    if (consumed) { persistHtml(); recordChange(); setFloatBar(null); return; }
+    if (slash) refreshSlashQuery();
+    persistHtml();
+    recordChange();
+  };
+
+  const refreshSlashQuery = () => {
+    const sel = window.getSelection();
+    const range = slashRange.current;
+    if (!sel || !range || !sel.anchorNode) { return; }
+    try {
+      const node = range.startContainer;
+      const slashStart = range.startOffset - 1; // position of the "/"
+      const caret = sel.anchorOffset;
+      const txt = node.textContent ?? '';
+      if (slashStart < 0 || txt[slashStart] !== '/' || caret < range.startOffset) { closeSlash(); return; }
+      const query = txt.slice(range.startOffset, caret);
+      if (/\s/.test(query)) { closeSlash(); return; }
+      setSlash(s => s ? { ...s, query } : s);
+      setSlashIndex(0);
+    } catch { closeSlash(); }
+  };
 
   const insertTable = (rows: number, cols: number) => {
     let html = '<table style="border-collapse:collapse;width:100%;margin:8px 0"><tbody>';
@@ -603,6 +935,7 @@ export default function OfficeDocsPro() {
             <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>
             <span className="ml-2 h-5 w-px bg-white/10" />
             <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-44 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
+            <AutosaveIndicator state={saveState} at={lastSavedAt} />
           </>
         }
         right={
@@ -623,6 +956,13 @@ export default function OfficeDocsPro() {
               {trackMode && <span className="rounded bg-amber-500 px-1 text-[9px] text-zinc-900">{tcChanges.filter(c => c.status === 'pending').length}</span>}
             </button>
             <StudioButton variant="ghost" size="sm" onClick={() => setShowTrackPanel(s => !s)} title="Review changes"><History className="h-3.5 w-3.5" /></StudioButton>
+            <button
+              onClick={() => { setMdAutoformat(v => !v); toastFor(mdAutoformat ? 'Markdown autoformat off' : 'Markdown autoformat on'); }}
+              title={mdAutoformat ? "Markdown shortcuts ON — type '# ', '- ', '> ' to format" : 'Markdown shortcuts OFF'}
+              className={cn('inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium', mdAutoformat ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </button>
             <StudioButton variant="ghost" size="sm" onClick={() => setFindOpen(o => !o)}><Search className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => exec('undo')}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => exec('redo')}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
@@ -710,6 +1050,19 @@ export default function OfficeDocsPro() {
         </div>
       )}
 
+      {recovery && (
+        <div className="flex items-center gap-3 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-100">
+          <Clock className="h-4 w-4 shrink-0 text-amber-300" />
+          <span className="flex-1">
+            Recovered an unsaved session from{' '}
+            <span className="font-semibold">{relativeTime(recovery.at)}</span>
+            {recovery.doc.name && recovery.doc.name !== 'Untitled' ? <> — “{recovery.doc.name}”</> : null}.
+          </span>
+          <button onClick={restoreRecovery} className="rounded bg-amber-400 px-3 py-1 font-semibold text-amber-950 hover:bg-amber-300">Restore</button>
+          <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-white/5">Dismiss</button>
+        </div>
+      )}
+
       <StudioBody>
         {doc.showOutline && (
           <StudioSidebar side="left" width={220}>
@@ -758,7 +1111,8 @@ export default function OfficeDocsPro() {
               spellCheck
               lang={langAttrFromLocale(doc.locale)}
               dir={doc.direction}
-              onInput={() => { persistHtml(); recordChange(); }}
+              onInput={onEditorInput}
+              onKeyDown={onEditorKeyDown}
               onBlur={() => { persistHtml(); recordChange(); }}
               className="prose-doc focus:outline-none"
               style={{
@@ -811,6 +1165,69 @@ export default function OfficeDocsPro() {
       )}
       {toast && <div className="pointer-events-none fixed bottom-12 left-1/2 -translate-x-1/2 rounded-md bg-cyan-500/90 px-3 py-1.5 text-xs font-medium text-zinc-900 shadow-lg">{toast}</div>}
       {gate}
+
+      {/* Floating selection toolbar — appears above any text selection */}
+      {floatBar && !slash && (
+        <div
+          className="fixed z-50 flex -translate-x-1/2 -translate-y-full items-center gap-0.5 rounded-lg border border-white/10 bg-[#15171c] p-1 shadow-2xl"
+          style={{ left: floatBar.x, top: floatBar.y - 8 }}
+          onMouseDown={e => e.preventDefault()}
+        >
+          <FloatBtn title="Bold" onClick={() => exec('bold')}><Bold className="h-3.5 w-3.5" /></FloatBtn>
+          <FloatBtn title="Italic" onClick={() => exec('italic')}><Italic className="h-3.5 w-3.5" /></FloatBtn>
+          <FloatBtn title="Underline" onClick={() => exec('underline')}><Underline className="h-3.5 w-3.5" /></FloatBtn>
+          <FloatBtn title="Highlight" onClick={() => exec('hiliteColor', '#fff59d')}><Highlighter className="h-3.5 w-3.5" /></FloatBtn>
+          <FloatBtn title="Link" onClick={insertLink}><LinkIcon className="h-3.5 w-3.5" /></FloatBtn>
+          <span className="mx-0.5 h-4 w-px bg-white/10" />
+          <FloatBtn title="Heading 2" onClick={() => formatBlock('h2')}><Heading2 className="h-3.5 w-3.5" /></FloatBtn>
+          <FloatBtn title="Quote" onClick={() => formatBlock('blockquote')}><Quote className="h-3.5 w-3.5" /></FloatBtn>
+        </div>
+      )}
+
+      {/* Slash command menu — anchored at the caret */}
+      {slash && (
+        <>
+          <div className="fixed inset-0 z-40" onMouseDown={closeSlash} />
+          <div
+            className="fixed z-50 w-64 overflow-hidden rounded-lg border border-white/10 bg-[#15171c] shadow-2xl"
+            style={{ left: Math.min(slash.x, (typeof window !== 'undefined' ? window.innerWidth : 1200) - 272), top: slash.y + 6 }}
+            onMouseDown={e => e.preventDefault()}
+          >
+            <div className="border-b border-white/5 px-3 py-1.5 text-[10px] uppercase tracking-wider text-zinc-500">
+              {slash.query ? `Filter: ${slash.query}` : 'Insert'}
+            </div>
+            <div className="max-h-72 overflow-y-auto py-1">
+              {slashFiltered.length === 0 && <div className="px-3 py-3 text-xs text-zinc-500">No matching block</div>}
+              {slashFiltered.map((c, i) => (
+                <button
+                  key={c.id}
+                  onMouseEnter={() => setSlashIndex(i)}
+                  onClick={() => runSlashCommand(i)}
+                  className={cn('flex w-full items-center gap-2.5 px-3 py-1.5 text-left', i === slashIndex ? 'bg-cyan-500/20 text-white' : 'text-zinc-200 hover:bg-white/5')}
+                >
+                  <span className={cn('grid h-7 w-7 shrink-0 place-items-center rounded', i === slashIndex ? 'bg-cyan-500/20 text-cyan-200' : 'bg-white/5 text-zinc-400')}>{c.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium">{c.label}</span>
+                    <span className="block truncate text-[10px] text-zinc-500">{c.hint}</span>
+                  </span>
+                  {i === slashIndex && <CornerDownLeft className="h-3 w-3 shrink-0 text-zinc-500" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Markdown autoformat undo chip */}
+      {autoformatUndo && (
+        <div className="fixed bottom-12 left-4 z-50 flex items-center gap-2 rounded-md border border-white/10 bg-[#15171c] px-3 py-1.5 text-xs text-zinc-200 shadow-xl">
+          <Sparkles className="h-3.5 w-3.5 text-cyan-300" />
+          <span>{autoformatUndo.label}</span>
+          <button onClick={revertAutoformat} className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[11px] font-medium hover:bg-white/15">
+            <RotateCcw className="h-3 w-3" /> Undo
+          </button>
+        </div>
+      )}
 
       {exportDialog && (
         <Dialog title="Export" onCancel={() => setExportDialog(false)} onConfirm={exportNow} confirmLabel="Download">
@@ -907,6 +1324,49 @@ export default function OfficeDocsPro() {
 const Tb = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
   <button onClick={onClick} title={title} className="grid h-7 w-7 place-items-center rounded text-zinc-300 hover:bg-white/5 hover:text-white">{children}</button>
 );
+
+const FloatBtn = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
+  <button onMouseDown={e => e.preventDefault()} onClick={onClick} title={title} className="grid h-7 w-7 place-items-center rounded text-zinc-200 hover:bg-white/10 hover:text-white">{children}</button>
+);
+
+function relativeTime(ts: number): string {
+  const diff = Date.now() - ts;
+  const m = Math.round(diff / 60000);
+  if (m < 1) return 'moments ago';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} hr ago`;
+  const d = Math.round(h / 24);
+  return d <= 1 ? 'yesterday' : `${d} days ago`;
+}
+
+function AutosaveIndicator({ state, at }: { state: 'idle' | 'saving' | 'saved'; at: number | null }) {
+  const [, force] = React.useState(0);
+  // Re-render once a minute so "saved 2 min ago" stays honest.
+  React.useEffect(() => {
+    const t = setInterval(() => force(n => n + 1), 60000);
+    return () => clearInterval(t);
+  }, []);
+  if (state === 'saving') {
+    return (
+      <span className="ml-1 inline-flex items-center gap-1 text-[11px] text-zinc-500" title="Auto-saving on this device">
+        <Loader2 className="h-3 w-3 animate-spin" /> Saving…
+      </span>
+    );
+  }
+  if (state === 'saved' && at) {
+    return (
+      <span className="ml-1 inline-flex items-center gap-1 text-[11px] text-emerald-400/80" title="Auto-saved to this device — works offline, nothing uploaded">
+        <Check className="h-3 w-3" /> Saved {relativeTime(at)}
+      </span>
+    );
+  }
+  return (
+    <span className="ml-1 inline-flex items-center gap-1 text-[11px] text-zinc-600" title="Edits auto-save to this device">
+      <Clock className="h-3 w-3" /> Auto-save on
+    </span>
+  );
+}
 
 function Dialog({ title, children, onCancel, onConfirm, confirmLabel = 'OK' }: { title: string; children: React.ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel?: string }) {
   return <SharedDialog title={title} onClose={onCancel} onConfirm={onConfirm} confirmLabel={confirmLabel} width="sm">{children}</SharedDialog>;

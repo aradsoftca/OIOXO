@@ -174,6 +174,12 @@ export default function RemoveBackgroundTool() {
     if (backdrop.kind !== 'transparent') {
       blob = await flatten(outputBlob, backdrop);
     }
+    // Stamp the visible brand into the pixels for free sessions — the raw model
+    // blob never passes through the canvas toBlob() patch, so without this the
+    // free cutout ships CLEAN and "no watermark" is a hollow Pro promise. Pro →
+    // unchanged. Kept PNG so the transparent cutout stays transparent.
+    const { stampImageBlob } = await import('@/lib/watermark/download');
+    blob = await stampImageBlob(blob, { format: 'image/png' });
     const ext = backdrop.kind === 'transparent' ? 'png' : 'png';
     const base = file.name.replace(/\.[^.]+$/, '');
     const a = document.createElement('a');

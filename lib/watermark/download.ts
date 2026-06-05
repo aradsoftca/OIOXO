@@ -99,6 +99,58 @@ function brandedNameWith(name: string, watermark: boolean): string {
 }
 
 /**
+ * Stamp a visible brand mark INTO an image blob's pixels for free sessions, then
+ * return the branded blob. This is the fix for tools that download a raw engine
+ * blob (AI background-remove, AI upscale, etc.) which never passes through the
+ * canvas toBlob() patch and so would ship CLEAN — making "no watermark" a hollow
+ * Pro promise. Routes the bytes through a <canvas> and reuses the same corner mark
+ * the canvas patch draws (bottom-right domain, soft shadow, alpha-safe so it shows
+ * on a transparent cutout). Pro OR a clean-intent tool → returns the blob unchanged.
+ *
+ * `format`/`quality` control the re-encode; defaults preserve PNG (keeps the
+ * transparency a cutout needs). Never throws — falls back to the original blob.
+ */
+export async function stampImageBlob(
+  blob: Blob,
+  opts?: { format?: 'image/png' | 'image/jpeg' | 'image/webp'; quality?: number },
+): Promise<Blob> {
+  try {
+    const { shouldWatermarkHere, WM_DOMAIN } = await import('./config');
+    if (!shouldWatermarkHere()) return blob;
+    const bmp = await createImageBitmap(blob);
+    const w = bmp.width, h = bmp.height;
+    if (Math.max(w, h) < 200) { bmp.close?.(); return blob; } // too small to mark
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bmp.close?.(); return blob; }
+    ctx.drawImage(bmp, 0, 0);
+    bmp.close?.();
+    const fontPx = Math.max(12, Math.round(w * 0.026));
+    const pad = Math.round(w * 0.02);
+    ctx.font = `600 ${fontPx}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = 0.55;
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = Math.max(2, Math.round(fontPx * 0.18));
+    ctx.shadowOffsetY = 1;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(WM_DOMAIN, w - pad, h - pad);
+    const format = opts?.format ?? (blob.type === 'image/jpeg' ? 'image/jpeg' : 'image/png');
+    const quality = opts?.quality ?? 0.92;
+    const out: Blob | null = await new Promise((resolve) =>
+      // NOTE: this is the RAW (un-patched) toBlob via a fresh canvas — but we've
+      // already stamped, so we must call the original. The canvas patch would
+      // double-stamp; data-nowm tells it to skip.
+      { canvas.dataset.nowm = '1'; canvas.toBlob((b) => resolve(b), format, quality); });
+    return out ?? blob;
+  } catch {
+    return blob; // never break an export
+  }
+}
+
+/**
  * Save a blob with the brand-aware filename. `base` is the desired name (with or
  * without extension); `ext` is the output extension. Returns the final filename.
  */

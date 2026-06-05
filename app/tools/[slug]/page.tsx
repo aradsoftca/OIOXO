@@ -3,6 +3,7 @@ import dynamic from 'next/dynamic';
 import type { Metadata } from 'next';
 import { getTool, TOOLS } from '@/lib/registry';
 import { ToolFrame } from '@/components/tool/ToolFrame';
+import { StudioFrame } from '@/components/tool/StudioFrame';
 import { buildToolPageStructuredData, structuredDataToScript } from '@/lib/seo/jsonld';
 import { buildMeta } from '@/lib/seo/meta';
 import { buildRichPage } from '@/lib/seo/content';
@@ -26,6 +27,23 @@ interface Props {
 const NO_PRERENDER = new Set(
   TOOLS.filter((t) => /(^|-)studio(s|-|$)/.test(t.id)).map((t) => t.id),
 );
+
+// The heavy, full-screen editors (timeline / canvas / multi-panel) that should
+// OWN the viewport like a real desktop app (CapCut, Photopea) instead of being
+// pushed below a marketing banner. These render in <StudioFrame> (slim bar +
+// 100dvh editor + SEO moved below the fold). Lighter "studio-*" generators
+// (meme, qr, collage…) stay in the normal <ToolFrame> form layout.
+const FULLSCREEN_STUDIOS = new Set([
+  'video-studio',
+  'image-studio',
+  'pdf-studio',
+  'office-studio',
+  'office-docs',
+  'office-slides',
+  'audio-voice-studio',
+  'audio-music-studio',
+  'subtitle-studio',
+]);
 
 export function generateStaticParams() {
   return TOOLS.filter((t) => !NO_PRERENDER.has(t.id)).map((t) => ({ slug: t.id }));
@@ -548,6 +566,36 @@ export default async function ToolPage({ params }: Props) {
   const related = findRelated(tool.id, tool.category);
   const page = buildRichPage(tool, related.map((r) => r.id));
   const structuredData = buildToolPageStructuredData(tool, page);
+  const jsonLd = (
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: structuredDataToScript(structuredData) }}
+    />
+  );
+
+  // Full-screen studios own the viewport like a desktop editor; the marketing
+  // banner and SEO copy move below the fold (still crawlable) instead of
+  // burying the editor.
+  if (FULLSCREEN_STUDIOS.has(tool.id)) {
+    return (
+      <>
+        <StudioFrame
+          tool={tool}
+          about={
+            <>
+              <PolicyHint toolKey={tool.id} fallbackKey={tool.category} />
+              <RichToolSection tool={tool} page={page} related={related} />
+            </>
+          }
+        >
+          <ClientOnly>
+            <ToolUI />
+          </ClientOnly>
+        </StudioFrame>
+        {jsonLd}
+      </>
+    );
+  }
 
   return (
     <ToolFrame tool={tool}>
@@ -556,10 +604,7 @@ export default async function ToolPage({ params }: Props) {
         <ToolUI />
       </ClientOnly>
       <RichToolSection tool={tool} page={page} related={related} />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: structuredDataToScript(structuredData) }}
-      />
+      {jsonLd}
     </ToolFrame>
   );
 }

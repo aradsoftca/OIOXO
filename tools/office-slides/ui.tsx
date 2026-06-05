@@ -29,6 +29,7 @@ import {
   parseBulletsToNodes, smartArtToSvg, SMART_ART_LAYOUTS, type SmartArtLayout,
   HelpButton, useRegisterShortcuts,
   pushToast, SharedDialog, EmptyState,
+  useResponsiveStudio,
 } from '@/lib/studios';
 
 type Tool = 'select' | 'text' | 'rect' | 'ellipse' | 'arrow' | 'image';
@@ -147,6 +148,65 @@ const cloneDoc = (d: DocState): DocState => ({
   theme: { ...d.theme },
 });
 
+const SNAP_TOL = 7; // doc-units; ~1 device-pixel feel at 1280-wide stage
+
+/**
+ * Smart-guide snapping (Canva/Slides parity). Given the moving element's
+ * candidate box, the other elements on the slide, and the slide size, find the
+ * nearest edge/center alignment within tolerance on each axis and return both
+ * the snapped position AND the guide lines to draw. Snapping is bypassed when
+ * the user holds Ctrl/Cmd (the rival's "hold-to-bypass" affordance).
+ */
+function snapMove(
+  box: { x: number; y: number; w: number; h: number },
+  others: { x: number; y: number; w: number; h: number }[],
+  docW: number, docH: number,
+  bypass: boolean,
+): { x: number; y: number; guides: { v: number[]; h: number[] } } {
+  if (bypass) return { x: box.x, y: box.y, guides: { v: [], h: [] } };
+  // candidate vertical lines (x positions) from siblings + slide
+  const vTargets: number[] = [docW / 2];
+  const hTargets: number[] = [docH / 2];
+  for (const o of others) {
+    vTargets.push(o.x, o.x + o.w / 2, o.x + o.w);
+    hTargets.push(o.y, o.y + o.h / 2, o.y + o.h);
+  }
+  vTargets.push(0, docW); hTargets.push(0, docH);
+
+  const guides = { v: [] as number[], h: [] as number[] };
+  let bestX = box.x, dx = SNAP_TOL + 1;
+  // try left edge, center, right edge against each vertical target
+  const myV = [box.x, box.x + box.w / 2, box.x + box.w];
+  for (const t of vTargets) {
+    for (let k = 0; k < 3; k++) {
+      const d = Math.abs(myV[k] - t);
+      if (d <= SNAP_TOL && d < dx) { dx = d; bestX = box.x + (t - myV[k]); }
+    }
+  }
+  if (dx <= SNAP_TOL) {
+    const snappedV = [bestX, bestX + box.w / 2, bestX + box.w];
+    for (const t of vTargets) if (snappedV.some(e => Math.abs(e - t) < 0.5)) guides.v.push(t);
+  } else bestX = box.x;
+
+  let bestY = box.y, dy = SNAP_TOL + 1;
+  const myH = [box.y, box.y + box.h / 2, box.y + box.h];
+  for (const t of hTargets) {
+    for (let k = 0; k < 3; k++) {
+      const d = Math.abs(myH[k] - t);
+      if (d <= SNAP_TOL && d < dy) { dy = d; bestY = box.y + (t - myH[k]); }
+    }
+  }
+  if (dy <= SNAP_TOL) {
+    const snappedH = [bestY, bestY + box.h / 2, bestY + box.h];
+    for (const t of hTargets) if (snappedH.some(e => Math.abs(e - t) < 0.5)) guides.h.push(t);
+  } else bestY = box.y;
+
+  return { x: bestX, y: bestY, guides: { v: [...new Set(guides.v)], h: [...new Set(guides.h)] } };
+}
+
+const RECOVERY_KEY = 'slides-studio-recovery';
+const RECOVERY_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 export default function OfficeSlidesPro() {
   const { guard, gate } = useUsageGate('office-slides'); // own meter — was borrowing 'image' and draining the user's image quota
   const isPro = useIsPro();
@@ -187,6 +247,8 @@ export default function OfficeSlidesPro() {
   }, []);
 
   const [smartArtDialog, setSmartArtDialog] = React.useState(false);
+  // Crash-recovery: snapshot found on mount that is newer than what's loaded.
+  const [recovery, setRecovery] = React.useState<{ doc: DocState; at: number } | null>(null);
 
   const sections = React.useMemo(() => {
     const groups = new Map<string, Slide[]>();
@@ -248,7 +310,11 @@ export default function OfficeSlidesPro() {
   };
   const stageRef = React.useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = React.useState(false);
-  const dragState = React.useRef<null | { mode: 'move' | 'resize'; corner?: string; id: string; ox: number; oy: number; ex: number; ey: number; ew: number; eh: number }>(null);
+  const dragState = React.useRef<null | { mode: 'move' | 'resize'; corner?: string; id: string; ox: number; oy: number; ex: number; ey: number; ew: number; eh: number; aspect: number; duped?: boolean; moved?: boolean }>(null);
+  // Live smart-guides (pink alignment lines) shown during a drag/resize. In doc coordinates.
+  const [guides, setGuides] = React.useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
+  // Live modifier state so the canvas can show "axis-locked / snap-off" affordances.
+  const modKeys = React.useRef({ shift: false, alt: false, meta: false });
 
   const toastFor = (m: string) => { pushToast(m); };
 
@@ -340,6 +406,27 @@ export default function OfficeSlidesPro() {
     commit(`add ${kind}`, next);
   };
 
+  // Shared image-insert path used by the file picker AND clipboard paste.
+  // Sizes the element to the image's aspect, centered on the slide.
+  const insertImageFromDataUrl = React.useCallback((data: string, label = 'add image') => {
+    const img = new Image();
+    img.onload = () => {
+      const maxW = doc.width * 0.6, maxH = doc.height * 0.6;
+      let w = img.naturalWidth || 480, h = img.naturalHeight || 320;
+      const scale = Math.min(maxW / w, maxH / h, 1);
+      w = Math.round(w * scale); h = Math.round(h * scale);
+      const next = cloneDoc(doc);
+      const s = next.slides.find(x => x.id === doc.selectedSlideId)!;
+      const el: Element = { id: nid(), kind: 'image', x: Math.round((doc.width - w) / 2), y: Math.round((doc.height - h) / 2), w, h, rotation: 0, imageData: data };
+      s.elements.push(el);
+      next.selectedElementId = el.id;
+      commit(label, next);
+      toastFor('Image added');
+    };
+    img.onerror = () => toastFor('Could not read image');
+    img.src = data;
+  }, [doc, commit]);
+
   const addImage = async () => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -352,12 +439,7 @@ export default function OfficeSlidesPro() {
         fr.onload = () => res(fr.result as string);
         fr.readAsDataURL(f);
       });
-      const next = cloneDoc(doc);
-      const s = next.slides.find(x => x.id === doc.selectedSlideId)!;
-      const el: Element = { id: nid(), kind: 'image', x: 200, y: 200, w: 480, h: 320, rotation: 0, imageData: data };
-      s.elements.push(el);
-      next.selectedElementId = el.id;
-      commit('add image', next);
+      insertImageFromDataUrl(data);
     };
     input.click();
   };
@@ -436,6 +518,18 @@ export default function OfficeSlidesPro() {
     commit('duplicate element', next);
   };
 
+  // Arrow-key nudge: 1 doc-unit step, ×10 with Shift (rival "nudge / precision" parity).
+  const nudge = (dxu: number, dyu: number, big: boolean) => {
+    if (!doc.selectedElementId) return;
+    const step = big ? 10 : 1;
+    const next = cloneDoc(doc);
+    const s = next.slides.find(x => x.id === doc.selectedSlideId)!;
+    const e = s.elements.find(x => x.id === doc.selectedElementId);
+    if (!e) return;
+    e.x += dxu * step; e.y += dyu * step;
+    commit('nudge', next);
+  };
+
   const onStagePointerDown = (e: React.PointerEvent) => {
     if (tool === 'select') {
       const target = e.target as HTMLElement;
@@ -460,11 +554,13 @@ export default function OfficeSlidesPro() {
     setDoc(d => ({ ...d, selectedElementId: el.id }));
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     setDragging(true);
-    const rect = stageRef.current!.getBoundingClientRect();
+    modKeys.current = { shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
     dragState.current = {
       mode: 'move', id: el.id,
       ox: e.clientX, oy: e.clientY,
       ex: el.x, ey: el.y, ew: el.w, eh: el.h,
+      aspect: el.w / Math.max(1, el.h),
+      duped: false, moved: false,
     };
   };
   const startResize = (e: React.PointerEvent, el: Element, corner: string) => {
@@ -472,40 +568,82 @@ export default function OfficeSlidesPro() {
     setDoc(d => ({ ...d, selectedElementId: el.id }));
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     setDragging(true);
+    modKeys.current = { shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
     dragState.current = {
       mode: 'resize', corner, id: el.id,
       ox: e.clientX, oy: e.clientY,
       ex: el.x, ey: el.y, ew: el.w, eh: el.h,
+      aspect: el.w / Math.max(1, el.h),
     };
   };
   const onMoveDrag = (e: React.PointerEvent) => {
     const d = dragState.current;
     if (!d) return;
+    modKeys.current = { shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
     const rect = stageRef.current!.getBoundingClientRect();
     const scaleX = doc.width / rect.width;
     const scaleY = doc.height / rect.height;
-    const dx = (e.clientX - d.ox) * scaleX;
-    const dy = (e.clientY - d.oy) * scaleY;
+    let dx = (e.clientX - d.ox) * scaleX;
+    let dy = (e.clientY - d.oy) * scaleY;
+    const bypass = e.metaKey || e.ctrlKey; // hold to bypass snapping (rival parity)
+
+    // Alt-drag to duplicate-in-place: on first real movement, clone the element
+    // and switch the drag onto the copy so the original stays put.
+    if (d.mode === 'move' && e.altKey && !d.duped && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+      d.duped = true;
+      setDoc(prev => {
+        const next = cloneDoc(prev);
+        const s = next.slides.find(x => x.id === prev.selectedSlideId)!;
+        const orig = s.elements.find(x => x.id === d.id);
+        if (!orig) return prev;
+        const copy: Element = { ...orig, id: nid() };
+        s.elements.push(copy);
+        d.id = copy.id;
+        next.selectedElementId = copy.id;
+        return next;
+      });
+    }
+
     setDoc(prev => {
       const next = cloneDoc(prev);
       const s = next.slides.find(x => x.id === prev.selectedSlideId)!;
       const el = s.elements.find(x => x.id === d.id);
       if (!el) return prev;
-      if (d.mode === 'move') { el.x = d.ex + dx; el.y = d.ey + dy; }
-      else if (d.mode === 'resize') {
-        if (d.corner?.includes('e')) el.w = Math.max(20, d.ew + dx);
-        if (d.corner?.includes('w')) { el.w = Math.max(20, d.ew - dx); el.x = d.ex + dx; }
-        if (d.corner?.includes('s')) el.h = Math.max(20, d.eh + dy);
-        if (d.corner?.includes('n')) { el.h = Math.max(20, d.eh - dy); el.y = d.ey + dy; }
+      d.moved = true;
+      if (d.mode === 'move') {
+        // Shift constrains motion to the dominant axis.
+        if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
+        const cand = { x: d.ex + dx, y: d.ey + dy, w: d.ew, h: d.eh };
+        const others = s.elements.filter(o => o.id !== d.id).map(o => ({ x: o.x, y: o.y, w: o.w, h: o.h }));
+        const snapped = snapMove(cand, others, next.width, next.height, bypass || e.shiftKey);
+        el.x = snapped.x; el.y = snapped.y;
+        setGuides(snapped.guides);
+      } else if (d.mode === 'resize') {
+        let nw = d.ew, nh = d.eh, nx = d.ex, ny = d.ey;
+        if (d.corner?.includes('e')) nw = Math.max(20, d.ew + dx);
+        if (d.corner?.includes('w')) { nw = Math.max(20, d.ew - dx); nx = d.ex + (d.ew - nw); }
+        if (d.corner?.includes('s')) nh = Math.max(20, d.eh + dy);
+        if (d.corner?.includes('n')) { nh = Math.max(20, d.eh - dy); ny = d.ey + (d.eh - nh); }
+        // Shift constrains resize to the original aspect ratio (corner handles).
+        if (e.shiftKey && d.corner && d.corner.length === 2) {
+          if (nw / Math.max(1, nh) > d.aspect) nw = nh * d.aspect; else nh = nw / d.aspect;
+          if (d.corner.includes('w')) nx = d.ex + (d.ew - nw);
+          if (d.corner.includes('n')) ny = d.ey + (d.eh - nh);
+        }
+        el.w = nw; el.h = nh; el.x = nx; el.y = ny;
       }
       return next;
     });
   };
   const endDrag = () => {
-    if (dragState.current) {
-      stack.current.push(dragState.current.mode, cloneDoc(doc));
+    const d = dragState.current;
+    if (d) {
+      if (d.moved || d.duped) {
+        stack.current.push(d.duped ? 'duplicate (alt-drag)' : d.mode, cloneDoc(doc));
+      }
       dragState.current = null;
     }
+    setGuides({ v: [], h: [] });
     setDragging(false);
   };
 
@@ -582,6 +720,7 @@ export default function OfficeSlidesPro() {
     try {
       const proj = newProject('office', doc.name, { kind: 'slides', doc });
       await saveProject(proj);
+      try { localStorage.removeItem(RECOVERY_KEY); } catch {}
       toastFor('Saved');
     } finally { setBusy(''); }
   };
@@ -595,6 +734,7 @@ export default function OfficeSlidesPro() {
     try {
       const p = await loadProject<{ kind: 'slides'; doc: DocState }>(id);
       if (!p) return;
+      setRecovery(null);
       setDoc(p.state.doc);
       stack.current.reset(cloneDoc(p.state.doc), 'open');
       setOpenDialog(false);
@@ -616,8 +756,22 @@ export default function OfficeSlidesPro() {
     {
       label: 'Edit',
       items: [
-        { combo: 'mod+d', description: 'Duplicate element' },
+        { combo: 'mod+d', description: 'Duplicate element (or slide)' },
         { combo: 'delete', description: 'Delete element' },
+        { combo: 'arrows', description: 'Nudge element 1px' },
+        { combo: 'shift+arrows', description: 'Nudge element 10px' },
+        { combo: 'esc', description: 'Deselect element' },
+        { combo: 'mod+v', description: 'Paste image from clipboard' },
+      ],
+    },
+    {
+      label: 'Canvas',
+      items: [
+        { combo: 'drag', description: 'Smart-guides snap to edges & center' },
+        { combo: 'hold mod', description: 'Bypass snapping (free placement)' },
+        { combo: 'shift+drag', description: 'Constrain to axis' },
+        { combo: 'shift+resize', description: 'Lock aspect ratio (corner)' },
+        { combo: 'alt+drag', description: 'Duplicate in place' },
       ],
     },
     {
@@ -646,9 +800,18 @@ export default function OfficeSlidesPro() {
     { combo: 'mod+e', handler: () => setExportDialog(true) },
     { combo: 'mod+o', handler: () => { void openSaved(); } },
     { combo: 'mod+n', handler: () => addSlide('blank') },
-    { combo: 'mod+d', handler: () => duplicateElement() },
+    { combo: 'mod+d', handler: () => { if (doc.selectedElementId) duplicateElement(); else duplicateSlide(doc.selectedSlideId); } },
     { combo: 'delete', handler: removeElement },
     { combo: 'backspace', handler: removeElement },
+    { combo: 'arrowup', handler: () => nudge(0, -1, false) },
+    { combo: 'arrowdown', handler: () => nudge(0, 1, false) },
+    { combo: 'arrowleft', handler: () => nudge(-1, 0, false) },
+    { combo: 'arrowright', handler: () => nudge(1, 0, false) },
+    { combo: 'shift+arrowup', handler: () => nudge(0, -1, true) },
+    { combo: 'shift+arrowdown', handler: () => nudge(0, 1, true) },
+    { combo: 'shift+arrowleft', handler: () => nudge(-1, 0, true) },
+    { combo: 'shift+arrowright', handler: () => nudge(1, 0, true) },
+    { combo: 'escape', handler: () => { if (doc.selectedElementId) setDoc(d => ({ ...d, selectedElementId: null })); } },
     { combo: 'f5', handler: () => { setPresentIdx(doc.slides.findIndex(s => s.id === doc.selectedSlideId)); setPresentMode(true); } },
     { combo: 't', handler: () => setTool('text') },
     { combo: 'r', handler: () => setTool('rect') },
@@ -669,6 +832,71 @@ export default function OfficeSlidesPro() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [presentMode, doc.slides.length]);
+
+  // Clipboard paste: drop an image straight onto the current slide (Canva parity).
+  // Ignored while typing in a field so Ctrl+V still works in text inputs.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.type.startsWith('image/')) {
+          const f = it.getAsFile();
+          if (!f) continue;
+          e.preventDefault();
+          const fr = new FileReader();
+          fr.onload = () => insertImageFromDataUrl(fr.result as string, 'paste image');
+          fr.readAsDataURL(f);
+          return;
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [insertImageFromDataUrl]);
+
+  // Crash-recovery: on mount, if a fresh autosave snapshot exists, offer to restore it.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { doc: DocState; at: number };
+      if (!parsed?.doc || !parsed.at) return;
+      if (Date.now() - parsed.at > RECOVERY_TTL) { localStorage.removeItem(RECOVERY_KEY); return; }
+      // Only offer recovery when the live doc is still the pristine starter.
+      if (doc.name === 'Untitled' && doc.slides.length === 1 && doc.slides[0].elements.length <= 2) {
+        setRecovery({ doc: parsed.doc, at: parsed.at });
+      }
+    } catch { /* corrupt snapshot — ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave: debounced 2s snapshot of the working doc to localStorage.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (recovery) return; // don't overwrite a pending recovery offer
+    const id = window.setTimeout(() => {
+      try { localStorage.setItem(RECOVERY_KEY, JSON.stringify({ doc, at: Date.now() })); } catch { /* quota */ }
+    }, 2000);
+    return () => window.clearTimeout(id);
+  }, [doc, recovery]);
+
+  const restoreRecovery = () => {
+    if (!recovery) return;
+    setDoc(recovery.doc);
+    stack.current.reset(cloneDoc(recovery.doc), 'recovered');
+    setRecovery(null);
+    force();
+    toastFor('Session restored');
+  };
+  const dismissRecovery = () => {
+    setRecovery(null);
+    try { localStorage.removeItem(RECOVERY_KEY); } catch {}
+  };
 
   if (presentMode) {
     const cur = doc.slides[presentIdx] ?? doc.slides[0];
@@ -716,36 +944,28 @@ export default function OfficeSlidesPro() {
         }
       />
 
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
-        {([['select', MousePointer2, 'Select'], ['text', TypeIcon, 'Text (T)'], ['rect', Square, 'Rectangle (R)'], ['ellipse', CircleIcon, 'Ellipse (O)'], ['arrow', ArrowRight, 'Arrow'], ['image', ImageIcon, 'Image']] as const).map(([t, Icon, label]) => (
-          <button key={t} onClick={() => { if (t === 'image') addImage(); else setTool(t); }} title={label} className={cn('grid h-7 w-7 place-items-center rounded', tool === t ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/5')}>
-            <Icon className="h-3.5 w-3.5" />
-          </button>
-        ))}
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        {elem && (
-          <>
-            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.bold = !e.bold; })} title="Bold" active={elem.bold}><Bold className="h-3.5 w-3.5" /></Tb>
-            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.italic = !e.italic; })} title="Italic" active={elem.italic}><Italic className="h-3.5 w-3.5" /></Tb>
-            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'left'; })} title="Left" active={elem.align === 'left'}><AlignLeft className="h-3.5 w-3.5" /></Tb>
-            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'center'; })} title="Center" active={elem.align === 'center'}><AlignCenter className="h-3.5 w-3.5" /></Tb>
-            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'right'; })} title="Right" active={elem.align === 'right'}><AlignRight className="h-3.5 w-3.5" /></Tb>
-            <span className="mx-1 h-4 w-px bg-white/10" />
-            <button onClick={duplicateElement} title="Duplicate" className="grid h-7 w-7 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
-            <button onClick={removeElement} title="Delete" className="grid h-7 w-7 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
-          </>
-        )}
-        <div className="ml-auto flex items-center gap-1">
-          <button onClick={themeFromCurrentImage} title="Generate theme from image colors" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-cyan-300 hover:bg-white/5">
-            <Sparkles className="h-3 w-3" /> Theme from image
-          </button>
-          <span className="text-zinc-500">Theme</span>
-          {THEMES.map(t => (
-            <button key={t.id} onClick={() => applyTheme(t)} title={t.name} className={cn('h-5 w-5 rounded-full border', doc.theme.id === t.id ? 'border-cyan-400 ring-1 ring-cyan-400/30' : 'border-white/10')}
-              style={{ background: `linear-gradient(135deg, ${t.background} 50%, ${t.accent} 50%)` }} />
-          ))}
-        </div>
-      </div>
+      <SlidesToolbar
+        tool={tool}
+        setTool={setTool}
+        addImage={addImage}
+        elem={elem}
+        slide={slide}
+        doc={doc}
+        updateElement={updateElement}
+        duplicateElement={duplicateElement}
+        removeElement={removeElement}
+        themeFromCurrentImage={themeFromCurrentImage}
+        applyTheme={applyTheme}
+      />
+
+      {/* Phone-only horizontal slide-thumbnail strip. The desktop slide rail
+          lives in the left StudioSidebar (a hidden flyout on phone), so on a
+          phone the user needs an always-visible way to switch slides. */}
+      <MobileSlideStrip
+        doc={doc}
+        onSelect={(id) => setDoc(d => ({ ...d, selectedSlideId: id, selectedElementId: null }))}
+        onAdd={() => setLayoutDialog(true)}
+      />
 
       <StudioBody>
         <StudioSidebar side="left" width={180}>
@@ -795,6 +1015,16 @@ export default function OfficeSlidesPro() {
         </StudioSidebar>
 
         <div className="relative flex flex-1 min-w-0 flex-col bg-[#0a0b0e]">
+          {recovery && (
+            <div className="absolute inset-x-0 top-0 z-30 flex items-center gap-3 border-b border-amber-500/30 bg-amber-500/15 px-4 py-2 text-xs text-amber-100 backdrop-blur">
+              <span className="font-medium">Recovered an unsaved session</span>
+              <span className="text-amber-200/70">from {new Date(recovery.at).toLocaleString()} · {recovery.doc.slides.length} slide{recovery.doc.slides.length === 1 ? '' : 's'}</span>
+              <div className="ml-auto flex items-center gap-2">
+                <button onClick={restoreRecovery} className="rounded bg-amber-400 px-2.5 py-1 font-medium text-amber-950 hover:bg-amber-300">Restore</button>
+                <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200 hover:bg-amber-500/20">Dismiss</button>
+              </div>
+            </div>
+          )}
           {!slidesWelcomed && slidesLooksUntouched && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0a0b0e]/95 backdrop-blur-sm">
               <EmptyState
@@ -815,7 +1045,7 @@ export default function OfficeSlidesPro() {
               />
             </div>
           )}
-          <div className="flex flex-1 items-center justify-center p-6">
+          <div className="flex flex-1 items-center justify-center p-2 sm:p-6">
             <div
               ref={stageRef}
               data-role="bg"
@@ -823,7 +1053,7 @@ export default function OfficeSlidesPro() {
               onPointerMove={onMoveDrag}
               onPointerUp={endDrag}
               onPointerCancel={endDrag}
-              className="relative max-h-full w-full shadow-2xl"
+              className="relative max-h-full w-full shadow-2xl [touch-action:none]"
               style={{ aspectRatio: `${doc.width}/${doc.height}`, maxWidth: '100%', background: slide.background, cursor: tool === 'select' ? 'default' : 'crosshair' }}
             >
               <SlideCanvas
@@ -836,6 +1066,12 @@ export default function OfficeSlidesPro() {
                 onStartResize={startResize}
                 onEditText={(id, text) => updateElement(slide.id, id, e => { e.text = text; }, 'text edit')}
               />
+              {(guides.v.length > 0 || guides.h.length > 0) && (
+                <svg viewBox={`0 0 ${doc.width} ${doc.height}`} preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">
+                  {guides.v.map((x, i) => <line key={`v${i}`} x1={x} y1={0} x2={x} y2={doc.height} stroke="#ec4899" strokeWidth={1.5} shapeRendering="crispEdges" />)}
+                  {guides.h.map((y, i) => <line key={`h${i}`} x1={0} y1={y} x2={doc.width} y2={y} stroke="#ec4899" strokeWidth={1.5} shapeRendering="crispEdges" />)}
+                </svg>
+              )}
             </div>
           </div>
           {showNotes && (
@@ -991,6 +1227,141 @@ export default function OfficeSlidesPro() {
   );
 }
 
+// Bespoke second toolbar (tools + element format + theme picker). On desktop it
+// renders byte-for-byte as before. The harness flagged a +767px overflow on
+// phone: the row never wrapped/scrolled and the `ml-auto` theme cluster forced
+// the line wider than the viewport. On phone we drop `ml-auto` and let the row
+// scroll horizontally inside the bounded shell (no page overflow).
+function SlidesToolbar({
+  tool, setTool, addImage, elem, slide, doc,
+  updateElement, duplicateElement, removeElement, themeFromCurrentImage, applyTheme,
+}: {
+  tool: Tool;
+  setTool: (t: Tool) => void;
+  addImage: () => void;
+  elem: Element | null;
+  slide: Slide;
+  doc: DocState;
+  updateElement: (sid: string, eid: string, mut: (e: Element) => void, label?: string) => void;
+  duplicateElement: () => void;
+  removeElement: () => void;
+  themeFromCurrentImage: () => void;
+  applyTheme: (t: Theme) => void;
+}) {
+  const { mode } = useResponsiveStudio();
+  const phone = mode !== 'desktop';
+
+  // Desktop renders the ORIGINAL markup byte-for-byte (same class strings,
+  // same `ml-auto`). Only the phone branch changes: the row scrolls instead of
+  // overflowing the page, touch targets grow to 44px, and `ml-auto` is dropped
+  // (it forced the line wider than the 390px viewport — the +767px the harness
+  // flagged).
+  if (!phone) {
+    return (
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
+        {([['select', MousePointer2, 'Select'], ['text', TypeIcon, 'Text (T)'], ['rect', Square, 'Rectangle (R)'], ['ellipse', CircleIcon, 'Ellipse (O)'], ['arrow', ArrowRight, 'Arrow'], ['image', ImageIcon, 'Image']] as const).map(([t, Icon, label]) => (
+          <button key={t} onClick={() => { if (t === 'image') addImage(); else setTool(t); }} title={label} className={cn('grid h-7 w-7 place-items-center rounded', tool === t ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/5')}>
+            <Icon className="h-3.5 w-3.5" />
+          </button>
+        ))}
+        <span className="mx-1 h-4 w-px bg-white/10" />
+        {elem && (
+          <>
+            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.bold = !e.bold; })} title="Bold" active={elem.bold}><Bold className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.italic = !e.italic; })} title="Italic" active={elem.italic}><Italic className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'left'; })} title="Left" active={elem.align === 'left'}><AlignLeft className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'center'; })} title="Center" active={elem.align === 'center'}><AlignCenter className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'right'; })} title="Right" active={elem.align === 'right'}><AlignRight className="h-3.5 w-3.5" /></Tb>
+            <span className="mx-1 h-4 w-px bg-white/10" />
+            <button onClick={duplicateElement} title="Duplicate" className="grid h-7 w-7 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
+            <button onClick={removeElement} title="Delete" className="grid h-7 w-7 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
+          </>
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          <button onClick={themeFromCurrentImage} title="Generate theme from image colors" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-cyan-300 hover:bg-white/5">
+            <Sparkles className="h-3 w-3" /> Theme from image
+          </button>
+          <span className="text-zinc-500">Theme</span>
+          {THEMES.map(t => (
+            <button key={t.id} onClick={() => applyTheme(t)} title={t.name} className={cn('h-5 w-5 rounded-full border', doc.theme.id === t.id ? 'border-cyan-400 ring-1 ring-cyan-400/30' : 'border-white/10')}
+              style={{ background: `linear-gradient(135deg, ${t.background} 50%, ${t.accent} 50%)` }} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Phone: horizontally-scrolling row, finger-sized targets, no `ml-auto`.
+  return (
+    <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-2 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {([['select', MousePointer2, 'Select'], ['text', TypeIcon, 'Text (T)'], ['rect', Square, 'Rectangle (R)'], ['ellipse', CircleIcon, 'Ellipse (O)'], ['arrow', ArrowRight, 'Arrow'], ['image', ImageIcon, 'Image']] as const).map(([t, Icon, label]) => (
+        <button key={t} onClick={() => { if (t === 'image') addImage(); else setTool(t); }} title={label} className={cn('grid h-10 w-10 shrink-0 place-items-center rounded', tool === t ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/5')}>
+          <Icon className="h-3.5 w-3.5" />
+        </button>
+      ))}
+      <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+      {elem && (
+        <>
+          <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.bold = !e.bold; })} title="Bold" active={elem.bold}><Bold className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.italic = !e.italic; })} title="Italic" active={elem.italic}><Italic className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'left'; })} title="Left" active={elem.align === 'left'}><AlignLeft className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'center'; })} title="Center" active={elem.align === 'center'}><AlignCenter className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'right'; })} title="Right" active={elem.align === 'right'}><AlignRight className="h-3.5 w-3.5" /></Tb>
+          <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+          <button onClick={duplicateElement} title="Duplicate" className="grid h-10 w-10 shrink-0 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
+          <button onClick={removeElement} title="Delete" className="grid h-10 w-10 shrink-0 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
+        </>
+      )}
+      <div className="flex shrink-0 items-center gap-1">
+        <button onClick={themeFromCurrentImage} title="Generate theme from image colors" aria-label="Theme from image" className="grid h-10 w-10 shrink-0 place-items-center rounded text-cyan-300 hover:bg-white/5">
+          <Sparkles className="h-4 w-4" />
+        </button>
+        <span className="shrink-0 text-zinc-500">Theme</span>
+        {THEMES.map(t => (
+          <button key={t.id} onClick={() => applyTheme(t)} title={t.name} className={cn('h-7 w-7 shrink-0 rounded-full border', doc.theme.id === t.id ? 'border-cyan-400 ring-1 ring-cyan-400/30' : 'border-white/10')}
+            style={{ background: `linear-gradient(135deg, ${t.background} 50%, ${t.accent} 50%)` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Phone-only horizontal strip of slide thumbnails. Desktop returns null (the
+// slide rail stays in the left sidebar exactly as before).
+function MobileSlideStrip({ doc, onSelect, onAdd }: {
+  doc: DocState;
+  onSelect: (id: string) => void;
+  onAdd: () => void;
+}) {
+  const { mode } = useResponsiveStudio();
+  if (mode === 'desktop') return null;
+  return (
+    <div className="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-white/5 bg-[#0a0b0e] px-2 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {doc.slides.map((s, i) => (
+        <button
+          key={s.id}
+          onClick={() => onSelect(s.id)}
+          className={cn(
+            'relative shrink-0 overflow-hidden rounded border bg-white',
+            s.id === doc.selectedSlideId ? 'border-cyan-400 ring-2 ring-cyan-400/40' : 'border-white/10',
+          )}
+          style={{ width: 96, aspectRatio: `${doc.width}/${doc.height}` }}
+        >
+          <SlidePreview slide={s} doc={doc} />
+          <span className="absolute left-1 top-1 rounded bg-black/60 px-1 text-[9px] font-bold text-white">{i + 1}</span>
+        </button>
+      ))}
+      <button
+        onClick={onAdd}
+        className="grid h-[54px] w-12 shrink-0 place-items-center rounded border border-dashed border-white/15 text-zinc-400 hover:bg-white/5"
+        title="New slide"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
 function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onStartMove, onStartResize, onEditText }: {
   slide: Slide; doc: DocState; interactive: boolean;
   selectedId?: string | null;
@@ -1054,7 +1425,7 @@ function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onS
             data-el={el.id}
             onPointerDown={(e) => onStartMove?.(e, el)}
             onDoubleClick={() => el.kind === 'text' && setEditing(el.id)}
-            className={cn('absolute', sel && 'outline outline-2 outline-cyan-400')}
+            className={cn('absolute [touch-action:none]', sel && 'outline outline-2 outline-cyan-400')}
             style={{
               left: `${(el.x / doc.width) * 100}%`, top: `${(el.y / doc.height) * 100}%`,
               width: `${(el.w / doc.width) * 100}%`, height: `${(el.h / doc.height) * 100}%`,
@@ -1076,7 +1447,9 @@ function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onS
               <div
                 key={c}
                 onPointerDown={(e) => onStartResize?.(e, el, c)}
-                className="absolute h-2.5 w-2.5 rounded-full border-2 border-cyan-400 bg-white"
+                // M5: on coarse pointers the 10px handle is untappable — enlarge
+                // the grab target (visual stays small on desktop fine pointers).
+                className="absolute h-2.5 w-2.5 rounded-full border-2 border-cyan-400 bg-white [touch-action:none] [@media(pointer:coarse)]:h-5 [@media(pointer:coarse)]:w-5"
                 style={getHandleStyle(c)}
               />
             ))}
@@ -1295,8 +1668,11 @@ function Mini({ children, onClick, danger }: { children: React.ReactNode; onClic
   return <button onClick={onClick} className={cn('grid h-4 w-4 place-items-center rounded bg-black/60', danger ? 'text-rose-300 hover:bg-rose-500/60' : 'text-white hover:bg-black/80')}>{children}</button>;
 }
 
-const Tb = ({ onClick, title, active, children }: { onClick: () => void; title: string; active?: boolean; children: React.ReactNode }) => (
-  <button onClick={onClick} title={title} className={cn('grid h-7 w-7 place-items-center rounded', active ? 'bg-white/10 text-white' : 'text-zinc-300 hover:bg-white/5')}>{children}</button>
+const Tb = ({ onClick, title, active, phone, children }: { onClick: () => void; title: string; active?: boolean; phone?: boolean; children: React.ReactNode }) => (
+  <button onClick={onClick} title={title} className={phone
+    ? cn('grid h-10 w-10 shrink-0 place-items-center rounded', active ? 'bg-white/10 text-white' : 'text-zinc-300 hover:bg-white/5')
+    : cn('grid h-7 w-7 place-items-center rounded', active ? 'bg-white/10 text-white' : 'text-zinc-300 hover:bg-white/5')
+  }>{children}</button>
 );
 
 async function renderSlideToPng(slide: Slide, doc: DocState): Promise<Blob> {

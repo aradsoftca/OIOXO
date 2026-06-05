@@ -43,10 +43,15 @@ export default function ScreenRecorderTool() {
   const streamsRef = React.useRef<MediaStream[]>([]);
   const livePreviewRef = React.useRef<HTMLVideoElement>(null);
   const timerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  // Stops the watermark canvas pump (rAF + canvas-capture tracks) for free
+  // sessions; no-op / null for Pro, which records the raw display stream.
+  const wmStopRef = React.useRef<(() => void) | null>(null);
   // mountedRef so rec.onstop doesn't create a blob URL after unmount.
   const mountedRef = React.useRef(true);
 
   const cleanupStreams = () => {
+    try { wmStopRef.current?.(); } catch { /* */ }
+    wmStopRef.current = null;
     streamsRef.current.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     streamsRef.current = [];
   };
@@ -81,7 +86,20 @@ export default function ScreenRecorderTool() {
       });
       streamsRef.current.push(display);
 
-      const tracks = [...display.getVideoTracks(), ...display.getAudioTracks()];
+      // Free sessions brand the recording: pipe the display VIDEO through a
+      // canvas that draws each frame + the corner badge (reusing the
+      // stream-overlay style), then record the canvas-capture track instead of
+      // the raw display track. Pro records raw — no canvas hop, no quality cost.
+      // watermarkVideoStream is defensive: on any failure it returns the source
+      // stream unchanged, so the recording never breaks (worst case: no badge).
+      const { shouldWatermark } = await import('@/lib/watermark/config');
+      const { watermarkVideoStream } = await import('@/lib/watermark/stream-overlay');
+      const wm = await watermarkVideoStream(display, shouldWatermark(POLICY_KEY));
+      wmStopRef.current = wm.stop;
+      // wm.stream === display when branding is off (Pro / opt-out); otherwise it
+      // carries the watermarked video track + the system audio (carried across
+      // by watermarkVideoStream). Mic audio is layered on top below.
+      const tracks = [...wm.stream.getVideoTracks(), ...wm.stream.getAudioTracks()];
       if (withMic) {
         try {
           const mic = await navigator.mediaDevices.getUserMedia({ audio: true });

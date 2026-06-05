@@ -24,9 +24,9 @@ export function benefitsFor(category: Category): string[] {
 
 /** Pro benefits for the P2P-app gate keys (send/call/watch). */
 export const APP_BENEFITS: Record<string, string[]> = {
-  send:  ['Send files of any size', 'Unlimited transfers — no daily cap', 'No “Powered by” badge', 'Priority connections'],
-  call:  ['Unlimited calls — no daily cap', 'Longer calls, bigger rooms', 'Record your calls', 'No “Powered by” badge'],
-  watch: ['Unlimited screen-share sessions', 'Bigger rooms, longer sessions', 'No “Powered by” badge'],
+  send:  ['Send files of any size — limited only by your device', 'Unlimited transfers — no daily cap', 'No “Powered by” badge', 'Priority connections'],
+  call:  ['Up to 8 people per call (vs 3)', 'Unlimited call length (vs 40 min)', 'Record your calls', 'No “Powered by” badge'],
+  watch: ['Up to 50 viewers (vs 3)', '12-hour sessions (vs 30 min)', '1080p streaming', 'No “Powered by” badge'],
 };
 
 /** Pro benefits for ANY gate key — category, per-tool studio, or app. */
@@ -39,6 +39,7 @@ export function benefitsForKey(key: string): string[] {
 export function freeLimitLabel(category: Category): string {
   if (!isGated(category)) return 'Always free — no limits on this tool.';
   const n = freeLimitFor(category);
+  if (n >= 9999) return 'Unlimited free use — no daily cap.';
   return `${n} free export${n === 1 ? '' : 's'} per day, then a short wait unlocks one more.`;
 }
 

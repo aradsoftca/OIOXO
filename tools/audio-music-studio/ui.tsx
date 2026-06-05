@@ -56,7 +56,21 @@ interface Pattern {
    *  instrument, playback/export use this instead of the `notes` step grid;
    *  drums always use `notes`. Backward-compatible (old patterns have none). */
   roll?: Partial<Record<InstId, PianoNote[]>>;
+  /** Per-step velocity 0..1 (GarageBand "Step Settings" depth). Sparse:
+   *  only allocated for instruments the user has shaped; a missing lane or a
+   *  missing entry means full velocity (1). Backward-compatible. */
+  vel?: Partial<Record<InstId, (number | null)[]>>;
+  /** Per-step probability 0..1 that a lit step actually fires on a given loop
+   *  pass — the killer "non-repetitive grooves" feature. Sparse like `vel`; a
+   *  missing entry means certainty (1). Backward-compatible. */
+  chance?: Partial<Record<InstId, (number | null)[]>>;
 }
+
+/** Read a sparse per-step value (velocity/chance) with a default. */
+const lane01 = (m: Partial<Record<InstId, (number | null)[]>> | undefined, id: InstId, s: number, dflt: number): number => {
+  const v = m?.[id]?.[s];
+  return v == null ? dflt : v;
+};
 
 // Chromatic range for the piano roll, low→high (semitones above base octave).
 const ROLL_RANGE = 24; // two octaves
@@ -124,6 +138,8 @@ const cloneDoc = (d: DocState): DocState => ({
     ...p,
     notes: Object.fromEntries(Object.entries(p.notes).map(([k, v]) => [k, v.slice()])) as any,
     roll: p.roll ? Object.fromEntries(Object.entries(p.roll).map(([k, v]) => [k, (v ?? []).map(n => ({ ...n }))])) as any : undefined,
+    vel: p.vel ? Object.fromEntries(Object.entries(p.vel).map(([k, v]) => [k, (v ?? []).slice()])) as any : undefined,
+    chance: p.chance ? Object.fromEntries(Object.entries(p.chance).map(([k, v]) => [k, (v ?? []).slice()])) as any : undefined,
   })),
   chain: [...d.chain],
   instruments: d.instruments.map(i => ({ ...i })),
@@ -297,6 +313,80 @@ export default function MusicStudioPro() {
   const [audioToMidiDialog, setAudioToMidiDialog] = React.useState(false);
   const [detectedMidi, setDetectedMidi] = React.useState<MidiNote[]>([]);
 
+  // Step Settings mode (GarageBand depth): in 'notes' you toggle/paint steps;
+  // in 'velocity' / 'chance' a lit step becomes a draggable value handle.
+  const [stepMode, setStepMode] = React.useState<'notes' | 'velocity' | 'chance'>('notes');
+
+  // ---- Autosave + crash recovery (weaponizes the rival's #1 complaint) -------
+  const RECOVERY_KEY = 'xon:audio-music:recovery';
+  const [recovery, setRecovery] = React.useState<{ name: string; at: number; state: DocState } | null>(null);
+
+  // On mount, surface a recoverable session if a fresh (<7d) snapshot exists and
+  // it isn't just the empty starter doc.
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const snap = JSON.parse(raw) as { name: string; at: number; state: DocState };
+      const age = Date.now() - (snap.at ?? 0);
+      if (!snap.state || age > 7 * 24 * 60 * 60 * 1000) { localStorage.removeItem(RECOVERY_KEY); return; }
+      if (snap.state.patterns?.some(p => !patternIsEmpty(p))) setRecovery(snap);
+      else localStorage.removeItem(RECOVERY_KEY);
+    } catch { /* ignore corrupt snapshot */ }
+  }, []);
+
+  // 2s-debounced silent snapshot of the working doc. Never blocks the UI and is
+  // throttled so even rapid grid edits write at most once every 2s.
+  const recoverySaved = React.useRef(true);
+  React.useEffect(() => {
+    recoverySaved.current = false;
+    const h = window.setTimeout(() => {
+      try {
+        localStorage.setItem(RECOVERY_KEY, JSON.stringify({ name: doc.name, at: Date.now(), state: doc }));
+        recoverySaved.current = true;
+      } catch { /* quota / private mode — autosave is best-effort */ }
+    }, 2000);
+    return () => window.clearTimeout(h);
+  }, [doc]);
+
+  const restoreRecovery = () => {
+    if (!recovery) return;
+    setDoc(recovery.state);
+    stack.current.reset(cloneDoc(recovery.state), 'restore');
+    force();
+    setRecovery(null);
+    toastFor('Recovered your unsaved session');
+  };
+  const dismissRecovery = () => {
+    setRecovery(null);
+    try { localStorage.removeItem(RECOVERY_KEY); } catch { /* */ }
+  };
+
+  // ---- Clipboard paste: drop an audio file straight in (no file dialog) ------
+  // Paste an audio clip copied from the OS / another tab and it goes straight
+  // into the Audio→MIDI import path. Ignored while typing in a field so it never
+  // hijacks Ctrl+V in the project-name input or a dialog.
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.kind === 'file' && it.type.startsWith('audio/')) {
+          const f = it.getAsFile();
+          if (f) { e.preventDefault(); void importAudioFile(f); return; }
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+    // importAudioFile is stable enough for this lifetime; re-binding each render
+    // is unnecessary and would re-register the listener constantly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const importAudioFile = async (file: File) => {
     if (!(await guard())) return;
     setBusy('Analyzing audio…');
@@ -357,6 +447,31 @@ export default function MusicStudioPro() {
   const playStateRef = React.useRef<{ start: number; chainIdx: number; step: number; nextStepTime: number } | null>(null);
   const tickHandle = React.useRef<number | null>(null);
 
+  // A lightweight, reused AudioContext for one-shot UI feedback: every step
+  // toggle plays an immediate "tick" of that instrument so tapping the grid
+  // feels instrument-like (the signature micro-interaction). Kept separate from
+  // the playback context so previews never disturb a running loop. Created
+  // lazily inside a user gesture so it isn't blocked by autoplay policy.
+  const previewCtxRef = React.useRef<AudioContext | null>(null);
+  const previewStep = React.useCallback((instId: InstId, value: number) => {
+    try {
+      let ctx = previewCtxRef.current;
+      if (!ctx || ctx.state === 'closed') {
+        const Ctx = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext;
+        ctx = new Ctx();
+        previewCtxRef.current = ctx;
+      }
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
+      const d = docRef.current;
+      const inst = d.instruments.find(i => i.id === instId);
+      if (!inst || inst.muted) return;
+      const g = ctx.createGain();
+      g.gain.value = inst.volume;
+      g.connect(ctx.destination);
+      scheduleStep(ctx, g, ctx.currentTime + 0.001, inst, value, d.key, 60 / d.bpm / 4);
+    } catch { /* preview is best-effort, never throw into the click path */ }
+  }, []);
+
   // The playback setInterval reads BPM, swing, instruments, chain, and the
   // pattern grid LIVE from this ref. Previously the closure captured `doc` at
   // togglePlay time, so any in-flight BPM change, mute toggle, or note edit
@@ -369,6 +484,7 @@ export default function MusicStudioPro() {
   React.useEffect(() => () => {
     if (tickHandle.current) { clearInterval(tickHandle.current); tickHandle.current = null; }
     if (audioCtxRef.current) { try { audioCtxRef.current.close(); } catch {} audioCtxRef.current = null; }
+    if (previewCtxRef.current) { try { previewCtxRef.current.close(); } catch {} previewCtxRef.current = null; }
   }, []);
 
   const toastFor = (m: string) => { pushToast(m); };
@@ -380,8 +496,48 @@ export default function MusicStudioPro() {
     const p = next.patterns.find(x => x.id === doc.activePatternId);
     if (!p) return;
     p.notes[instId][step] = value;
+    if (value != null) previewStep(instId, value); // audible tick on place
     commit('step', next);
   };
+
+  // Drag-to-paint / drag-to-erase across the grid (the signature gesture).
+  // Reads the live doc from docRef (so it stays correct across a fast stroke
+  // without re-binding) and commits with a coalesced 'paint' label, so a whole
+  // sweep folds into one undo frame.
+  const paintNote = React.useCallback((instId: InstId, step: number, value: number | null) => {
+    const cur = docRef.current;
+    const p0 = cur.patterns.find(x => x.id === cur.activePatternId);
+    if (!p0 || p0.notes[instId][step] === value) return; // no-op = no churn
+    const next = cloneDoc(cur);
+    next.patterns.find(x => x.id === cur.activePatternId)!.notes[instId][step] = value;
+    if (value != null) previewStep(instId, value);
+    commit('paint', next);
+  }, [commit, previewStep]);
+
+  // Per-step velocity (drag up/down on a lit step in Velocity mode). Allocates
+  // the sparse lane on first touch only, so old patterns stay unchanged.
+  const setVel = React.useCallback((instId: InstId, step: number, vel: number) => {
+    const cur = docRef.current;
+    const next = cloneDoc(cur);
+    const p = next.patterns.find(x => x.id === cur.activePatternId);
+    if (!p) return;
+    const lane = (p.vel ??= {})[instId] ?? Array.from({ length: p.steps }, () => null);
+    lane[step] = Math.max(0.05, Math.min(1, vel));
+    p.vel[instId] = lane;
+    commit('velocity', next);
+  }, [commit]);
+
+  // Per-step chance/probability (drag up/down in Chance mode).
+  const setChance = React.useCallback((instId: InstId, step: number, chance: number) => {
+    const cur = docRef.current;
+    const next = cloneDoc(cur);
+    const p = next.patterns.find(x => x.id === cur.activePatternId);
+    if (!p) return;
+    const lane = (p.chance ??= {})[instId] ?? Array.from({ length: p.steps }, () => null);
+    lane[step] = Math.max(0, Math.min(1, chance));
+    p.chance[instId] = lane;
+    commit('chance', next);
+  }, [commit]);
 
   // Which synth instrument is open in the piano roll (null = grid view only).
   const [rollInst, setRollInst] = React.useState<InstId | null>(null);
@@ -464,7 +620,14 @@ export default function MusicStudioPro() {
           } else {
             const n = pattern.notes[inst.id]?.[stepIdx];
             if (n == null) continue;
-            scheduleStep(c, trackGain, t, inst, n, live.key, stepDur);
+            // Per-step probability: a step with chance < 1 only fires on some
+            // loop passes, so the groove evolves instead of looping robotically.
+            const chance = lane01(pattern.chance, inst.id, stepIdx, 1);
+            if (chance < 1 && Math.random() > chance) continue;
+            // Per-step velocity scales the hit's loudness (ghost notes, accents).
+            const vel = lane01(pattern.vel, inst.id, stepIdx, 1);
+            const stepInst = vel === 1 ? inst : { ...inst, volume: inst.volume * vel };
+            scheduleStep(c, trackGain, t, stepInst, n, live.key, stepDur);
           }
         }
         setCurrentStep(stepIdx);
@@ -682,7 +845,14 @@ export default function MusicStudioPro() {
               } else {
                 const n = pattern.notes[inst.id]?.[s];
                 if (n == null) continue;
-                scheduleStep(offline, trackGain, t, inst, n, doc.key, stepDur);
+                // Same per-step chance + velocity model as live playback, so the
+                // exported file carries the evolving, non-robotic groove the user
+                // built and heard (the killer differentiator over flat grids).
+                const chance = lane01(pattern.chance, inst.id, s, 1);
+                if (chance < 1 && Math.random() > chance) continue;
+                const vel = lane01(pattern.vel, inst.id, s, 1);
+                const stepInst = vel === 1 ? inst : { ...inst, volume: inst.volume * vel };
+                scheduleStep(offline, trackGain, t, stepInst, n, doc.key, stepDur);
               }
             }
             tCur += stepDur;
@@ -766,8 +936,18 @@ export default function MusicStudioPro() {
       label: 'Patterns',
       items: [
         { combo: 'mod+n', description: 'Add pattern' },
+        { combo: 'mod+d', description: 'Duplicate pattern' },
         { combo: 'mod+r', description: 'Randomize pattern' },
+        { combo: '1', description: 'Select pattern bank 1–8' },
         { combo: 'delete', description: 'Clear pattern' },
+      ],
+    },
+    {
+      label: 'Step Settings',
+      items: [
+        { combo: 'q', description: 'Notes mode (tap / drag-paint)' },
+        { combo: 'w', description: 'Velocity mode (drag step up/down)' },
+        { combo: 'e', description: 'Chance mode (per-step probability)' },
       ],
     },
     {
@@ -798,9 +978,22 @@ export default function MusicStudioPro() {
     { combo: 'mod+o', handler: () => { void openSaved(); } },
     { combo: 'mod+n', handler: addPattern },
     { combo: 'mod+r', handler: randomPattern },
+    { combo: 'mod+d', handler: () => duplicatePattern(doc.activePatternId) },
     { combo: 'delete', handler: clearPattern },
     { combo: '+', handler: () => commit('bpm', { ...cloneDoc(doc), bpm: Math.min(240, doc.bpm + 5) }) },
     { combo: '-', handler: () => commit('bpm', { ...cloneDoc(doc), bpm: Math.max(40, doc.bpm - 5) }) },
+    // Step Settings mode (keyboard-first power workflow vs mouse-heavy rivals).
+    { combo: 'q', handler: () => setStepMode('notes') },
+    { combo: 'w', handler: () => setStepMode('velocity') },
+    { combo: 'e', handler: () => setStepMode('chance') },
+    // Pattern banks 1–8: jump straight to a pattern slot (GarageBand/BandLab).
+    ...Array.from({ length: 8 }, (_, i) => ({
+      combo: String(i + 1),
+      handler: () => {
+        const p = docRef.current.patterns[i];
+        if (p) commit('select', { ...cloneDoc(docRef.current), activePatternId: p.id });
+      },
+    })),
   ]);
 
   React.useEffect(() => () => {
@@ -838,6 +1031,18 @@ export default function MusicStudioPro() {
         }
       />
 
+      {recovery && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+          <Save className="h-4 w-4 shrink-0 text-amber-300" />
+          <span className="flex-1">
+            Recovered an unsaved session{recovery.name ? ` — “${recovery.name}”` : ''}
+            <span className="ml-1 text-amber-200/70">({new Date(recovery.at).toLocaleString()})</span>
+          </span>
+          <button onClick={restoreRecovery} className="rounded bg-amber-400 px-2.5 py-1 text-[11px] font-semibold text-amber-950 hover:bg-amber-300">Restore</button>
+          <button onClick={dismissRecovery} className="rounded px-2 py-1 text-[11px] text-amber-200/80 hover:bg-amber-400/10 hover:text-amber-100">Dismiss</button>
+        </div>
+      )}
+
       <div className="flex h-12 shrink-0 items-center gap-4 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
         <button onClick={togglePlay} className="rounded bg-cyan-500 p-2 text-zinc-900 hover:bg-cyan-400">{playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
         <div className="flex items-center gap-1.5">
@@ -862,6 +1067,16 @@ export default function MusicStudioPro() {
         <label className="flex items-center gap-1.5 text-zinc-300">
           <input type="checkbox" checked={doc.loopChain} onChange={e => commit('loop', { ...cloneDoc(doc), loopChain: e.target.checked })} /> Loop chain
         </label>
+        <div className="flex items-center gap-1" title="Step Settings: edit notes, drag steps for velocity (accents/ghosts), or chance (probability) for non-repetitive grooves">
+          <span className="text-zinc-500">Edit</span>
+          {(['notes', 'velocity', 'chance'] as const).map(m => (
+            <button
+              key={m}
+              onClick={() => setStepMode(m)}
+              className={cn('rounded px-2 py-1 text-[11px] capitalize transition-colors', stepMode === m ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}
+            >{m}</button>
+          ))}
+        </div>
         <div className="ml-auto flex items-center gap-1">
           <span className="text-zinc-500">Pattern</span>
           {doc.patterns.map(p => (
@@ -880,7 +1095,11 @@ export default function MusicStudioPro() {
               pattern={activePattern}
               instruments={doc.instruments}
               currentStep={playing ? currentStep : -1}
+              stepMode={stepMode}
               onSetNote={setNote}
+              onPaintNote={paintNote}
+              onSetVel={setVel}
+              onSetChance={setChance}
               onUpdateInst={updateInstrument}
               rollInst={rollInst}
               onToggleRoll={(id) => setRollInst(r => r === id ? null : id)}
@@ -911,8 +1130,8 @@ export default function MusicStudioPro() {
                   { label: 'Open from Library', description: 'Continue an existing project', icon: <FileText className="h-4 w-4" />, onClick: openSaved },
                 ]}
                 hints={[
-                  { label: 'Tap any cell', description: 'Click the grid to add a note; right-click synth notes to change pitch' },
-                  { label: 'Master effect rack', description: 'EQ, compression, reverb, limiter on the master chain' },
+                  { label: 'Tap or drag', description: 'Tap a cell to place a note, or drag across the row to paint a whole hi-hat roll in one stroke' },
+                  { label: 'Velocity & Chance', description: 'Switch Edit mode and drag steps up/down for accents, ghost notes, and per-step probability so loops never sound robotic' },
                   { label: 'Press ?', description: 'See every keyboard shortcut' },
                 ]}
               />
@@ -1033,20 +1252,42 @@ function patternIsEmpty(pattern: Pattern): boolean {
   for (const lane of Object.values(pattern.notes)) {
     for (const n of lane) if (n != null) return false;
   }
+  // A pattern that only has piano-roll notes is NOT empty (so it still recovers
+  // and doesn't show the blank-canvas overlay).
+  if (pattern.roll && Object.values(pattern.roll).some(notes => (notes?.length ?? 0) > 0)) return false;
   return true;
 }
 
-function SequencerGrid({ pattern, instruments, currentStep, onSetNote, onUpdateInst, rollInst, onToggleRoll }: {
+type StepMode = 'notes' | 'velocity' | 'chance';
+
+function SequencerGrid({ pattern, instruments, currentStep, stepMode, onSetNote, onPaintNote, onSetVel, onSetChance, onUpdateInst, rollInst, onToggleRoll }: {
   pattern: Pattern;
   instruments: Instrument[];
   currentStep: number;
+  stepMode: StepMode;
   onSetNote: (instId: InstId, step: number, value: number | null) => void;
+  onPaintNote: (instId: InstId, step: number, value: number | null) => void;
+  onSetVel: (instId: InstId, step: number, vel: number) => void;
+  onSetChance: (instId: InstId, step: number, chance: number) => void;
   onUpdateInst: (id: InstId, mut: (i: Instrument) => void) => void;
   rollInst?: InstId | null;
   onToggleRoll?: (id: InstId) => void;
 }) {
+  // Drag-to-paint state. `mode` is decided by the FIRST cell hit on pointerdown:
+  // hitting an empty cell paints ON, hitting a lit cell erases — then every cell
+  // the pointer sweeps over follows that decision (the hi-hat-roll gesture).
+  const paint = React.useRef<{ instId: InstId; value: number | null } | null>(null);
+  const endPaint = React.useCallback(() => { paint.current = null; }, []);
+  React.useEffect(() => {
+    window.addEventListener('pointerup', endPaint);
+    window.addEventListener('pointercancel', endPaint);
+    return () => { window.removeEventListener('pointerup', endPaint); window.removeEventListener('pointercancel', endPaint); };
+  }, [endPaint]);
+
+  const noteEditable = stepMode === 'notes';
+
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" style={{ touchAction: noteEditable ? 'none' : undefined }}>
       <div className="flex items-center gap-2 pl-32 pr-4 text-[10px] text-zinc-500">
         {Array.from({ length: pattern.steps }, (_, i) => (
           <div key={i} className={cn('flex-1 text-center', i === currentStep && 'text-cyan-300 font-bold', i % 4 === 0 && 'text-zinc-300')}>{i + 1}</div>
@@ -1081,44 +1322,132 @@ function SequencerGrid({ pattern, instruments, currentStep, onSetNote, onUpdateI
                   key={s}
                   filled={filled}
                   value={n ?? 0}
+                  vel={lane01(pattern.vel, inst.id, s, 1)}
+                  chance={lane01(pattern.chance, inst.id, s, 1)}
+                  mode={stepMode}
                   color={inst.color}
                   beat4={beat4}
                   playing={isPlaying}
                   synth={inst.kind === 'synth'}
-                  onClick={() => onSetNote(inst.id, s, filled ? null : (inst.kind === 'synth' ? 0 : 0))}
-                  onChange={(v) => onSetNote(inst.id, s, v)}
+                  // Notes mode: start a paint stroke whose direction is set by the
+                  // first cell, then continue it as the pointer enters siblings.
+                  onPaintStart={() => {
+                    const target: number | null = filled ? null : 0;
+                    paint.current = { instId: inst.id, value: target };
+                    onPaintNote(inst.id, s, target);
+                  }}
+                  onPaintEnter={() => {
+                    const p = paint.current;
+                    if (p && p.instId === inst.id) onPaintNote(inst.id, s, p.value);
+                  }}
+                  onCyclePitch={() => { if (synthFilled(inst, filled)) onSetNote(inst.id, s, ((n ?? 0) + 1) % 8); }}
+                  // Velocity / Chance mode: drag the lit step up/down to set value.
+                  onSetVel={(v) => onSetVel(inst.id, s, v)}
+                  onSetChance={(v) => onSetChance(inst.id, s, v)}
                 />
               );
             })}
           </div>
         </div>
       ))}
+      {stepMode !== 'notes' && (
+        <div className="pl-32 pr-4 pt-1 text-[10px] text-zinc-500">
+          Drag a lit step <span className="text-zinc-300">up/down</span> to set its {stepMode === 'velocity' ? 'velocity (accent ↔ ghost note)' : 'chance (how often it fires — for grooves that never loop the same)'}.
+        </div>
+      )}
     </div>
   );
 }
 
-function StepCell({ filled, value, color, beat4, playing, synth, onClick, onChange }: {
-  filled: boolean; value: number; color: string; beat4: boolean; playing: boolean; synth: boolean;
-  onClick: () => void; onChange: (v: number) => void;
+const synthFilled = (inst: Instrument, filled: boolean) => inst.kind === 'synth' && filled;
+
+function StepCell({ filled, value, vel, chance, mode, color, beat4, playing, synth, onPaintStart, onPaintEnter, onCyclePitch, onSetVel, onSetChance }: {
+  filled: boolean; value: number; vel: number; chance: number; mode: StepMode;
+  color: string; beat4: boolean; playing: boolean; synth: boolean;
+  onPaintStart: () => void; onPaintEnter: () => void; onCyclePitch: () => void;
+  onSetVel: (v: number) => void; onSetChance: (v: number) => void;
 }) {
-  const onContext = (e: React.MouseEvent) => {
-    if (!filled || !synth) return;
-    e.preventDefault();
-    onChange((value + 1) % 8);
+  const valueMode = mode !== 'notes';
+  // The currently displayed level (velocity or chance) for the value-handle fill.
+  const level = mode === 'velocity' ? vel : mode === 'chance' ? chance : 1;
+
+  // Vertical-drag adjust for velocity / chance: capture the pointer, map vertical
+  // travel across the cell height to a 0..1 value, live-update on every move.
+  const drag = React.useRef<{ startY: number; startVal: number; h: number } | null>(null);
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button === 2) return; // right-click handled separately (pitch cycle)
+    if (valueMode) {
+      if (!filled) return; // only lit steps carry a value
+      e.preventDefault();
+      const h = (e.currentTarget as HTMLElement).getBoundingClientRect().height || 40;
+      drag.current = { startY: e.clientY, startVal: level, h };
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* */ }
+    } else {
+      e.preventDefault();
+      // Release the implicit touch pointer-capture so pointerenter fires on the
+      // sibling cells the finger sweeps over — without this, drag-to-paint only
+      // works with a mouse, not on touch.
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* */ }
+      onPaintStart();
+    }
   };
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const dyFrac = (d.startY - e.clientY) / d.h; // up = positive
+    const next = Math.max(0, Math.min(1, d.startVal + dyFrac));
+    if (mode === 'velocity') onSetVel(Math.max(0.05, next));
+    else if (mode === 'chance') onSetChance(next);
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    if (drag.current) { try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* */ } drag.current = null; }
+  };
+  const onPointerEnter = () => { if (!valueMode) onPaintEnter(); };
+  const onContext = (e: React.MouseEvent) => {
+    if (!filled || !synth || valueMode) return;
+    e.preventDefault();
+    onCyclePitch();
+  };
+
+  const titleStr = valueMode
+    ? (filled ? `${mode === 'velocity' ? 'Velocity' : 'Chance'} ${Math.round(level * 100)}% — drag up/down` : 'Empty step')
+    : (synth && filled ? `Note ${value} (right-click to change pitch)` : undefined);
+
   return (
     <button
-      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerEnter={onPointerEnter}
       onContextMenu={onContext}
       className={cn(
-        'relative flex-1 aspect-square min-w-[28px] rounded transition-all',
+        'relative flex-1 aspect-square min-w-[28px] overflow-hidden rounded transition-[box-shadow,transform]',
         filled ? '' : beat4 ? 'bg-white/[.06] hover:bg-white/[.10]' : 'bg-white/[.03] hover:bg-white/[.06]',
+        valueMode && filled && 'cursor-ns-resize',
         playing && 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0a0b0e]',
+        playing && filled && 'scale-105',
       )}
-      style={{ background: filled ? color : undefined, opacity: filled ? 0.85 : 1 }}
-      title={synth && filled ? `Note ${value} (right-click to change)` : undefined}
+      style={{
+        // In value mode a lit cell shows a bottom-up fill = its level; in notes
+        // mode it's a solid block. Velocity also dims the solid block so accents
+        // read at a glance without entering value mode.
+        background: filled && !valueMode ? color : undefined,
+        // In notes mode, dim a lit block by its velocity so accents/ghost notes
+        // read at a glance without switching mode. Value modes draw their own fill.
+        opacity: filled ? (valueMode ? 1 : 0.4 + 0.55 * vel) : 1,
+      }}
+      title={titleStr}
     >
-      {synth && filled && <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-black/80">{value}</span>}
+      {filled && valueMode && (
+        <span
+          className="pointer-events-none absolute inset-x-0 bottom-0 transition-[height]"
+          style={{ height: `${Math.round(level * 100)}%`, background: color, opacity: 0.85 }}
+        />
+      )}
+      {filled && valueMode && (
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white/90 tabular-nums">{Math.round(level * 100)}</span>
+      )}
+      {synth && filled && !valueMode && <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[9px] font-bold text-black/80">{value}</span>}
     </button>
   );
 }

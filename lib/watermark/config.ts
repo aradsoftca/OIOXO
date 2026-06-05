@@ -55,3 +55,33 @@ export function shouldWatermark(toolKey?: string): boolean {
   if (!policy) return true;
   return policy.watermarkFree;
 }
+
+/* ─────────────────────── ambient current-tool key ─────────────────────────
+ * Engines (audio/image/ffmpeg) encode deep in the call stack and can't easily
+ * receive the calling tool's id through 17+ call sites. The gate provider sets
+ * the active tool key on every route change (sync, from the path), and the
+ * engines consult `shouldWatermarkHere()` so a clean-intent tool's embedded
+ * brand (ID3/RIFF metadata, etc.) is suppressed — matching the filename and
+ * canvas behavior. Defaults to "brand" (free-safe) when no tool is active.
+ * ───────────────────────────────────────────────────────────────────────── */
+let _currentToolKey: string | undefined;
+let _currentToolCategory: string | undefined;
+/** Set the active tool (id + category) so engines can resolve watermarkFree.
+ *  Category is the fallback for tools with no per-tool policy (e.g. the ~20 basic
+ *  audio DSP tools, which inherit the `audio` category's watermarkFree:false). */
+export function setCurrentToolKey(key: string | undefined, category?: string): void {
+  _currentToolKey = key;
+  _currentToolCategory = category;
+}
+export function currentToolKey(): string | undefined { return _currentToolKey; }
+
+/** True when the engine should embed the brand for the CURRENTLY-ACTIVE tool —
+ *  free session AND neither the tool's policy NOR its category policy declares
+ *  watermarkFree:false. */
+export function shouldWatermarkHere(): boolean {
+  if (!watermarkOnSync()) return false;
+  // Per-tool policy wins; else fall back to the category policy; else brand.
+  if (_currentToolKey && getPolicy(_currentToolKey)) return shouldWatermark(_currentToolKey);
+  if (_currentToolCategory && getPolicy(_currentToolCategory)) return shouldWatermark(_currentToolCategory);
+  return true;
+}

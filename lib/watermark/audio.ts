@@ -13,7 +13,7 @@
  *     by lossy tools (most preserve metadata).
  */
 
-import { WM_DOMAIN, WM_MADE_WITH, watermarkOnSync } from './config';
+import { WM_DOMAIN, WM_MADE_WITH, shouldWatermarkHere } from './config';
 
 /** Append a RIFF LIST/INFO chunk to a WAV blob — INAM (title), IART (artist),
  *  ICMT (comment), ISFT (software). Standard, format-compliant: any decoder
@@ -103,7 +103,9 @@ export function brandMp3(blob: Blob): Promise<Blob> {
  *  file header). Other formats (OGG / FLAC) pass through; the filename suffix
  *  remains the primary mark for those. Free → branded; Pro → unchanged. */
 export async function brandAudioBlob(blob: Blob): Promise<Blob> {
-  if (!watermarkOnSync()) return blob;
+  // Free + asset-tool → brand; Pro OR a clean-intent tool (audio convert/merge,
+  // transcription, DSP utilities with policy.watermarkFree:false) → leave clean.
+  if (!shouldWatermarkHere()) return blob;
   const type = (blob.type || '').toLowerCase();
   if (type.includes('wav')) return brandWav(blob);
   if (type.includes('mp3') || type.includes('mpeg')) return brandMp3(blob);

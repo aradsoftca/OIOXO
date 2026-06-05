@@ -20,12 +20,34 @@ export interface MediaHandlers {
   onMessage?: (text: string) => void;
 }
 
+/** Live transport health, sampled from RTCPeerConnection.getStats(). */
+export interface MediaHealth {
+  /** Round-trip time in ms (undefined until a candidate pair reports it). */
+  rttMs?: number;
+  /** Outbound/inbound video bitrate in kbps (whichever side is active). */
+  kbps?: number;
+  /** Frames per second of the active video stream. */
+  fps?: number;
+  /** Active video frame dimensions, e.g. "1920×1080". */
+  resolution?: string;
+  /** Fraction (0–1) of packets lost on the inbound video stream — viewer side. */
+  loss?: number;
+}
+
 export interface MediaPeer {
   close: () => void;
   /** Send a short text/emoji to the peer over the data channel. */
   send: (text: string) => void;
   /** Swap the outgoing video track (e.g. raw camera ⇄ virtual-background canvas). */
   replaceVideoTrack: (track: MediaStreamTrack | null) => void;
+  /** Swap the outgoing audio track (e.g. switch microphone mid-call). */
+  replaceAudioTrack: (track: MediaStreamTrack | null) => void;
+  /**
+   * Sample live transport health for a quality HUD. Resolves to null when the
+   * connection isn't up yet. Cheap enough to poll ~once/second; computes a
+   * bitrate delta against the previous sample internally.
+   */
+  getHealth: () => Promise<MediaHealth | null>;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -39,6 +61,10 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
   let connected = false;
   let chan: RTCDataChannel | null = null;
   const iceQueue: RTCIceCandidateInit[] = [];
+  // Remembers the last bytes/timestamp sample so getHealth() can compute a
+  // bitrate delta without the caller having to track previous values.
+  let lastBytes = 0;
+  let lastBytesAt = 0;
 
   // Side channel for in-call text/emoji. Offerer creates it; answerer receives it.
   const wireChannel = (dc: RTCDataChannel) => {
@@ -140,6 +166,44 @@ export function connectMedia(role: 's' | 'r', room: string, h: MediaHandlers): M
         const sender = pc?.getSenders().find((s) => s.track?.kind === 'video') ?? pc?.getSenders().find((s) => !s.track);
         void sender?.replaceTrack(track);
       } catch { /* */ }
+    },
+    replaceAudioTrack: (track) => {
+      try {
+        const sender = pc?.getSenders().find((s) => s.track?.kind === 'audio')
+          ?? pc?.getSenders().find((s) => !s.track);
+        void sender?.replaceTrack(track);
+      } catch { /* */ }
+    },
+    getHealth: async () => {
+      if (!pc || !connected) return null;
+      try {
+        const stats = await pc.getStats();
+        const out: MediaHealth = {};
+        let bytes = 0;
+        let bytesAt = 0;
+        stats.forEach((r: any) => {
+          if (r.type === 'candidate-pair' && (r.nominated || r.selected) && typeof r.currentRoundTripTime === 'number') {
+            out.rttMs = Math.round(r.currentRoundTripTime * 1000);
+          }
+          // Sender side reports outbound-rtp; viewer side reports inbound-rtp.
+          if ((r.type === 'outbound-rtp' || r.type === 'inbound-rtp') && r.kind === 'video') {
+            if (typeof r.framesPerSecond === 'number') out.fps = Math.round(r.framesPerSecond);
+            if (typeof r.frameWidth === 'number' && typeof r.frameHeight === 'number') out.resolution = `${r.frameWidth}×${r.frameHeight}`;
+            const b = r.bytesSent ?? r.bytesReceived;
+            if (typeof b === 'number') { bytes = b; bytesAt = r.timestamp ?? Date.now(); }
+            if (r.type === 'inbound-rtp' && typeof r.packetsLost === 'number' && typeof r.packetsReceived === 'number') {
+              const total = r.packetsLost + r.packetsReceived;
+              if (total > 0) out.loss = r.packetsLost / total;
+            }
+          }
+        });
+        if (bytes && lastBytes && bytesAt > lastBytesAt) {
+          const dtSec = (bytesAt - lastBytesAt) / 1000;
+          if (dtSec > 0) out.kbps = Math.round(((bytes - lastBytes) * 8) / 1000 / dtSec);
+        }
+        lastBytes = bytes; lastBytesAt = bytesAt;
+        return out;
+      } catch { return null; }
     },
   };
 }

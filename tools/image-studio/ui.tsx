@@ -32,7 +32,7 @@ import {
   removeBackgroundAuto, removeBackgroundByLuma,
   autoEnhance, extractPalette, smartCrop,
   COLOR_GRADES, type ColorGrade,
-  useRafThrottle, usePinchPan, deviceProfile, LayerCompositeCache,
+  useRafThrottle, usePinchPan, useResponsiveStudio, deviceProfile, LayerCompositeCache,
   AnimationPanel, computeElementState, totalAnimationDuration,
   type AnimationConfig,
   applyLayerStyles, layerStylesPad,
@@ -922,11 +922,33 @@ export default function ImageStudioPro() {
       if (files && files.length) await openImageFiles(files);
     };
     const onDrag = (e: DragEvent) => { e.preventDefault(); };
+    // Photopea-parity: paste an image straight from the clipboard (Ctrl+V) — a
+    // table-stakes import path (screenshot → paste). Ignored while typing in a
+    // text field. Adds the pasted image as a new layer (handled by openImageFiles).
+    const onPaste = async (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|TEXTAREA)$/.test(t.tagName)) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imgs: File[] = [];
+      for (const it of Array.from(items)) {
+        if (it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) imgs.push(f); }
+      }
+      if (imgs.length) {
+        e.preventDefault();
+        const dt = new DataTransfer();
+        imgs.forEach(f => dt.items.add(f));
+        await openImageFiles(dt.files);
+        toastFor('Pasted from clipboard');
+      }
+    };
     wrap.addEventListener('drop', onDrop);
     wrap.addEventListener('dragover', onDrag);
+    window.addEventListener('paste', onPaste);
     return () => {
       wrap.removeEventListener('drop', onDrop);
       wrap.removeEventListener('dragover', onDrag);
+      window.removeEventListener('paste', onPaste);
     };
   });
 
@@ -1011,6 +1033,61 @@ export default function ImageStudioPro() {
       setBusy('');
     }
   };
+
+  // ── Autosave + crash recovery ──────────────────────────────────────────────
+  // Photopea's cardinal sin is losing unsaved work to an ad-crash/refresh. We
+  // weaponize that: the working doc is silently persisted to a dedicated
+  // recovery slot ~2s after the last edit, and on next load we offer to restore.
+  // Serialized snapshots are stored in IndexedDB (via the same serializeDoc the
+  // library uses) under a fixed key so a refresh/crash never loses the canvas.
+  const RECOVERY_KEY = 'xonvert.image-studio.recovery';
+  React.useEffect(() => {
+    // Only autosave a doc that actually has content (skip the empty default).
+    const hasContent = doc.layers.some(l => (l.kind === 'image' || l.kind === 'paint'));
+    if (!hasContent) return;
+    const id = window.setTimeout(() => {
+      try {
+        const snap: DocState = { ...doc, layers: doc.layers.map(l => (l.kind === 'paint' || l.kind === 'image') ? ({ ...l, canvas: cloneCanvas(l.canvas) } as Layer) : { ...l }) };
+        const payload = JSON.stringify({ at: Date.now(), name: doc.name, data: serializeDoc(snap) });
+        // localStorage caps ~5MB; for larger canvases fall back to IndexedDB via
+        // the project store (a single recovery project, overwritten each time).
+        if (payload.length < 4_000_000) { try { localStorage.setItem(RECOVERY_KEY, payload); } catch { /* quota → ignore */ } }
+        else { void saveProject(newProject('image', '__recovery__', serializeDoc(snap))); }
+      } catch { /* never let autosave throw into the editor */ }
+    }, 2000);
+    return () => window.clearTimeout(id);
+  }, [doc]);
+
+  // Offer recovery once, on first mount, if a recent snapshot exists and we're on
+  // the empty default doc (don't clobber a doc the user just opened).
+  const recoveryChecked = React.useRef(false);
+  React.useEffect(() => {
+    if (recoveryChecked.current) return;
+    recoveryChecked.current = true;
+    try {
+      const raw = localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const { at, name, data } = JSON.parse(raw);
+      // Only offer if it's reasonably fresh (last 7 days) and we haven't loaded a doc.
+      if (Date.now() - at > 7 * 864e5) { localStorage.removeItem(RECOVERY_KEY); return; }
+      setRecovery({ at, name, data });
+    } catch { /* ignore corrupt recovery */ }
+  }, []);
+  const [recovery, setRecovery] = React.useState<{ at: number; name: string; data: SerializedDoc } | null>(null);
+  const doRecover = async () => {
+    if (!recovery) return;
+    setBusy('Recovering…');
+    try {
+      const restored = await deserializeDoc(recovery.data);
+      setDoc(restored);
+      stack.current.reset(cloneDoc(restored), 'recover');
+      force();
+      requestAnimationFrame(fitToScreen);
+      toastFor('Recovered your last session');
+    } catch { toastFor('Could not recover'); }
+    finally { setBusy(''); setRecovery(null); }
+  };
+  const dismissRecovery = () => { try { localStorage.removeItem(RECOVERY_KEY); } catch {} setRecovery(null); };
 
   const openSaved = async () => {
     const list = await listProjects('image');
@@ -1557,7 +1634,22 @@ export default function ImageStudioPro() {
     }
   };
 
+  // Live brush cursor-ring (Photopea/Photoshop parity): track the pointer in
+  // canvas space on every move so we can draw a ring sized to the brush. Stored
+  // in a ref + a tiny state flag so the ring follows with no React churn on the
+  // stroke path (we position it directly via the ref in the render).
+  const hoverRef = React.useRef<{ x: number; y: number } | null>(null);
+  const [hoverTick, setHoverTick] = React.useState(0);
+  const onCanvasHover = (e: React.PointerEvent) => {
+    const t = tool;
+    if (t !== 'brush' && t !== 'eraser') { if (hoverRef.current) { hoverRef.current = null; setHoverTick(n => n + 1); } return; }
+    const p = screenToCanvas(e);
+    hoverRef.current = { x: p.x, y: p.y };
+    setHoverTick(n => n + 1); // cheap: only re-renders the ring overlay
+  };
+
   const onPointerMove = (e: React.PointerEvent) => {
+    onCanvasHover(e);
     if (!ptrState.current.down) return;
     const p = screenToCanvas(e);
     const t = ptrState.current.tool;
@@ -1805,6 +1897,14 @@ export default function ImageStudioPro() {
   return (
     <StudioShell>
       {policyGate.element}
+      {recovery && (
+        <div className="flex shrink-0 items-center gap-3 border-b border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+          <History className="h-4 w-4 shrink-0" />
+          <span className="flex-1">Recovered an unsaved session{recovery.name && recovery.name !== 'Untitled' ? ` — "${recovery.name}"` : ''}. Restore it?</span>
+          <button onClick={doRecover} className="rounded bg-amber-400 px-3 py-1 font-semibold text-zinc-900 hover:bg-amber-300">Restore</button>
+          <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-white/5">Dismiss</button>
+        </div>
+      )}
       <StudioTopBar
         title="Image Studio Pro"
         left={
@@ -1934,12 +2034,17 @@ export default function ImageStudioPro() {
           )}
           <div
             ref={wrapRef}
-            className="absolute inset-0 cursor-crosshair"
+            // touch-action:none — single-finger paint/drag/pan on the canvas must
+            // not scroll the surrounding marketing page or fire browser gestures.
+            // usePinchPan already preventDefaults 2-finger; this covers 1-finger.
+            // Inert on desktop (mouse is unaffected by touch-action).
+            className={cn('absolute inset-0 [touch-action:none]', (tool === 'brush' || tool === 'eraser') ? 'cursor-none' : 'cursor-crosshair')}
             onWheel={wheel}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            onPointerLeave={() => { if (hoverRef.current) { hoverRef.current = null; setHoverTick(n => n + 1); } }}
           >
             <div
               style={{
@@ -1964,6 +2069,23 @@ export default function ImageStudioPro() {
                 className="absolute left-0 top-0 outline outline-1 outline-white/10"
                 style={{ imageRendering: zoom > 4 ? 'pixelated' : 'auto' }}
               />
+              {/* Brush cursor-ring: a live circle sized to the brush, in canvas
+                  space (scales with zoom). Only for brush/eraser; follows the
+                  pointer with no perceptible lag. _hoverTick forces the position
+                  to re-read on move. */}
+              {(tool === 'brush' || tool === 'eraser') && hoverRef.current && (
+                <div
+                  data-hovertick={hoverTick}
+                  className="pointer-events-none absolute rounded-full border border-white/90 mix-blend-difference"
+                  style={{
+                    left: hoverRef.current.x - brushSize / 2,
+                    top: hoverRef.current.y - brushSize / 2,
+                    width: brushSize,
+                    height: brushSize,
+                    boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
+                  }}
+                />
+              )}
               {showGrid ? (
                 <div
                   className="pointer-events-none absolute inset-0"
@@ -2292,39 +2414,54 @@ function ToolOptionsBar(props: {
   hasSelection: boolean;
 }) {
   const { tool } = props;
+  const { mode } = useResponsiveStudio();
+  const isMobile = mode !== 'desktop';
+  // Phone: raw range inputs are ~6px tall with ungrabbable native thumbs and
+  // would scroll the page on drag. Reuse the shell's .studio-range (taller,
+  // 26px coarse-pointer thumb) + touch-action:none. Desktop keeps the original
+  // bare inputs (rng === '') so its layout is byte-for-byte unchanged.
+  const rng = isMobile ? 'studio-range h-2.5 appearance-none rounded-full bg-white/10 [touch-action:none]' : '';
+  // Phone: finger-sized buttons (>=44px) that never shrink below content (so the
+  // bar scrolls horizontally instead of squeezing). Desktop keeps the original
+  // px-2 py-1 / p-1 with no shrink-0, so its flex behavior is unchanged.
+  const btn = isMobile ? 'shrink-0 rounded px-3 py-2 min-h-[44px] hover:bg-white/5' : 'rounded px-2 py-1 hover:bg-white/5';
+  const iconBtn = isMobile ? 'shrink-0 grid h-11 w-11 place-items-center rounded hover:bg-white/5' : 'rounded p-1 hover:bg-white/5';
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-xs text-zinc-300 overflow-x-auto">
+    <div className={cn(
+      'flex shrink-0 items-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-xs text-zinc-300 overflow-x-auto',
+      isMobile ? 'h-14 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden' : 'h-10',
+    )}>
       {(tool === 'brush') && (
         <>
           <Label>Size</Label>
-          <input type="range" min={1} max={400} value={props.brushSize} onChange={e => props.setBrushSize(+e.target.value)} className="w-32" />
+          <input type="range" min={1} max={400} value={props.brushSize} onChange={e => props.setBrushSize(+e.target.value)} className={cn('w-32', rng)} />
           <NumBadge>{props.brushSize}</NumBadge>
           <Label>Hardness</Label>
-          <input type="range" min={0} max={100} value={props.brushHard} onChange={e => props.setBrushHard(+e.target.value)} className="w-24" />
+          <input type="range" min={0} max={100} value={props.brushHard} onChange={e => props.setBrushHard(+e.target.value)} className={cn('w-24', rng)} />
           <Label>Opacity</Label>
-          <input type="range" min={1} max={100} value={props.brushOpacity} onChange={e => props.setBrushOpacity(+e.target.value)} className="w-24" />
+          <input type="range" min={1} max={100} value={props.brushOpacity} onChange={e => props.setBrushOpacity(+e.target.value)} className={cn('w-24', rng)} />
           <Label>Flow</Label>
-          <input type="range" min={1} max={100} value={props.brushFlow} onChange={e => props.setBrushFlow(+e.target.value)} className="w-24" />
+          <input type="range" min={1} max={100} value={props.brushFlow} onChange={e => props.setBrushFlow(+e.target.value)} className={cn('w-24', rng)} />
         </>
       )}
       {tool === 'eraser' && (
         <>
           <Label>Size</Label>
-          <input type="range" min={1} max={400} value={props.eraserSize} onChange={e => props.setEraserSize(+e.target.value)} className="w-32" />
+          <input type="range" min={1} max={400} value={props.eraserSize} onChange={e => props.setEraserSize(+e.target.value)} className={cn('w-32', rng)} />
           <NumBadge>{props.eraserSize}</NumBadge>
         </>
       )}
       {tool === 'wand' && (
         <>
           <Label>Tolerance</Label>
-          <input type="range" min={0} max={128} value={props.wandTol} onChange={e => props.setWandTol(+e.target.value)} className="w-32" />
+          <input type="range" min={0} max={128} value={props.wandTol} onChange={e => props.setWandTol(+e.target.value)} className={cn('w-32', rng)} />
           <NumBadge>{props.wandTol}</NumBadge>
         </>
       )}
       {tool === 'bucket' && (
         <>
           <Label>Tolerance</Label>
-          <input type="range" min={0} max={128} value={props.wandTol} onChange={e => props.setWandTol(+e.target.value)} className="w-32" />
+          <input type="range" min={0} max={128} value={props.wandTol} onChange={e => props.setWandTol(+e.target.value)} className={cn('w-32', rng)} />
           <NumBadge>{props.wandTol}</NumBadge>
           <Swatch color={props.fgColor} onChange={props.setFgColor} />
         </>
@@ -2355,21 +2492,21 @@ function ToolOptionsBar(props: {
         </>
       )}
       <div className="mx-1 h-5 w-px bg-white/10" />
-      <button onClick={() => props.onFilter('blur')} className="rounded px-2 py-1 hover:bg-white/5">Blur</button>
-      <button onClick={() => props.onFilter('sharpen')} className="rounded px-2 py-1 hover:bg-white/5">Sharpen</button>
-      <button onClick={() => props.onFilter('noise')} className="rounded px-2 py-1 hover:bg-white/5">Noise</button>
-      <button onClick={() => props.onFilter('pixelate')} className="rounded px-2 py-1 hover:bg-white/5">Pixelate</button>
-      <button onClick={() => props.onFilter('posterize')} className="rounded px-2 py-1 hover:bg-white/5">Posterize</button>
-      <button onClick={() => props.onFilter('emboss')} className="rounded px-2 py-1 hover:bg-white/5">Emboss</button>
-      <button onClick={() => props.onFilter('edge')} className="rounded px-2 py-1 hover:bg-white/5">Edges</button>
+      <button onClick={() => props.onFilter('blur')} className={btn}>Blur</button>
+      <button onClick={() => props.onFilter('sharpen')} className={btn}>Sharpen</button>
+      <button onClick={() => props.onFilter('noise')} className={btn}>Noise</button>
+      <button onClick={() => props.onFilter('pixelate')} className={btn}>Pixelate</button>
+      <button onClick={() => props.onFilter('posterize')} className={btn}>Posterize</button>
+      <button onClick={() => props.onFilter('emboss')} className={btn}>Emboss</button>
+      <button onClick={() => props.onFilter('edge')} className={btn}>Edges</button>
       <div className="mx-1 h-5 w-px bg-white/10" />
-      <button onClick={() => props.onFlip('h')} className="rounded p-1 hover:bg-white/5" title="Flip H"><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
-      <button onClick={() => props.onFlip('v')} className="rounded p-1 hover:bg-white/5" title="Flip V"><FlipVertical2 className="h-3.5 w-3.5" /></button>
-      <button onClick={() => props.onRotate(90)} className="rounded p-1 hover:bg-white/5" title="Rotate 90°"><RotateCw className="h-3.5 w-3.5" /></button>
+      <button onClick={() => props.onFlip('h')} className={iconBtn} title="Flip H"><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
+      <button onClick={() => props.onFlip('v')} className={iconBtn} title="Flip V"><FlipVertical2 className="h-3.5 w-3.5" /></button>
+      <button onClick={() => props.onRotate(90)} className={iconBtn} title="Rotate 90°"><RotateCw className="h-3.5 w-3.5" /></button>
       <div className="mx-1 h-5 w-px bg-white/10" />
-      <button onClick={props.onFitScreen} className="rounded px-2 py-1 hover:bg-white/5">Fit</button>
+      <button onClick={props.onFitScreen} className={btn}>Fit</button>
       {props.hasSelection && (
-        <button onClick={props.onClearSelection} className="rounded px-2 py-1 text-cyan-300 hover:bg-white/5">Deselect</button>
+        <button onClick={props.onClearSelection} className={cn(btn, 'text-cyan-300')}>Deselect</button>
       )}
     </div>
   );

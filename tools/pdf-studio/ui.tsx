@@ -60,6 +60,77 @@ const NEW_DOC = (): DocState => ({
 let _sid = 0, _pid = 0;
 const ptsToStr = (pts: number[]) => { let s = ''; for (let k = 0; k < pts.length; k += 2) s += `${(pts[k] * 100).toFixed(2)},${(pts[k + 1] * 100).toFixed(2)} `; return s.trim(); };
 
+// ── Autosave / crash-recovery ────────────────────────────────────────────────
+// Weaponizes the rivals' #1 complaint ("where did my contract go / lost my
+// work"). We snapshot the EDITING LAYER (page structure, annotations,
+// redactions, signatures, form fields, name) to localStorage on a debounce.
+// The original PDF bytes + rasters are intentionally NOT stored (too big, same
+// tradeoff as the Library save) — on restore we rehydrate the edits and ask the
+// user to re-add the source PDF to render, exactly like the existing Library
+// flow but automatic and zero-click.
+const RECOVERY_KEY = 'xon-pdf-studio:recovery';
+const RECOVERY_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+const ab2b64 = (buf: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) bin += String.fromCharCode(...bytes.subarray(i, i + CH));
+  return btoa(bin);
+};
+const b642ab = (b64: string): ArrayBuffer => {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out.buffer;
+};
+
+interface RecoverySnapshot {
+  t: number;
+  name: string;
+  doc: DocState;
+  formFields: PdfFormField[];
+  signaturePng: string | null;
+  sourceMeta: { sid: string; name: string; pageCount: number }[];
+}
+
+// JSON-safe encode: image/signature byte buffers → base64 strings.
+const serializeRecovery = (
+  doc: DocState, formFields: PdfFormField[], signaturePng: ArrayBuffer | null,
+  sourceMeta: { sid: string; name: string; pageCount: number }[],
+): string => {
+  const enc = cloneDoc(doc);
+  for (const list of Object.values(enc.annotations)) {
+    for (const a of list) {
+      if (a.kind === 'image' && a.bytes instanceof ArrayBuffer) (a as any).bytes = { __ab: ab2b64(a.bytes) };
+    }
+  }
+  const snap: RecoverySnapshot = {
+    t: Date.now(), name: doc.name, doc: enc, formFields,
+    signaturePng: signaturePng ? ab2b64(signaturePng) : null, sourceMeta,
+  };
+  return JSON.stringify(snap);
+};
+
+const deserializeRecovery = (raw: string): { doc: DocState; formFields: PdfFormField[]; signaturePng: ArrayBuffer | null; meta: RecoverySnapshot } | null => {
+  try {
+    const snap = JSON.parse(raw) as RecoverySnapshot;
+    if (!snap || typeof snap.t !== 'number' || !snap.doc) return null;
+    const doc = snap.doc;
+    for (const list of Object.values(doc.annotations)) {
+      for (const a of list) {
+        if (a.kind === 'image' && (a as any).bytes?.__ab) (a as any).bytes = b642ab((a as any).bytes.__ab);
+      }
+    }
+    return {
+      doc,
+      formFields: snap.formFields ?? [],
+      signaturePng: snap.signaturePng ? b642ab(snap.signaturePng) : null,
+      meta: snap,
+    };
+  } catch { return null; }
+};
+
 const TOOLS: { tool: Tool; label: string; key: string; icon: React.ReactNode }[] = [
   { tool: 'select', label: 'Select', key: 'v', icon: <MousePointer2 className="h-4 w-4" /> },
   { tool: 'text', label: 'Text', key: 't', icon: <TypeIcon className="h-4 w-4" /> },
@@ -136,6 +207,108 @@ export default function PdfStudioPro() {
   const [watermarkDialog, setWatermarkDialog] = React.useState(false);
   const [splitDialog, setSplitDialog] = React.useState(false);
   const [formFields, setFormFields] = React.useState<PdfFormField[]>([]);
+
+  // Crash-recovery: amber banner if a fresh unsaved snapshot exists on mount.
+  const [recovery, setRecovery] = React.useState<{ doc: DocState; formFields: PdfFormField[]; signaturePng: ArrayBuffer | null; meta: RecoverySnapshot } | null>(null);
+  const [saveState, setSaveState] = React.useState<'idle' | 'saving' | 'saved'>('idle');
+  const restoring = React.useRef(false);
+
+  // Smart-guide lines drawn live while dragging an object (center/edge snap).
+  const [guides, setGuides] = React.useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
+
+  // Inline text editor (replaces window.prompt for the Text tool) — a real
+  // caret on the page, live preview, no modal round-trip.
+  const [textEdit, setTextEdit] = React.useState<{ nx: number; ny: number; value: string } | null>(null);
+
+  // On mount: surface a fresh (<7d) recovery snapshot, if any. Skipped once the
+  // user already has pages open (they're mid-session, not recovering).
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECOVERY_KEY);
+      if (!raw) return;
+      const parsed = deserializeRecovery(raw);
+      if (!parsed) { localStorage.removeItem(RECOVERY_KEY); return; }
+      if (Date.now() - parsed.meta.t > RECOVERY_MAX_AGE) { localStorage.removeItem(RECOVERY_KEY); return; }
+      if (!parsed.doc.pages.length) return;
+      setRecovery(parsed);
+    } catch { /* ignore */ }
+  }, []);
+
+  // 2s-debounced autosave of the editing layer to localStorage. Only fires once
+  // there's real work to lose, and never overwrites the banner mid-restore.
+  React.useEffect(() => {
+    if (restoring.current) return;
+    if (!doc.pages.length) return;
+    setSaveState('saving');
+    const id = setTimeout(() => {
+      try {
+        const meta = Object.entries(raster).map(([sid, pages]) => ({
+          sid, name: doc.name, pageCount: pages.length,
+        }));
+        localStorage.setItem(RECOVERY_KEY, serializeRecovery(doc, formFields, signaturePng, meta));
+        setSaveState('saved');
+      } catch {
+        // Quota or private-mode failure — fail silent, don't nag.
+        setSaveState('idle');
+      }
+    }, 2000);
+    return () => clearTimeout(id);
+  }, [doc, formFields, signaturePng, sources, raster]);
+
+  const restoreRecovery = () => {
+    if (!recovery) return;
+    restoring.current = true;
+    setDoc(recovery.doc);
+    setFormFields(recovery.formFields);
+    if (recovery.signaturePng) setSignaturePng(recovery.signaturePng);
+    stack.current.reset(cloneDoc(recovery.doc), 'recovered');
+    setRecovery(null);
+    force();
+    toastFor('Session restored — re-add the source PDF to render pages');
+    // Allow autosave to resume on the next real edit.
+    setTimeout(() => { restoring.current = false; }, 0);
+  };
+
+  const dismissRecovery = () => {
+    try { localStorage.removeItem(RECOVERY_KEY); } catch {}
+    setRecovery(null);
+  };
+
+  // Clipboard paste: drop a copied screenshot/image straight onto the current
+  // page (centered), or open a pasted PDF — the Acrobat/Sejda flow where you
+  // grab a screenshot and paste it in, no file picker. Ignored while typing.
+  const pasteImageOnPage = React.useCallback(async (file: File) => {
+    const cur = doc.pages.find(p => p.id === doc.selectedId);
+    if (!cur) { toastFor('Select a page first, then paste'); return; }
+    const bytes = await file.arrayBuffer();
+    const next = cloneDoc(doc);
+    // Center-ish it; the user can drag/snap from there.
+    next.annotations[cur.id] = [
+      ...(next.annotations[cur.id] ?? []),
+      { kind: 'image', nx: 0.35, ny: 0.35, nw: 0.3, nh: 0.3, bytes, png: /png$/i.test(file.type) },
+    ];
+    commit('paste image', next);
+    toastFor('Image pasted — drag to position');
+  }, [doc, commit]);
+
+  React.useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || t?.isContentEditable) return; // let normal paste happen
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of Array.from(items)) {
+        if (it.kind !== 'file') continue;
+        const f = it.getAsFile();
+        if (!f) continue;
+        if (f.type === 'application/pdf') { e.preventDefault(); void addPdf(f); return; }
+        if (f.type.startsWith('image/')) { e.preventDefault(); void pasteImageOnPage(f); return; }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [pasteImageOnPage]);
 
   const buildSourceBytes = async (): Promise<ArrayBuffer | null> => {
     if (!doc.pages.length) return null;
@@ -278,6 +451,15 @@ export default function PdfStudioPro() {
     commit('remove anno', next);
   };
 
+  const commitTextEdit = () => {
+    const te = textEdit;
+    setTextEdit(null);
+    if (!te || !selPage) return;
+    const text = te.value.trim();
+    if (!text) return;
+    addAnno(selPage.id, { kind: 'text', nx: te.nx, ny: te.ny, text, size: textSize, color: textColor });
+  };
+
   const norm = (e: React.PointerEvent) => {
     const r = editorRef.current!.getBoundingClientRect();
     return { nx: (e.clientX - r.left) / r.width, ny: (e.clientY - r.top) / r.height };
@@ -287,9 +469,9 @@ export default function PdfStudioPro() {
     if (!selPage) return;
     const p = norm(e);
     if (tool === 'text') {
-      const text = window.prompt('Text:');
-      if (!text) return;
-      addAnno(selPage.id, { kind: 'text', nx: p.nx, ny: p.ny, text, size: textSize, color: textColor });
+      // Inline caret on the page — live preview, no modal round-trip. Commits on
+      // Enter / blur; Esc cancels (handled by the overlay editor).
+      setTextEdit({ nx: p.nx, ny: p.ny, value: '' });
     } else if (tool === 'edit-text') {
       void editTextAt(p.nx, p.ny);
     } else if (['rect', 'highlight', 'line', 'ellipse', 'whiteout', 'field'].includes(tool)) {
@@ -326,11 +508,34 @@ export default function PdfStudioPro() {
     const p = norm(e);
     const { pageId, idx, offX, offY } = moving.current;
     const cl = (v: number) => Math.max(0, Math.min(1, v));
+    let nx = cl(p.nx - offX), ny = cl(p.ny - offY);
+
+    // Smart snapping: align the object's left/center/right and top/middle/bottom
+    // to the page's edges + center. Snaps within a small threshold and surfaces
+    // a visible guide line so the gesture reads as deliberate (Sejda/Acrobat).
+    const moved = (doc.annotations[pageId] ?? [])[idx] as any;
+    const w = moved?.nw ?? 0, h = moved?.nh ?? 0;
+    const SNAP = 0.012; // ~1.2% of the page
+    const TARGETS = [0, 0.5, 1];
+    const vGuides: number[] = [], hGuides: number[] = [];
+    // Horizontal position (x): test left edge, center, right edge.
+    for (const tgt of TARGETS) {
+      if (Math.abs(nx - tgt) < SNAP) { nx = tgt; vGuides.push(tgt); break; }
+      if (w && Math.abs(nx + w / 2 - tgt) < SNAP) { nx = tgt - w / 2; vGuides.push(tgt); break; }
+      if (w && Math.abs(nx + w - tgt) < SNAP) { nx = tgt - w; vGuides.push(tgt); break; }
+    }
+    for (const tgt of TARGETS) {
+      if (Math.abs(ny - tgt) < SNAP) { ny = tgt; hGuides.push(tgt); break; }
+      if (h && Math.abs(ny + h / 2 - tgt) < SNAP) { ny = tgt - h / 2; hGuides.push(tgt); break; }
+      if (h && Math.abs(ny + h - tgt) < SNAP) { ny = tgt - h; hGuides.push(tgt); break; }
+    }
+    setGuides({ v: vGuides, h: hGuides });
+
     setDoc(d => ({
       ...d,
       annotations: {
         ...d.annotations,
-        [pageId]: (d.annotations[pageId] ?? []).map((an, j) => j === idx ? { ...an, nx: cl(p.nx - offX), ny: cl(p.ny - offY) } as Annotation : an),
+        [pageId]: (d.annotations[pageId] ?? []).map((an, j) => j === idx ? { ...an, nx, ny } as Annotation : an),
       },
     }));
   };
@@ -347,6 +552,7 @@ export default function PdfStudioPro() {
     if (moving.current) {
       stack.current.push('move anno', cloneDoc(doc));
       moving.current = null;
+      setGuides({ v: [], h: [] });
       return;
     }
     if (dragRect.current && selPage) {
@@ -559,6 +765,10 @@ export default function PdfStudioPro() {
         note = note.replace('Exported', 'Exported (password-protected)');
       }
       downloadBlob(blob, `${safeFilename(doc.name)}.pdf`);
+      // Work is committed to disk — clear the crash-recovery snapshot so it
+      // doesn't resurface as a stale "unsaved session" next visit.
+      try { localStorage.removeItem(RECOVERY_KEY); } catch {}
+      setSaveState('idle');
       toastFor(note);
       setExportDialog(false);
     } catch (e) {
@@ -670,6 +880,17 @@ export default function PdfStudioPro() {
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
           </>
         } />
+        {recovery && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200">
+            <Save className="h-3.5 w-3.5 shrink-0" />
+            <span className="flex-1">
+              Recovered an unsaved session{recovery.meta?.name ? <> — <span className="font-semibold">{recovery.meta.name}</span></> : null}
+              {' '}({new Date(recovery.meta.t).toLocaleString()}). Restore your edits?
+            </span>
+            <button onClick={restoreRecovery} className="rounded bg-amber-400 px-2.5 py-1 font-medium text-amber-950 hover:bg-amber-300">Restore</button>
+            <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-white/5">Dismiss</button>
+          </div>
+        )}
         <div
           onDrop={async (e) => { e.preventDefault(); const fs = e.dataTransfer.files; if (fs) for (const f of Array.from(fs)) await addPdf(f); }}
           onDragOver={(e) => e.preventDefault()}
@@ -726,6 +947,18 @@ export default function PdfStudioPro() {
           </>
         }
       />
+
+      {recovery && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200">
+          <Save className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">
+            Recovered an unsaved session{recovery.meta?.name ? <> — <span className="font-semibold">{recovery.meta.name}</span></> : null}
+            {' '}({new Date(recovery.meta.t).toLocaleString()}). Restore your edits?
+          </span>
+          <button onClick={restoreRecovery} className="rounded bg-amber-400 px-2.5 py-1 font-medium text-amber-950 hover:bg-amber-300">Restore</button>
+          <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-white/5">Dismiss</button>
+        </div>
+      )}
 
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-xs text-zinc-300">
         <input type="color" value={textColor} onChange={e => setTextColor(e.target.value)} className="h-6 w-8 rounded border border-white/10" title="Color" />
@@ -844,7 +1077,28 @@ export default function PdfStudioPro() {
                   return null;
                 })}
                 {livePts.length > 2 && <polyline points={ptsToStr(livePts)} fill="none" stroke={textColor} strokeWidth={penWidth} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />}
+                {/* Smart-guide lines while dragging an object (center/edge snap). */}
+                {guides.v.map((x, i) => <line key={`gv${i}`} x1={x * 100} y1={0} x2={x * 100} y2={100} stroke="#22d3ee" strokeWidth={1} strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />)}
+                {guides.h.map((y, i) => <line key={`gh${i}`} x1={0} y1={y * 100} x2={100} y2={y * 100} stroke="#22d3ee" strokeWidth={1} strokeDasharray="3 2" vectorEffect="non-scaling-stroke" />)}
               </svg>
+              {/* Inline text editor — live caret on the page (replaces window.prompt). */}
+              {textEdit && (
+                <input
+                  autoFocus
+                  value={textEdit.value}
+                  onChange={(e) => setTextEdit(te => te ? { ...te, value: e.target.value } : te)}
+                  onBlur={commitTextEdit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); commitTextEdit(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); setTextEdit(null); }
+                    e.stopPropagation();
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  placeholder="Type…"
+                  className="absolute z-10 min-w-[60px] whitespace-nowrap rounded-sm bg-white/85 px-1 outline outline-2 outline-cyan-400"
+                  style={{ left: `${textEdit.nx * 100}%`, top: `${textEdit.ny * 100}%`, color: textColor, fontSize: textSize, fontWeight: 600, lineHeight: 1.1, caretColor: textColor }}
+                />
+              )}
               {/* Fillable form-field overlays for THIS page (1-based pageId). */}
               {(() => { const pageNum = doc.pages.findIndex(p => p.id === selPage.id) + 1; return formFields.filter(f => f.pageId === `p${pageNum}`).map((f) => (
                 <div key={f.id}
@@ -866,6 +1120,13 @@ export default function PdfStudioPro() {
       <StudioStatusBar>
         <span>{doc.pages.length} pages</span>
         <span>{Object.values(doc.annotations).reduce((s, a) => s + a.length, 0)} annotations</span>
+        <span className="flex items-center gap-1 text-zinc-500" title="Your edits are auto-saved on this device for crash recovery">
+          {saveState === 'saving'
+            ? <><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>
+            : saveState === 'saved'
+              ? <><FileCheck2 className="h-3 w-3 text-emerald-400/80" /> Auto-saved</>
+              : <>Auto-save on</>}
+        </span>
         <span className="ml-auto">{tool}</span>
       </StudioStatusBar>
 

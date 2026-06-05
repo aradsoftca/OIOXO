@@ -32,6 +32,8 @@ export interface Mesh {
   send: (text: string) => void;
   /** Replace this peer's published video track on every connection (camera ↔ screen). */
   replaceVideoTrack: (track: MediaStreamTrack | null) => void;
+  /** Replace this peer's published audio track on every connection (mic switch). */
+  replaceAudioTrack: (track: MediaStreamTrack | null) => void;
   /** Stop and disconnect from everyone. */
   close: () => void;
   /** Currently published local stream (for re-publishing after a track swap). */
@@ -158,6 +160,9 @@ export function joinMesh(baseRoom: string, name: string, localStream: MediaStrea
     },
     replaceVideoTrack: (track) => {
       for (const p of peers.values()) p.peer.replaceVideoTrack(track);
+    },
+    replaceAudioTrack: (track) => {
+      for (const p of peers.values()) p.peer.replaceAudioTrack(track);
     },
     close: () => {
       stopped = true;

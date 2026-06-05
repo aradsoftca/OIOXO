@@ -10,6 +10,7 @@
  * Heavy operations that need re-encoding to MP4 (merge, crop, watermark, format-convert)
  * are deferred until WebCodecs + mp4-muxer wave.
  */
+import { WM_DOMAIN } from '@/lib/watermark/config';
 
 export interface VideoInfo {
   duration: number;
@@ -196,19 +197,84 @@ interface GifInstance {
   render: () => void;
 }
 
-/** Record an HTMLVideoElement playback range to a Blob via MediaRecorder. */
+/**
+ * Draw the corner brand mark into a recording canvas frame. Mirrors the live
+ * stream-overlay style (bottom-right, shadowed) so every surface looks the same.
+ */
+function drawRecordingWatermark(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+  if (!w || !h) return;
+  const fp = Math.max(13, Math.round(w * 0.018));
+  const pad = Math.round(w * 0.015);
+  ctx.save();
+  ctx.font = `600 ${fp}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'bottom';
+  ctx.globalAlpha = 0.72;
+  ctx.shadowColor = 'rgba(0,0,0,0.6)';
+  ctx.shadowBlur = Math.max(2, Math.round(fp * 0.2));
+  ctx.shadowOffsetY = 1;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(WM_DOMAIN, w - pad, h - pad);
+  ctx.restore();
+}
+
+/** Record an HTMLVideoElement playback range to a Blob via MediaRecorder.
+ *  When `watermark` is true (free session), the video is re-encoded through a
+ *  canvas that stamps the corner brand into every frame; Pro callers leave it
+ *  off and get the raw captureStream path unchanged. */
 export async function recordRange(
   video: HTMLVideoElement,
   startSec: number,
   endSec: number,
-  opts: { withVideo?: boolean; withAudio?: boolean; mimeType?: string; onProgress?: (t: number) => void } = {},
+  opts: { withVideo?: boolean; withAudio?: boolean; mimeType?: string; watermark?: boolean; onProgress?: (t: number) => void } = {},
 ): Promise<Blob> {
-  const { withVideo = true, withAudio = true, mimeType, onProgress } = opts;
-  const stream: MediaStream = (video as unknown as { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream }).captureStream?.()
+  const { withVideo = true, withAudio = true, mimeType, watermark = false, onProgress } = opts;
+  const srcStream: MediaStream = (video as unknown as { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream }).captureStream?.()
     ?? (video as unknown as { mozCaptureStream?: () => MediaStream }).mozCaptureStream!();
-  if (!stream) throw new Error('captureStream not supported in this browser.');
+  if (!srcStream) throw new Error('captureStream not supported in this browser.');
 
-  // Filter tracks
+  // When watermarking a video output, interpose a canvas: draw each played frame
+  // + the corner brand, then record FROM the canvas. The brand becomes baked-in
+  // pixels (survives re-share). Falls back to the raw source stream on any setup
+  // failure or when video has no pixels (audio-only) — never blocks an export.
+  let wmCanvas: HTMLCanvasElement | null = null;
+  let wmRaf = 0;
+  let stream = srcStream;
+  if (watermark && withVideo && srcStream.getVideoTracks().length && video.videoWidth > 0) {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        const drawWm = () => {
+          try {
+            const w = video.videoWidth, h = video.videoHeight;
+            if (w) {
+              if (canvas.width !== w) { canvas.width = w; canvas.height = h; }
+              ctx.drawImage(video, 0, 0, w, h);
+              drawRecordingWatermark(ctx, w, h);
+            }
+          } catch { /* keep drawing */ }
+          wmRaf = requestAnimationFrame(drawWm);
+        };
+        wmRaf = requestAnimationFrame(drawWm);
+        const wmStream = canvas.captureStream(30);
+        // Carry the (un-altered) source audio across when requested.
+        if (withAudio) for (const a of srcStream.getAudioTracks()) wmStream.addTrack(a);
+        wmCanvas = canvas;
+        stream = wmStream;
+      }
+    } catch {
+      // Setup failed — fall back to the unbranded source stream rather than fail.
+      if (wmRaf) { cancelAnimationFrame(wmRaf); wmRaf = 0; }
+      wmCanvas = null;
+      stream = srcStream;
+    }
+  }
+
+  // Filter tracks (only meaningful for the raw source-stream path; the canvas
+  // path is already built with exactly the tracks we want).
   const tracks = stream.getTracks();
   for (const t of tracks) {
     if (t.kind === 'video' && !withVideo) stream.removeTrack(t);
@@ -239,10 +305,21 @@ export async function recordRange(
     const teardown = () => {
       if (raf) cancelAnimationFrame(raf);
       raf = 0;
+      // Stop the watermark draw loop and its canvas-capture track, else the RAF
+      // keeps running and the captured video track stays live until GC.
+      if (wmRaf) { cancelAnimationFrame(wmRaf); wmRaf = 0; }
+      if (wmCanvas) { try { for (const t of stream.getVideoTracks()) t.stop(); } catch { /* */ } }
       try { if (rec.state !== 'inactive') rec.stop(); } catch { /* */ }
       try { video.pause(); } catch { /* */ }
     };
-    rec.onstop = () => resolve(new Blob(chunks, { type: chosen }));
+    rec.onstop = () => {
+      // Recording done: stop the watermark draw loop AND its canvas-capture
+      // track so neither leaks past export (the RAF would otherwise keep
+      // drawing and the captured track would stay live until GC).
+      if (wmRaf) { cancelAnimationFrame(wmRaf); wmRaf = 0; }
+      if (wmCanvas) { try { for (const t of stream.getVideoTracks()) t.stop(); } catch { /* */ } }
+      resolve(new Blob(chunks, { type: chosen }));
+    };
     rec.onerror = (e) => {
       teardown();
       reject(new Error('Recorder error: ' + (e as unknown as { error: { message: string } }).error?.message));

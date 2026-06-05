@@ -28,6 +28,9 @@ export default function ReframeTool() {
   const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
   const [srcUrl, setSrcUrl] = React.useState('');
+  // Real input length (seconds), read from the loaded video's metadata, so the
+  // policy 'input-duration' lever can actually fire on free over the 5-min cap.
+  const [duration, setDuration] = React.useState(0);
   const [ratio, setRatio] = React.useState(RATIOS[0]);
   const [focus, setFocus] = React.useState(0.5);
   const [busy, setBusy] = React.useState(false);
@@ -51,12 +54,22 @@ export default function ReframeTool() {
   const load = (f: File) => {
     if (!f.type.startsWith('video/')) return;
     if (srcUrl) URL.revokeObjectURL(srcUrl);
-    setFile(f); setSrcUrl(URL.createObjectURL(f)); setOutUrl('');
+    setFile(f); setSrcUrl(URL.createObjectURL(f)); setOutUrl(''); setDuration(0);
+    // Read the true input duration up front so the policy gate has a real value.
+    const probe = document.createElement('video');
+    probe.preload = 'metadata';
+    probe.onloadedmetadata = () => {
+      if (Number.isFinite(probe.duration)) setDuration(probe.duration);
+      URL.revokeObjectURL(probe.src);
+    };
+    probe.src = URL.createObjectURL(f);
   };
 
   const run = async () => {
     if (!file) return;
-    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, []);
+    const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, [
+      { type: 'lever', lever: 'input-duration', value: duration },
+    ]);
     if (!ok) return;
     setBusy(true); setProgress(0); setOutUrl('');
     try {

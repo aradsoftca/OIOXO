@@ -18,16 +18,63 @@ const STUDIO_SHELL_CSS = `
 `;
 
 export function StudioShell({ children, className }: { children: React.ReactNode; className?: string }) {
+  // The studio is embedded INSIDE the scrolling tool page (marketing header
+  // above, SEO content below — see app/tools/[slug]/page.tsx). A naive
+  // h-[100dvh] therefore overflows by the header height and, worse, on mobile
+  // the inner flex children collapse because the page isn't a flex-height
+  // context — the editor renders as a blank box. We instead measure where the
+  // shell actually sits and bound its height to the remaining viewport, with a
+  // sensible floor so the editor always has room. CSS does the heavy lifting via
+  // a custom prop so there's no layout-thrash on resize.
+  const hostRef = React.useRef<HTMLDivElement>(null);
+  const [topOffset, setTopOffset] = React.useState(0);
+
+  React.useEffect(() => {
+    const el = hostRef.current;
+    if (!el) return;
+    const measure = () => {
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      // Distance from the document top to the shell. On the tool page this is the
+      // marketing header + usage meter; we subtract it from the viewport so the
+      // editor fills exactly the space below.
+      const offsetFromViewport = el.getBoundingClientRect().top;
+      setTopOffset(Math.max(0, Math.round(offsetFromViewport)));
+      void top;
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, { passive: true });
+    // Re-measure after async chrome (UsageMeter, fonts) settles.
+    const t = window.setTimeout(measure, 300);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure);
+      window.clearTimeout(t);
+    };
+  }, []);
+
   return (
     <StudioResponsive>
       <style>{STUDIO_SHELL_CSS}</style>
       <ToastProvider>
         <ShortcutsProvider>
           <MobilePanelHost>
-            <div className={cn(
-              'flex h-[100dvh] w-full flex-col bg-[#0c0d10] text-zinc-200 overflow-hidden select-none',
-              className,
-            )}>
+            <div
+              ref={hostRef}
+              data-studio-shell
+              style={{
+                // Fill the screen below wherever the shell sits, but never go
+                // shorter than a usable editor. dvh tracks the mobile URL bar.
+                height: `max(560px, calc(100dvh - ${topOffset}px))`,
+                // Expose the offset so the mobile slide-out panels can align to
+                // the top of the editor area, not the top of the document.
+                ['--studio-top-offset' as string]: `${topOffset}px`,
+              }}
+              className={cn(
+                'flex w-full flex-col bg-[#0c0d10] text-zinc-200 overflow-hidden select-none',
+                className,
+              )}
+            >
               {children}
             </div>
           </MobilePanelHost>

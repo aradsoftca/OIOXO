@@ -7,7 +7,7 @@
  */
 
 import * as React from 'react';
-import { Download, Upload, BarChart3, LineChart, PieChart, AreaChart } from 'lucide-react';
+import { Download, Upload, BarChart3, LineChart, PieChart, AreaChart, Radar } from 'lucide-react';
 import { setRecent } from '@/lib/storage/recent';
 import { brandSvg } from '@/lib/watermark/download';
 import { enforcePolicy } from '@/lib/limits/server-check';
@@ -16,7 +16,7 @@ import { useIsPro } from '@/lib/limits/use-is-pro';
 
 const POLICY_KEY = 'studio-chart';
 
-type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'scatter' | 'stacked' | 'hbar';
+type ChartType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'scatter' | 'stacked' | 'hbar' | 'radar';
 interface Series { name: string; values: number[]; }
 interface Data { labels: string[]; series: Series[]; }
 
@@ -79,6 +79,39 @@ function drawChart(ctx: CanvasRenderingContext2D, d: Data, type: ChartType, titl
       ctx.fillStyle = PALETTE[i % PALETTE.length]; ctx.fillRect(W - 160, ly, 12, 12);
       ctx.fillStyle = '#333'; ctx.fillText(`${lb} (${Math.round((s.values[i] / total) * 100)}%)`, W - 142, ly + 6);
     });
+    return;
+  }
+
+  if (type === 'radar') {
+    // Polar/spider chart: each label is a spoke axis, each series a polygon.
+    const axes = d.labels.length; if (axes < 3) { ctx.fillStyle = '#9ca3af'; ctx.fillText('Radar needs ≥3 labels', PAD, top + 20); return; }
+    const mx = maxVal(d);
+    const cx = W / 2, cy = top + plotH / 2, rad = Math.min(plotW, plotH) / 2.4;
+    const ang = (i: number) => -Math.PI / 2 + (i / axes) * Math.PI * 2;
+    // rings + spokes + axis labels
+    ctx.strokeStyle = '#e5e7eb'; ctx.fillStyle = '#9ca3af'; ctx.font = '12px system-ui, Arial, sans-serif';
+    for (let g = 1; g <= 4; g++) {
+      const rr = (rad * g) / 4;
+      ctx.beginPath();
+      for (let i = 0; i <= axes; i++) { const a = ang(i % axes); const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    d.labels.forEach((lb, i) => {
+      const a = ang(i); const x = cx + (rad + 16) * Math.cos(a), y = cy + (rad + 16) * Math.sin(a);
+      ctx.fillStyle = '#6b7280'; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + rad * Math.cos(a), cy + rad * Math.sin(a)); ctx.strokeStyle = '#e5e7eb'; ctx.stroke();
+      ctx.fillText(lb, x, y);
+    });
+    d.series.forEach((s, si) => {
+      const col = PALETTE[si % PALETTE.length];
+      ctx.beginPath();
+      for (let i = 0; i < axes; i++) { const a = ang(i); const r = ((s.values[i] || 0) / mx) * rad; const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+      ctx.closePath();
+      ctx.globalAlpha = 0.18; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+    });
+    ctx.textAlign = 'left';
+    drawSeriesLegend(ctx, d, PAD, top);
     return;
   }
 
@@ -190,6 +223,15 @@ function buildSvg(d: Data, type: ChartType, title: string): string {
       ang += slice; const x2 = cx + rad * Math.cos(ang), y2 = cy + rad * Math.sin(ang);
       parts.push(`<path d="M${cx} ${cy} L${x1} ${y1} A${rad} ${rad} 0 ${slice > Math.PI ? 1 : 0} 1 ${x2} ${y2} Z" fill="${PALETTE[i % PALETTE.length]}"/>`);
     });
+  } else if (type === 'radar') {
+    const axes = d.labels.length, mx = maxVal(d);
+    const cx = W / 2, cy = top + plotH / 2, rad = Math.min(plotW, plotH) / 2.4;
+    const ang = (i: number) => -Math.PI / 2 + (i / axes) * Math.PI * 2;
+    parts.push(`<circle cx="${cx}" cy="${cy}" r="${rad}" fill="none" stroke="#e5e7eb"/>`);
+    d.series.forEach((s, si) => {
+      const pts = Array.from({ length: axes }, (_, i) => { const a = ang(i), r = ((s.values[i] || 0) / mx) * rad; return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`; }).join(' ');
+      parts.push(`<polygon points="${pts}" fill="${PALETTE[si % PALETTE.length]}" fill-opacity="0.18" stroke="${PALETTE[si % PALETTE.length]}" stroke-width="2"/>`);
+    });
   } else {
     const mx = maxVal(d), n = d.labels.length || 1, step = plotW / n, ns = d.series.length;
     if (type === 'bar') {
@@ -262,6 +304,7 @@ export default function ChartMakerUI() {
     { id: 'scatter', icon: <LineChart className="h-4 w-4" />, label: 'Scatter' },
     { id: 'pie', icon: <PieChart className="h-4 w-4" />, label: 'Pie' },
     { id: 'donut', icon: <PieChart className="h-4 w-4" />, label: 'Donut' },
+    { id: 'radar', icon: <Radar className="h-4 w-4" />, label: 'Radar' },
   ];
   const labelCls = 'text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]';
 

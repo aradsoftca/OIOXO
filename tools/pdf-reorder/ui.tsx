@@ -10,14 +10,35 @@ export default function Tool() {
   const [order, setOrder] = React.useState<number[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  // Page thumbnails keyed by ORIGINAL page index (rendered once on load).
+  const [thumbs, setThumbs] = React.useState<Record<number, string>>({});
+  const dragFrom = React.useRef<number | null>(null);
 
   const load = async (it: PdfFileItem) => {
-    setItem(it); setError('');
+    setItem(it); setError(''); setThumbs({});
     try {
       const i = await getPdfInfo(it.buffer);
       setInfo(i);
       setOrder(Array.from({ length: i.pageCount }, (_, k) => k));
+      // Render low-res page thumbnails so reordering is visual, not a text list.
+      (async () => {
+        try {
+          const { rasterizePdf } = await import('@/engines/pdf/rasterize');
+          const pages = await rasterizePdf(it.buffer.slice(0), { maxEdge: 220 });
+          const map: Record<number, string> = {};
+          for (const p of pages) map[p.index] = p.canvas.toDataURL('image/jpeg', 0.7);
+          setThumbs(map);
+        } catch { /* thumbnails are best-effort; the text list still works */ }
+      })();
     } catch (e) { setError((e as Error).message); }
+  };
+
+  const moveTo = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= order.length) return;
+    const next = [...order];
+    const [v] = next.splice(from, 1);
+    next.splice(to, 0, v);
+    setOrder(next);
   };
 
   const move = (idx: number, delta: number) => {
@@ -72,22 +93,32 @@ export default function Tool() {
                   </button>
                 </div>
               </div>
-              <ul className="space-y-1 max-h-[480px] overflow-y-auto">
+              <div className="grid max-h-[520px] grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
                 {order.map((pageIdx, i) => (
-                  <li key={i} className="flex items-center gap-2 border border-black/[0.08] bg-[var(--color-canvas)] px-3 py-1.5">
-                    <span className="font-mono text-[11px] text-[var(--color-fg-muted)] w-8">#{i + 1}</span>
-                    <span className="font-mono text-[12px] text-[var(--color-fg)] flex-1">Original page {pageIdx + 1}</span>
-                    <button type="button" disabled={i === 0} onClick={() => move(i, -1)}
-                      className="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">
-                      <ArrowLeft className="h-3.5 w-3.5 rotate-90" />
-                    </button>
-                    <button type="button" disabled={i === order.length - 1} onClick={() => move(i, 1)}
-                      className="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">
-                      <ArrowRight className="h-3.5 w-3.5 rotate-90" />
-                    </button>
-                  </li>
+                  <div key={i}
+                    draggable
+                    onDragStart={() => { dragFrom.current = i; }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); if (dragFrom.current !== null) moveTo(dragFrom.current, i); dragFrom.current = null; }}
+                    className="group relative cursor-grab overflow-hidden border border-black/[0.08] bg-[var(--color-canvas)]">
+                    <div className="aspect-[3/4] w-full bg-white">
+                      {thumbs[pageIdx]
+                        ? <img src={thumbs[pageIdx]} alt={`Page ${pageIdx + 1}`} className="h-full w-full object-contain" />
+                        : <div className="flex h-full w-full items-center justify-center font-mono text-[11px] text-[var(--color-fg-subtle)]">p{pageIdx + 1}</div>}
+                    </div>
+                    <div className="flex items-center justify-between px-1.5 py-1 text-[10px]">
+                      <span className="font-mono text-[var(--color-fg-muted)]">#{i + 1} · p{pageIdx + 1}</span>
+                      <span className="flex gap-0.5 opacity-0 transition group-hover:opacity-100">
+                        <button type="button" disabled={i === 0} onClick={() => move(i, -1)} title="Move earlier"
+                          className="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-20"><ArrowLeft className="h-3.5 w-3.5" /></button>
+                        <button type="button" disabled={i === order.length - 1} onClick={() => move(i, 1)} title="Move later"
+                          className="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-20"><ArrowRight className="h-3.5 w-3.5" /></button>
+                      </span>
+                    </div>
+                  </div>
                 ))}
-              </ul>
+              </div>
+              <div className="mt-2 text-[10px] text-[var(--color-fg-subtle)]">Drag a page to reorder, or use the arrows.</div>
             </div>
             <aside>
               <button type="button" onClick={run} disabled={busy || !changed}

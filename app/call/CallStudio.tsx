@@ -751,7 +751,7 @@ export default function CallStudio() {
 
   return (
     // Grounded app window (light) — contained on the page, not floating in cream.
-    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1500px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-4">
+    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1500px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-lg sm:p-4">
       {gate}
       {policyGate.element}
 

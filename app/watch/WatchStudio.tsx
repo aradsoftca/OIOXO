@@ -33,7 +33,7 @@ export default function WatchStudio() {
 function Shell({ children, title, subtitle, badge }: { children: React.ReactNode; title: string; subtitle: string; badge?: React.ReactNode }) {
   return (
     // Grounded app window (light) — contained on the page, not floating in cream.
-    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1500px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-4">
+    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1500px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-lg sm:p-4">
       <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-stroke)] pb-3">
         <div className="grid h-10 w-10 place-items-center bg-[var(--color-cat-video)] text-white"><MonitorPlay className="h-5 w-5" /></div>
         <div className="flex-1 min-w-0">

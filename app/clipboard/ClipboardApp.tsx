@@ -81,7 +81,7 @@ export default function ClipboardApp() {
 
   return (
     // Grounded app window (light) — contained, not floating in cream.
-    <div className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
+    <div className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-5 shadow-lg">
       <header className="flex items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-convert)] text-white"><ClipboardCopy className="h-5 w-5" /></div>
         <div>

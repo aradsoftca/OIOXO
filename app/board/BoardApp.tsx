@@ -329,7 +329,7 @@ export default function BoardApp() {
   return (
     // Grounded app window — kept light; the board reads as one contained app
     // on the page instead of bare elements in the cream margins.
-    <div className="mx-auto max-w-6xl space-y-4 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
+    <div className="mx-auto max-w-6xl space-y-4 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-4 shadow-lg">
       <header className="flex flex-wrap items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-image)] text-white"><Pencil className="h-5 w-5" /></div>
         <div>

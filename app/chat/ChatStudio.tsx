@@ -555,7 +555,7 @@ export default function ChatStudio() {
     // real border + soft shadow + rounded corners — so the app reads as one
     // focused thing on the page instead of bare panels floating in the cream
     // margins. Kept light per design direction.
-    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1400px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-4">
+    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1400px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-lg sm:p-4">
       {policyGate.element}
       <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-stroke)] pb-3">
         <div className="grid h-10 w-10 place-items-center bg-[var(--color-cat-convert)] text-white"><MessageSquare className="h-5 w-5" /></div>

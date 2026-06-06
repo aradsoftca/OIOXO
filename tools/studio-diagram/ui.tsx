@@ -7,7 +7,7 @@
  */
 
 import * as React from 'react';
-import { Plus, Link2, Trash2, Download } from 'lucide-react';
+import { Plus, Link2, Trash2, Download, LayoutGrid } from 'lucide-react';
 import { brandSvg } from '@/lib/watermark/download';
 import { enforcePolicy } from '@/lib/limits/server-check';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
@@ -105,6 +105,43 @@ export default function DiagramStudioUI() {
 
   const addNode = (shape: Shape = 'rect') => { const id = uid(); setNodes((ns) => [...ns, { id, x: 60 + Math.random() * 200, y: 60 + Math.random() * 120, text: 'New', color: ns.length % COLORS.length, shape }]); setSelected(id); };
   const del = () => { if (!selected) return; setNodes((ns) => ns.filter((n) => n.id !== selected)); setEdges((es) => es.filter((e) => e.from !== selected && e.to !== selected)); setSelected(null); };
+
+  // Auto-layout: layered top-to-bottom DAG arrangement. Each node's layer =
+  // longest path from a root (no incoming edge); nodes spread evenly within
+  // their layer. Cycle-safe (a visiting guard breaks cycles at 0).
+  const autoLayout = () => {
+    setNodes((ns) => {
+      if (!ns.length) return ns;
+      const ids = ns.map((n) => n.id);
+      const incoming = new Map<string, string[]>(ids.map((id) => [id, [] as string[]]));
+      for (const e of edges) if (incoming.has(e.to)) incoming.get(e.to)!.push(e.from);
+      const layer = new Map<string, number>();
+      const visiting = new Set<string>();
+      const depth = (id: string): number => {
+        if (layer.has(id)) return layer.get(id)!;
+        if (visiting.has(id)) return 0;
+        visiting.add(id);
+        const preds = incoming.get(id) ?? [];
+        const d = preds.length ? Math.max(...preds.map((p) => depth(p) + 1)) : 0;
+        visiting.delete(id);
+        layer.set(id, d);
+        return d;
+      };
+      ids.forEach(depth);
+      const byLayer = new Map<number, string[]>();
+      for (const id of ids) { const L = layer.get(id) ?? 0; if (!byLayer.has(L)) byLayer.set(L, []); byLayer.get(L)!.push(id); }
+      const layers = [...byLayer.keys()].sort((a, b) => a - b);
+      const rowGap = Math.max(NH + 50, Math.min(180, (VH - NH) / Math.max(1, layers.length)));
+      const pos = new Map<string, { x: number; y: number }>();
+      layers.forEach((L, li) => {
+        const row = byLayer.get(L)!;
+        const colGap = VW / (row.length + 1);
+        row.forEach((id, ci) => pos.set(id, { x: Math.max(0, Math.min(VW - NW, colGap * (ci + 1) - NW / 2)), y: 40 + li * rowGap }));
+      });
+      return ns.map((n) => { const p = pos.get(n.id); return p ? { ...n, x: p.x, y: p.y } : n; });
+    });
+  };
+
   const sel = nodes.find((n) => n.id === selected) || null;
   const center = (n: Node) => ({ x: n.x + NW / 2, y: n.y + NH / 2 });
 
@@ -163,6 +200,7 @@ export default function DiagramStudioUI() {
           <button key={s.id} type="button" className={btn} onClick={() => addNode(s.id)} title={`Add ${s.label}`}><Plus className="h-3.5 w-3.5" /> {s.label}</button>
         ))}
         <button type="button" className={`${btn} ${linkMode ? 'border-[var(--color-cat-generator)] bg-[var(--color-cat-generator)] text-white' : ''}`} onClick={() => { setLinkMode((v) => !v); setLinkFrom(null); }}><Link2 className="h-3.5 w-3.5" /> {linkMode ? (linkFrom ? 'Pick target' : 'Pick source') : 'Connect'}</button>
+        <button type="button" className={btn} onClick={autoLayout} disabled={nodes.length < 2} title="Arrange nodes top-to-bottom by their connections"><LayoutGrid className="h-3.5 w-3.5" /> Auto-layout</button>
         <button type="button" className={btn} onClick={del} disabled={!selected}><Trash2 className="h-3.5 w-3.5" /> Delete</button>
         <span className="mx-1 h-5 w-px bg-black/[0.12]" />
         <button type="button" className={btn} onClick={downloadPng}><Download className="h-3.5 w-3.5" /> PNG</button>

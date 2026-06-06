@@ -4,7 +4,7 @@ import { Download, Loader2 } from 'lucide-react';
 import { PdfDrop, type PdfFileItem } from '@/components/tool/PdfDrop';
 import { getPdfInfo, splitEveryPage, splitPdf, parseRange, download, type PdfInfo } from '@/engines/pdf';
 
-type Mode = 'every' | 'ranges';
+type Mode = 'every' | 'ranges' | 'pick';
 
 export default function Tool() {
   const [item, setItem] = React.useState<PdfFileItem | null>(null);
@@ -13,16 +13,29 @@ export default function Tool() {
   const [ranges, setRanges] = React.useState('1-3, 4-6');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
+  const [thumbs, setThumbs] = React.useState<Record<number, string>>({}); // by 0-based page
+  const [picked, setPicked] = React.useState<Set<number>>(new Set());     // 0-based pages
 
   const load = async (it: PdfFileItem) => {
     setItem(it);
-    setError('');
+    setError(''); setThumbs({}); setPicked(new Set());
     try {
       setInfo(await getPdfInfo(it.buffer));
+      (async () => {
+        try {
+          const { rasterizePdf } = await import('@/engines/pdf/rasterize');
+          const pages = await rasterizePdf(it.buffer.slice(0), { maxEdge: 220 });
+          const map: Record<number, string> = {};
+          for (const p of pages) map[p.index] = p.canvas.toDataURL('image/jpeg', 0.7);
+          setThumbs(map);
+        } catch { /* picker thumbnails best-effort */ }
+      })();
     } catch (e) {
       setError((e as Error).message);
     }
   };
+
+  const togglePage = (p: number) => setPicked((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; });
 
   const run = async () => {
     if (!item || !info) return;
@@ -32,7 +45,13 @@ export default function Tool() {
       let outputs: Uint8Array[];
       let labels: string[];
 
-      if (mode === 'every') {
+      if (mode === 'pick') {
+        const pages = [...picked].sort((a, b) => a - b);
+        if (!pages.length) { setError('Select at least one page.'); setBusy(false); return; }
+        // splitPdf takes 0-based page-index arrays; one output = the picked pages.
+        outputs = await splitPdf(item.buffer, [pages]);
+        labels = [`${baseName}-selected-${pages.length}p.pdf`];
+      } else if (mode === 'every') {
         outputs = await splitEveryPage(item.buffer);
         labels = outputs.map((_, i) => `${baseName}-page-${i + 1}.pdf`);
       } else {
@@ -67,14 +86,37 @@ export default function Tool() {
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 space-y-3">
               <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Split mode</div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {(['every', 'ranges'] as const).map((m) => (
+              <div className="grid grid-cols-3 gap-1.5">
+                {(['every', 'ranges', 'pick'] as const).map((m) => (
                   <button key={m} type="button" onClick={() => setMode(m)}
                     className={`border py-2 text-[11px] font-bold uppercase tracking-wider transition ${mode === m ? 'border-[var(--color-cat-pdf)] bg-[var(--color-cat-pdf)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)]'}`}>
-                    {m === 'every' ? 'Every page' : 'Custom ranges'}
+                    {m === 'every' ? 'Every page' : m === 'ranges' ? 'Custom ranges' : 'Pick pages'}
                   </button>
                 ))}
               </div>
+
+              {mode === 'pick' && (
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+                    <span>Tap pages to include ({picked.size})</span>
+                    <button type="button" onClick={() => setPicked(new Set(Array.from({ length: info.pageCount }, (_, i) => i)))} className="text-[var(--color-cat-pdf)]">All</button>
+                  </div>
+                  <div className="grid max-h-72 grid-cols-3 gap-1.5 overflow-y-auto sm:grid-cols-4">
+                    {Array.from({ length: info.pageCount }, (_, p) => (
+                      <button key={p} type="button" onClick={() => togglePage(p)}
+                        className={`relative overflow-hidden border-2 ${picked.has(p) ? 'border-[var(--color-cat-pdf)]' : 'border-black/[0.08]'}`}>
+                        <div className="aspect-[3/4] bg-white">
+                          {thumbs[p]
+                            ? <img src={thumbs[p]} alt={`Page ${p + 1}`} className="h-full w-full object-contain" />
+                            : <div className="flex h-full w-full items-center justify-center font-mono text-[11px] text-[var(--color-fg-subtle)]">p{p + 1}</div>}
+                        </div>
+                        <span className={`absolute left-1 top-1 rounded px-1 text-[9px] font-bold ${picked.has(p) ? 'bg-[var(--color-cat-pdf)] text-white' : 'bg-black/40 text-white'}`}>{p + 1}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-1 text-[10px] text-[var(--color-fg-muted)]">Selected pages export as one PDF, in page order.</div>
+                </div>
+              )}
 
               {mode === 'ranges' && (
                 <label className="block">
@@ -88,6 +130,8 @@ export default function Tool() {
               <div className="text-[12px] text-[var(--color-fg-muted)]">
                 {mode === 'every'
                   ? `→ ${info.pageCount} files`
+                  : mode === 'pick'
+                  ? `→ 1 file (${picked.size} page${picked.size === 1 ? '' : 's'})`
                   : `→ ${ranges.split(',').filter((s) => s.trim()).length} files`}
               </div>
             </div>

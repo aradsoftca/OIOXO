@@ -198,7 +198,14 @@ const nextConfig = {
               // require the worker-extraction refactor noted earlier.
               numbersToExpressions: true,
               simplify: true,
-              transformObjectKeys: true,
+              // transformObjectKeys: OFF. It rewrites object-literal keys into a
+              // hex lookup table accessed as obj[table][key]; on the shared video
+              // module that produced a runtime "Cannot read properties of
+              // undefined (reading 'undefined')" on LOAD for every video tool
+              // (verified live on video-trim/-reframe/-to-shorts; absent in a
+              // non-obfuscated build). Low anti-clone value vs the breakage —
+              // disabled. Identifier hex-renaming + domainLock remain the moat.
+              transformObjectKeys: false,
               unicodeEscapeSequence: true,
               disableConsoleOutput: true,
               stringArray: false,

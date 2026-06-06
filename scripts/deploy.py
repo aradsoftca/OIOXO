@@ -117,6 +117,11 @@ EXCLUDES = {
     "_hf_token.txt",  # Hugging Face write token — local-only; never leaves this machine
     "_hf_push.py",    # one-off HF upload util — no need on the server
     "tsconfig.tsbuildinfo",
+    "_drive",          # DEV screenshot scratch (puppeteer captures) — never ship
+    "_drive_profile",  # DEV chrome profile for the studio driver — never ship
+    "_mobshots",       # DEV mobile screenshot scratch — never ship
+    "_fixtures",       # DEV test media (sample mp4/png/wav) — never ship
+    "_drive_downloads",
     ".tool-wasm-key.dev",  # ephemeral DEV worker key — never ship (server mints its own)
     "protected",   # public/protected/*.enc — regenerated on the server with the real key
     "jsquash",     # public/jsquash/* — regenerated on the server by copy-jsquash
@@ -129,13 +134,20 @@ EXCLUDES = {
 
 
 def excluded(rel: str) -> bool:
-    parts = rel.replace("\\", "/").split("/")
+    rel_norm = rel.replace("\\", "/")
+    parts = rel_norm.split("/")
     base = parts[-1]
     # Never ship local model weights / large binaries used only for dev testing,
     # nor throwaway debug scratch (`_test_*.ts`, `_*.py` one-offs) sitting in the
     # tree — they aren't part of the app and can break the remote `next build`
     # typecheck (tsconfig includes **/*.ts).
     if base.startswith("_test_") or (base.startswith("_") and base.endswith(".py")):
+        return True
+    # Root-level `_*.mjs` are throwaway browser/driver scratch (puppeteer harnesses,
+    # export proofs, etc.) — dozens accumulate during dev. They are NOT app code and
+    # shouldn't ship. Scoped to the repo ROOT so real `scripts/_*.mjs` build/test
+    # utilities (copy-monaco, _browser_selftest, …) still upload.
+    if len(parts) == 1 and base.startswith("_") and base.endswith(".mjs"):
         return True
     return any(p in EXCLUDES for p in parts) or rel.endswith((".log", ".gguf", ".onnx", ".bin", ".bak"))
 

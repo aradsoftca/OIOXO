@@ -15,11 +15,24 @@ import { useState, useEffect, type ReactNode } from 'react';
  * SEO is unaffected: the indexable content (RichToolSection + JSON-LD) is rendered by the
  * server page around this; only the interactive widget is deferred to the client.
  */
-export function ClientOnly({ children }: { children: ReactNode }) {
+export function ClientOnly({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) {
-    return <div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />;
+    // The pre-mount placeholder a user actually sees while the heavy client
+    // bundle loads. Studios pass a branded full-height loader; everything else
+    // gets a calm centered spinner (the old bare grey `h-96` pulse read as a
+    // broken blank box).
+    return (
+      <>
+        {fallback ?? (
+          <div className="flex h-72 w-full flex-col items-center justify-center gap-3 rounded-xl border border-[var(--color-stroke)] bg-[var(--color-surface-1)] text-[var(--color-fg-muted)]">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-black/10 border-t-[var(--color-fg)]" />
+            <div className="text-[12px] font-medium tracking-wide text-[var(--color-fg-subtle)]">Loading…</div>
+          </div>
+        )}
+      </>
+    );
   }
   return <>{children}</>;
 }

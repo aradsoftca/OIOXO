@@ -366,9 +366,13 @@ export function UsageGateProvider() {
 }
 
 function PoweredByBadge() {
+  // bottom-RIGHT, not bottom-left: the account avatar (and, in dev, the error
+  // overlay) live at bottom-left and were overlapping this badge — the avatar
+  // covered the start of the text, leaving a clipped "…ered by xonvert.com"
+  // that looked broken. Bottom-right is the conventional spot and stays clear.
   return (
     <div
-      className="pointer-events-none fixed bottom-3 left-3 z-[90] select-none rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
+      className="pointer-events-none fixed bottom-3 right-3 z-[90] select-none rounded-full bg-black/55 px-3 py-1 text-[11px] font-medium tracking-wide text-white/90 backdrop-blur-sm"
       aria-hidden
     >
       Powered by {WM_DOMAIN}

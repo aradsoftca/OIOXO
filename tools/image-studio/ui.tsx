@@ -876,7 +876,11 @@ export default function ImageStudioPro() {
   };
 
   const openImageFiles = async (files: FileList | File[]) => {
-    if (!(await guard())) return;
+    // Opening images is FREE — like Photopea/Canva you load and edit without
+    // spending anything; the credit is charged on Export and on the heavy AI
+    // ops (remove-bg / remove-object). Gating import burned a free user's daily
+    // image credit just to open a photo, and blocked the editor entirely when
+    // the usage API was unreachable.
     const arr = Array.from(files);
     if (!arr.length) return;
     setBusy('Loading images…');
@@ -885,9 +889,19 @@ export default function ImageStudioPro() {
       for (let i = 0; i < arr.length; i++) {
         const f = arr[i];
         const c = await fileToCanvas(f);
-        if (next.layers.length === 1 && next.layers[0].kind === 'paint') {
+        // First image opened into a PRISTINE default doc → the document adopts
+        // the image's dimensions (like Photopea/Canva: "open photo" gives you a
+        // canvas the size of that photo, not the image pasted into a mismatched
+        // default canvas). Pristine = exactly one untouched, fully-transparent
+        // paint layer (the blank 'Background'). The white `background` color
+        // doesn't disqualify it — that's just the default doc's paper color.
+        if (i === 0 && next.layers.length === 1 && next.layers[0].kind === 'paint') {
           const bgC = next.layers[0].canvas;
-          if (bgC.getContext('2d')!.getImageData(0, 0, 1, 1).data[3] === 0 && next.background === 'transparent') {
+          const ctx = bgC.getContext('2d')!;
+          // Sample a few points; an unedited blank layer is transparent everywhere.
+          const pts = [[0, 0], [bgC.width - 1, 0], [0, bgC.height - 1], [(bgC.width / 2) | 0, (bgC.height / 2) | 0]];
+          const untouched = pts.every(([x, y]) => ctx.getImageData(x, y, 1, 1).data[3] === 0);
+          if (untouched) {
             next.width = c.width;
             next.height = c.height;
             next.layers = [];
@@ -907,6 +921,9 @@ export default function ImageStudioPro() {
         next.activeId = layer.id;
       }
       commit('open image', next);
+      // Content is now on the canvas — get the welcome overlay out of the way so
+      // the user actually SEES their image instead of the onboarding card.
+      dismissWelcome();
       requestAnimationFrame(fitToScreen);
     } finally {
       setBusy('');
@@ -1894,6 +1911,12 @@ export default function ImageStudioPro() {
 
   const textEditing = textEditOpen ? doc.layers.find(l => l.id === textEditOpen) as TextLayer | undefined : undefined;
 
+  // Pristine = a brand-new, empty doc (one untouched blank paint layer). While
+  // pristine, the filter strip and the tool rail do nothing useful, so we quiet
+  // them — the first-timer's eye then lands on "open an image", not a wall of
+  // filters/tools. They light back up the moment real content exists.
+  const pristine = doc.layers.length === 1 && doc.layers[0].kind === 'paint' && doc.name === 'Untitled';
+
   return (
     <StudioShell>
       {policyGate.element}
@@ -1958,6 +1981,7 @@ export default function ImageStudioPro() {
         }
       />
 
+      <div className={cn('transition-opacity', pristine && 'pointer-events-none opacity-40')}>
       <ToolOptionsBar
         tool={tool}
         brushSize={brushSize} setBrushSize={setBrushSize}
@@ -1978,6 +2002,7 @@ export default function ImageStudioPro() {
         onClearSelection={clearSelection}
         hasSelection={!!doc.selection}
       />
+      </div>
 
       <StudioBody>
         <StudioToolDock>
@@ -2012,7 +2037,7 @@ export default function ImageStudioPro() {
         </StudioToolDock>
 
         <StudioCanvasArea>
-          {!welcomed && doc.layers.length === 1 && doc.name === 'Untitled' && (
+          {!welcomed && doc.layers.length === 1 && doc.layers[0].kind === 'paint' && doc.name === 'Untitled' && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0a0b0e]/95 backdrop-blur-sm">
               <EmptyState
                 icon={<ImageIcon className="h-7 w-7" />}

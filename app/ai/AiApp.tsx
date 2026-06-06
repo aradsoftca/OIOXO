@@ -262,7 +262,16 @@ const HINT_PROMPTS = [
  * (random) one — with a blinking caret. Decorative; pure CSS caret blink.
  */
 function RotatingHint({ phrases }: { phrases: string[] }) {
-  const [idx, setIdx] = React.useState(() => Math.floor(Math.random() * phrases.length));
+  // Start at 0 (deterministic) so SSR and client agree, then pick a random
+  // starting phrase on the client — a Math.random() initializer caused a
+  // hydration mismatch (the dev "1 issue" overlay + a first-paint flash).
+  const [idx, setIdx] = React.useState(0);
+  const randomized = React.useRef(false);
+  React.useEffect(() => {
+    if (randomized.current) return;
+    randomized.current = true;
+    setIdx(Math.floor(Math.random() * phrases.length));
+  }, [phrases.length]);
   const [shown, setShown] = React.useState('');
   const [phase, setPhase] = React.useState<'typing' | 'holding' | 'deleting'>('typing');
   React.useEffect(() => {

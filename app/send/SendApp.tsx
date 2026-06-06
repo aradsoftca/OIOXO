@@ -214,17 +214,24 @@ function SendSide() {
       <Shell>
         {gate}
         <div
+          onClick={() => inputRef.current?.click()}
           onDrop={(e) => { e.preventDefault(); begin(Array.from(e.dataTransfer.files)); }}
           onDragOver={(e) => e.preventDefault()}
-          className={`flex aspect-[5/2] flex-col items-center justify-center gap-3 border border-dashed text-center transition-colors duration-150 ${
+          className={`group flex aspect-[5/2] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed text-center transition-all duration-150 ${
             dragging
-              ? 'border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)]/[0.06]'
-              : 'border-black/[0.18] bg-[var(--color-surface-1)]'
+              ? 'scale-[1.01] border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)]/[0.08] shadow-[0_0_0_4px_var(--color-cat-convert)]/[0.06]'
+              : 'border-black/[0.18] bg-[var(--color-surface-1)] hover:border-[var(--color-cat-convert)]/60 hover:bg-[var(--color-surface-2)]'
           }`}
         >
-          <button type="button" onClick={() => inputRef.current?.click()}
-            className="flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
-            <Upload className={`h-6 w-6 transition-transform ${dragging ? 'scale-110 text-[var(--color-cat-convert)]' : ''}`} />
+          <button type="button" onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}
+            className="pointer-events-none flex flex-col items-center gap-3 text-[13px] text-[var(--color-fg-muted)]">
+            <span className={`grid h-14 w-14 place-items-center rounded-full transition-all duration-150 ${
+              dragging
+                ? 'scale-110 bg-[var(--color-cat-convert)] text-white'
+                : 'bg-[var(--color-surface-2)] text-[var(--color-fg-muted)] group-hover:bg-[var(--color-cat-convert)]/10 group-hover:text-[var(--color-cat-convert)]'
+            }`}>
+              <Upload className="h-6 w-6 transition-transform group-hover:-translate-y-0.5" />
+            </span>
             <span className="font-medium">
               {dragging ? 'Drop to send instantly' : 'Drop files to send, or click to choose'}
             </span>
@@ -417,7 +424,8 @@ const SEND_KEYFRAMES = `@keyframes loading{0%{transform:translateX(-120%)}100%{t
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    // Grounded app window (light) — contained on the page, not floating in cream.
+    <div className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
       <style>{SEND_KEYFRAMES}</style>
       <header className="flex items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-convert)] text-white">

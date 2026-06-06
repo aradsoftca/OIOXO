@@ -550,23 +550,30 @@ export default function CollageStudioUI() {
         </div>
 
         {/* ═══════ RIGHT PANEL: Interactive Canvas Preview ═══════ */}
-        <div style={{ 
-          background: '#f1f5f9', 
-          borderRadius: 12, 
-          padding: 24, 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          minHeight: 450,
+        {/* Cap the preview so the whole collage (incl. the bottom slots) stays
+            in view under the page header instead of running below the fold —
+            the preview now fits the visible area and scales down on short
+            screens. */}
+        <div style={{
+          background: '#f1f5f9',
+          borderRadius: 12,
+          padding: 24,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: 360,
           position: 'relative'
         }}>
-          
-          <div 
+
+          <div
             style={{
               position: 'relative',
               aspectRatio: `${canvasWidth} / ${canvasHeight}`,
               width: '100%',
               maxWidth: canvasWidth > canvasHeight ? 600 : 450,
+              // Keep the whole collage in view on shorter screens instead of
+              // pushing the bottom slots below the fold.
+              maxHeight: 'calc(100vh - 240px)',
               boxShadow: '0 20px 45px rgba(0,0,0,0.12)',
               borderRadius: 12,
               overflow: 'hidden',

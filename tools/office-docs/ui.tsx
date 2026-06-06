@@ -711,7 +711,7 @@ export default function OfficeDocsPro() {
   };
 
   const importFile = async (file: File) => {
-    if (!(await guard())) return;
+    // Opening a document is FREE (like Word/Docs) — the credit is on Export.
     setBusy('Importing…');
     try {
       let rawHtml: string;
@@ -1095,7 +1095,7 @@ export default function OfficeDocsPro() {
                 hints={[
                   { label: 'Track changes + Comments', description: 'Per-author colors, accept/reject UI' },
                   { label: 'Equations + TOC + Read aloud', description: 'LaTeX equations, auto TOC, Web Speech' },
-                  { label: 'Live collab via P2P', description: 'Share button — end-to-end encrypted, no server' },
+                  { label: 'Live collab via P2P', description: 'Share button — document syncs peer-to-peer, encrypted in transit' },
                 ]}
               />
             </div>
@@ -1419,7 +1419,9 @@ function CollabDialog({ onCancel, onStart }: { onCancel: () => void; onStart: (n
     <Dialog title="Live collaboration" onCancel={onCancel} onConfirm={() => onStart(name, room)} confirmLabel="Start">
       <div className="space-y-3 text-xs">
         <div className="rounded bg-emerald-500/10 p-2 text-emerald-200">
-          End-to-end encrypted peer-to-peer. Nothing routes through any server.
+          Your document syncs peer-to-peer, encrypted in transit. Only the brief
+          connection handshake uses a lightweight relay — the document itself
+          never passes through a server.
         </div>
         <label className="block">
           <div className="mb-1 text-zinc-400">Your name:</div>

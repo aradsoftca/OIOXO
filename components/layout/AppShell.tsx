@@ -144,9 +144,20 @@ export function AppShell({ children }: AppShellProps) {
          */}
         <div
           className={`sticky top-14 z-30 hidden md:block ${
-            showStripsAlways ? '' : 'overflow-hidden transition-[grid-template-rows,opacity] duration-300 ease-out grid'
+            showStripsAlways ? '' : 'overflow-hidden transition-[max-height,opacity] duration-300 ease-out'
           }`}
-          style={showStripsAlways ? undefined : { gridTemplateRows: navHover ? '1fr' : '0fr', opacity: navHover ? 1 : 0 }}
+          // The collapsed strip MUST take zero height on internal pages. The old
+          // grid-template-rows:0fr collapse was inert because `md:block` (the
+          // mobile-hide variant) overrode the `grid` display, so the strip kept
+          // its full ~174px height (only hidden via opacity) and pushed every
+          // internal page's content down. max-height collapse works on the
+          // block element directly: 0 when idle, a generous cap when hovered.
+          // Inline style wins the cascade, so there's no utility-order fragility.
+          style={
+            showStripsAlways
+              ? undefined
+              : { maxHeight: navHover ? 240 : 0, opacity: navHover ? 1 : 0 }
+          }
         >
           <div className={showStripsAlways ? '' : 'min-h-0 overflow-hidden'}>
             <AppsBar />

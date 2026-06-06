@@ -49,7 +49,7 @@ const STUDIO_FAQS_XONVERT = [
   { q: 'Does anything I edit get uploaded?', a: 'No. All Studios run entirely in your browser. Your photos, videos, audio, PDFs, sheets, docs and slides never leave your device.' },
   { q: 'Can I work offline?', a: 'Yes — once the page is loaded, the Studios work fully offline. The browser caches the assets after first visit so you can keep editing without an internet connection.' },
   { q: 'How do they compare to desktop software like Photoshop or DaVinci?', a: 'Each Studio implements the core feature set of its desktop counterpart — layers, blend modes, color grading, multi-track timelines, keyframes — and runs comparably fast for typical creator workloads. Heavy professional film projects still benefit from native software, but for the vast majority of content the Studios are a complete replacement.' },
-  { q: 'Can I collaborate with someone live?', a: 'Yes — Docs and Slides support real-time peer-to-peer collaboration over WebRTC. End-to-end encrypted, with no server in the middle.' },
+  { q: 'Can I collaborate with someone live?', a: 'Yes — Docs and Slides support real-time peer-to-peer collaboration over WebRTC, encrypted in transit. Your document syncs directly between devices; only the brief connection handshake uses a lightweight relay, and it never carries your document.' },
 ];
 
 const STUDIO_FAQS_OIOXO = [

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Pencil, Eraser, Trash2, Copy, Check, Users, Loader2, ShieldCheck, AlertTriangle, RotateCcw, Link2, Undo2, Redo2, Smile, Wifi, WifiOff } from 'lucide-react';
 import { makeRoomCode } from '@/lib/p2p/peer';
+import { useRoomCode } from '@/lib/p2p/use-room-code';
 import { joinGroup, type Group, type GroupState } from '@/lib/p2p/group';
 
 // A stroke segment is normalized 0..1 so every device renders it at its own size.
@@ -27,21 +28,26 @@ export default function BoardApp() {
   const params = useSearchParams();
   const joinCode = params.get('r');
   const role: 's' | 'r' = joinCode ? 'r' : 's';
-  const [room] = React.useState(() => joinCode || makeRoomCode());
+  const room = useRoomCode(joinCode); // client-only (avoids hydration mismatch)
 
   // One stable identity per session, persisted so a reconnect keeps your name.
-  const me = React.useMemo(() => {
-    const id = makeRoomCode();
+  // Resolved on the CLIENT only — building it during render (random name/hue +
+  // localStorage read) produced different markup on server vs client → a React
+  // hydration mismatch (the dev "1 issue" overlay + a first-paint flash). The id
+  // (peer identity, never rendered) can stay random in a ref.
+  const idRefStable = React.useRef('');
+  if (!idRefStable.current) idRefStable.current = makeRoomCode();
+  const [me, setMe] = React.useState<{ id: string; name: string; hue: string }>(() => ({ id: idRefStable.current, name: '', hue: HUES[0] }));
+  React.useEffect(() => {
     let name = NAMES[Math.floor(Math.random() * NAMES.length)];
     let hue = HUES[Math.floor(Math.random() * HUES.length)];
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = JSON.parse(localStorage.getItem('xonvert-board-id') || 'null');
-        if (saved && typeof saved.name === 'string') { name = saved.name; hue = saved.hue || hue; }
-        else localStorage.setItem('xonvert-board-id', JSON.stringify({ name, hue }));
-      } catch { /* private mode */ }
-    }
-    return { id, name, hue };
+    try {
+      const saved = JSON.parse(localStorage.getItem('xonvert-board-id') || 'null');
+      if (saved && typeof saved.name === 'string') { name = saved.name; hue = saved.hue || hue; }
+      else localStorage.setItem('xonvert-board-id', JSON.stringify({ name, hue }));
+    } catch { /* private mode */ }
+    setMe({ id: idRefStable.current, name, hue });
+    setName((n) => n || name);
   }, []);
 
   const [state, setState] = React.useState<GroupState>('connecting');
@@ -72,7 +78,7 @@ export default function BoardApp() {
   const lastMoveSent = React.useRef(0);
   const floaterId = React.useRef(0);
 
-  const link = typeof window !== 'undefined' ? `${window.location.origin}/board?r=${room}` : '';
+  const link = room && typeof window !== 'undefined' ? `${window.location.origin}/board?r=${room}` : '';
 
   const drawSeg = React.useCallback((s: Seg, store = true) => {
     // Cap total history (local + peer) — without this, a long session
@@ -121,6 +127,7 @@ export default function BoardApp() {
   };
 
   React.useEffect(() => {
+    if (!room) return; // wait for the client-minted room code
     const group = joinGroup(room, role === 's', 'board', {
       onState: (s) => { setState(s); if (s === 'connected') setEverConnected(true); },
       onRoster: setRoster,
@@ -320,7 +327,9 @@ export default function BoardApp() {
   const liveCursors = Object.entries(cursors);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-4">
+    // Grounded app window — kept light; the board reads as one contained app
+    // on the page instead of bare elements in the cream margins.
+    <div className="mx-auto max-w-6xl space-y-4 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-4 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
       <header className="flex flex-wrap items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-image)] text-white"><Pencil className="h-5 w-5" /></div>
         <div>

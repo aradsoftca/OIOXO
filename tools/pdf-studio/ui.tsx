@@ -991,7 +991,7 @@ export default function PdfStudioPro() {
         {tool === 'sign' && (
           <StudioButton size="sm" variant="soft" onClick={() => setSignDialog(true)}>{signaturePng ? 'Change signature' : 'Create signature…'}</StudioButton>
         )}
-        <div className="ml-auto flex items-center gap-1">
+        <div className={cn('ml-auto flex items-center gap-1 transition-opacity', doc.pages.length === 0 && 'pointer-events-none opacity-40')}>
           <StudioButton size="sm" variant="soft" onClick={() => setWatermarkDialog(true)} title="Apply watermark to all pages"><Droplets className="h-3 w-3" /> Watermark</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setSplitDialog(true)} title="Split into multiple PDFs"><Scissors className="h-3 w-3" /> Split</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportAsDocx()} title="Export as Word"><FileType2 className="h-3 w-3" /> Word</StudioButton>

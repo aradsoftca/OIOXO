@@ -388,7 +388,7 @@ export default function MusicStudioPro() {
   }, []);
 
   const importAudioFile = async (file: File) => {
-    if (!(await guard())) return;
+    // Importing audio is FREE (like any DAW) — the credit is charged on Export.
     setBusy('Analyzing audio…');
     setProgress(20);
     try {

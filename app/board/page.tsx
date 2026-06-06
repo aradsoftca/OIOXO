@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   description: 'A real-time shared whiteboard you open with one link. Everyone draws together over an encrypted peer-to-peer connection — no account, nothing stored on a server.',
   openGraph: {
     title: `${BRAND} Whiteboard — real-time, peer-to-peer, no sign-up`,
-    description: 'Draw together live from one link. Encrypted P2P, no account, no server.',
+    description: 'Draw together live from one link. Encrypted P2P, no account, nothing stored on a server.',
   },
 };
 

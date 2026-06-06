@@ -888,7 +888,8 @@ export default function OfficeStudioPro() {
   };
 
   const importXlsxFile = async (file: File) => {
-    if (!(await guard())) return;
+    // Opening a workbook is FREE (like Excel/Sheets) — the credit is charged on
+    // Export, not on loading a file to view/edit it.
     setBusy('Opening .xlsx…');
     try {
       const wb = await importXlsx(file);
@@ -927,7 +928,7 @@ export default function OfficeStudioPro() {
   };
 
   const importCsv = async (file: File) => {
-    if (!(await guard())) return;
+    // Importing CSV is FREE — the credit is charged on Export.
     setBusy('Importing…');
     try {
       const text = await file.text();

@@ -3,7 +3,8 @@
 import * as React from 'react';
 import { useSearchParams } from 'next/navigation';
 import { ClipboardCopy, Copy, Check, Send, Loader2, ShieldCheck, Smartphone, Link2, ClipboardPaste, ArrowDownToLine } from 'lucide-react';
-import { connectPeer, makeRoomCode, type Peer, type PeerState } from '@/lib/p2p/peer';
+import { connectPeer, type Peer, type PeerState } from '@/lib/p2p/peer';
+import { useRoomCode } from '@/lib/p2p/use-room-code';
 
 interface Item { id: number; text: string; mine: boolean }
 
@@ -11,7 +12,7 @@ export default function ClipboardApp() {
   const params = useSearchParams();
   const joinCode = params.get('r');
   const role: 's' | 'r' = joinCode ? 'r' : 's';
-  const [room] = React.useState(() => joinCode || makeRoomCode());
+  const room = useRoomCode(joinCode); // client-only (avoids hydration mismatch)
 
   const [state, setState] = React.useState<PeerState>('connecting');
   const [items, setItems] = React.useState<Item[]>([]);
@@ -22,9 +23,10 @@ export default function ClipboardApp() {
   const peerRef = React.useRef<Peer | null>(null);
   const idRef = React.useRef(0);
 
-  const link = typeof window !== 'undefined' ? `${window.location.origin}/clipboard?r=${room}` : '';
+  const link = room && typeof window !== 'undefined' ? `${window.location.origin}/clipboard?r=${room}` : '';
 
   React.useEffect(() => {
+    if (!room) return; // wait for the client-minted room code
     const peer = connectPeer(role, room, {
       onState: setState,
       onMessage: (data) => {
@@ -78,7 +80,8 @@ export default function ClipboardApp() {
   const connected = state === 'connected';
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    // Grounded app window (light) — contained, not floating in cream.
+    <div className="mx-auto max-w-3xl space-y-5 rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-5 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)]">
       <header className="flex items-center gap-3">
         <div className="grid h-11 w-11 place-items-center bg-[var(--color-cat-convert)] text-white"><ClipboardCopy className="h-5 w-5" /></div>
         <div>

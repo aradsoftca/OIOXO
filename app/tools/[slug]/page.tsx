@@ -62,7 +62,26 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   });
 }
 
-const loading = () => <div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />;
+// Calm, centered loader for content tools + lighter studios while their chunk
+// loads — a bare grey `h-96` pulse read as a broken blank box. Light theme to
+// match the page (the heavy full-screen studios use the dark `studioLoading`).
+const loading = () => (
+  <div className="flex h-72 w-full flex-col items-center justify-center gap-3 rounded-xl border border-[var(--color-stroke)] bg-[var(--color-surface-1)] text-[var(--color-fg-muted)]">
+    <div className="h-8 w-8 animate-spin rounded-full border-2 border-black/10 border-t-[var(--color-fg)]" />
+    <div className="text-[12px] font-medium tracking-wide text-[var(--color-fg-subtle)]">Loading…</div>
+  </div>
+);
+
+// Studios fill the whole viewport, so the plain grey `h-96` pulse looked like a
+// broken blank box while the heavy editor chunk loaded. This is a calm, branded
+// full-height loader (dark studio canvas + a soft spinner) so the wait reads as
+// "loading my editor", not "something went wrong".
+const studioLoading = () => (
+  <div className="flex h-full min-h-[60vh] w-full flex-col items-center justify-center gap-4 bg-[#0c0d10] text-zinc-400">
+    <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/15 border-t-cyan-400" />
+    <div className="text-[13px] font-medium tracking-wide text-zinc-500">Loading your studio…</div>
+  </div>
+);
 
 const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
   'image-blur':            dynamic(() => import('@/tools/image-blur/ui'),            { loading }),
@@ -477,10 +496,10 @@ const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
 
   // wave 37 — high-end AI media + editors
   'video-auto-subtitle':    dynamic(() => import('@/tools/video-auto-subtitle/ui'),    { loading }),
-  'audio-voice-studio':     dynamic(() => import('@/tools/audio-voice-studio/ui'),     { loading }),
+  'audio-voice-studio':     dynamic(() => import('@/tools/audio-voice-studio/ui'),     { loading: studioLoading }),
   'text-translate':         dynamic(() => import('@/tools/text-translate/ui'),         { loading }),
-  'image-studio':           dynamic(() => import('@/tools/image-studio/ui'),           { loading }),
-  'video-studio':           dynamic(() => import('@/tools/video-studio/ui'),           { loading }),
+  'image-studio':           dynamic(() => import('@/tools/image-studio/ui'),           { loading: studioLoading }),
+  'video-studio':           dynamic(() => import('@/tools/video-studio/ui'),           { loading: studioLoading }),
 
   // wave 38 — Test/diagnostics + PDF Studio
   'test-typing':            dynamic(() => import('@/tools/test-typing/ui'),            { loading }),
@@ -495,7 +514,7 @@ const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
   'test-gamepad':           dynamic(() => import('@/tools/test-gamepad/ui'),           { loading }),
   'test-touch':             dynamic(() => import('@/tools/test-touch/ui'),             { loading }),
   'test-browser':           dynamic(() => import('@/tools/test-browser/ui'),           { loading }),
-  'pdf-studio':             dynamic(() => import('@/tools/pdf-studio/ui'),             { loading }),
+  'pdf-studio':             dynamic(() => import('@/tools/pdf-studio/ui'),             { loading: studioLoading }),
 
   // wave 39 — on-device creator combos + deterministic high-value
   'video-auto-dub':         dynamic(() => import('@/tools/video-auto-dub/ui'),         { loading }),
@@ -508,13 +527,13 @@ const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
   'pdf-nup':                dynamic(() => import('@/tools/pdf-nup/ui'),                { loading }),
 
   // wave 40 — music
-  'audio-music-studio':     dynamic(() => import('@/tools/audio-music-studio/ui'),     { loading }),
+  'audio-music-studio':     dynamic(() => import('@/tools/audio-music-studio/ui'),     { loading: studioLoading }),
 
   // office studios — were missing from this map (rendered the "not wired" placeholder)
-  'office-studio':          dynamic(() => import('@/tools/office-studio/ui'),          { loading }),
-  'office-docs':            dynamic(() => import('@/tools/office-docs/ui'),            { loading }),
-  'office-slides':          dynamic(() => import('@/tools/office-slides/ui'),          { loading }),
-  'subtitle-studio':        dynamic(() => import('@/tools/subtitle-studio/ui'),        { loading }),
+  'office-studio':          dynamic(() => import('@/tools/office-studio/ui'),          { loading: studioLoading }),
+  'office-docs':            dynamic(() => import('@/tools/office-docs/ui'),            { loading: studioLoading }),
+  'office-slides':          dynamic(() => import('@/tools/office-slides/ui'),          { loading: studioLoading }),
+  'subtitle-studio':        dynamic(() => import('@/tools/subtitle-studio/ui'),        { loading: studioLoading }),
 
   // wave 41 — layout-preserving document translation
   'doc-translate':          dynamic(() => import('@/tools/doc-translate/ui'),          { loading }),
@@ -588,7 +607,7 @@ export default async function ToolPage({ params }: Props) {
             </>
           }
         >
-          <ClientOnly>
+          <ClientOnly fallback={studioLoading()}>
             <ToolUI />
           </ClientOnly>
         </StudioFrame>

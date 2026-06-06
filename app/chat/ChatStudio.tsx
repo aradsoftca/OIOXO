@@ -7,7 +7,7 @@ import {
   Smile, Paperclip, Download, AlertTriangle, RotateCcw, Search, Pin, Reply, X,
   Hand, Mic, Wand2, Languages, Sparkles, Hash, Lock, ChevronDown, Command,
 } from 'lucide-react';
-import { makeRoomCode } from '@/lib/p2p/peer';
+import { useRoomCode } from '@/lib/p2p/use-room-code';
 import { joinGroup, type Group, type GroupState } from '@/lib/p2p/group';
 import { BRAND } from '@/lib/brand';
 import { ReactionPicker, REACTION_EMOJIS } from '@/lib/appstudio/reactions';
@@ -83,7 +83,7 @@ export default function ChatStudio() {
   const params = useSearchParams();
   const joinCode = params.get('r');
   const role: 's' | 'r' = joinCode ? 'r' : 's';
-  const [room] = React.useState(() => joinCode || makeRoomCode());
+  const room = useRoomCode(joinCode); // client-only (avoids hydration mismatch)
 
   const [name, setName] = React.useState('');
   const [state, setState] = React.useState<GroupState>('connecting');
@@ -134,7 +134,10 @@ export default function ChatStudio() {
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
 
-  const link = typeof window !== 'undefined' ? `${window.location.origin}/chat?r=${room}` : '';
+  // Empty until the client mints `room` — so SSR and the first client render
+  // agree (both ''), avoiding a hydration mismatch on the share link. `room`
+  // is itself client-only (useRoomCode), so this fills in right after mount.
+  const link = room && typeof window !== 'undefined' ? `${window.location.origin}/chat?r=${room}` : '';
 
   React.useEffect(() => {
     try {
@@ -204,6 +207,7 @@ export default function ChatStudio() {
   }, []);
 
   React.useEffect(() => {
+    if (!room) return; // wait for the client-minted room code
     const group = joinGroup(room, role === 's', nameRef.current, {
       onState: (s) => {
         if (s === 'connected') {
@@ -547,9 +551,13 @@ export default function ChatStudio() {
   ];
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1400px] flex-col gap-3 p-3 sm:p-4">
+    // Grounded app surface: a single contained "app window" — solid surface,
+    // real border + soft shadow + rounded corners — so the app reads as one
+    // focused thing on the page instead of bare panels floating in the cream
+    // margins. Kept light per design direction.
+    <div className="mx-auto flex h-[calc(100dvh-80px)] max-w-[1400px] flex-col gap-3 overflow-hidden rounded-2xl border border-[var(--color-stroke)] bg-[var(--color-surface-2)] p-3 shadow-[0_1px_3px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.12)] sm:p-4">
       {policyGate.element}
-      <header className="flex shrink-0 items-center gap-3 border-b border-black/[0.08] pb-3">
+      <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-stroke)] pb-3">
         <div className="grid h-10 w-10 place-items-center bg-[var(--color-cat-convert)] text-white"><MessageSquare className="h-5 w-5" /></div>
         <div className="flex-1 min-w-0">
           <h1 className="text-[18px] font-extrabold tracking-tight">Chat Studio</h1>
@@ -614,7 +622,7 @@ export default function ChatStudio() {
 
       <div className="grid flex-1 min-h-0 gap-3 lg:grid-cols-[200px_1fr_280px]">
         <aside className="hidden flex-col gap-2 lg:flex">
-          <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-2">
+          <div className="rounded-xl rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-2 shadow-sm">
             <div className="px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Channels</div>
             <div className="mt-1 space-y-0.5">
               {channelList.map((c) => (
@@ -630,7 +638,7 @@ export default function ChatStudio() {
             </div>
           </div>
           {pinnedMsgs.length > 0 && (
-            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-2">
+            <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-2">
               <div className="px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Pinned</div>
               <div className="mt-1 space-y-1">
                 {pinnedMsgs.map((m) => (
@@ -645,7 +653,7 @@ export default function ChatStudio() {
         </aside>
 
         <div
-          className={`relative flex min-h-0 flex-col border bg-[var(--color-surface-1)] ${dragging ? 'border-[var(--color-cat-convert)]' : 'border-black/[0.08]'}`}
+          className={`relative flex min-h-0 flex-col rounded-xl border bg-[var(--color-surface-1)] shadow-sm ${dragging ? 'border-[var(--color-cat-convert)]' : 'border-black/[0.08]'}`}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files?.[0]; if (f) void sendFile(f); }}
@@ -844,7 +852,7 @@ export default function ChatStudio() {
           </div>
           {sidePanel === 'invite' && (
             role === 's' ? (
-              <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
+              <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-4">
                 <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite</div>
                 {qr && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -856,13 +864,13 @@ export default function ChatStudio() {
                 <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[9px] text-[var(--color-fg-muted)]">{link}</div>
               </div>
             ) : (
-              <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-[12px] text-[var(--color-fg-muted)]">
+              <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-4 text-[12px] text-[var(--color-fg-muted)]">
                 {connected ? 'Connected — everything flows directly between devices.' : 'Linking…'}
               </div>
             )
           )}
           {sidePanel === 'channels' && (
-            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
+            <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-3">
               <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Recent rooms</div>
               <div className="mt-2 space-y-0.5">
                 {channelList.map((c) => (
@@ -876,7 +884,7 @@ export default function ChatStudio() {
             </div>
           )}
           {sidePanel === 'pinned' && (
-            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
+            <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-3">
               <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Pinned messages</div>
               {pinnedMsgs.length === 0 ? (
                 <p className="mt-2 text-[12px] text-[var(--color-fg-subtle)]">Pin important messages to bookmark them here.</p>

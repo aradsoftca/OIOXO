@@ -1389,29 +1389,41 @@ export default function VideoStudioPro() {
                     <div className="truncate text-xs text-zinc-200">{m.name}</div>
                     <div className="text-[10px] text-zinc-500">{m.kind} · {fmtT(m.duration)}{m.width ? ` · ${m.width}×${m.height}` : ''}</div>
                   </div>
+                  {/* Discoverability: make "click adds to timeline" obvious. The
+                      affordance fades in on hover (group-hover) so the row stays
+                      clean at rest but clearly invites the action. */}
+                  <span className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-200 opacity-0 transition-opacity group-hover:opacity-100">
+                    <Plus className="h-3 w-3" /> Add
+                  </span>
                 </button>
               ))}
             </div>
           </StudioPanel>
-          <StudioPanel title="Add">
-            <div className="space-y-1.5">
-              <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
-              <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
-              <StudioButton size="sm" variant="soft" onClick={() => void autoReframe()} title="Find your subject on-device and reframe the clip to keep them centered"><Sparkles className="h-3 w-3" /> Auto-reframe</StudioButton>
-            </div>
-          </StudioPanel>
-          <StudioPanel title="Color grade">
-            <div className="space-y-1">
-              <div className="text-[10px] text-zinc-500">Apply to all video clips at once:</div>
-              <div className="grid grid-cols-2 gap-1">
-                {COLOR_GRADES.map(g => (
-                  <button key={g.id} onClick={() => applyGradeToAll(g.id)} title={g.description} className="rounded bg-white/5 px-1.5 py-1 text-left text-[10px] text-zinc-300 hover:bg-white/10">
-                    {g.name}
-                  </button>
-                ))}
+          {/* Add / Color-grade only make sense once there's footage. When the
+              project is empty we quiet them (dim + non-interactive) so a
+              first-timer's eye goes to the ONE thing that matters — importing —
+              instead of a wall of 16 grade swatches competing for attention. */}
+          <div className={cn('transition-opacity', doc.clips.length === 0 && 'pointer-events-none opacity-35')}>
+            <StudioPanel title="Add">
+              <div className="space-y-1.5">
+                <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
+                <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
+                <StudioButton size="sm" variant="soft" onClick={() => void autoReframe()} title="Find your subject on-device and reframe the clip to keep them centered"><Sparkles className="h-3 w-3" /> Auto-reframe</StudioButton>
               </div>
-            </div>
-          </StudioPanel>
+            </StudioPanel>
+            <StudioPanel title="Color grade">
+              <div className="space-y-1">
+                <div className="text-[10px] text-zinc-500">Apply to all video clips at once:</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {COLOR_GRADES.map(g => (
+                    <button key={g.id} onClick={() => applyGradeToAll(g.id)} title={g.description} className="rounded bg-white/5 px-1.5 py-1 text-left text-[10px] text-zinc-300 hover:bg-white/10">
+                      {g.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </StudioPanel>
+          </div>
         </StudioSidebar>
 
         <div className="flex flex-1 min-w-0 flex-col">

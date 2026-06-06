@@ -109,6 +109,9 @@ EXCLUDES = {
     "out",
     "dist",
     ".next-build", # zero-downtime side build dir (server-only)
+    ".next-obf-test",  # local OBFUSCATE build-verification dir — never ship
+    ".next-obf",       # local obfuscated build scratch — never ship
+    ".next-dbg",       # local debug build scratch — never ship
     "target",      # Rust/wasm build output (lib/ai/wasm/target, ~68M) — never ship
     "pkg-node",    # wasm-pack node test build — never ship (browser uses pkg/)
     "_models_plain",  # DEV plaintext model weights — only the .enc ships

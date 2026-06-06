@@ -26,6 +26,8 @@ export default function GifStudioUI() {
 
   const [previewIdx, setPreviewIdx] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(true);
+  const [size, setSize] = useState<number>(400); // configurable output square (was fixed 400)
+  const SIZES = [240, 320, 400, 480, 640];
 
   /* ── Load Dynamic gifshot ── */
   useEffect(() => {
@@ -59,34 +61,35 @@ export default function GifStudioUI() {
 
     const img = new Image();
     img.onload = () => {
-      canvas.width = 400;
-      canvas.height = 400;
+      const S = size;
+      canvas.width = S;
+      canvas.height = S;
 
       const imgRatio = img.width / img.height;
-      let renderW = 400;
-      let renderH = 400;
+      let renderW = S;
+      let renderH = S;
 
       if (imgRatio > 1) {
-        renderW = 400 * imgRatio;
+        renderW = S * imgRatio;
       } else {
-        renderH = 400 / imgRatio;
+        renderH = S / imgRatio;
       }
 
-      ctx.clearRect(0, 0, 400, 400);
-      ctx.drawImage(img, (400 - renderW) / 2, (400 - renderH) / 2, renderW, renderH);
+      ctx.clearRect(0, 0, S, S);
+      ctx.drawImage(img, (S - renderW) / 2, (S - renderH) / 2, renderW, renderH);
 
       if (caption) {
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = '#000000';
-        ctx.lineWidth = 3;
-        ctx.font = 'bold 20px sans-serif';
+        ctx.lineWidth = Math.max(2, S / 133);
+        ctx.font = `bold ${Math.round(S / 20)}px sans-serif`;
         ctx.textAlign = 'center';
-        ctx.strokeText(caption.toUpperCase(), 200, 370);
-        ctx.fillText(caption.toUpperCase(), 200, 370);
+        ctx.strokeText(caption.toUpperCase(), S / 2, S - S * 0.075);
+        ctx.fillText(caption.toUpperCase(), S / 2, S - S * 0.075);
       }
     };
     img.src = activeFrame.src;
-  }, [frames, previewIdx, caption, compiledGif]);
+  }, [frames, previewIdx, caption, compiledGif, size]);
 
   /* ── Handlers ── */
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,31 +140,32 @@ export default function GifStudioUI() {
     frames.forEach(frame => {
       const img = new Image();
       img.onload = () => {
+        const S = size;
         const offCanvas = document.createElement('canvas');
-        offCanvas.width = 400;
-        offCanvas.height = 400;
+        offCanvas.width = S;
+        offCanvas.height = S;
         const oCtx = offCanvas.getContext('2d')!;
 
         const imgRatio = img.width / img.height;
-        let rW = 400;
-        let rH = 400;
+        let rW = S;
+        let rH = S;
 
         if (imgRatio > 1) {
-          rW = 400 * imgRatio;
+          rW = S * imgRatio;
         } else {
-          rH = 400 / imgRatio;
+          rH = S / imgRatio;
         }
 
-        oCtx.drawImage(img, (400 - rW) / 2, (400 - rH) / 2, rW, rH);
+        oCtx.drawImage(img, (S - rW) / 2, (S - rH) / 2, rW, rH);
 
         if (caption) {
           oCtx.fillStyle = '#ffffff';
           oCtx.strokeStyle = '#000000';
-          oCtx.lineWidth = 3;
-          oCtx.font = 'bold 20px sans-serif';
+          oCtx.lineWidth = Math.max(2, S / 133);
+          oCtx.font = `bold ${Math.round(S / 20)}px sans-serif`;
           oCtx.textAlign = 'center';
-          oCtx.strokeText(caption.toUpperCase(), 200, 370);
-          oCtx.fillText(caption.toUpperCase(), 200, 370);
+          oCtx.strokeText(caption.toUpperCase(), S / 2, S - S * 0.075);
+          oCtx.fillText(caption.toUpperCase(), S / 2, S - S * 0.075);
         }
 
         imagesToCompile.push(offCanvas.toDataURL('image/png'));
@@ -171,8 +175,8 @@ export default function GifStudioUI() {
           (window as any).gifshot.createGIF({
             images: imagesToCompile,
             interval: delay / 1000,
-            gifWidth: 400,
-            gifHeight: 400
+            gifWidth: size,
+            gifHeight: size
           }, (obj: any) => {
             setIsCompiling(false);
             if (!obj.error) {
@@ -220,6 +224,19 @@ export default function GifStudioUI() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <label style={{ fontSize: 11, fontWeight: 'bold' }}>Delay: {delay}ms</label>
               <input type="range" min="50" max="1000" step="50" value={delay} onChange={e => { setDelay(parseInt(e.target.value)); setCompiledGif(null); }} />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <label style={{ fontSize: 11, fontWeight: 'bold' }}>Size: {size}×{size}</label>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {SIZES.map(s => (
+                  <button key={s} type="button" onClick={() => { setSize(s); setCompiledGif(null); }}
+                    style={{ padding: '4px 8px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: 'pointer',
+                      border: size === s ? '2px solid #3b82f6' : '1px solid #cbd5e1', background: size === s ? '#eff6ff' : '#fff' }}>
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

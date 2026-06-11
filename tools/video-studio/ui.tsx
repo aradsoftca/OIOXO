@@ -1766,9 +1766,27 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
     if (d.type === 'move' && d.id) {
       const s = snappedT(d.startVal + dx, d.id);
       const newStart = Math.max(0, s.t);
-      onMoveClip(d.id, newStart);
-      setSnapLine(s.hit);
+      // Cross-track move: figure out which track row the cursor is over and, if
+      // it's a COMPATIBLE kind (video↔video, audio↔audio, text↔text), retarget
+      // the clip there. Lets you drag a V2 clip down onto V1 (was impossible —
+      // the move only changed start time, so dragging across tracks did nothing
+      // and the OS treated the gesture as a file drag → import overlay).
       const c = doc.clips.find(x => x.id === d.id);
+      let targetTrackId: string | undefined;
+      const cont = ref.current;
+      if (c && cont) {
+        const r = cont.getBoundingClientRect();
+        // 24px = sticky ruler height (h-6) above the track rows.
+        const yIn = e.clientY - r.top + cont.scrollTop - 24;
+        const row = trackY.find(t => yIn >= t.y && yIn < t.y + t.h);
+        if (row && row.id !== c.trackId) {
+          const fromKind = trackOf(doc, c.trackId)?.kind;
+          const toKind = trackOf(doc, row.id)?.kind;
+          if (fromKind && fromKind === toKind) targetTrackId = row.id;
+        }
+      }
+      onMoveClip(d.id, newStart, targetTrackId);
+      setSnapLine(s.hit);
       tipAt(e, c ? `${fmtT(newStart)} → ${fmtT(newStart + clipDuration(c))}` : fmtT(newStart));
     } else if (d.type === 'trim-l' && d.id) {
       const s = snappedT(d.startVal + dx, d.id);
@@ -1894,6 +1912,8 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
                     cls,
                     isSel && 'ring-2 ring-cyan-400 shadow-lg',
                   )}
+                  draggable={false}
+                  onDragStart={(e) => e.preventDefault()}
                   onPointerDown={(e) => onPointerDownClip(e, c, 'move')}
                   onDoubleClick={() => c.kind === 'text' && onTextEdit(c.id)}
                 >

@@ -31,31 +31,49 @@ def main():
             procs, _ = sh(ssh, "ps aux | grep -E 'next build|npm run build' | grep -v grep | wc -l")
             print(f"sentinel={done!r} manifests={have!r} build_procs={procs!r}")
 
-            # Build truly finished AND artifacts complete AND no build process left.
-            if have == "YES" and procs.strip() == "0":
-                if done.startswith("DONE:") and not done.endswith("DONE:0"):
-                    # Build exited non-zero — but Next sometimes can't exit its own
-                    # process after a COMPLETE build (lingering workers). Manifests
-                    # present + process gone => treat as success (matches deploy.py).
-                    print(f"  note: sentinel {done} but all artifacts present — treating as complete")
-                sftp = ssh.open_sftp()
-                print("\n========== SWAP + FINISH ==========")
-                run(ssh, f"cd {R} && pm2 stop {PM2_NAME} 2>/dev/null || true; "
-                         f"rm -rf .next.prev; [ -d .next ] && mv .next .next.prev; "
-                         f"mv .next-build .next && rm -f _deploy.done",
-                    label="atomic swap .next-build -> .next")
-                deploy._finish_and_smoke(ssh, sftp)  # PM2 + Caddy + smoke + closes ssh/sftp
-                print("\nSHIP OK — xonvert.com updated.")
-                return
+            # PRIMARY gate: the sentinel MUST say the build process exited. While it
+            # reads PENDING the build is still writing into .next-build (manifests can
+            # already exist mid-build — that earlier race swapped a half-written dir
+            # and crash-looped the site). Never swap on PENDING.
+            if not done.startswith("DONE:"):
+                ssh.close()
+                time.sleep(45)
+                continue
 
-            # Sentinel done but artifacts missing => the build FAILED. Don't swap.
-            if done.startswith("DONE:") and have != "YES":
+            # Sentinel set but build exited non-zero OR artifacts incomplete => FAILED.
+            if not done.endswith("DONE:0") or have != "YES":
                 tail, _ = sh(ssh, f"tail -25 {R}/_deploy.log")
-                print("BUILD FAILED (sentinel set, artifacts incomplete) — site UNTOUCHED. Tail:\n" + tail)
+                print(f"BUILD FAILED (sentinel={done}, artifacts={have}) — site UNTOUCHED. Tail:\n" + tail)
                 run(ssh, f"rm -rf {R}/.next-build {R}/_deploy.done", label="clean failed build")
                 ssh.close(); return
 
-            ssh.close()
+            # DONE:0 + all artifacts present => safe to swap. Keep .next.prev for
+            # rollback, then VERIFY the new build actually boots (BUILD_ID landed in
+            # .next + PM2 serves 200). If it doesn't, auto-rollback — never leave the
+            # site 502'd on a bad swap.
+            sftp = ssh.open_sftp()
+            print("\n========== SWAP + VERIFY ==========")
+            run(ssh, f"cd {R} && pm2 stop {PM2_NAME} 2>/dev/null || true; "
+                     f"rm -rf .next.prev; [ -d .next ] && mv .next .next.prev; "
+                     f"mv .next-build .next && rm -f _deploy.done && "
+                     f"pm2 restart {PM2_NAME} --update-env 2>/dev/null || (cd {R} && pm2 start ecosystem.config.js)",
+                label="atomic swap + restart")
+            time.sleep(7)
+            code, _ = sh(ssh, "curl -sS -o /dev/null -w '%{http_code}' --max-time 20 http://127.0.0.1:3001/ 2>/dev/null")
+            has_bid, _ = sh(ssh, f"test -f {R}/.next/BUILD_ID && echo YES || echo NO")
+            if code == "200" and has_bid == "YES":
+                deploy._finish_and_smoke(ssh, sftp)  # PM2 re-register + Caddy + smoke
+                print("\nSHIP OK — xonvert.com updated (verified booting).")
+                return
+            # Bad swap → ROLL BACK to the known-good previous build.
+            print(f"  ! new build does NOT boot (HTTP {code}, BUILD_ID={has_bid}) — ROLLING BACK")
+            run(ssh, f"cd {R} && pm2 stop {PM2_NAME} 2>/dev/null; rm -rf .next.bad; mv .next .next.bad; "
+                     f"mv .next.prev .next && (pm2 restart {PM2_NAME} --update-env || pm2 start ecosystem.config.js) && pm2 save 2>/dev/null && echo ROLLED_BACK",
+                label="rollback to previous build")
+            time.sleep(6)
+            rb, _ = sh(ssh, "curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/ 2>/dev/null")
+            print(f"  rollback complete — site HTTP {rb}. The build was bad; check _deploy.log.")
+            sftp.close(); ssh.close(); return
         except Exception as ex:
             print("poll error (continuing):", ex)
         time.sleep(45)

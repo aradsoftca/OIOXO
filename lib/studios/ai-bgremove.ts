@@ -2,6 +2,50 @@ type ProgressFn = (phase: string, ratio: number) => void;
 
 let modelPromise: Promise<any> | null = null;
 
+/**
+ * Robustly decide which mask label is the SUBJECT to KEEP. The selfie segmenter
+ * normally labels person=non-zero / background=0, but the labels can be flipped
+ * by model build, and on ambiguous/non-selfie content the model can confidently
+ * invert — which is what caused "Remove BG erased the subject and kept the
+ * background" in the audit.
+ *
+ * Prior: the background hugs the image borders; the subject is central. We count
+ * how strongly each label touches the border ring vs how much of the frame it
+ * fills. The label that dominates the border is the background, so we keep the
+ * OTHER one. Returns true if the non-zero label is the subject to keep.
+ */
+function subjectIsNonZero(mask: Uint8Array, mw: number, mh: number): boolean {
+  let nonZero = 0;
+  let borderNonZero = 0;
+  let borderTotal = 0;
+  for (let y = 0; y < mh; y++) {
+    const onVBorder = y === 0 || y === mh - 1;
+    for (let x = 0; x < mw; x++) {
+      const isBorder = onVBorder || x === 0 || x === mw - 1;
+      const nz = mask[y * mw + x] !== 0;
+      if (nz) nonZero++;
+      if (isBorder) {
+        borderTotal++;
+        if (nz) borderNonZero++;
+      }
+    }
+  }
+  const total = mw * mh;
+  const zero = total - nonZero;
+  // Fraction of the BORDER ring occupied by each label.
+  const borderNonZeroFrac = borderTotal ? borderNonZero / borderTotal : 0;
+  const borderZeroFrac = 1 - borderNonZeroFrac;
+  // The background is the label that fills most of the border. Keep the other.
+  // Tie-break (rare) toward the conventional person=non-zero so normal selfies
+  // are unaffected.
+  if (Math.abs(borderNonZeroFrac - borderZeroFrac) < 0.02) {
+    // Border is split — fall back to "subject is the smaller region" (a subject
+    // rarely fills more than the background), defaulting to non-zero on a tie.
+    return nonZero <= zero;
+  }
+  return borderNonZeroFrac < borderZeroFrac;
+}
+
 async function loadSelfieSegmenter() {
   if (modelPromise) return modelPromise;
   const p = (async () => {
@@ -37,6 +81,16 @@ export async function removeBackgroundAuto(src: HTMLCanvasElement, onProgress?: 
   const maskData: Uint8Array = mask.getAsUint8Array();
   const mw = mask.width, mh = mask.height;
 
+  // Decide which mask label is the SUBJECT (keep) vs BACKGROUND (cut). The selfie
+  // segmenter usually labels person=non-zero, background=0 — but the labels can
+  // be flipped depending on the model build, and on non-selfie content the model
+  // can confidently mislabel, producing the catastrophic "erased the subject,
+  // kept the background" inversion the audit caught. So instead of trusting a
+  // fixed label we use a robust prior: the BACKGROUND is the region that hugs the
+  // image borders. We measure how much each label touches the border vs the
+  // interior and keep whichever label is more "central".
+  const keepNonZero = subjectIsNonZero(maskData, mw, mh);
+
   onProgress?.('Compositing…', 0.85);
   const out = document.createElement('canvas');
   out.width = src.width;
@@ -51,9 +105,10 @@ export async function removeBackgroundAuto(src: HTMLCanvasElement, onProgress?: 
     for (let x = 0; x < src.width; x++) {
       const mx = Math.min(mw - 1, Math.floor(x * sx));
       const my = Math.min(mh - 1, Math.floor(y * sy));
-      const cat = maskData[my * mw + mx];
+      const isNonZero = maskData[my * mw + mx] !== 0;
+      const isSubject = keepNonZero ? isNonZero : !isNonZero;
       const o = (y * src.width + x) * 4;
-      if (cat === 0) img.data[o + 3] = 0;
+      if (!isSubject) img.data[o + 3] = 0;
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -75,10 +130,12 @@ export async function findSubjectCenter(src: HTMLCanvasElement): Promise<{ cx: n
   if (!mask) return null;
   const data: Uint8Array = mask.getAsUint8Array();
   const mw = mask.width, mh = mask.height;
+  const keepNonZero = subjectIsNonZero(data, mw, mh);
   let sx = 0, sy = 0, n = 0, minX = mw, minY = mh, maxX = 0, maxY = 0;
   for (let y = 0; y < mh; y++) {
     for (let x = 0; x < mw; x++) {
-      if (data[y * mw + x] !== 0) { // foreground
+      const isNonZero = data[y * mw + x] !== 0;
+      if (keepNonZero ? isNonZero : !isNonZero) { // foreground
         sx += x; sy += y; n++;
         if (x < minX) minX = x; if (x > maxX) maxX = x;
         if (y < minY) minY = y; if (y > maxY) maxY = y;
@@ -106,6 +163,8 @@ export async function subjectMask(src: HTMLCanvasElement, onProgress?: ProgressF
   if (!mask) return null;
   const maskData: Uint8Array = mask.getAsUint8Array();
   const mw = mask.width, mh = mask.height;
+  // Same border-based anti-inversion guard as removeBackgroundAuto.
+  const keepNonZero = subjectIsNonZero(maskData, mw, mh);
 
   const out = document.createElement('canvas');
   out.width = src.width;
@@ -119,7 +178,9 @@ export async function subjectMask(src: HTMLCanvasElement, onProgress?: ProgressF
       const mx = Math.min(mw - 1, Math.floor(x * sx));
       const my = Math.min(mh - 1, Math.floor(y * sy));
       const o = (y * src.width + x) * 4;
-      if (maskData[my * mw + mx] !== 0) { // foreground
+      const isNonZero = maskData[my * mw + mx] !== 0;
+      const isSubject = keepNonZero ? isNonZero : !isNonZero;
+      if (isSubject) { // foreground
         img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
         img.data[o + 3] = 255;
         fg++;

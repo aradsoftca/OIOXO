@@ -959,6 +959,19 @@ export default function SubtitleStudioPro() {
                   <audio ref={audioRef} src={mediaUrl} />
                   Audio loaded — see waveform below
                 </div>
+              ) : doc.cues.length > 0 ? (
+                // Cues exist but no media yet: the cues ARE the content now, so don't
+                // dominate with the full "import media first" hero (it read as empty
+                // even after a successful SRT import). Show a compact prompt to add a
+                // video/audio for visual preview; the cue list/timeline below is live.
+                <button
+                  onClick={() => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'video/*,audio/*'; i.onchange = () => i.files && importMedia(i.files); i.click(); }}
+                  className="flex h-40 w-full max-w-[640px] flex-col items-center justify-center gap-2 rounded border border-dashed border-white/10 bg-black/30 text-zinc-400 transition hover:border-cyan-400/40 hover:text-zinc-200"
+                >
+                  <Upload className="h-6 w-6" />
+                  <span className="text-sm font-medium">{doc.cues.length} cue{doc.cues.length === 1 ? '' : 's'} loaded — add a video or audio to preview</span>
+                  <span className="text-[11px] text-zinc-500">Editing works without media; import to see captions on the frame</span>
+                </button>
               ) : (
                 <div className="w-full max-w-[640px] rounded border border-dashed border-white/10">
                   <EmptyState

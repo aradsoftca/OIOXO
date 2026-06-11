@@ -246,7 +246,11 @@ export default function Tool() {
         </div>
       )}
 
-      {/* ── Preview ── */}
+      {/* ── Preview ── (the invoice is a fixed paper layout; on a narrow phone its
+          line-item table is a few px wider than the column, so let the paper scroll
+          horizontally within this wrapper instead of pushing the whole page. The
+          previewRef stays the inner paper so html2canvas export is unaffected.) */}
+      <div className="overflow-x-auto">
       <div ref={previewRef} className="border border-black/[0.08] bg-white shadow-sm" style={{ fontFamily: "'Inter', system-ui, sans-serif", color: '#1a1a1a' }}>
         {d.template === 'clean' && (
           <div className="p-8 md:p-10">
@@ -324,6 +328,7 @@ export default function Tool() {
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

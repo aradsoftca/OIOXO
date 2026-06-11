@@ -32,11 +32,15 @@
   "include": [
     "**/*.ts",
     "**/*.tsx",
+    ".next-citest/types/**/*.ts",
+    ".next-zdtest/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-zdtest/types/**/*.ts"
+    ".next-dbg/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/_*.ts",
+    "**/_*.tsx"
   ]
 }

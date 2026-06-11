@@ -1,6 +1,13 @@
 import { blankCanvas, cloneCanvas, hexToRgb, rgbToHex } from './canvas';
 
-export function autoEnhance(src: HTMLCanvasElement): HTMLCanvasElement {
+export interface EnhanceResult {
+  canvas: HTMLCanvasElement;
+  /** 0 = identity (already perfect), ~1 = heavy correction. Lets the UI say
+   *  "Already well-balanced" instead of a misleading "Enhanced" on a no-op. */
+  magnitude: number;
+}
+
+export function autoEnhance(src: HTMLCanvasElement): EnhanceResult {
   const w = src.width, h = src.height;
   const out = blankCanvas(w, h);
   const ctx = out.getContext('2d')!;
@@ -60,7 +67,16 @@ export function autoEnhance(src: HTMLCanvasElement): HTMLCanvasElement {
   sctx.filter = 'contrast(102%)';
   sctx.drawImage(out, 0, 0);
   sctx.filter = 'none';
-  return sharp;
+
+  // How far from identity was the correction? Levels stretch away from the full
+  // 0..255 range and white-balance away from 1.0 are the two adjustments; combine
+  // them into a single 0..~1 magnitude so the UI can be honest about "no-op"s.
+  const levelDev =
+    (Math.abs(rMin) + (255 - rMax) + Math.abs(gMin) + (255 - gMax) + Math.abs(bMin) + (255 - bMax)) / (6 * 255);
+  const wbDev = (Math.abs(wbR - 1) + Math.abs(wbG - 1) + Math.abs(wbB - 1)) / 3;
+  const magnitude = Math.min(1, levelDev * 1.5 + wbDev * 2);
+
+  return { canvas: sharp, magnitude };
 }
 
 export function extractPalette(src: HTMLCanvasElement, k = 6): string[] {

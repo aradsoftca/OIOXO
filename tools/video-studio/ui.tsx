@@ -386,13 +386,20 @@ export default function VideoStudioPro() {
         // leak the URL — the cleanup loop at the bottom only sees URLs
         // already pushed to media state.
         let adopted = false;
+        // Allocate the media id ONCE, up front, and use the SAME id for both the
+        // WebCodecs player clip and the media item. Previously the player got
+        // `M${_id+1}` before an awaited addClip() and the media item got
+        // `M${++_id}` after — if `_id` moved during the await (another import,
+        // a text-clip tid(), or a StrictMode double-invoke) the two diverged, so
+        // hasClip(item.id) was false and the preview silently fell back / drew
+        // BLACK. Pinning the id removes that race.
+        const mediaId = `M${++_id}`;
         try {
         let duration = 0, width = 0, height = 0;
         if (kind === 'video') {
           try {
             if (!playerRef.current) playerRef.current = new WebCodecsPlayer();
-            const playerId = `M${_id + 1}`;
-            const info = await playerRef.current.addClip(playerId, f);
+            const info = await playerRef.current.addClip(mediaId, f);
             if (info) {
               duration = info.duration;
               width = info.width;
@@ -419,7 +426,7 @@ export default function VideoStudioPro() {
         }
         const thumb = kind === 'video' ? await makeThumb(f) : kind === 'image' ? url : undefined;
         next.push({
-          id: `M${++_id}`,
+          id: mediaId,
           file: f, name: f.name, kind,
           duration, width, height, thumb, url,
         });
@@ -745,8 +752,13 @@ export default function VideoStudioPro() {
     const lowTier = device.current.tier === 'low';
     const maxW = lowTier ? Math.min(doc.width, 1280) : doc.width;
     const scale = maxW / doc.width;
-    c.width = Math.round(doc.width * scale);
-    c.height = Math.round(doc.height * scale);
+    const cw = Math.round(doc.width * scale);
+    const ch = Math.round(doc.height * scale);
+    // Only reassign width/height when they actually change — assigning canvas.width
+    // CLEARS the canvas, so doing it every draw wiped any async video frame that
+    // had just landed (decode resolves after this sync pass), leaving the preview
+    // black. Clearing via fillRect each pass is enough.
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
     const ctx = c.getContext('2d')!;
     ctx.fillStyle = doc.background;
     ctx.fillRect(0, 0, c.width, c.height);

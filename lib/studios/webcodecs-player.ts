@@ -44,9 +44,17 @@ export class WebCodecsPlayer {
     v.preload = 'auto';
     v.crossOrigin = 'anonymous';
     await new Promise<void>((res) => {
-      v.onloadedmetadata = () => res();
-      v.onerror = () => res();
-      setTimeout(res, 4000);
+      // Wait for loadeddata (a decoded frame), not just metadata, so the very
+      // first frameAt() has something to draw — otherwise the preview is black
+      // until the element lazily buffers. loadedmetadata still resolves us (with
+      // a nudge below) so we never hang on audio-less/odd files.
+      let settled = false;
+      const done = () => { if (settled) return; settled = true; res(); };
+      v.onloadeddata = done;
+      v.oncanplay = done;
+      v.onloadedmetadata = () => { try { v.currentTime = 0.001; } catch { /* ignore */ } };
+      v.onerror = done;
+      setTimeout(done, 4000);
     });
     const width = v.videoWidth || 0;
     const height = v.videoHeight || 0;
@@ -98,15 +106,45 @@ export class WebCodecsPlayer {
     }
     c.inflight = true;
     try {
+      // STEP 1 — ensure the element has actually buffered a frame to draw. A fresh
+      // <video> created in addClip() only waited for 'loadedmetadata' (dimensions),
+      // so readyState can be 1 (HAVE_METADATA) with NO decoded frame. Drawing then
+      // yields BLACK. Wait for HAVE_CURRENT_DATA (>=2), nudging currentTime to kick
+      // the decoder if it's lazy (mirrors the proven makeThumb sequence). This is
+      // what fixes the permanent black preview at t=0.
+      if (v.readyState < 2) {
+        await new Promise<void>((res) => {
+          let settled = false;
+          const done = () => { if (settled) return; settled = true; cleanup(); res(); };
+          const cleanup = () => {
+            v.removeEventListener('loadeddata', done);
+            v.removeEventListener('canplay', done);
+            v.removeEventListener('seeked', done);
+          };
+          v.addEventListener('loadeddata', done);
+          v.addEventListener('canplay', done);
+          v.addEventListener('seeked', done);
+          // Nudge the decoder: a tiny non-zero seek forces frame production on
+          // browsers that don't decode until played.
+          try { v.currentTime = Math.min(c.duration || 0.001, 0.001); } catch { /* ignore */ }
+          setTimeout(done, 2000);
+        });
+      }
+
+      // STEP 2 — seek to the requested time and wait for the frame to land.
       const target = Math.max(0, Math.min(c.duration, key));
       if (Math.abs(v.currentTime - target) > 0.04) {
         try { v.currentTime = target; } catch { c.inflight = false; return null; }
         await new Promise<void>((res) => {
-          const onSeek = () => { v.removeEventListener('seeked', onSeek); res(); };
-          v.addEventListener('seeked', onSeek);
-          setTimeout(res, 200);
+          let settled = false;
+          const done = () => { if (settled) return; settled = true; v.removeEventListener('seeked', done); res(); };
+          v.addEventListener('seeked', done);
+          setTimeout(done, 1500);
         });
       }
+
+      // STEP 3 — grab the frame. If the element STILL isn't decodable, return null
+      // and let a later playhead move / RAF retry (no longer the common case).
       if (v.readyState < 2) return null;
       let bitmap: ImageBitmap | null = null;
       try { bitmap = await createImageBitmap(v); } catch { return null; }

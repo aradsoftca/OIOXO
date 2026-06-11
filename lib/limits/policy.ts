@@ -105,7 +105,7 @@ const CATEGORY_POLICIES: ToolPolicy[] = [
   {
     key: 'image', displayName: 'Image tools', tier: 'top-of-funnel',
     levers: [
-      { type: 'count-day', free: 5, label: 'Daily uses', response: 'block' },
+      { type: 'count-day', free: 10, label: 'Daily uses', response: 'block' },
       { type: 'input-size', free: 25 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'output-resolution', free: 4096, pro: 16384, unit: 'p', label: 'Max output resolution', response: 'degrade' },
       { type: 'batch', free: 10, label: 'Batch size', response: 'block' },
@@ -116,7 +116,7 @@ const CATEGORY_POLICIES: ToolPolicy[] = [
   {
     key: 'audio', displayName: 'Audio tools', tier: 'top-of-funnel',
     levers: [
-      { type: 'count-day', free: 3, label: 'Daily uses', response: 'block' },
+      { type: 'count-day', free: 10, label: 'Daily uses', response: 'block' },
       { type: 'input-size', free: 50 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'input-duration', free: 10 * 60, unit: 'min', label: 'Max audio length', response: 'block' },
       { type: 'output-bitrate', free: 192, pro: 320, unit: 'kbps', label: 'Max export bitrate', response: 'degrade' },
@@ -128,7 +128,7 @@ const CATEGORY_POLICIES: ToolPolicy[] = [
   {
     key: 'video', displayName: 'Video tools', tier: 'standard',
     levers: [
-      { type: 'count-day', free: 2, label: 'Daily exports', response: 'block' },
+      { type: 'count-day', free: 3, label: 'Daily exports', response: 'block' },
       { type: 'input-size', free: 100 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'input-duration', free: 3 * 60, unit: 'min', label: 'Max input length', response: 'block' },
       { type: 'output-resolution', free: 720, pro: 2160, unit: 'p', label: 'Max output resolution', response: 'degrade' },
@@ -141,7 +141,7 @@ const CATEGORY_POLICIES: ToolPolicy[] = [
   {
     key: 'pdf', displayName: 'PDF tools', tier: 'standard',
     levers: [
-      { type: 'count-day', free: 2, label: 'Daily uses', response: 'block' },
+      { type: 'count-day', free: 10, label: 'Daily uses', response: 'block' },
       { type: 'input-size', free: 30 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'pages', free: 100, unit: 'pages', label: 'Max pages', response: 'block' },
     ],
@@ -371,7 +371,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'image-ocr', displayName: 'Image OCR', tier: 'standard',
     levers: [
-      { type: 'count-day', free: 3, label: 'Daily OCR runs', response: 'block' },
+      { type: 'count-day', free: 10, label: 'Daily OCR runs', response: 'block' },
       { type: 'input-size', free: 10 * 1024 * 1024, unit: 'MB', label: 'Max image size', response: 'block' },
       { type: 'ai-minutes-day', free: 5, pro: 240, unit: 'min', label: 'Daily OCR minutes', response: 'block' },
     ],
@@ -391,7 +391,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'image-remove-bg', displayName: 'Background remover', tier: 'top-of-funnel',
     levers: [
-      { type: 'count-day', free: 5, label: 'Daily uses', response: 'block' },
+      { type: 'count-day', free: 3, label: 'Daily uses', response: 'block' },
       { type: 'input-size', free: 15 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
     ],
     watermarkFree: true,
@@ -428,7 +428,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'image-doc-scan', displayName: 'Document Scan', tier: 'standard',
     levers: [
-      { type: 'count-day', free: 3, label: 'Daily scans', response: 'block' },
+      { type: 'count-day', free: 5, label: 'Daily scans', response: 'block' },
       { type: 'batch', free: 5, label: 'Batch pages', response: 'block' },
     ],
     watermarkFree: true,
@@ -453,7 +453,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'image-batch-resize', displayName: 'Batch Image Resize', tier: 'top-of-funnel',
     levers: [
-      { type: 'count-day', free: 3, label: 'Daily batches', response: 'block' },
+      { type: 'count-day', free: 5, label: 'Daily batches', response: 'block' },
       { type: 'batch', free: 10, pro: 1000, label: 'Files per batch', response: 'block' },
       { type: 'input-size', free: 25 * 1024 * 1024, unit: 'MB', label: 'Max per file', response: 'block' },
     ],
@@ -473,7 +473,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'image-batch-convert', displayName: 'Batch Image Convert', tier: 'top-of-funnel',
     levers: [
-      { type: 'count-day', free: 3, label: 'Daily batches', response: 'block' },
+      { type: 'count-day', free: 5, label: 'Daily batches', response: 'block' },
       { type: 'batch', free: 10, pro: 1000, label: 'Files per batch', response: 'block' },
       { type: 'input-size', free: 25 * 1024 * 1024, unit: 'MB', label: 'Max per file', response: 'block' },
     ],
@@ -658,7 +658,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'pdf-ocr', displayName: 'PDF OCR', tier: 'standard',
     levers: [
-      { type: 'count-day', free: 2, label: 'Daily OCR runs', response: 'block' },
+      { type: 'count-day', free: 10, label: 'Daily OCR runs', response: 'block' },
       { type: 'input-size', free: 20 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'pages', free: 30, unit: 'pages', label: 'Max pages', response: 'block' },
       { type: 'ai-minutes-day', free: 10, pro: 240, unit: 'min', label: 'Daily OCR minutes', response: 'block' },
@@ -731,7 +731,7 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'translate-studio', displayName: 'Translation Studio', tier: 'sample-only',
     levers: [
-      { type: 'count-day', free: 3, label: 'Daily exports', response: 'block' },
+      { type: 'count-day', free: 5, label: 'Daily exports', response: 'block' },
       { type: 'ai-minutes-day', free: 10, pro: 240, unit: 'min', label: 'Daily AI minutes', response: 'block' },
       { type: 'pages', free: 20, unit: 'pages', label: 'Max document size', response: 'block' },
     ],

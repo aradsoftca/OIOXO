@@ -685,7 +685,12 @@ export default function PdfStudioPro() {
     try {
       const bytes = sources[selPage.srcId];
       if (!bytes) return;
-      const { default: pdfjsLib } = await import(/* webpackIgnore: false */ 'pdfjs-dist') as any;
+      // pdfjs-dist exports its API as NAMED exports on the module namespace —
+      // there is NO `default`. Destructuring `{ default: pdfjsLib }` gave undefined
+      // and getDocument threw "Cannot read properties of undefined", silently
+      // killing Smart Redact (and edit-text). Use the namespace, like every other
+      // pdf.js caller in the repo (engines/pdf, pdf-mastery, doctranslate).
+      const pdfjsLib: any = await import('pdfjs-dist');
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
       const pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
       const page = await pdfDoc.getPage(selPage.srcIndex + 1);
@@ -750,7 +755,9 @@ export default function PdfStudioPro() {
     if (!bytes) return;
     setBusy('Reading text…');
     try {
-      const { default: pdfjsLib } = await import('pdfjs-dist') as any;
+      // Namespace import — pdfjs-dist has no `default` export (see the Smart Redact
+      // fix above). The old `{ default: pdfjsLib }` was undefined → getDocument threw.
+      const pdfjsLib: any = await import('pdfjs-dist');
       try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
       const pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
       const page = await pdfDoc.getPage(selPage.srcIndex + 1);

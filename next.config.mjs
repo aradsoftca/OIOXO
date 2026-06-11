@@ -130,7 +130,11 @@ const nextConfig = {
   outputFileTracingRoot: PKG_ROOT,
   turbopack: { root: PKG_ROOT },
   experimental: {
-    webpackBuildWorker: true,
+    // The webpack build worker parallelizes compilation but spawns extra Node
+    // workers that can OOM / stack-overflow-crash (exit 0xC0000409) on
+    // memory-constrained build machines. Allow opting out via env so a low-RAM
+    // box can still produce a build (set DISABLE_WEBPACK_BUILD_WORKER=1).
+    webpackBuildWorker: process.env.DISABLE_WEBPACK_BUILD_WORKER !== '1',
   },
   // WASM and worker bundling
   webpack: (config, { dev, isServer, webpack }) => {

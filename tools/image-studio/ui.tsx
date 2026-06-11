@@ -582,17 +582,24 @@ export default function ImageStudioPro() {
     force();
   }, []);
 
+  // Undo/redo/jump restore a layer's CANVAS PIXELS to an earlier state, but the
+  // composite cache is keyed by (layerId, hash) where the hash captures props
+  // (opacity/adjust/transform/rev) — NOT the pixel content. After an undo the
+  // reverted pixels can collide with a still-cached post-edit composite, so the
+  // canvas showed the OLD pixels while the doc state was reverted — the "hybrid
+  // state" the audit hit. Clearing the cache forces a clean re-render from the
+  // restored canvases.
   const undo = () => {
     const prev = stack.current.undo(cloneDoc(doc));
-    if (prev) { setDoc(prev); force(); }
+    if (prev) { cacheRef.current.clear(); setDoc(prev); force(); }
   };
   const redo = () => {
     const next = stack.current.redo();
-    if (next) { setDoc(next); force(); }
+    if (next) { cacheRef.current.clear(); setDoc(next); force(); }
   };
   const jumpHistory = (index: number) => {
     const target = stack.current.jumpTo(index, cloneDoc(doc));
-    if (target) { setDoc(target); force(); }
+    if (target) { cacheRef.current.clear(); setDoc(target); force(); }
   };
 
   const [tool, setTool] = React.useState<ToolKind>('move');
@@ -1186,7 +1193,7 @@ export default function ImageStudioPro() {
     setBusy('Enhancing…');
     try {
       const src = getCanvasOf(target)!;
-      const result = autoEnhance(src);
+      const { canvas: result, magnitude } = autoEnhance(src);
       const next = cloneDoc(doc);
       const idx = next.layers.findIndex(l => l.id === target.id);
       if (idx >= 0) {
@@ -1194,7 +1201,10 @@ export default function ImageStudioPro() {
         if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = result;
       }
       commit('auto enhance', next);
-      toastFor('Enhanced');
+      // Be honest about no-ops: a near-perfect photo gets a near-identity result,
+      // so don't claim a big "Enhanced!" win the user can't see.
+      if (magnitude < 0.04) toastFor('Already well-balanced — applied a light touch-up');
+      else toastFor('Enhanced ✓');
     } finally { setBusy(''); }
   };
 

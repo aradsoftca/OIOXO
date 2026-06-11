@@ -46,6 +46,29 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
  * surgical studio cases (e.g. 'studio-invoice'). The modal still renders using
  * the key's display category.
  */
+// When /api/usage is briefly unreachable (a transient network blip, a flaky
+// connection, an ad-blocker that intermittently trips), hard-blocking a FREE
+// user mid-task is hostile — they did nothing wrong and lose their work-in-flight.
+// But always failing OPEN would let someone farm unlimited use by blocking the
+// endpoint. The balance: grant a small number of consecutive GRACE uses on
+// transient failure, then fall closed. A single successful check resets the
+// counter, so only sustained evasion ever hits the wall. Persisted across
+// reloads so the grace budget can't be reset by refreshing.
+const GRACE_KEY = 'xv:usage-grace-fails';
+const MAX_GRACE = 2;
+function readGraceFails(): number {
+  try { return Math.max(0, parseInt(localStorage.getItem(GRACE_KEY) || '0', 10) || 0); }
+  catch { return 0; }
+}
+function bumpGraceFails(): number {
+  const n = readGraceFails() + 1;
+  try { localStorage.setItem(GRACE_KEY, String(n)); } catch { /* ignore */ }
+  return n;
+}
+function resetGraceFails(): void {
+  try { localStorage.removeItem(GRACE_KEY); } catch { /* ignore */ }
+}
+
 export function useUsageGate(key: string) {
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [seconds, setSeconds] = React.useState(0);
@@ -174,19 +197,30 @@ export function useUsageGate(key: string) {
     try {
       r = await postJson<UsageResponse>('/api/usage', { category: key, action: 'consume' });
     } catch {
-      // FAIL-CLOSED for free / FAIL-OPEN for Pro (cached entitlement) — same policy
-      // as the global interceptor: no unlimited free use by blocking the endpoint.
+      // Pro fails OPEN (cached entitlement). Free gets a small GRACE budget so a
+      // transient blip / intermittent ad-blocker doesn't brick a user mid-task —
+      // then falls closed so the endpoint can't be blocked to farm unlimited use.
       let pro = false;
       try { const { isWatermarkOn } = await import('@/lib/watermark/config'); pro = !(await isWatermarkOn()); }
       catch { /* unknown → treat as free */ }
       if (pro) return true;
-      // A blocked/failed quota check must never look like a dead button — tell
-      // the user what happened (ad-blockers blocking /api/usage land here too).
+      const fails = bumpGraceFails();
+      if (fails <= MAX_GRACE) {
+        // Let this one through; the next successful check resets the budget.
+        armDownloadBypass();
+        return true;
+      }
+      // Repeated failures = sustained evasion or a real outage — surface the
+      // gate (and tell the user what happened; ad-blockers blocking /api/usage
+      // land here too) instead of silently granting forever.
       return new Promise<boolean>((resolve) => {
         resolver.current = resolve;
         setPhase('error');
       });
     }
+    // A successful check means the endpoint is reachable again — clear any grace
+    // debt so a future transient blip gets the full budget again.
+    resetGraceFails();
     if (r.allowed) { armDownloadBypass(); return true; }
     if (r.gate === 'rewarded') {
       await postJson('/api/usage/reward', { category: key, action: 'start' });

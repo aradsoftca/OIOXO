@@ -10,6 +10,7 @@ import { buildRichPage } from '@/lib/seo/content';
 import { RichToolSection } from '@/components/seo/RichToolSection';
 import { PolicyHint } from '@/components/limits/PolicyHint';
 import { ClientOnly } from '@/components/tool/ClientOnly';
+import { ChunkErrorBoundary } from '@/components/tool/ChunkErrorBoundary';
 import { FULLSCREEN_STUDIO_IDS } from '@/lib/studios/fullscreen';
 
 function findRelated(toolId: string, category: string, limit = 6) {
@@ -601,7 +602,9 @@ export default async function ToolPage({ params }: Props) {
           }
         >
           <ClientOnly fallback={studioLoading()}>
-            <ToolUI />
+            <ChunkErrorBoundary fallback={studioLoading()}>
+              <ToolUI />
+            </ChunkErrorBoundary>
           </ClientOnly>
         </StudioFrame>
         {jsonLd}
@@ -613,7 +616,9 @@ export default async function ToolPage({ params }: Props) {
     <ToolFrame tool={tool}>
       <PolicyHint toolKey={tool.id} fallbackKey={tool.category} />
       <ClientOnly>
-        <ToolUI />
+        <ChunkErrorBoundary>
+          <ToolUI />
+        </ChunkErrorBoundary>
       </ClientOnly>
       <RichToolSection tool={tool} page={page} related={related} />
       {jsonLd}

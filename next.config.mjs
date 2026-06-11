@@ -1,7 +1,18 @@
 import { createRequire } from 'module';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 // CommonJS deps loaded lazily inside the (ESM) config.
 const require = createRequire(import.meta.url);
+
+// This package's directory. An UNRELATED npm project at D:\appz (its own
+// package-lock.json + node_modules with different lucide-react/react versions)
+// makes Next 15 infer D:\appz as the monorepo root, so newxonvert's webpack/
+// turbopack resolve shared deps from the wrong node_modules → a corrupted dev
+// module graph ("Cannot read properties of undefined (reading 'call')",
+// "__webpack_require__.n is not a function", blank page). Pinning the root to
+// THIS dir makes resolution stay inside newxonvert.
+const PKG_ROOT = dirname(fileURLToPath(import.meta.url));
 
 // Set NEXT_BASE_PATH=/xonvert at build time when deploying behind the subpath
 // on Iceland (http://194.247.182.248/xonvert/). Leave empty for local dev.
@@ -113,6 +124,11 @@ const nextConfig = {
       { source: '/gif.worker.js', headers: immutable },
     ];
   },
+  // Pin the workspace root so the unrelated D:\appz project can't hijack module
+  // resolution. `outputFileTracingRoot` covers webpack; `turbopack.root` covers
+  // the Turbopack dev path. Both point at this package.
+  outputFileTracingRoot: PKG_ROOT,
+  turbopack: { root: PKG_ROOT },
   experimental: {
     webpackBuildWorker: true,
   },
@@ -132,6 +148,15 @@ const nextConfig = {
       path: false,
       crypto: false,
     };
+    // Resolve modules from THIS package's node_modules first, before walking up
+    // to the unrelated D:\appz project. Without this, shared deps (lucide-react,
+    // react, react-error-boundary…) can resolve to D:\appz\node_modules at the
+    // wrong version and corrupt the dev chunk graph.
+    config.resolve.modules = [
+      `${PKG_ROOT}/node_modules`,
+      'node_modules',
+      ...(config.resolve.modules || []),
+    ];
 
     // --- ownership protection (client bundles only) ---
     if (!isServer && !dev) {

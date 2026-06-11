@@ -8,7 +8,7 @@ import { benefitsForKey } from '@/lib/usage/benefits';
 import { DISPLAY_PRICING } from '@/lib/stripe';
 import { armDownloadBypass } from '@/lib/usage/gate-bridge';
 
-type Phase = 'idle' | 'reward' | 'paywall' | 'size';
+type Phase = 'idle' | 'reward' | 'paywall' | 'size' | 'error';
 
 /** File-size context shown in the 'size' phase of the gate. */
 export interface SizeContext { bytes: number; cap: number }
@@ -176,8 +176,16 @@ export function useUsageGate(key: string) {
     } catch {
       // FAIL-CLOSED for free / FAIL-OPEN for Pro (cached entitlement) — same policy
       // as the global interceptor: no unlimited free use by blocking the endpoint.
-      try { const { isWatermarkOn } = await import('@/lib/watermark/config'); return !(await isWatermarkOn()); }
-      catch { return false; }
+      let pro = false;
+      try { const { isWatermarkOn } = await import('@/lib/watermark/config'); pro = !(await isWatermarkOn()); }
+      catch { /* unknown → treat as free */ }
+      if (pro) return true;
+      // A blocked/failed quota check must never look like a dead button — tell
+      // the user what happened (ad-blockers blocking /api/usage land here too).
+      return new Promise<boolean>((resolve) => {
+        resolver.current = resolve;
+        setPhase('error');
+      });
     }
     if (r.allowed) { armDownloadBypass(); return true; }
     if (r.gate === 'rewarded') {
@@ -260,12 +268,36 @@ export function GateModal({
               {meta.name}
             </div>
             <h2 className="text-[19px] font-semibold tracking-tight text-[var(--color-fg)]">
-              {phase === 'reward' ? 'One more, on us' : phase === 'size' ? 'File over the free size limit' : 'Daily free limit reached'}
+              {phase === 'reward' ? 'One more, on us' : phase === 'size' ? 'File over the free size limit' : phase === 'error' ? "Couldn't check your free quota" : 'Daily free limit reached'}
             </h2>
           </div>
         </div>
 
-        {phase === 'size' ? (
+        {phase === 'error' ? (
+          <div className="px-6 py-5">
+            <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
+              The free-quota check didn&apos;t go through — this is usually a network hiccup,
+              or an ad-blocker blocking the request. Allow this site (or pause the blocker)
+              and try again. Pro skips quota checks entirely.
+            </p>
+            <Benefits />
+            <Link
+              href="/pricing"
+              className="mt-4 flex items-center justify-center gap-2 py-3 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110"
+              style={{ background: color }}
+            >
+              <Crown className="h-3.5 w-3.5" /> Go Pro — no quota checks
+            </Link>
+            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="mt-2 w-full py-2 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
+            >
+              Close and try again
+            </button>
+          </div>
+        ) : phase === 'size' ? (
           <div className="px-6 py-5">
             <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
               This file is {sizeCtx ? <strong className="text-[var(--color-fg)]">{formatBytes(sizeCtx.bytes)}</strong> : 'larger than'}, but

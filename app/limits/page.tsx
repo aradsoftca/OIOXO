@@ -59,7 +59,7 @@ export default function LimitsPage() {
                       <span className="h-2.5 w-2.5" style={{ background: color }} /> {meta.name}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-[var(--color-fg-muted)]">{perDay} free, then +1 after a short wait</td>
+                  <td className="px-4 py-3 text-[var(--color-fg-muted)]">{perDay >= 9999 ? 'Unlimited — no daily cap' : `${perDay} free, then +1 after a short wait`}</td>
                   <td className="px-4 py-3 text-[var(--color-fg-muted)]">up to {formatBytes(cap)}</td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-1.5 font-medium text-[var(--color-fg)]">

@@ -11,7 +11,15 @@ import { retrieveContext, type RetrievedContext } from './retrieve';
 import { applyPatchReply } from './patch';
 
 // The skill model match (resolved against web-llm's live catalog by substring).
-const CODER = ['Qwen2.5-Coder', 'Coder', 'Qwen2.5'];
+// CODE-ONLY: match a Coder model, but do NOT fall back to plain 'Qwen2.5' — that
+// substring matches the GENERAL Qwen2.5-0.5B-Instruct (skills.ts), which is weaker
+// at code. Falling through to it silently degraded the WebGPU coder path to a
+// non-coder model on devices where only the general model was cached. resolveModelId
+// returns the first CATALOG entry matching any of these, so a Coder of whatever size
+// the catalog offers is chosen; the CPU/WASM fallback already pins the 0.5B Coder
+// (runtime CODER_WASM). The general model is used only when the user explicitly picks
+// the 'Basic' skill tier — never as a hidden coder substitute.
+const CODER = ['Qwen2.5-Coder', 'Coder'];
 
 // No fill-in slots: a tiny model copies a `<full file contents>` placeholder
 // verbatim, so the format is taught with a COMPLETE example instead (see the

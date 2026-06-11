@@ -642,10 +642,22 @@ export const VIDEO_TEMPLATES: VideoTemplate[] = [
   },
 ];
 
+// Escape the five XML predefined entities so a template name with & < > etc.
+// can't produce invalid SVG (which renders blank).
+function xmlEscape(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
 export function generateThumbSvg(template: VideoTemplate): string {
   const [c1, c2, c3] = template.thumbColors;
   const isVertical = template.resolution.h > template.resolution.w;
   const w = 320, h = isVertical ? 180 * (template.resolution.h / template.resolution.w) : 180;
+  const title = template.name.toUpperCase();
+  // Fit the title to the thumbnail width: a 900-weight uppercase glyph averages
+  // ~0.62em wide, so size it so the whole name fits in ~88% of the width, then
+  // clamp. Fixes long names ("INSTAGRAM REEL — CINEMATIC") clipping off both
+  // edges, while short names keep the bold 26px look.
+  const fontSize = Math.max(12, Math.min(26, (w * 0.88) / Math.max(1, title.length * 0.62)));
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
     <defs>
       <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -656,7 +668,7 @@ export function generateThumbSvg(template: VideoTemplate): string {
     </defs>
     <rect width="${w}" height="${h}" fill="url(#g)" />
     <rect width="${w}" height="${h * 0.18}" y="${h * 0.82}" fill="rgba(0,0,0,.45)" />
-    <text x="${w / 2}" y="${h * 0.5}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="${Math.min(w / 8, 26)}" fill="#fff" stroke="#000" stroke-width="0.6" paint-order="stroke fill">${template.name.toUpperCase()}</text>
+    <text x="${w / 2}" y="${h * 0.5}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="${fontSize.toFixed(1)}" fill="#fff" stroke="#000" stroke-width="0.6" paint-order="stroke fill">${xmlEscape(title)}</text>
     <text x="${w / 2}" y="${h * 0.93}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="rgba(255,255,255,.85)">${template.duration}s · ${template.resolution.w}×${template.resolution.h}</text>
   </svg>`;
 }

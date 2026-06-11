@@ -2296,7 +2296,7 @@ function TemplatesGallery({ activeCategory, onCategory, onPick, onClose }: {
               >
                 <div
                   className="relative h-32 w-full"
-                  style={{ backgroundImage: `url(${thumbDataUri(t)})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+                  style={{ backgroundImage: `url("${thumbDataUri(t)}")`, backgroundSize: 'cover', backgroundPosition: 'center' }}
                 >
                   <div className="absolute right-2 top-2 rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-bold text-white">
                     {t.resolution.h > t.resolution.w ? '9:16' : t.resolution.h === t.resolution.w ? '1:1' : '16:9'}

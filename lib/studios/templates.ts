@@ -662,5 +662,19 @@ export function generateThumbSvg(template: VideoTemplate): string {
 }
 
 export function thumbDataUri(template: VideoTemplate): string {
-  return `data:image/svg+xml;utf8,${encodeURIComponent(generateThumbSvg(template))}`;
+  const svg = generateThumbSvg(template);
+  // Base64 (UTF-8 safe) rather than `;utf8,` + encodeURIComponent: the latter
+  // leaves `#`, `(`, `)` unescaped which, inside an unquoted CSS `url(...)`,
+  // makes the whole `background-image` value invalid → the browser drops it and
+  // the thumbnail renders blank black. Base64 has no chars that break CSS url().
+  let b64: string;
+  try {
+    b64 = typeof window !== 'undefined' && window.btoa
+      ? window.btoa(unescape(encodeURIComponent(svg)))
+      : Buffer.from(svg, 'utf8').toString('base64');
+  } catch {
+    // Fallback to the percent-encoded form if base64 ever fails.
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+  }
+  return `data:image/svg+xml;base64,${b64}`;
 }

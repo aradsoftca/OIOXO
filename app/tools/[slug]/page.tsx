@@ -10,6 +10,7 @@ import { buildRichPage } from '@/lib/seo/content';
 import { RichToolSection } from '@/components/seo/RichToolSection';
 import { PolicyHint } from '@/components/limits/PolicyHint';
 import { ClientOnly } from '@/components/tool/ClientOnly';
+import { FULLSCREEN_STUDIO_IDS } from '@/lib/studios/fullscreen';
 
 function findRelated(toolId: string, category: string, limit = 6) {
   return TOOLS.filter((t) => t.category === category && t.id !== toolId).slice(0, limit);
@@ -32,18 +33,10 @@ const NO_PRERENDER = new Set(
 // OWN the viewport like a real desktop app (CapCut, Photopea) instead of being
 // pushed below a marketing banner. These render in <StudioFrame> (slim bar +
 // 100dvh editor + SEO moved below the fold). Lighter "studio-*" generators
-// (meme, qr, collage…) stay in the normal <ToolFrame> form layout.
-const FULLSCREEN_STUDIOS = new Set([
-  'video-studio',
-  'image-studio',
-  'pdf-studio',
-  'office-studio',
-  'office-docs',
-  'office-slides',
-  'audio-voice-studio',
-  'audio-music-studio',
-  'subtitle-studio',
-]);
+// (meme, qr, collage…) stay in the normal <ToolFrame> form layout. The list is
+// the shared SSOT in lib/studios/fullscreen so the route and AppShell (which
+// hides the global chrome for these paths) can never drift apart.
+const FULLSCREEN_STUDIOS = FULLSCREEN_STUDIO_IDS;
 
 export function generateStaticParams() {
   return TOOLS.filter((t) => !NO_PRERENDER.has(t.id)).map((t) => ({ slug: t.id }));

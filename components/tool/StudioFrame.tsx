@@ -55,19 +55,15 @@ export function StudioFrame({ tool, children, about }: StudioFrameProps) {
 
   return (
     <div className="studio-frame">
-      {/* Break out of <main>'s centered max-w + padding so the editor is truly
-          full-bleed, and sit exactly below the 56px sticky site header. This is
-          self-contained — no changes to the global layout. */}
+      {/* Full app takeover: AppShell hides the site header / strips / footer and
+          makes <main> full-bleed for fullscreen studios, so the editor owns the
+          whole viewport from y=0 like a real desktop app (CapCut, Photopea).
+          The editor app fills the entire screen height; the marketing/SEO
+          `about` block lives in its own scroll region below (reachable via the
+          "About" affordance). */}
       <style>{`
-        .studio-frame{
-          width:100vw;
-          margin-left:calc(50% - 50vw);
-          /* cancel <main> top padding (py-6 / sm:py-10) so the app starts flush
-             under the sticky header */
-          margin-top:-1.5rem;
-        }
-        @media (min-width:640px){ .studio-frame{ margin-top:-2.5rem; } }
-        .studio-frame .studio-app{ height:calc(100dvh - 56px); }
+        .studio-frame{ width:100%; }
+        .studio-frame .studio-app{ height:100dvh; }
       `}</style>
       {/* The app: a full-viewport flex column. The slim bar is fixed-height,
           the editor takes the rest and is the only thing the user sees first. */}

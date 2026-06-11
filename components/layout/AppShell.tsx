@@ -16,6 +16,7 @@ import { NavProgress } from './NavProgress';
 import { CATALOG } from '@/lib/catalog';
 import { CATEGORIES } from '@/lib/registry/types';
 import { BRAND, IS_OIOXO } from '@/lib/brand';
+import { isFullscreenStudioPath } from '@/lib/studios/fullscreen';
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -47,6 +48,12 @@ export function AppShell({ children }: AppShellProps) {
   const [navHover, setNavHover] = React.useState(false);
   const pathname = usePathname();
   const showStripsAlways = isMainPage(pathname);
+  // Full app takeover: heavy studios own the whole viewport from y=0 like a
+  // desktop editor. We hide the site header, browse strips and footer, and let
+  // <main> go full-bleed (no max-width, no padding, full height) so the editor
+  // is the only thing on screen. The marketing/SEO copy still renders BELOW the
+  // editor (StudioFrame puts it in its own scroll region, reachable via About).
+  const studioTakeover = isFullscreenStudioPath(pathname);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -85,6 +92,7 @@ export function AppShell({ children }: AppShellProps) {
         <div
           onMouseEnter={() => setNavHover(true)}
           onMouseLeave={() => setNavHover(false)}
+          className={studioTakeover ? 'hidden' : undefined}
         >
         <header
           className="sticky top-0 z-40 border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/80 backdrop-blur-xl"
@@ -166,9 +174,17 @@ export function AppShell({ children }: AppShellProps) {
         </div>
         </div>{/* /hover zone */}
 
-        <main className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-10">{children}</main>
+        <main
+          className={
+            studioTakeover
+              ? 'w-full' // full-bleed: the studio owns the viewport from y=0
+              : 'mx-auto max-w-[1440px] px-4 py-6 sm:px-6 sm:py-10'
+          }
+        >
+          {children}
+        </main>
 
-        <footer className="border-t border-[var(--color-stroke)] py-8">
+        <footer className={`border-t border-[var(--color-stroke)] py-8 ${studioTakeover ? 'hidden' : ''}`}>
           <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-3 px-4 text-[12px] text-[var(--color-fg-subtle)] sm:px-6 md:flex-row">
             <div>{IS_OIOXO ? 'oioxo — all-in-one AI, on your device.' : 'Xonvert 2026 — every file. every tool.'}</div>
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">

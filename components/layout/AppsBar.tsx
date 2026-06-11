@@ -17,13 +17,19 @@ export function AppsBar() {
   const pathname = usePathname();
   const apps = appsOnly(IS_OIOXO);
   const studios = studiosOnly(IS_OIOXO);
+  // Defer path-derived active styling until after mount so server (prerendered
+  // for a placeholder path) and first client render emit identical markup —
+  // avoids a hydration mismatch on every /tools/* page.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => { setMounted(true); }, []);
+  const activePath = mounted ? pathname : '';
 
   return (
     <div className="border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/92 backdrop-blur-xl">
       <div className="mx-auto max-w-[1440px] px-3">
-        <BarRow label="Apps" items={apps} pathname={pathname} />
+        <BarRow label="Apps" items={apps} pathname={activePath} />
         <div className="h-px bg-[var(--color-stroke)]/60" />
-        <BarRow label="Studios" items={studios} pathname={pathname} />
+        <BarRow label="Studios" items={studios} pathname={activePath} />
       </div>
     </div>
   );

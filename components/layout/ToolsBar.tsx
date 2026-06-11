@@ -82,7 +82,13 @@ export function ToolsBar() {
         <div className="grid gap-1 py-2 [grid-template-columns:repeat(auto-fill,minmax(116px,1fr))]">
           {CATALOG.map((cat, i) => {
             const meta = CATEGORIES[cat.id];
-            const isActive = pathname.startsWith(`/tools/${cat.id}-`) || (openIdx === i);
+            // Path-derived active state is gated on `mounted` so the server and
+            // first client render emit identical markup. Otherwise the prerendered
+            // HTML (built for a placeholder path) and the client (real path) disagree
+            // on whether to render the active underline → hydration mismatch on every
+            // /tools/* page. `openIdx` is user-interaction state (always null on first
+            // paint) so it's safe to read pre-mount.
+            const isActive = (mounted && pathname.startsWith(`/tools/${cat.id}-`)) || (openIdx === i);
             return (
               <div
                 key={cat.id}

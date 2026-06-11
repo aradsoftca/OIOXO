@@ -29,7 +29,7 @@ import {
   type StudioProject,
   canvasToBlob, downloadBlob, safeFilename, type ImageFormat,
   useShortcuts, formatCombo,
-  removeBackgroundAuto, removeBackgroundByLuma,
+  removeBackgroundAuto, removeBackgroundByLuma, subjectMask,
   autoEnhance, extractPalette, smartCrop,
   COLOR_GRADES, type ColorGrade,
   useRafThrottle, usePinchPan, useResponsiveStudio, deviceProfile, LayerCompositeCache,
@@ -159,7 +159,7 @@ interface DocState {
 }
 
 interface SelectionPath {
-  kind: 'rect' | 'ellipse' | 'lasso' | 'wand';
+  kind: 'rect' | 'ellipse' | 'lasso' | 'wand' | 'subject';
   mask: HTMLCanvasElement;
 }
 
@@ -1281,6 +1281,32 @@ export default function ImageStudioPro() {
     }
   };
 
+  // Object-aware "Select Subject" (the Photoshop one-click move): segment the
+  // active image and turn the subject's shape into the active selection — no
+  // tracing, no color magic-wand fiddling. Falls back to a hint if there's no
+  // clear subject. Selecting is FREE (no usage credit — it's not an output).
+  const runSelectSubject = async () => {
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) {
+      toastFor('Pick an image or paint layer first');
+      return;
+    }
+    setBusy('Loading model…');
+    try {
+      const src = getCanvasOf(target)!;
+      const mask = await subjectMask(src, (p) => setBusy(p));
+      if (!mask) { toastFor('No clear subject found — try the magic wand'); return; }
+      const next = cloneDoc(doc);
+      next.selection = { kind: 'subject', mask };
+      commit('select subject', next);
+      toastFor('Subject selected — adjust, mask, or delete the background');
+    } catch (e) {
+      toastFor((e as Error).message || 'Could not select the subject');
+    } finally {
+      setBusy('');
+    }
+  };
+
   // Content-aware "Remove object": select the thing (marquee/lasso/wand), then
   // MI-GAN inpaints the selected region ON-DEVICE (model lazy-loaded from CDN
   // on first use). The result replaces the active image/paint layer's pixels.
@@ -1973,6 +1999,7 @@ export default function ImageStudioPro() {
             {/* On mobile Export lives PINNED in the right cluster — buried in this
                 scrollable strip it was effectively unreachable (no scroll affordance). */}
             <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export (Ctrl+E)"><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
+            <StudioButton variant="soft" size="sm" onClick={() => void runSelectSubject()} title="Select Subject — one click selects the person/object (on-device AI)"><Sparkles className="h-3.5 w-3.5" /> Select Subject</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runRemoveBg()} title="Remove Background (AI)"><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runRemoveObject()} title="Select an object, then remove it (content-aware, on-device)"><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runAutoEnhance()} title="Auto-enhance (white balance + levels)"><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>

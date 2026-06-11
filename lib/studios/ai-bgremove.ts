@@ -90,6 +90,51 @@ export async function findSubjectCenter(src: HTMLCanvasElement): Promise<{ cx: n
   return { cx: sx / n / mw, cy: sy / n / mh, minX: minX / mw, minY: minY / mh, maxX: maxX / mw, maxY: maxY / mh };
 }
 
+/**
+ * Object-aware "Select Subject": run the segmenter and return a full-size mask
+ * canvas where the subject (foreground) is opaque white and everything else is
+ * transparent — exactly the shape an image editor's selection wants. Powers the
+ * one-click "select the subject" Ferrari (vs hand-tracing or color magic-wand).
+ * Returns null if no clear subject (caller can fall back to magic-wand).
+ */
+export async function subjectMask(src: HTMLCanvasElement, onProgress?: ProgressFn): Promise<HTMLCanvasElement | null> {
+  onProgress?.('Loading model…', 0.05);
+  const seg = await loadSelfieSegmenter();
+  onProgress?.('Finding subject…', 0.5);
+  const result = seg.segment(src);
+  const mask = result.categoryMask;
+  if (!mask) return null;
+  const maskData: Uint8Array = mask.getAsUint8Array();
+  const mw = mask.width, mh = mask.height;
+
+  const out = document.createElement('canvas');
+  out.width = src.width;
+  out.height = src.height;
+  const ctx = out.getContext('2d')!;
+  const img = ctx.createImageData(src.width, src.height);
+  const sx = mw / src.width, sy = mh / src.height;
+  let fg = 0;
+  for (let y = 0; y < src.height; y++) {
+    for (let x = 0; x < src.width; x++) {
+      const mx = Math.min(mw - 1, Math.floor(x * sx));
+      const my = Math.min(mh - 1, Math.floor(y * sy));
+      const o = (y * src.width + x) * 4;
+      if (maskData[my * mw + mx] !== 0) { // foreground
+        img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+        img.data[o + 3] = 255;
+        fg++;
+      } else {
+        img.data[o + 3] = 0;
+      }
+    }
+  }
+  try { mask.close?.(); } catch {}
+  if (fg < src.width * src.height * 0.01) return null; // no clear subject
+  ctx.putImageData(img, 0, 0);
+  onProgress?.('Done', 1);
+  return out;
+}
+
 export async function removeBackgroundByLuma(src: HTMLCanvasElement, tolerance = 32): Promise<HTMLCanvasElement> {
   const w = src.width, h = src.height;
   const out = document.createElement('canvas');

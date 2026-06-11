@@ -910,6 +910,7 @@ export default function ImageStudioPro() {
     // the usage API was unreachable.
     const arr = Array.from(files);
     if (!arr.length) return;
+    setRecovery(null); // opening a real file supersedes the recover-last-session offer
     setBusy('Loading images…');
     try {
       const next = cloneDoc(doc);
@@ -997,6 +998,9 @@ export default function ImageStudioPro() {
   });
 
   const startNew = (w: number, h: number, name: string, bg: 'transparent' | string) => {
+    // Committing to a fresh document makes the "recover your last session" offer
+    // moot — clear it so the banner doesn't linger over the new workspace.
+    setRecovery(null);
     const next = NEW_DOC(w, h, name);
     next.background = bg;
     const bgLayer = next.layers[0] as PaintLayer;

@@ -391,6 +391,7 @@ export default function PdfStudioPro() {
   const selRaster = selPage ? raster[selPage.srcId]?.[selPage.srcIndex] : null;
 
   const addPdf = async (file: File) => {
+    setRecovery(null); // opening a real PDF supersedes the recover-last-session offer
     // Opening a PDF to view / organize it is FREE — like every PDF tool, the
     // credit is charged on the OUTPUT (export / split / OCR / convert), not on
     // loading a file. Gating import burned a free user's credit just to look at

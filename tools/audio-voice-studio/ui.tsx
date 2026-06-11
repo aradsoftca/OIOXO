@@ -346,6 +346,7 @@ export default function VoiceStudioPro() {
   };
 
   const importFile = async (file: File) => {
+    setRecovery(null); // importing real audio supersedes the recover-last-session offer
     // Importing audio is FREE (like any DAW) — the credit is charged on Export
     // and on the heavy AI ops (denoise / stem-separation / transcribe).
     setBusy('Decoding…');

@@ -711,6 +711,7 @@ export default function OfficeDocsPro() {
   };
 
   const importFile = async (file: File) => {
+    setRecovery(null); // opening a real document supersedes the recover-last-session offer
     // Opening a document is FREE (like Word/Docs) — the credit is on Export.
     setBusy('Importing…');
     try {

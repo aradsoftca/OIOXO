@@ -365,6 +365,7 @@ export default function VideoStudioPro() {
   };
 
   const ingestFiles = async (files: FileList | File[]) => {
+    setRecovery(null); // importing real media supersedes the recover-last-session offer
     // Importing media is FREE — like every real editor (CapCut, Premiere), you
     // load and arrange clips without spending anything; the usage credit is
     // charged on Export (the valuable output) and on the heavy AI ops
@@ -485,6 +486,7 @@ export default function VideoStudioPro() {
   };
 
   const applyTemplate = (tpl: VideoTemplate) => {
+    setRecovery(null); // committing to a template supersedes the recover-last-session offer
     const next = NEW_DOC({ id: tpl.id, label: tpl.name, w: tpl.resolution.w, h: tpl.resolution.h, fps: tpl.resolution.fps });
     next.name = tpl.name;
     const textTrack = next.tracks.find(t => t.kind === 'text');
@@ -1593,6 +1595,7 @@ export default function VideoStudioPro() {
 
       {newDialog && (
         <NewDialog onCancel={() => setNewDialog(false)} onCreate={(preset, name) => {
+          setRecovery(null); // fresh project supersedes the recover-last-session offer
           const next = NEW_DOC(preset);
           next.name = name;
           commit('new', next);

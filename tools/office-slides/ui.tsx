@@ -289,6 +289,7 @@ export default function OfficeSlidesPro() {
   const insertSmartArt = (layout: SmartArtLayout, bulletText: string) => {
     const nodes = parseBulletsToNodes(bulletText);
     if (!nodes.length) { toastFor('Enter bullet text first'); return; }
+    setRecovery(null); // engaging with the deck supersedes the recover-last-session offer
     const w = doc.width - 160;
     const h = 400;
     const svg = smartArtToSvg({
@@ -337,6 +338,7 @@ export default function OfficeSlidesPro() {
   };
 
   const addSlide = (layout = 'blank') => {
+    setRecovery(null); // engaging with the deck supersedes the recover-last-session offer
     const next = cloneDoc(doc);
     const s = newSlide(next.theme, layout);
     next.slides.push(s);

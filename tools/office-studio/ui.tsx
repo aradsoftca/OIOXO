@@ -888,6 +888,7 @@ export default function OfficeStudioPro() {
   };
 
   const importXlsxFile = async (file: File) => {
+    setRecovery(null); // opening a real workbook supersedes the recover-last-session offer
     // Opening a workbook is FREE (like Excel/Sheets) — the credit is charged on
     // Export, not on loading a file to view/edit it.
     setBusy('Opening .xlsx…');
@@ -928,6 +929,7 @@ export default function OfficeStudioPro() {
   };
 
   const importCsv = async (file: File) => {
+    setRecovery(null); // importing a real CSV supersedes the recover-last-session offer
     // Importing CSV is FREE — the credit is charged on Export.
     setBusy('Importing…');
     try {

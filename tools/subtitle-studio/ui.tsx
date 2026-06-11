@@ -357,6 +357,7 @@ export default function SubtitleStudioPro() {
   };
 
   const importSubsFile = async (file: File) => {
+    setRecovery(null); // importing real subtitles supersedes the recover-last-session offer
     const txt = await file.text();
     try {
       const cs = parseSrtVtt(txt);
@@ -371,6 +372,7 @@ export default function SubtitleStudioPro() {
   };
 
   const importMedia = async (files: FileList | File[]) => {
+    setRecovery(null); // importing real media supersedes the recover-last-session offer
     const arr = Array.from(files);
     for (const f of arr) {
       if (f.type.startsWith('video/') || f.type.startsWith('audio/')) {

@@ -233,6 +233,9 @@ export default function PdfStudioPro() {
     nx: number; ny: number; value: string;
     screenSize?: number; // on-screen px size for the caret overlay (matched to the run)
     replace?: { nx: number; ny: number; nw: number; nh: number; sizePx: number };
+    // When set, we're editing a text ANNOTATION we added in-studio (edit in
+    // place) rather than a source PDF run — commit updates that annotation.
+    annoIdx?: number;
   } | null>(null);
 
   // On mount: surface a fresh (<7d) recovery snapshot, if any. Skipped once the
@@ -477,6 +480,20 @@ export default function PdfStudioPro() {
     setTextEdit(null);
     if (!te || !selPage) return;
     const text = te.value;
+    if (te.annoIdx != null) {
+      // Editing in-studio-added text in place: update the annotation, or remove
+      // it if cleared. One undo step.
+      const next = cloneDoc(doc);
+      const list = [...(next.annotations[selPage.id] ?? [])];
+      const cur = list[te.annoIdx];
+      if (cur && cur.kind === 'text') {
+        if (text.trim()) list[te.annoIdx] = { ...cur, text: text.trim() };
+        else list.splice(te.annoIdx, 1);
+        next.annotations[selPage.id] = list;
+        commit('edit text', next);
+      }
+      return;
+    }
     if (te.replace) {
       // Editing an EXISTING PDF text run: nothing changed → no-op; otherwise
       // whiteout the original run and stamp the edited text at the same spot,
@@ -711,6 +728,24 @@ export default function PdfStudioPro() {
   // approach (no full reflow) that genuinely fixes typos in an existing PDF.
   const editTextAt = async (cnx: number, cny: number) => {
     if (!selPage) return;
+    // First: did they click text we ADDED in-studio? Edit that annotation in
+    // place (no whiteout/restamp — it's our own editable text). Closes the gap
+    // where edit-text only touched original source runs.
+    {
+      const list = doc.annotations[selPage.id] ?? [];
+      const editorH = editorRef.current?.getBoundingClientRect().height ?? 720;
+      for (let i = list.length - 1; i >= 0; i--) {
+        const a = list[i] as any;
+        if (a.kind !== 'text') continue;
+        const nh = (a.size / editorH) * 1.4;
+        const nw = Math.max(0.05, (a.text.length * a.size * 0.5) / (editorRef.current?.getBoundingClientRect().width ?? 510));
+        const top = a.ny - nh; // anno ny is the text baseline-ish; box sits above
+        if (cnx >= a.nx - 0.01 && cnx <= a.nx + nw && cny >= top - 0.01 && cny <= a.ny + 0.01) {
+          setTextEdit({ nx: a.nx, ny: top, value: a.text, screenSize: Math.max(8, Math.round(a.size)), annoIdx: i });
+          return;
+        }
+      }
+    }
     const bytes = sources[selPage.srcId];
     if (!bytes) return;
     setBusy('Reading text…');

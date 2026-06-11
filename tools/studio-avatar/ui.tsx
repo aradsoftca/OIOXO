@@ -176,7 +176,7 @@ export default function AvatarStudioUI() {
   };
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 24 }}>
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[300px_minmax(0,1fr)]">
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div style={{ border: '2px dashed #cbd5e1', padding: 24, borderRadius: 12, textAlign: 'center' }}>
           <input type="file" accept="image/*" onChange={handleUpload} style={{ width: '100%' }} />

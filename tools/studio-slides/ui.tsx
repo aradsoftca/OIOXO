@@ -165,7 +165,7 @@ export default function SlidesStudioUI() {
           className="ml-auto w-44 bg-transparent text-[13px] text-[var(--color-fg)] outline-none border-b border-black/[0.08] py-0.5" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[170px_1fr_220px]">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[170px_minmax(0,1fr)_220px]">
         {/* slide list */}
         <div className="space-y-2 overflow-auto" style={{ maxHeight: '64vh' }}>
           {slides.map((s, i) => {

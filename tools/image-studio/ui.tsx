@@ -41,6 +41,7 @@ import {
   HelpButton, useRegisterShortcuts,
   EmptyState, pushToast,
   SharedDialog,
+  DesktopOnly, MobileOnly,
 } from '@/lib/studios';
 
 type ToolKind =
@@ -785,18 +786,44 @@ export default function ImageStudioPro() {
     }
   }, [composite, doc.selection, animationPlay, animationTime]);
 
+  // Latest doc dimensions in a ref so fitToScreen is never a stale closure —
+  // callers stash it in requestAnimationFrame right after commit(), and the
+  // closure captured the PRE-commit width/height (new 1920×1080 doc kept the
+  // old doc's fit → canvas clipped under the right panel).
+  const docDimsRef = React.useRef({ w: doc.width, h: doc.height });
+  docDimsRef.current.w = doc.width;
+  docDimsRef.current.h = doc.height;
+
   const fitToScreen = React.useCallback(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
     const pad = 60;
-    const sx = (wrap.clientWidth - pad) / doc.width;
-    const sy = (wrap.clientHeight - pad) / doc.height;
+    const { w, h } = docDimsRef.current;
+    const sx = (wrap.clientWidth - pad) / w;
+    const sy = (wrap.clientHeight - pad) / h;
     const z = Math.min(sx, sy, 4);
     setZoom(Math.max(0.05, z));
-    setPan({ x: (wrap.clientWidth - doc.width * z) / 2, y: (wrap.clientHeight - doc.height * z) / 2 });
-  }, [doc.width, doc.height]);
+    setPan({ x: (wrap.clientWidth - w * z) / 2, y: (wrap.clientHeight - h * z) / 2 });
+  }, []);
 
-  React.useEffect(() => { fitToScreen(); }, [fitToScreen]);
+  React.useEffect(() => { fitToScreen(); }, [fitToScreen, doc.width, doc.height]);
+
+  // Re-fit when the viewport/container actually changes size (window resize,
+  // device rotation, panel slide-in/out). Without this the canvas keeps the pan
+  // computed for the old size and can end up scrolled fully off-screen on mobile.
+  React.useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap || typeof ResizeObserver === 'undefined') return;
+    let last = { w: wrap.clientWidth, h: wrap.clientHeight };
+    const ro = new ResizeObserver(() => {
+      const w = wrap.clientWidth, h = wrap.clientHeight;
+      if (w === last.w && h === last.h) return;
+      last = { w, h };
+      fitToScreen();
+    });
+    ro.observe(wrap);
+    return () => ro.disconnect();
+  }, [fitToScreen]);
 
   usePinchPan({ ref: wrapRef, zoom, pan, setZoom, setPan, minZoom: 0.05, maxZoom: 16 });
 
@@ -1939,7 +1966,9 @@ export default function ImageStudioPro() {
             </label>
             <StudioButton variant="ghost" size="sm" onClick={openSaved} title="Open from library (Ctrl+O)"><LayersIcon className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent} title="Save (Ctrl+S)"><Save className="h-3.5 w-3.5" /> Save</StudioButton>
-            <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export (Ctrl+E)"><Download className="h-3.5 w-3.5" /> Export</StudioButton>
+            {/* On mobile Export lives PINNED in the right cluster — buried in this
+                scrollable strip it was effectively unreachable (no scroll affordance). */}
+            <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export (Ctrl+E)"><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <StudioButton variant="soft" size="sm" onClick={() => void runRemoveBg()} title="Remove Background (AI)"><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runRemoveObject()} title="Select an object, then remove it (content-aware, on-device)"><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
             <StudioButton variant="soft" size="sm" onClick={() => void runAutoEnhance()} title="Auto-enhance (white balance + levels)"><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
@@ -1976,7 +2005,9 @@ export default function ImageStudioPro() {
             <StudioButton variant="ghost" size="sm" onClick={() => setShowLayersPanel(s => !s)} title="Layers panel"><LayersIcon className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => setShowAdjustPanel(s => !s)} title="Adjustments"><Sliders className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => setShowHistoryPanel(s => !s)} title="History"><History className="h-3.5 w-3.5" /></StudioButton>
-            <HelpButton />
+            {/* Keyboard-shortcut help is meaningless on touch; its slot goes to Export. */}
+            <DesktopOnly><HelpButton /></DesktopOnly>
+            <MobileOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export"><Download className="h-3.5 w-3.5" /></StudioButton></MobileOnly>
           </>
         }
       />

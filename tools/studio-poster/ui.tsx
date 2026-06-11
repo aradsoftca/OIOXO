@@ -416,7 +416,7 @@ export default function PosterStudioUI() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '300px 1fr', gap: 24 }}>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[300px_minmax(0,1fr)]">
         
         {/* ═══════ LEFT PANEL: Controls ═══════ */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>

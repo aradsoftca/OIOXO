@@ -68,15 +68,22 @@ export function StudioShell({ children, className }: { children: React.ReactNode
 export function StudioTopBar({ title, left, right }: { title: React.ReactNode; left?: React.ReactNode; right?: React.ReactNode }) {
   const { mode } = useResponsiveStudio();
   if (mode !== 'desktop') {
+    // Mobile: the StudioFrame slim bar already shows the tool name, so we DROP
+    // the redundant inner title (it was eating a whole row and "… Pro" read as
+    // nagware — same reasoning as desktop). The scrollable tool row and the
+    // fixed right-controls share ONE row: tools scroll under the finger, the
+    // right cluster (undo/redo/scopes/help) stays pinned and never clips.
     return (
-      <div className="flex shrink-0 flex-col gap-1 border-b border-white/5 bg-[#111317] px-2 py-1.5">
-        <div className="flex items-center gap-2">
-          <div className="text-sm font-bold tracking-tight text-zinc-100">{title}</div>
-          <div className="ml-auto flex items-center gap-1">{right}</div>
-        </div>
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/5 bg-[#111317] px-2">
         {left ? (
-          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{left}</div>
-        ) : null}
+          <div className="relative min-w-0 flex-1">
+            <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{left}</div>
+            {/* Right-edge fade = "there's more, swipe" — without it the strip
+                reads as complete and everything off-screen is undiscoverable. */}
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[#111317] to-transparent" />
+          </div>
+        ) : <div className="flex-1" />}
+        <div className="flex shrink-0 items-center gap-1 border-l border-white/10 pl-1">{right}</div>
       </div>
     );
   }
@@ -93,10 +100,25 @@ export function StudioTopBar({ title, left, right }: { title: React.ReactNode; l
   );
 }
 
+/** Render children only on the desktop layout (inside <StudioResponsive>). */
+export function DesktopOnly({ children }: { children: React.ReactNode }) {
+  const { mode } = useResponsiveStudio();
+  return mode === 'desktop' ? <>{children}</> : null;
+}
+
+/** Render children only on the mobile/tablet layout (inside <StudioResponsive>). */
+export function MobileOnly({ children }: { children: React.ReactNode }) {
+  const { mode } = useResponsiveStudio();
+  return mode !== 'desktop' ? <>{children}</> : null;
+}
+
 export function StudioBody({ children }: { children: React.ReactNode }) {
   const { mode } = useResponsiveStudio();
+  // Mobile must stack: StudioToolDock renders as a horizontal strip there, and
+  // in a row layout its intrinsic width (shrink-0 buttons) shoved the flex-1
+  // canvas area completely off-screen (width 0 at x≈900 on a 390px phone).
   return (
-    <div className={cn('flex flex-1 min-h-0', mode !== 'desktop' && 'pb-12')}>
+    <div className={cn('flex flex-1 min-h-0', mode !== 'desktop' && 'flex-col pb-12')}>
       {children}
     </div>
   );

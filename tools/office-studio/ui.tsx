@@ -32,7 +32,7 @@ import {
   type Comment, type CommentAnchor, pickPeerColor,
   renderSparkline, parseSparkValues, type SparkType,
   NamedRangesModel, DataValidationModel, type NamedRange, type DataValidation, type DataValidationRule,
-  HelpButton, useRegisterShortcuts,
+  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   pushToast, SharedDialog, EmptyState,
 } from '@/lib/studios';
 
@@ -1392,7 +1392,8 @@ export default function OfficeStudioPro() {
             <StudioButton variant="soft" size="sm" onClick={() => void exportXlsxFile()} title="Save as Excel"><Download className="h-3.5 w-3.5" /> .xlsx</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
-            <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>
+            {/* On mobile Export is pinned in the always-visible right cluster instead. */}
+            <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <span className="ml-2 h-5 w-px bg-white/10" />
             <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-40 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
           </>
@@ -1405,7 +1406,9 @@ export default function OfficeStudioPro() {
             </button>
             <StudioButton variant="ghost" size="sm" onClick={undo} disabled={!stack.current.canUndo()}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={redo} disabled={!stack.current.canRedo()}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
-            <HelpButton />
+            {/* Keyboard-shortcut help is meaningless on touch; its slot goes to Export. */}
+            <DesktopOnly><HelpButton /></DesktopOnly>
+            <MobileOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export"><Download className="h-3.5 w-3.5" /></StudioButton></MobileOnly>
           </>
         }
       />
@@ -1857,7 +1860,7 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
                       boxShadow: ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
                     }}
                     className={cn(
-                      'shrink-0 overflow-hidden border-b border-r border-white/5 px-1.5 text-[12px] leading-[24px] whitespace-nowrap',
+                      'shrink-0 overflow-hidden border-b border-r border-white/10 px-1.5 text-[12px] leading-[24px] whitespace-nowrap',
                       isCursor && 'ring-2 ring-cyan-400 ring-inset z-10',
                     )}
                     onPointerDown={(e) => { if (filling.current) return; dragging.current = true; onSelect(r, c, e.shiftKey); }}

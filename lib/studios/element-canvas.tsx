@@ -44,8 +44,25 @@ const HANDLES = [
 export function ElementCanvas({ width, height, background, elements, selectedId, onSelect, onChange, maxWidth = 960, className }: Props) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const wrapRef = React.useRef<HTMLDivElement>(null);
+  const outerRef = React.useRef<HTMLDivElement>(null);
   const drag = React.useRef<DragMode | null>(null);
-  const scale = Math.min(1, maxWidth / width);
+  // Cap the canvas to the SMALLER of maxWidth and the actual container width so it
+  // never overflows a narrow (mobile) column. Without this the canvas painted at a
+  // fixed maxWidth px and pushed the whole tool layout wider than the viewport.
+  const [availW, setAvailW] = React.useState(maxWidth);
+  React.useEffect(() => {
+    const el = outerRef.current?.parentElement;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      const w = el.clientWidth;
+      if (w > 0) setAvailW(w);
+    });
+    ro.observe(el);
+    setAvailW(el.clientWidth || maxWidth);
+    return () => ro.disconnect();
+  }, [maxWidth]);
+  const effMax = Math.min(maxWidth, availW || maxWidth);
+  const scale = Math.min(1, effMax / width);
   const dispW = Math.round(width * scale), dispH = Math.round(height * scale);
   const selected = elements.find(e => e.id === selectedId) ?? null;
 
@@ -136,7 +153,7 @@ export function ElementCanvas({ width, height, background, elements, selectedId,
   };
 
   return (
-    <div className={className} style={{ width: dispW, height: dispH, position: 'relative' }}>
+    <div ref={outerRef} className={className} style={{ width: dispW, height: dispH, position: 'relative' }}>
       <div
         ref={wrapRef}
         style={{ width: dispW, height: dispH, position: 'relative', background: background?.includes('gradient') ? background : undefined, touchAction: 'none' }}

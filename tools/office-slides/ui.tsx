@@ -27,7 +27,7 @@ import {
   CommentsModel, CommentsThread, CommentsBadge, CommentsOverviewPanel,
   type Comment, type CommentAnchor, pickPeerColor,
   parseBulletsToNodes, smartArtToSvg, SMART_ART_LAYOUTS, type SmartArtLayout,
-  HelpButton, useRegisterShortcuts,
+  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   pushToast, SharedDialog, EmptyState,
   useResponsiveStudio,
 } from '@/lib/studios';
@@ -922,7 +922,8 @@ export default function OfficeSlidesPro() {
             <StudioButton variant="ghost" size="sm" onClick={() => setSmartArtDialog(true)}><Sparkles className="h-3.5 w-3.5" /> SmartArt</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
-            <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>
+            {/* On mobile Export is pinned in the always-visible right cluster instead. */}
+            <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <button onClick={() => { setPresentIdx(doc.slides.findIndex(s => s.id === doc.selectedSlideId)); setPresentMode(true); }} className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500/90 px-2.5 text-xs font-medium text-zinc-900 hover:bg-emerald-400">
               <Play className="h-3 w-3" /> Present
             </button>
@@ -939,7 +940,9 @@ export default function OfficeSlidesPro() {
             <StudioButton variant="ghost" size="sm" onClick={() => setShowNotes(s => !s)} title="Speaker notes"><Presentation className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={undo} disabled={!stack.current.canUndo()}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={redo} disabled={!stack.current.canRedo()}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
-            <HelpButton />
+            {/* Keyboard-shortcut help is meaningless on touch; its slot goes to Export. */}
+            <DesktopOnly><HelpButton /></DesktopOnly>
+            <MobileOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export"><Download className="h-3.5 w-3.5" /></StudioButton></MobileOnly>
           </>
         }
       />

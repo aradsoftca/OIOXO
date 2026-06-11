@@ -23,7 +23,7 @@ import {
   suggestChordProgression,
   EffectsRack, type AppliedEffect, buildMasterChain,
   audioBufferToMidi, notesToMidiFile, midiToNoteName, type MidiNote,
-  HelpButton, useRegisterShortcuts,
+  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
 } from '@/lib/studios';
@@ -1017,7 +1017,8 @@ export default function MusicStudioPro() {
             </label>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
-            <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>
+            {/* On mobile Export is pinned in the always-visible right cluster instead. */}
+            <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <span className="ml-2 h-5 w-px bg-white/10" />
             <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-40 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
           </>
@@ -1026,7 +1027,9 @@ export default function MusicStudioPro() {
           <>
             <StudioButton variant="ghost" size="sm" onClick={undo} disabled={!stack.current.canUndo()}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={redo} disabled={!stack.current.canRedo()}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
-            <HelpButton />
+            {/* Keyboard-shortcut help is meaningless on touch; its slot goes to Export. */}
+            <DesktopOnly><HelpButton /></DesktopOnly>
+            <MobileOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export"><Download className="h-3.5 w-3.5" /></StudioButton></MobileOnly>
           </>
         }
       />

@@ -113,7 +113,7 @@ export default function MemeStudioUI() {
   const btn = 'flex items-center justify-center gap-2 border border-black/[0.1] px-3 py-2 text-[12px] font-bold uppercase tracking-wider transition hover:bg-[var(--color-surface-2)]';
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[240px_1fr_220px]">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[240px_minmax(0,1fr)_220px]">
       {/* left: templates + add */}
       <div className="space-y-3">
         <div>
@@ -134,11 +134,10 @@ export default function MemeStudioUI() {
         <button className="w-full bg-amber-500 px-4 py-2 font-bold text-white" onClick={download}><Download className="mr-1 inline h-4 w-4" /> Export meme</button>
       </div>
 
-      {/* center: canvas */}
-      <div className="flex items-start justify-center">
-        <div className="border border-black/[0.1] shadow-lg">
-          <ElementCanvas width={W} height={H} background={bg} elements={elements} selectedId={selId} onSelect={setSelId} onChange={onChange} maxWidth={560} />
-        </div>
+      {/* center: canvas — min-w-0 lets the column shrink below the canvas's
+          intrinsic size so ElementCanvas can scale down to fit a mobile width. */}
+      <div className="flex min-w-0 items-start justify-center">
+        <ElementCanvas width={W} height={H} background={bg} elements={elements} selectedId={selId} onSelect={setSelId} onChange={onChange} maxWidth={560} className="border border-black/[0.1] shadow-lg" />
       </div>
 
       {/* right: inspector */}

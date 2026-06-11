@@ -35,7 +35,7 @@ import {
   ColorWheelsPanel, RgbCurvesPanel,
   type ColorWheels, type CurveSet, ZERO_WHEELS, isZeroWheels,
   applyColorWheelsToImageData, applyCurveSet,
-  HelpButton, useRegisterShortcuts,
+  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
 } from '@/lib/studios';
@@ -1333,7 +1333,9 @@ export default function VideoStudioPro() {
             </label>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><Film className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
-            <StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton>
+            {/* On mobile Export is pinned in the always-visible right cluster instead —
+                in this horizontally-scrolling left strip it was buried/unreachable. */}
+            <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <span className="ml-2 h-5 w-px bg-white/10" />
             <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-40 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
           </>
@@ -1343,7 +1345,9 @@ export default function VideoStudioPro() {
             <StudioButton variant="ghost" size="sm" onClick={() => setShowScopes(s => !s)} title="Color scopes"><Activity className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={undo} disabled={!stack.current.canUndo()}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={redo} disabled={!stack.current.canRedo()}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
-            <HelpButton />
+            {/* Keyboard-shortcut help is meaningless on touch; its slot goes to Export. */}
+            <DesktopOnly><HelpButton /></DesktopOnly>
+            <MobileOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export"><Download className="h-3.5 w-3.5" /></StudioButton></MobileOnly>
           </>
         }
       />
@@ -1416,7 +1420,7 @@ export default function VideoStudioPro() {
                 <div className="text-[10px] text-zinc-500">Apply to all video clips at once:</div>
                 <div className="grid grid-cols-2 gap-1">
                   {COLOR_GRADES.map(g => (
-                    <button key={g.id} onClick={() => applyGradeToAll(g.id)} title={g.description} className="rounded bg-white/5 px-1.5 py-1 text-left text-[10px] text-zinc-300 hover:bg-white/10">
+                    <button key={g.id} onClick={() => applyGradeToAll(g.id)} title={g.description} className="flex min-h-[28px] items-center rounded bg-white/5 px-2 py-1 text-left text-[11px] leading-tight text-zinc-300 hover:bg-white/10">
                       {g.name}
                     </button>
                   ))}
@@ -1427,12 +1431,17 @@ export default function VideoStudioPro() {
         </StudioSidebar>
 
         <div className="flex flex-1 min-w-0 flex-col">
-          <div ref={previewWrapRef} className="relative flex flex-1 min-h-0 items-center justify-center bg-[#0a0b0e] p-4 overflow-hidden touch-none">
-            <div className="relative max-h-full max-w-full" style={{ aspectRatio: `${doc.width}/${doc.height}`, transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`, transformOrigin: 'center center' }}>
+          <div ref={previewWrapRef} className="relative flex flex-1 min-h-0 items-center justify-center bg-[#0a0b0e] p-4 sm:p-6 overflow-hidden touch-none">
+            {/* The preview fills the whole stage (height OR width bound,
+                whichever hits first), keeping the document aspect ratio. No
+                fixed vh cap — a real editor lets the monitor grow to the panel.
+                The aspect box is sized by both max-h/max-w AND h/w-full so it
+                expands to the available space instead of collapsing to content. */}
+            <div className="relative flex h-full w-full items-center justify-center" style={{ transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`, transformOrigin: 'center center' }}>
               <canvas
                 ref={previewRef}
-                className="block max-h-[60vh] w-auto max-w-full rounded border border-white/10 shadow-2xl"
-                style={{ aspectRatio: `${doc.width}/${doc.height}` }}
+                className="block max-h-full max-w-full rounded border border-white/10 shadow-2xl"
+                style={{ aspectRatio: `${doc.width}/${doc.height}`, height: '100%', width: '100%', objectFit: 'contain' }}
               />
               <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-zinc-300 backdrop-blur">
                 {doc.width}×{doc.height} · {doc.fps}fps · {fmtT(doc.playhead)} / {fmtT(doc.duration)}
@@ -1460,7 +1469,7 @@ export default function VideoStudioPro() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 border-y border-white/5 bg-[#0f1115] px-3 py-1.5">
+          <div className="flex items-center gap-2 overflow-x-auto border-y border-white/5 bg-[#0f1115] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
             <button onClick={() => seek(0)} className="rounded p-1 text-zinc-400 hover:bg-white/5 hover:text-white"><SkipBack className="h-4 w-4" /></button>
             <button onClick={togglePlay} className="rounded bg-cyan-500 p-1.5 text-zinc-900 hover:bg-cyan-400">
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -1793,7 +1802,12 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
   }
 
   return (
-    <div className="flex h-72 shrink-0 border-t border-white/5 bg-[#0a0b0e]">
+    // The timeline is a strip at the bottom — the PREVIEW monitor is the star
+    // and must own the upper screen like a real editor. So the timeline takes a
+    // clamped share of the height (never less than enough to show its tracks,
+    // never so tall it crowds the monitor) instead of a fixed 288px that ate
+    // ~40% of a laptop screen.
+    <div className="flex h-[26vh] max-h-[300px] min-h-[172px] shrink-0 border-t border-white/5 bg-[#0a0b0e]">
       <div className="w-32 shrink-0 border-r border-white/5 bg-[#0f1115]">
         <div className="flex h-6 items-center gap-1 border-b border-white/5 px-1.5">
           <button

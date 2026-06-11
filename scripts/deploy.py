@@ -128,6 +128,8 @@ EXCLUDES = {
     ".tool-wasm-key.dev",  # ephemeral DEV worker key — never ship (server mints its own)
     "protected",   # public/protected/*.enc — regenerated on the server with the real key
     "jsquash",     # public/jsquash/* — regenerated on the server by copy-jsquash
+    "monaco",      # public/monaco/* (~19M) — regenerated on the server by copy-monaco (gitignored locally)
+    "libredwg",    # public/libredwg/* (~15M) — regenerated on the server by copy-libredwg
     ".env",
     ".env.local",
     ".env.production",

@@ -225,7 +225,15 @@ export default function PdfStudioPro() {
 
   // Inline text editor (replaces window.prompt for the Text tool) — a real
   // caret on the page, live preview, no modal round-trip.
-  const [textEdit, setTextEdit] = React.useState<{ nx: number; ny: number; value: string } | null>(null);
+  // Inline page text editor. When `replace` is set, this is editing an EXISTING
+  // PDF text run (Foxit-style click-to-edit): commit whites-out the original box
+  // and stamps the new text at the matched position/size. When `replace` is
+  // undefined, it's adding fresh text at the click point.
+  const [textEdit, setTextEdit] = React.useState<{
+    nx: number; ny: number; value: string;
+    screenSize?: number; // on-screen px size for the caret overlay (matched to the run)
+    replace?: { nx: number; ny: number; nw: number; nh: number; sizePx: number };
+  } | null>(null);
 
   // On mount: surface a fresh (<7d) recovery snapshot, if any. Skipped once the
   // user already has pages open (they're mid-session, not recovering).
@@ -468,9 +476,22 @@ export default function PdfStudioPro() {
     const te = textEdit;
     setTextEdit(null);
     if (!te || !selPage) return;
-    const text = te.value.trim();
-    if (!text) return;
-    addAnno(selPage.id, { kind: 'text', nx: te.nx, ny: te.ny, text, size: textSize, color: textColor });
+    const text = te.value;
+    if (te.replace) {
+      // Editing an EXISTING PDF text run: nothing changed → no-op; otherwise
+      // whiteout the original run and stamp the edited text at the same spot,
+      // font-size matched. One undo step covers both.
+      const r = te.replace;
+      const next = cloneDoc(doc);
+      const list = next.annotations[selPage.id] ?? [];
+      list.push({ kind: 'rect', nx: r.nx, ny: r.ny, nw: r.nw, nh: r.nh, color: '#ffffff', opacity: 1, redact: true });
+      if (text.trim()) list.push({ kind: 'text', nx: r.nx, ny: r.ny + r.nh * 0.2, text, size: r.sizePx, color: '#000000' });
+      next.annotations[selPage.id] = list;
+      commit('edit text', next);
+      return;
+    }
+    if (!text.trim()) return;
+    addAnno(selPage.id, { kind: 'text', nx: te.nx, ny: te.ny, text: text.trim(), size: textSize, color: textColor });
   };
 
   const norm = (e: React.PointerEvent) => {
@@ -713,18 +734,18 @@ export default function PdfStudioPro() {
         if (dist < bestD) { bestD = dist; best = { it, nx, ny, nw, nh, h }; }
       }
       if (!best || bestD > 0.06) { toastFor('No text found here — click directly on a word'); return; }
-      const replacement = window.prompt('Edit text:', best.it.str);
-      if (replacement == null || replacement === best.it.str) return;
-      const next = cloneDoc(doc);
-      const list = next.annotations[selPage.id] ?? [];
-      // 1) Destroy the original run (white box, flatten on export).
-      list.push({ kind: 'rect', nx: best.nx, ny: best.ny, nw: best.nw, nh: best.nh, color: '#ffffff', opacity: 1, redact: true });
-      // 2) Draw the replacement at the same spot, matched font size (px).
+      // Foxit-style: drop a LIVE inline caret right on top of the existing run,
+      // pre-filled with its text and matched to its size — the user edits in
+      // place (type, Enter/blur to commit, Esc to cancel). commitTextEdit() does
+      // the whiteout + restamp. No modal, no prompt — the page text feels live.
       const sizePx = Math.max(8, Math.round(best.h));
-      list.push({ kind: 'text', nx: best.nx, ny: best.ny + best.nh * 0.2, text: replacement, size: sizePx, color: '#000000' });
-      next.annotations[selPage.id] = list;
-      commit('edit text', next);
-      toastFor('Text replaced');
+      // Map the run's display height (page-normalized) into the on-screen editor
+      // px size so the caret text visually matches what's underneath.
+      const screenSize = Math.max(8, Math.round(best.nh * (editorRef.current?.getBoundingClientRect().height ?? 720)));
+      setTextEdit({
+        nx: best.nx, ny: best.ny, value: best.it.str, screenSize,
+        replace: { nx: best.nx, ny: best.ny, nw: best.nw, nh: best.nh, sizePx },
+      });
     } catch { toastFor('Could not edit this page’s text'); }
     finally { setBusy(''); }
   };
@@ -1112,8 +1133,17 @@ export default function PdfStudioPro() {
                   }}
                   onPointerDown={(e) => e.stopPropagation()}
                   placeholder="Type…"
-                  className="absolute z-10 min-w-[60px] whitespace-nowrap rounded-sm bg-white/85 px-1 outline outline-2 outline-cyan-400"
-                  style={{ left: `${textEdit.nx * 100}%`, top: `${textEdit.ny * 100}%`, color: textColor, fontSize: textSize, fontWeight: 600, lineHeight: 1.1, caretColor: textColor }}
+                  className="absolute z-10 min-w-[60px] whitespace-nowrap rounded-sm bg-white px-0.5 outline outline-2 outline-cyan-400"
+                  style={{
+                    left: `${textEdit.nx * 100}%`, top: `${textEdit.ny * 100}%`,
+                    // Editing existing text → black on solid white at the run's
+                    // matched size (mirrors the whiteout+restamp output); new text
+                    // → the current tool color/size.
+                    color: textEdit.replace ? '#000000' : textColor,
+                    fontSize: textEdit.screenSize ?? textSize,
+                    fontWeight: textEdit.replace ? 400 : 600,
+                    lineHeight: 1.1, caretColor: '#06b6d4',
+                  }}
                 />
               )}
               {/* Fillable form-field overlays for THIS page (1-based pageId). */}

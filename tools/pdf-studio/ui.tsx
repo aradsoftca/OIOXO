@@ -772,7 +772,11 @@ export default function PdfStudioPro() {
         const nx = e / vp.width, ny = 1 - (f + h) / vp.height, nw = it.width / vp.width, nh = h * 1.4 / vp.height;
         const inside = cnx >= nx && cnx <= nx + nw && cny >= ny && cny <= ny + nh;
         const dist = Math.hypot(cnx - (nx + nw / 2), cny - (ny + nh / 2));
-        if (inside) { best = { it, nx, ny, nw, nh, h }; break; }
+        // A direct hit (click is inside the run's box) is distance 0 — set bestD
+        // so the proximity guard below accepts it. Bug was: inside-match left
+        // bestD=Infinity, so the `bestD > 0.06` guard rejected the exact word the
+        // user clicked → edit-text silently did nothing.
+        if (inside) { best = { it, nx, ny, nw, nh, h }; bestD = 0; break; }
         if (dist < bestD) { bestD = dist; best = { it, nx, ny, nw, nh, h }; }
       }
       if (!best || bestD > 0.06) { toastFor('No text found here — click directly on a word'); return; }

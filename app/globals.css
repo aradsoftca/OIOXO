@@ -431,3 +431,45 @@ body[data-dragging="true"] .tile-surface[data-accepts-drop="true"] {
   margin-right: 10px;
   vertical-align: middle;
 }
+
+/* ==========================================================================
+   Calculator drag slider — used by CalcTool inputs that define min+max.
+   Accent comes from --tile-color (the tool's category color). Flat Metro look.
+   ========================================================================== */
+.calc-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--color-surface-2, oklch(95% 0 0));
+  cursor: pointer;
+  outline: none;
+}
+.calc-slider:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--tile-color, var(--color-cat-calc)) 35%, transparent);
+}
+.calc-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 0;
+  background: var(--tile-color, var(--color-cat-calc));
+  border: 2px solid var(--color-surface-1, #fff);
+  box-shadow: 0 1px 3px oklch(0% 0 0 / 0.25);
+  transition: transform 120ms var(--ease-snap, ease);
+}
+.calc-slider::-webkit-slider-thumb:active {
+  transform: scale(1.18);
+}
+.calc-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
+  background: var(--tile-color, var(--color-cat-calc));
+  border: 2px solid var(--color-surface-1, #fff);
+  box-shadow: 0 1px 3px oklch(0% 0 0 / 0.25);
+}
+.calc-slider::-moz-range-track {
+  height: 4px;
+  background: var(--color-surface-2, oklch(95% 0 0));
+}

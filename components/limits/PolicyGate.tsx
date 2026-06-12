@@ -19,6 +19,12 @@ interface Props {
  */
 export function PolicyGate({ hit, onClose }: Props) {
   if (!hit) return null;
+  // Defensive: a caller may fire a LimitHit without a fully-populated policy
+  // (e.g. an ad-hoc / unknown lever). Never let the paywall itself crash the
+  // host tool — fall back to safe copy instead of reading undefined.policy.
+  const policy = hit.policy ?? ({} as LimitHit['policy']);
+  const title = policy.displayName ?? 'Pro unlocks this';
+  const valueProps = Array.isArray(policy.proValueProp) ? policy.proValueProp : [];
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md overflow-hidden rounded-lg border border-white/10 bg-[var(--color-surface-1)] shadow-2xl">
@@ -30,14 +36,14 @@ export function PolicyGate({ hit, onClose }: Props) {
             <Crown className="h-5 w-5" />
             <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Pro unlocks this</span>
           </div>
-          <h2 className="mt-2 text-[20px] font-extrabold tracking-tight text-white">{hit.policy.displayName}</h2>
+          <h2 className="mt-2 text-[20px] font-extrabold tracking-tight text-white">{title}</h2>
           <p className="mt-1 text-[12px] text-white/90">{hit.friendly}</p>
         </div>
 
         <div className="space-y-3 p-5">
           <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-muted)]">What Pro unlocks here</div>
           <ul className="space-y-1.5">
-            {hit.policy.proValueProp.map((v, i) => (
+            {valueProps.map((v, i) => (
               <li key={i} className="flex items-start gap-2 text-[13px]">
                 <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
                 <span>{v}</span>

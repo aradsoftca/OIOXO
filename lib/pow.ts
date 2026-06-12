@@ -16,13 +16,27 @@
 
 import crypto from 'node:crypto';
 
-// Hard-fail at module load if POW_SECRET is missing in production. With a
-// known fallback the gate is trivially bypassable (anyone reading the source
-// can mint valid tokens). Matches middleware.ts which checks the same way.
-if (!process.env.POW_SECRET && process.env.NODE_ENV === 'production') {
-  throw new Error('POW_SECRET must be set in production — see lib/pow.ts');
+// Hard-fail if POW_SECRET is missing in production. With a known fallback the
+// gate is trivially bypassable (anyone reading the source can mint valid
+// tokens). Matches middleware.ts which checks the same way.
+//
+// IMPORTANT: this check must run at REQUEST time, not module load. `next build`
+// runs with NODE_ENV==='production' and collects route page-data by importing
+// this module — a module-scope throw there fails the build ("Failed to collect
+// page data for /api/pow") even though no request is being served. Deferring to
+// the first secret use keeps the build importable while still hard-failing a
+// real production runtime that lacks the secret.
+const DEV_FALLBACK_SECRET = 'dev-insecure-pow-secret-change-me';
+function getSecret(): string {
+  const s = process.env.POW_SECRET;
+  if (!s) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('POW_SECRET must be set in production — see lib/pow.ts');
+    }
+    return DEV_FALLBACK_SECRET;
+  }
+  return s;
 }
-const SECRET = process.env.POW_SECRET || 'dev-insecure-pow-secret-change-me';
 
 export const CHALLENGE_TTL_MS = 2 * 60_000;
 export const TOKEN_TTL_MS = 30 * 60_000;
@@ -31,7 +45,7 @@ const MAX_DIFFICULTY = 24;
 export const TOKEN_PREFIX = 'powtok:';
 
 function hmacHex(data: string): string {
-  return crypto.createHmac('sha256', SECRET).update(data).digest('hex');
+  return crypto.createHmac('sha256', getSecret()).update(data).digest('hex');
 }
 function sha256(data: string): Buffer {
   return crypto.createHash('sha256').update(data).digest();

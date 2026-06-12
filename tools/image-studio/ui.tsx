@@ -25,7 +25,7 @@ import {
   type AdjustParams, hexToRgb, rgbToHex,
   convolve3x3, KERNELS, gaussianBlur, buildCurveLut, applyCurves,
   RgbCurvesPanel, applyCurveSet, type CurveSet, IDENTITY_CURVE,
-  UndoStack, newProject, saveProject, loadProject, listProjects,
+  UndoStack, newProject, saveProject, loadProject, listProjects, deleteProject,
   type StudioProject,
   canvasToBlob, downloadBlob, safeFilename, type ImageFormat,
   useShortcuts, formatCombo,
@@ -1186,6 +1186,12 @@ export default function ImageStudioPro() {
   // Serialized snapshots are stored in IndexedDB (via the same serializeDoc the
   // library uses) under a fixed key so a refresh/crash never loses the canvas.
   const RECOVERY_KEY = 'xonvert.image-studio.recovery';
+  // Fixed IndexedDB id for the single recovery slot. Using a STABLE id (not a
+  // random newProject id) means each autosave overwrites the same row — so it
+  // never leaks rows AND the read path can find it deterministically. Large docs
+  // (serialized > localStorage's ~4MB ceiling) live here; small docs live in
+  // localStorage. Recovery on load checks BOTH, newest wins.
+  const RECOVERY_DB_ID = 'image___recovery__';
   React.useEffect(() => {
     // Only autosave a doc that actually has content (skip the empty default).
     const hasContent = doc.layers.some(l => (l.kind === 'image' || l.kind === 'paint'));
@@ -1193,11 +1199,25 @@ export default function ImageStudioPro() {
     const id = window.setTimeout(() => {
       try {
         const snap: DocState = { ...doc, layers: doc.layers.map(l => (l.kind === 'paint' || l.kind === 'image') ? ({ ...l, canvas: cloneCanvas(l.canvas) } as Layer) : { ...l }) };
-        const payload = JSON.stringify({ at: Date.now(), name: doc.name, data: serializeDoc(snap) });
+        const data = serializeDoc(snap);
+        const payload = JSON.stringify({ at: Date.now(), name: doc.name, data });
         // localStorage caps ~5MB; for larger canvases fall back to IndexedDB via
         // the project store (a single recovery project, overwritten each time).
-        if (payload.length < 4_000_000) { try { localStorage.setItem(RECOVERY_KEY, payload); } catch { /* quota → ignore */ } }
-        else { void saveProject(newProject('image', '__recovery__', serializeDoc(snap))); }
+        if (payload.length < 4_000_000) {
+          try {
+            localStorage.setItem(RECOVERY_KEY, payload);
+            // If this doc previously overflowed into the IndexedDB slot and has
+            // since shrunk, drop that stale large snapshot so recovery doesn't
+            // later offer it over the current (newer, smaller) localStorage one
+            // and it stops showing as a phantom Library row.
+            void deleteProject(RECOVERY_DB_ID).catch(() => {});
+            return;
+          } catch { /* quota → fall through to IndexedDB */ }
+        }
+        // Stable-id IndexedDB write: overwrite the single recovery slot.
+        const rec = newProject('image', doc.name || '__recovery__', data);
+        rec.id = RECOVERY_DB_ID;
+        void saveProject(rec);
       } catch { /* never let autosave throw into the editor */ }
     }, 2000);
     return () => window.clearTimeout(id);
@@ -1209,14 +1229,38 @@ export default function ImageStudioPro() {
   React.useEffect(() => {
     if (recoveryChecked.current) return;
     recoveryChecked.current = true;
-    try {
-      const raw = localStorage.getItem(RECOVERY_KEY);
-      if (!raw) return;
-      const { at, name, data } = JSON.parse(raw);
-      // Only offer if it's reasonably fresh (last 7 days) and we haven't loaded a doc.
-      if (Date.now() - at > 7 * 864e5) { localStorage.removeItem(RECOVERY_KEY); return; }
-      setRecovery({ at, name, data });
-    } catch { /* ignore corrupt recovery */ }
+    const FRESH = 7 * 864e5;
+    void (async () => {
+      // Collect a candidate from BOTH stores (small docs → localStorage, large
+      // docs → IndexedDB), then offer whichever is newest. Previously only
+      // localStorage was read, so a large-canvas autosave (which falls back to
+      // IndexedDB) never surfaced a Restore prompt — the intermittent miss.
+      let local: { at: number; name: string; data: SerializedDoc } | null = null;
+      try {
+        const raw = localStorage.getItem(RECOVERY_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // Treat a missing/non-numeric `at` (corrupt or legacy-format payload)
+          // as stale, not fresh — otherwise `Date.now() - NaN > FRESH` is false
+          // and the corrupt entry would survive AND poison the newest-wins
+          // compare below (idb.at > NaN is always false).
+          if (!Number.isFinite(parsed?.at) || Date.now() - parsed.at > FRESH) localStorage.removeItem(RECOVERY_KEY);
+          else local = parsed;
+        }
+      } catch { /* ignore corrupt localStorage recovery */ }
+
+      let idb: { at: number; name: string; data: SerializedDoc } | null = null;
+      try {
+        const p = await loadProject<SerializedDoc>(RECOVERY_DB_ID);
+        if (p) {
+          if (Date.now() - p.updatedAt > FRESH) void deleteProject(RECOVERY_DB_ID);
+          else idb = { at: p.updatedAt, name: p.name, data: p.state };
+        }
+      } catch { /* ignore IndexedDB recovery errors */ }
+
+      const best = !local ? idb : !idb ? local : (idb.at > local.at ? idb : local);
+      if (best) setRecovery(best);
+    })();
   }, []);
   const [recovery, setRecovery] = React.useState<{ at: number; name: string; data: SerializedDoc } | null>(null);
   const doRecover = async () => {
@@ -1232,10 +1276,16 @@ export default function ImageStudioPro() {
     } catch { toastFor('Could not recover'); }
     finally { setBusy(''); setRecovery(null); }
   };
-  const dismissRecovery = () => { try { localStorage.removeItem(RECOVERY_KEY); } catch {} setRecovery(null); };
+  const dismissRecovery = () => {
+    try { localStorage.removeItem(RECOVERY_KEY); } catch {}
+    void deleteProject(RECOVERY_DB_ID).catch(() => {});
+    setRecovery(null);
+  };
 
   const openSaved = async () => {
-    const list = await listProjects('image');
+    // Exclude the internal crash-recovery slot — it lives in the same project
+    // store but is not a user-saved project and must not appear in the Library.
+    const list = (await listProjects('image')).filter(p => p.id !== RECOVERY_DB_ID);
     setSavedList(list);
     setOpenDialog(true);
   };
@@ -1688,6 +1738,31 @@ export default function ImageStudioPro() {
     };
   };
 
+  // Top-most visible/unlocked text layer whose approximate glyph box contains p.
+  // Shared by the text-tool click and the universal double-click-to-edit gesture
+  // so both use identical hit geometry (baseline top at x,y; box from metrics).
+  const textLayerAt = (p: { x: number; y: number }): TextLayer | undefined =>
+    [...doc.layers].reverse().find(l => {
+      if (l.kind !== 'text' || !l.visible || l.locked) return false;
+      const tl = l as TextLayer;
+      const lines = tl.text.split('\n');
+      const maxLen = Math.max(1, ...lines.map(s => s.length));
+      const w = maxLen * tl.size * 0.6;
+      const h = lines.length * tl.size * tl.lineHeight;
+      const x0 = tl.align === 'center' ? tl.x - w / 2 : tl.align === 'right' ? tl.x - w : tl.x;
+      return p.x >= x0 - 4 && p.x <= x0 + w + 4 && p.y >= tl.y - 4 && p.y <= tl.y + h + 4;
+    }) as TextLayer | undefined;
+
+  // Open the inline text editor for a layer. Selecting + opening is deferred to
+  // the next frame so it lands AFTER the current pointer sequence releases its
+  // pointer-capture — otherwise the textarea's .focus() is swallowed mid-gesture
+  // and the editor appears to "not open" on a single click (it silently stayed
+  // closed). rAF guarantees capture is gone before we focus.
+  const openTextEditor = (id: string) => {
+    setActive(id);
+    requestAnimationFrame(() => setTextEditOpen(id));
+  };
+
   const ptrState = React.useRef<{
     down: boolean; tool: ToolKind | null;
     startX: number; startY: number;
@@ -1865,21 +1940,9 @@ export default function ImageStudioPro() {
     }
     if (tool === 'text') {
       // Clicking ON an existing text layer edits it inline (Photopea/Canva), rather
-      // than stacking a new overlapping layer. Hit-test top-most first; approximate
-      // each run's box from its text metrics (baseline top at x,y).
-      const hit = [...doc.layers].reverse().find(l => {
-        // Skip hidden/locked layers — a locked layer must not be click-to-edited
-        // (consistent with the rest of the editor's lock semantics).
-        if (l.kind !== 'text' || !l.visible || l.locked) return false;
-        const tl = l as TextLayer;
-        const lines = tl.text.split('\n');
-        const maxLen = Math.max(1, ...lines.map(s => s.length));
-        const w = maxLen * tl.size * 0.6;
-        const h = lines.length * tl.size * tl.lineHeight;
-        const x0 = tl.align === 'center' ? tl.x - w / 2 : tl.align === 'right' ? tl.x - w : tl.x;
-        return p.x >= x0 - 4 && p.x <= x0 + w + 4 && p.y >= tl.y - 4 && p.y <= tl.y + h + 4;
-      });
-      if (hit) { setActive(hit.id); setTextEditOpen(hit.id); return; }
+      // than stacking a new overlapping layer.
+      const hit = textLayerAt(p);
+      if (hit) { openTextEditor(hit.id); ptrState.current.down = false; return; }
       const t: TextLayer = {
         id: lid(), kind: 'text', name: 'Text',
         text: 'Type here', x: p.x, y: p.y,
@@ -1891,7 +1954,8 @@ export default function ImageStudioPro() {
         visible: true, locked: false, opacity: 1, blend: 'source-over', adjust: { ...ZERO_ADJUST },
       };
       addLayer(t, 'add text');
-      setTextEditOpen(t.id);
+      openTextEditor(t.id);
+      ptrState.current.down = false;
       return;
     }
     if (tool === 'shape-rect' || tool === 'shape-ellipse') {
@@ -2413,6 +2477,13 @@ export default function ImageStudioPro() {
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
+            // Double-click any text layer to edit it inline, regardless of the
+            // active tool (Photopea/Canva parity). Reliable entry point that does
+            // not depend on the text-tool hit path.
+            onDoubleClick={(e) => {
+              const t = textLayerAt(screenToCanvas(e));
+              if (t) { e.preventDefault(); openTextEditor(t.id); }
+            }}
             onPointerLeave={() => { if (hoverRef.current) { hoverRef.current = null; setHoverTick(n => n + 1); } }}
           >
             <div

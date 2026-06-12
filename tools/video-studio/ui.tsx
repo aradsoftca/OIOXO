@@ -1947,8 +1947,14 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
   const tToX = (t: number) => t * zoom;
 
   const onScrub: React.MouseEventHandler = (e) => {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const t = xToT(e.clientX - r.left + (ref.current?.scrollLeft ?? 0));
+    // Measure against the (non-scrolling) viewport container + its scrollLeft,
+    // not e.currentTarget: the ruler/track rows live INSIDE the scroller, so
+    // their own rect.left already bakes in scroll — adding scrollLeft on top of
+    // that double-counts and the seek lands off-target once you scroll right.
+    const host = ref.current;
+    if (!host) return;
+    const r = host.getBoundingClientRect();
+    const t = xToT(e.clientX - r.left + host.scrollLeft);
     onSeek(Math.max(0, t));
   };
 
@@ -2124,7 +2130,10 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
                 key={id}
                 style={{ position: 'absolute', left: 0, top: y, width: tlWidth, height: h }}
                 className="border-b border-white/5 bg-[#0c0d10]"
-                onClick={() => onSelect(null)}
+                // Click empty timeline space → deselect AND move the playhead
+                // there (CapCut parity: the whole timeline background scrubs, not
+                // just the thin ruler strip).
+                onMouseDown={(e) => { onSelect(null); onScrub(e); }}
               />
             ))}
 

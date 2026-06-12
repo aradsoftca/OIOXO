@@ -607,6 +607,28 @@ function imageLayerBox(l: ImageLayer): XformBox {
   const h = l.canvas.height * l.scaleY;
   return { cx: l.x + w / 2, cy: l.y + h / 2, hw: w / 2, hh: h / 2, rot: l.rotation };
 }
+
+export interface SnapGuide { axis: 'v' | 'h'; pos: number }
+/**
+ * Smart-guide snapping for a layer being moved. Snaps the layer's left / centre
+ * / right to the document's left / centre / right (and likewise vertically),
+ * returning the adjusted x/y plus the guide lines to draw — the magenta
+ * alignment lines Photoshop/Canva show when an object lines up. Threshold is in
+ * canvas px scaled by zoom so it feels consistent at any zoom level.
+ */
+function snapLayerMove(x: number, y: number, w: number, h: number, docW: number, docH: number, threshold: number): { x: number; y: number; guides: SnapGuide[] } {
+  const guides: SnapGuide[] = [];
+  // Candidate vertical lines: doc left / centre / right vs layer left / centre / right.
+  const vx: Array<[number, number]> = [[0, x], [docW / 2, x + w / 2], [docW, x + w]]; // [target, layerEdge]
+  for (const [target, edge] of vx) {
+    if (Math.abs(edge - target) <= threshold) { x += target - edge; guides.push({ axis: 'v', pos: target }); break; }
+  }
+  const hy: Array<[number, number]> = [[0, y], [docH / 2, y + h / 2], [docH, y + h]];
+  for (const [target, edge] of hy) {
+    if (Math.abs(edge - target) <= threshold) { y += target - edge; guides.push({ axis: 'h', pos: target }); break; }
+  }
+  return { x, y, guides };
+}
 // The 8 handle anchors in the box's LOCAL frame (before rotation), as
 // (sx, sy) signs of the half-extents. Corners first, then edge midpoints.
 const XFORM_HANDLES: { id: string; sx: number; sy: number }[] = [
@@ -1689,6 +1711,7 @@ export default function ImageStudioPro() {
     grab: { x: number; y: number }; // pointer at grab (image-space)
   } | null>(null);
   const [xformTick, setXformTick] = React.useState(0); // re-render the overlay live
+  const [snapGuides, setSnapGuides] = React.useState<SnapGuide[]>([]); // smart-guide lines while moving a layer
 
   /**
    * Clone stamp / healing brush. Samples a circular patch from `cloneSrc` (+the
@@ -2003,8 +2026,20 @@ export default function ImageStudioPro() {
       const l = next.layers.find(x => x.id === activeLayer.id);
       if (l) {
         if (l.kind === 'image' || l.kind === 'text' || l.kind === 'shape') {
-          l.x += p.x - ptrState.current.lastX;
-          l.y += p.y - ptrState.current.lastY;
+          let nx = l.x + (p.x - ptrState.current.lastX);
+          let ny = l.y + (p.y - ptrState.current.lastY);
+          // Smart-guide snap to document centre/edges (unless Alt = free move).
+          // Layer width/height: image uses canvas×scale; text/shape use w/h.
+          const lw = l.kind === 'image' ? (l.canvas.width * l.scaleX) : ((l as { w?: number }).w ?? 0);
+          const lh = l.kind === 'image' ? (l.canvas.height * l.scaleY) : ((l as { h?: number }).h ?? 0);
+          if (!e.altKey && lw > 0 && lh > 0) {
+            const snapped = snapLayerMove(nx, ny, lw, lh, doc.width, doc.height, 6 / zoom);
+            nx = snapped.x; ny = snapped.y;
+            setSnapGuides(snapped.guides);
+          } else {
+            setSnapGuides([]);
+          }
+          l.x = nx; l.y = ny;
           setDoc(next);
         }
       }
@@ -2030,7 +2065,7 @@ export default function ImageStudioPro() {
     if (t === 'eraser') commit('eraser', doc);
     if (t === 'clone') { ptrState.current.cloneOffset = null; commit('clone stamp', doc); }
     if (t === 'heal') { ptrState.current.cloneOffset = null; commit('heal', doc); }
-    if (t === 'move') commit('move', doc);
+    if (t === 'move') { setSnapGuides([]); commit('move', doc); }
     if (t === 'shape-rect' || t === 'shape-ellipse') commit('shape', doc);
     if (t === 'marquee-rect' || t === 'marquee-ellipse') {
       const x = Math.min(ptrState.current.startX, p.x);
@@ -2492,6 +2527,17 @@ export default function ImageStudioPro() {
               </svg>
             );
           })()}
+
+          {/* Smart guides — magenta alignment lines shown while a layer snaps to
+              the document centre/edges during a move. */}
+          {snapGuides.length > 0 && (
+            <svg className="pointer-events-none absolute inset-0 overflow-visible" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+              {snapGuides.map((g, i) => g.axis === 'v'
+                ? <line key={i} x1={g.pos} y1={0} x2={g.pos} y2={doc.height} stroke="#ff2d9b" strokeWidth={1 / zoom} />
+                : <line key={i} x1={0} y1={g.pos} x2={doc.width} y2={g.pos} stroke="#ff2d9b" strokeWidth={1 / zoom} />,
+              )}
+            </svg>
+          )}
 
           {/* Live W×H / angle readout while transforming. */}
           {xform.current && activeLayer?.kind === 'image' && (

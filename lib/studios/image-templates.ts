@@ -19,6 +19,7 @@ export type ImageTemplateCategory =
   | 'thumbnail'
   | 'banner'
   | 'marketing'
+  | 'document'
   | 'logo'
   | 'quote';
 
@@ -345,6 +346,172 @@ export const IMAGE_TEMPLATES: ImageTemplate[] = [
       { kind: 'text', text: '— STEVE JOBS', x: 0.5, y: 0.74, size: 0.026, color: '#71717a', font: SANS, weight: 600, align: 'center', letterSpacing: 3 },
     ],
   },
+
+  // ── DOCUMENT (A4 portrait 794×1123 @ ~96dpi) ────────────────────────────────
+  {
+    id: 'resume-modern', name: 'Modern Resume', category: 'document',
+    description: 'Clean two-tone résumé with a sidebar header.',
+    width: 794, height: 1123,
+    layers: [
+      { kind: 'background', fill: { kind: 'solid', colors: ['#ffffff'] } },
+      { kind: 'shape', shape: 'rect', x: 0, y: 0, w: 1, h: 0.16, fill: '#1e3a5f' },
+      { kind: 'text', text: 'YOUR NAME', x: 0.06, y: 0.07, size: 0.04, color: '#ffffff', font: SANS, weight: 800, align: 'left', letterSpacing: 2 },
+      { kind: 'text', text: 'Job Title · City · email · phone', x: 0.06, y: 0.115, size: 0.018, color: '#cbd5e1', font: SANS, weight: 400, align: 'left' },
+      { kind: 'text', text: 'EXPERIENCE', x: 0.06, y: 0.22, size: 0.022, color: '#1e3a5f', font: SANS, weight: 800, align: 'left', letterSpacing: 2 },
+      { kind: 'shape', shape: 'rect', x: 0.06, y: 0.24, w: 0.88, h: 0.003, fill: '#1e3a5f' },
+      { kind: 'text', text: 'Senior Role — Company', x: 0.06, y: 0.28, size: 0.02, color: '#0f172a', font: SANS, weight: 700, align: 'left' },
+      { kind: 'text', text: '2022 – Present', x: 0.06, y: 0.305, size: 0.016, color: '#64748b', font: SANS, weight: 400, align: 'left' },
+      { kind: 'text', text: '• Achievement or responsibility goes here', x: 0.06, y: 0.34, size: 0.016, color: '#334155', font: SANS, weight: 400, align: 'left' },
+      { kind: 'text', text: '• Another measurable result', x: 0.06, y: 0.365, size: 0.016, color: '#334155', font: SANS, weight: 400, align: 'left' },
+      { kind: 'text', text: 'EDUCATION', x: 0.06, y: 0.47, size: 0.022, color: '#1e3a5f', font: SANS, weight: 800, align: 'left', letterSpacing: 2 },
+      { kind: 'shape', shape: 'rect', x: 0.06, y: 0.49, w: 0.88, h: 0.003, fill: '#1e3a5f' },
+      { kind: 'text', text: 'Degree — University, Year', x: 0.06, y: 0.53, size: 0.018, color: '#0f172a', font: SANS, weight: 600, align: 'left' },
+      { kind: 'text', text: 'SKILLS', x: 0.06, y: 0.63, size: 0.022, color: '#1e3a5f', font: SANS, weight: 800, align: 'left', letterSpacing: 2 },
+      { kind: 'shape', shape: 'rect', x: 0.06, y: 0.65, w: 0.88, h: 0.003, fill: '#1e3a5f' },
+      { kind: 'text', text: 'Skill · Skill · Skill · Skill · Skill', x: 0.06, y: 0.69, size: 0.017, color: '#334155', font: SANS, weight: 400, align: 'left' },
+    ],
+  },
+  {
+    id: 'cover-letter', name: 'Cover Letter', category: 'document',
+    description: 'Formal letter with header and signature block.',
+    width: 794, height: 1123,
+    layers: [
+      { kind: 'background', fill: { kind: 'solid', colors: ['#ffffff'] } },
+      { kind: 'text', text: 'Your Name', x: 0.08, y: 0.08, size: 0.03, color: '#0f172a', font: SERIF, weight: 700, align: 'left' },
+      { kind: 'text', text: 'address · email · phone', x: 0.08, y: 0.115, size: 0.016, color: '#64748b', font: SANS, weight: 400, align: 'left' },
+      { kind: 'shape', shape: 'rect', x: 0.08, y: 0.14, w: 0.84, h: 0.002, fill: '#cbd5e1' },
+      { kind: 'text', text: 'Date', x: 0.08, y: 0.2, size: 0.017, color: '#334155', font: SERIF, weight: 400, align: 'left' },
+      { kind: 'text', text: 'Dear Hiring Manager,', x: 0.08, y: 0.27, size: 0.018, color: '#0f172a', font: SERIF, weight: 400, align: 'left' },
+      { kind: 'text', text: 'Opening paragraph — why you are\nwriting and the role you want.', x: 0.08, y: 0.34, size: 0.017, color: '#334155', font: SERIF, weight: 400, align: 'left', lineHeight: 1.5 },
+      { kind: 'text', text: 'Body paragraph — your fit, key\nachievements, and value you bring.', x: 0.08, y: 0.46, size: 0.017, color: '#334155', font: SERIF, weight: 400, align: 'left', lineHeight: 1.5 },
+      { kind: 'text', text: 'Sincerely,', x: 0.08, y: 0.62, size: 0.017, color: '#0f172a', font: SERIF, weight: 400, align: 'left' },
+      { kind: 'text', text: 'Your Name', x: 0.08, y: 0.67, size: 0.02, color: '#0f172a', font: SERIF, weight: 700, align: 'left' },
+    ],
+  },
+  {
+    id: 'report-cover', name: 'Report Cover', category: 'document',
+    description: 'Bold title page for reports and proposals.',
+    width: 794, height: 1123,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 160, colors: ['#0f172a', '#1e3a5f'] } },
+      { kind: 'shape', shape: 'rect', x: 0.08, y: 0.42, w: 0.3, h: 0.008, fill: '#22d3ee' },
+      { kind: 'text', text: 'ANNUAL\nREPORT', x: 0.08, y: 0.34, size: 0.075, color: '#ffffff', font: IMPACT, weight: 900, align: 'left', lineHeight: 1.0 },
+      { kind: 'text', text: '2026', x: 0.08, y: 0.5, size: 0.04, color: '#22d3ee', font: SANS, weight: 800, align: 'left' },
+      { kind: 'text', text: 'Company Name', x: 0.08, y: 0.9, size: 0.024, color: '#ffffff', font: SANS, weight: 600, align: 'left' },
+      { kind: 'text', text: 'Prepared by · Department', x: 0.08, y: 0.93, size: 0.016, color: '#94a3b8', font: SANS, weight: 400, align: 'left' },
+    ],
+  },
+  {
+    id: 'certificate', name: 'Certificate', category: 'document',
+    description: 'Award certificate with ornamental border.',
+    width: 1123, height: 794,
+    layers: [
+      { kind: 'background', fill: { kind: 'solid', colors: ['#fffdf7'] } },
+      { kind: 'shape', shape: 'rect', x: 0.04, y: 0.06, w: 0.92, h: 0.88, fill: 'transparent', stroke: '#b8860b', strokeWidth: 6 },
+      { kind: 'shape', shape: 'rect', x: 0.06, y: 0.09, w: 0.88, h: 0.82, fill: 'transparent', stroke: '#b8860b', strokeWidth: 2 },
+      { kind: 'text', text: 'CERTIFICATE', x: 0.5, y: 0.22, size: 0.07, color: '#1e293b', font: SERIF, weight: 700, align: 'center', letterSpacing: 6 },
+      { kind: 'text', text: 'OF ACHIEVEMENT', x: 0.5, y: 0.32, size: 0.028, color: '#b8860b', font: SANS, weight: 700, align: 'center', letterSpacing: 8 },
+      { kind: 'text', text: 'This certificate is proudly presented to', x: 0.5, y: 0.44, size: 0.022, color: '#475569', font: SERIF, weight: 400, italic: true, align: 'center' },
+      { kind: 'text', text: 'Recipient Name', x: 0.5, y: 0.56, size: 0.06, color: '#1e293b', font: SERIF, weight: 700, align: 'center' },
+      { kind: 'shape', shape: 'rect', x: 0.34, y: 0.64, w: 0.32, h: 0.002, fill: '#b8860b' },
+      { kind: 'text', text: 'for outstanding accomplishment', x: 0.5, y: 0.7, size: 0.02, color: '#475569', font: SERIF, weight: 400, italic: true, align: 'center' },
+    ],
+  },
+  {
+    id: 'business-card', name: 'Business Card', category: 'document',
+    description: 'Double-sided-ready business card front.',
+    width: 1050, height: 600,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 135, colors: ['#111827', '#1f2937'] } },
+      { kind: 'shape', shape: 'rect', x: 0, y: 0, w: 0.02, h: 1, fill: '#22d3ee' },
+      { kind: 'text', text: 'YOUR NAME', x: 0.08, y: 0.34, size: 0.09, color: '#ffffff', font: SANS, weight: 800, align: 'left', letterSpacing: 1 },
+      { kind: 'text', text: 'Job Title', x: 0.08, y: 0.46, size: 0.05, color: '#22d3ee', font: SANS, weight: 500, align: 'left' },
+      { kind: 'text', text: 'email@company.com', x: 0.08, y: 0.66, size: 0.04, color: '#cbd5e1', font: SANS, weight: 400, align: 'left' },
+      { kind: 'text', text: '+1 (555) 000-0000', x: 0.08, y: 0.74, size: 0.04, color: '#cbd5e1', font: SANS, weight: 400, align: 'left' },
+    ],
+  },
+  {
+    id: 'flyer', name: 'Event Flyer', category: 'document',
+    description: 'Eye-catching A4 event flyer.',
+    width: 794, height: 1123,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 160, colors: ['#7c3aed', '#db2777'] } },
+      { kind: 'shape', shape: 'ellipse', x: 0.55, y: -0.1, w: 0.7, h: 0.5, fill: 'rgba(255,255,255,.1)' },
+      { kind: 'text', text: 'LIVE', x: 0.08, y: 0.18, size: 0.04, color: '#ffe14d', font: IMPACT, weight: 900, align: 'left', letterSpacing: 4 },
+      { kind: 'text', text: 'SUMMER\nFEST 2026', x: 0.08, y: 0.32, size: 0.08, color: '#ffffff', font: IMPACT, weight: 900, align: 'left', lineHeight: 1.0 },
+      { kind: 'shape', shape: 'rect', x: 0.08, y: 0.52, w: 0.5, h: 0.004, fill: '#ffe14d' },
+      { kind: 'text', text: 'SATURDAY · JULY 18 · 7PM', x: 0.08, y: 0.6, size: 0.026, color: '#ffffff', font: SANS, weight: 700, align: 'left' },
+      { kind: 'text', text: 'Central Park Amphitheater', x: 0.08, y: 0.65, size: 0.022, color: '#fce7f3', font: SANS, weight: 400, align: 'left' },
+      { kind: 'shape', shape: 'rect', x: 0.08, y: 0.82, w: 0.46, h: 0.07, fill: '#ffe14d', radius: 40 },
+      { kind: 'text', text: 'GET TICKETS', x: 0.31, y: 0.855, size: 0.026, color: '#7c3aed', font: SANS, weight: 900, align: 'center' },
+    ],
+  },
+
+  // ── MORE SOCIAL POSTS (extra depth, 1080×1080) ──────────────────────────────
+  {
+    id: 'post-testimonial', name: 'Testimonial Card', category: 'social-post',
+    description: '5-star customer quote card.',
+    width: 1080, height: 1080,
+    layers: [
+      { kind: 'background', fill: { kind: 'solid', colors: ['#f8fafc'] } },
+      { kind: 'shape', shape: 'rect', x: 0.1, y: 0.16, w: 0.8, h: 0.68, fill: '#ffffff', stroke: '#e2e8f0', strokeWidth: 2, radius: 24 },
+      { kind: 'text', text: '★★★★★', x: 0.5, y: 0.3, size: 0.05, color: '#fbbf24', font: SANS, weight: 700, align: 'center' },
+      { kind: 'text', text: '"This completely changed\nhow our team works."', x: 0.5, y: 0.48, size: 0.045, color: '#0f172a', font: SERIF, weight: 400, italic: true, align: 'center', lineHeight: 1.35 },
+      { kind: 'text', text: '— Jordan, Product Lead', x: 0.5, y: 0.66, size: 0.026, color: '#64748b', font: SANS, weight: 600, align: 'center' },
+    ],
+  },
+  {
+    id: 'post-stat', name: 'Big Stat', category: 'social-post',
+    description: 'One huge number to stop the scroll.',
+    width: 1080, height: 1080,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 135, colors: ['#059669', '#064e3b'] } },
+      { kind: 'text', text: '10×', x: 0.5, y: 0.42, size: 0.3, color: '#ffffff', font: IMPACT, weight: 900, align: 'center' },
+      { kind: 'text', text: 'faster than before', x: 0.5, y: 0.64, size: 0.05, color: '#a7f3d0', font: SANS, weight: 600, align: 'center' },
+    ],
+  },
+
+  // ── MORE STORIES (extra depth, 1080×1920) ───────────────────────────────────
+  {
+    id: 'story-sale', name: 'Story — Flash Sale', category: 'story',
+    description: 'Vertical sale story with code.',
+    width: 1080, height: 1920,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 160, colors: ['#dc2626', '#7f1d1d'] } },
+      { kind: 'text', text: 'FLASH\nSALE', x: 0.5, y: 0.32, size: 0.13, color: '#ffffff', font: IMPACT, weight: 900, align: 'center', lineHeight: 0.98, outline: true, outlineColor: '#000', outlineWidth: 4 },
+      { kind: 'text', text: '40% OFF', x: 0.5, y: 0.56, size: 0.09, color: '#ffe14d', font: IMPACT, weight: 900, align: 'center' },
+      { kind: 'shape', shape: 'rect', x: 0.2, y: 0.68, w: 0.6, h: 0.07, fill: '#ffffff', radius: 12 },
+      { kind: 'text', text: 'CODE: FLASH40', x: 0.5, y: 0.715, size: 0.03, color: '#dc2626', font: SANS, weight: 900, align: 'center' },
+      { kind: 'text', text: 'swipe up to shop', x: 0.5, y: 0.9, size: 0.026, color: '#ffffff', font: SANS, weight: 500, align: 'center' },
+    ],
+  },
+
+  // ── MORE THUMBNAILS (extra depth, 1280×720) ─────────────────────────────────
+  {
+    id: 'thumb-number', name: 'YouTube — Listicle', category: 'thumbnail',
+    description: 'Big number + topic thumbnail.',
+    width: 1280, height: 720,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 135, colors: ['#7c3aed', '#1e1b4b'] } },
+      { kind: 'text', text: '7', x: 0.2, y: 0.5, size: 0.55, color: '#ffe14d', font: IMPACT, weight: 900, align: 'center', shadow: true, shadowColor: 'rgba(0,0,0,.4)', shadowBlur: 20 },
+      { kind: 'text', text: 'MISTAKES\nTO AVOID', x: 0.62, y: 0.5, size: 0.13, color: '#ffffff', font: IMPACT, weight: 900, align: 'center', lineHeight: 1.0, outline: true, outlineColor: '#000', outlineWidth: 6 },
+    ],
+  },
+
+  // ── MORE MARKETING (extra depth) ────────────────────────────────────────────
+  {
+    id: 'mktg-app', name: 'App Launch', category: 'marketing',
+    description: 'App store launch announcement.',
+    width: 1080, height: 1350,
+    layers: [
+      { kind: 'background', fill: { kind: 'linear', angle: 160, colors: ['#0ea5e9', '#0c4a6e'] } },
+      { kind: 'text', text: 'NOW LIVE', x: 0.5, y: 0.16, size: 0.03, color: '#bae6fd', font: SANS, weight: 800, align: 'center', letterSpacing: 6 },
+      { kind: 'shape', shape: 'rect', x: 0.32, y: 0.28, w: 0.36, h: 0.36, fill: '#ffffff', radius: 60 },
+      { kind: 'text', text: 'LOGO', x: 0.5, y: 0.46, size: 0.05, color: '#0ea5e9', font: IMPACT, weight: 900, align: 'center' },
+      { kind: 'text', text: 'Your App Name', x: 0.5, y: 0.72, size: 0.06, color: '#ffffff', font: SANS, weight: 800, align: 'center' },
+      { kind: 'text', text: 'Download on the App Store & Google Play', x: 0.5, y: 0.8, size: 0.024, color: '#bae6fd', font: SANS, weight: 400, align: 'center' },
+    ],
+  },
 ];
 
 export function imageTemplatesByCategory(cat: ImageTemplateCategory | 'all'): ImageTemplate[] {
@@ -358,6 +525,7 @@ export const IMAGE_TEMPLATE_CATEGORIES: { id: ImageTemplateCategory | 'all'; lab
   { id: 'thumbnail', label: 'Thumbnail' },
   { id: 'banner', label: 'Banner / Cover' },
   { id: 'marketing', label: 'Marketing' },
+  { id: 'document', label: 'Document' },
   { id: 'logo', label: 'Logo' },
   { id: 'quote', label: 'Quote' },
 ];

@@ -235,6 +235,55 @@ export const OFFICE_TEMPLATES: OfficeTemplate[] = [
       { r: 5, c: 0, raw: 'Churn rate' }, { r: 5, c: 1, raw: '0.05', style: PCT }, { r: 5, c: 2, raw: '0.04', style: PCT }, { r: 5, c: 3, raw: '=B6/C6', style: PCT },
     ],
   },
+  {
+    id: 'invoice-tracker', name: 'Invoice Tracker', category: 'business',
+    description: 'Track issued invoices and payment status.',
+    cols: 6, rows: 30, colWidths: { 0: 90, 1: 180, 2: 110, 3: 110, 4: 110, 5: 110 },
+    cells: [
+      { r: 0, c: 0, raw: 'Invoice Tracker', style: { bold: true, color: '#1e3a5f' } },
+      ...header(2, ['Inv #', 'Client', 'Issued', 'Due', 'Amount', 'Status']),
+      { r: 3, c: 0, raw: '0001' }, { r: 3, c: 1, raw: 'Acme Co.' }, { r: 3, c: 2, raw: '2026-06-01' }, { r: 3, c: 3, raw: '2026-06-30' }, { r: 3, c: 4, raw: '1200', style: MONEY }, { r: 3, c: 5, raw: 'Paid' },
+      { r: 4, c: 0, raw: '0002' }, { r: 4, c: 1, raw: 'Globex' }, { r: 4, c: 2, raw: '2026-06-08' }, { r: 4, c: 3, raw: '2026-07-08' }, { r: 4, c: 4, raw: '850', style: MONEY }, { r: 4, c: 5, raw: 'Sent' },
+      { r: 6, c: 4, raw: 'Outstanding', style: LABEL }, { r: 6, c: 5, raw: '=SUMIF(F4:F5,"Sent",E4:E5)', style: TOTAL },
+    ],
+  },
+
+  // ── MORE FINANCE / PLANNING (extra depth) ───────────────────────────────────
+  {
+    id: 'debt-payoff', name: 'Debt Payoff Plan', category: 'finance',
+    description: 'Snowball your debts to zero.',
+    cols: 5, rows: 20, colWidths: { 0: 180, 1: 120, 2: 110, 3: 130, 4: 120 },
+    cells: [
+      { r: 0, c: 0, raw: 'Debt Payoff', style: { bold: true, color: '#1e3a5f' } },
+      ...header(2, ['Debt', 'Balance', 'APR', 'Min Payment', 'Payoff Order']),
+      { r: 3, c: 0, raw: 'Credit Card' }, { r: 3, c: 1, raw: '3200', style: MONEY }, { r: 3, c: 2, raw: '0.22', style: PCT }, { r: 3, c: 3, raw: '120', style: MONEY }, { r: 3, c: 4, raw: '1' },
+      { r: 4, c: 0, raw: 'Car Loan' }, { r: 4, c: 1, raw: '8400', style: MONEY }, { r: 4, c: 2, raw: '0.06', style: PCT }, { r: 4, c: 3, raw: '260', style: MONEY }, { r: 4, c: 4, raw: '2' },
+      { r: 6, c: 0, raw: 'Total Debt', style: LABEL }, { r: 6, c: 1, raw: '=SUM(B4:B5)', style: TOTAL },
+    ],
+  },
+  {
+    id: 'content-calendar', name: 'Content Calendar', category: 'planning',
+    description: 'Plan posts by channel and date.',
+    cols: 6, rows: 30, colWidths: { 0: 110, 1: 130, 2: 240, 3: 110, 4: 110, 5: 110 },
+    cells: [
+      { r: 0, c: 0, raw: 'Content Calendar', style: { bold: true, color: '#1e3a5f' } },
+      ...header(2, ['Date', 'Channel', 'Topic / Caption', 'Format', 'Status', 'Owner']),
+      { r: 3, c: 0, raw: '2026-06-15' }, { r: 3, c: 1, raw: 'Instagram' }, { r: 3, c: 2, raw: 'Behind the scenes reel' }, { r: 3, c: 3, raw: 'Reel' }, { r: 3, c: 4, raw: 'Drafted' }, { r: 3, c: 5, raw: 'Sam' },
+      { r: 4, c: 0, raw: '2026-06-17' }, { r: 4, c: 1, raw: 'LinkedIn' }, { r: 4, c: 2, raw: 'Case study post' }, { r: 4, c: 3, raw: 'Article' }, { r: 4, c: 4, raw: 'Idea' }, { r: 4, c: 5, raw: 'Alex' },
+    ],
+  },
+  {
+    id: 'gantt', name: 'Simple Gantt', category: 'planning',
+    description: 'Task timeline across weeks.',
+    cols: 8, rows: 20, colWidths: { 0: 200 },
+    cells: [
+      { r: 0, c: 0, raw: 'Project Timeline', style: { bold: true, color: '#1e3a5f' } },
+      ...header(2, ['Task', 'W1', 'W2', 'W3', 'W4', 'W5', 'W6']),
+      { r: 3, c: 0, raw: 'Research' }, { r: 3, c: 1, raw: '', style: { bg: '#22d3ee' } }, { r: 3, c: 2, raw: '', style: { bg: '#22d3ee' } },
+      { r: 4, c: 0, raw: 'Design' }, { r: 4, c: 3, raw: '', style: { bg: '#a855f7' } }, { r: 4, c: 4, raw: '', style: { bg: '#a855f7' } },
+      { r: 5, c: 0, raw: 'Build' }, { r: 5, c: 5, raw: '', style: { bg: '#22c55e' } }, { r: 5, c: 6, raw: '', style: { bg: '#22c55e' } },
+    ],
+  },
 ];
 
 export function officeTemplatesByCategory(cat: OfficeTemplateCategory | 'all'): OfficeTemplate[] {

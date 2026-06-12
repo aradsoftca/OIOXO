@@ -9,7 +9,7 @@
 // gradient SVG), plus the category list. Picking an item calls onPick(id).
 
 import * as React from 'react';
-import { LayoutTemplate, X } from 'lucide-react';
+import { LayoutTemplate, X, Search } from 'lucide-react';
 import { cn } from '@/lib/cn';
 
 export interface GalleryItem {
@@ -50,7 +50,16 @@ export function TemplateGallery({
   onClose: () => void;
   accent?: 'cyan' | 'violet' | 'emerald';
 }) {
-  const visible = activeCategory === 'all' ? items : items.filter(t => t.category === activeCategory);
+  const [query, setQuery] = React.useState('');
+  const q = query.trim().toLowerCase();
+
+  // A non-empty search spans ALL categories (Clipchamp-style — you don't have
+  // to be in the right tab to find a template); an empty search respects the
+  // active category tab.
+  const visible = items.filter(t => {
+    if (q) return (t.name + ' ' + t.description + ' ' + t.category).toLowerCase().includes(q);
+    return activeCategory === 'all' || t.category === activeCategory;
+  });
   const countFor = (id: string) => (id === 'all' ? items.length : items.filter(t => t.category === id).length);
 
   const accentText = accent === 'violet' ? 'text-violet-300' : accent === 'emerald' ? 'text-emerald-300' : 'text-cyan-300';
@@ -66,19 +75,36 @@ export function TemplateGallery({
           <span className="text-sm font-semibold text-zinc-100">{title}</span>
           <span className="text-xs text-zinc-500">{visible.length} ready-to-use</span>
         </div>
-        <button onClick={onClose} className="rounded p-2 text-zinc-400 hover:bg-white/5 hover:text-white" aria-label="Close">
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+            <input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search templates…"
+              autoFocus
+              className="h-7 w-44 rounded-md border border-white/10 bg-white/[.03] pl-7 pr-6 text-xs text-zinc-200 outline-none placeholder:text-zinc-500 focus:border-white/25"
+            />
+            {query && (
+              <button onClick={() => setQuery('')} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-200" aria-label="Clear search">
+                <X className="h-3 w-3" />
+              </button>
+            )}
+          </div>
+          <button onClick={onClose} className="rounded p-2 text-zinc-400 hover:bg-white/5 hover:text-white" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <div className="flex flex-1 min-h-0">
         <div className="w-44 shrink-0 overflow-y-auto border-r border-white/5 bg-[#0f1115] p-2">
           {categories.map(c => (
             <button
               key={c.id}
-              onClick={() => onCategory(c.id)}
+              onClick={() => { setQuery(''); onCategory(c.id); }}
               className={cn(
                 'flex w-full items-center justify-between rounded px-3 py-2 text-left text-sm',
-                activeCategory === c.id ? accentActive : 'text-zinc-300 hover:bg-white/5',
+                !q && activeCategory === c.id ? accentActive : 'text-zinc-300 hover:bg-white/5',
               )}
             >
               <span>{c.label}</span>
@@ -88,7 +114,9 @@ export function TemplateGallery({
         </div>
         <div className="flex-1 overflow-y-auto p-6">
           {visible.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-sm text-zinc-500">No templates in this category yet.</div>
+            <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+              {q ? `No templates match “${query.trim()}”.` : 'No templates in this category yet.'}
+            </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {visible.map(t => (

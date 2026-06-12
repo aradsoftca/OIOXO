@@ -146,6 +146,54 @@ interface MediaItem {
   peaks?: number[]; // normalized 0..1 amplitude peaks for waveform render (audio/video)
 }
 
+// RMS energy bins (per second resolution) of a media file's audio — the
+// "how active is this moment" signal Auto-Cut uses to keep the good bits.
+// On-device, best-effort (returns empty if undecodable).
+async function videoEnergyBins(file: File, binsPerSec: number): Promise<Float32Array> {
+  try {
+    const AC: typeof AudioContext = (window.AudioContext || (window as any).webkitAudioContext); // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (!AC) return new Float32Array(0);
+    const ctx = new AC();
+    try {
+      const buf = await ctx.decodeAudioData((await file.arrayBuffer()).slice(0));
+      const nBins = Math.max(1, Math.floor(buf.duration * binsPerSec));
+      const out = new Float32Array(nBins);
+      const ch0 = buf.getChannelData(0);
+      const ch1 = buf.numberOfChannels > 1 ? buf.getChannelData(1) : null;
+      const spb = Math.floor(buf.length / nBins);
+      for (let b = 0; b < nBins; b++) {
+        let sum = 0; const s0 = b * spb, s1 = Math.min(buf.length, s0 + spb);
+        for (let i = s0; i < s1; i++) { const v = ch1 ? (ch0[i] + ch1[i]) * 0.5 : ch0[i]; sum += v * v; }
+        out[b] = Math.sqrt(sum / Math.max(1, s1 - s0));
+      }
+      return out;
+    } finally { try { await ctx.close(); } catch { /* */ } }
+  } catch { return new Float32Array(0); }
+}
+
+// Pick the start time (sec) of the highest-energy window of `segLen` seconds
+// from the footage that doesn't overlap an already-claimed window. Falls back
+// to sequential windows when energy is unavailable (silent/undecodable video).
+function pickBestWindow(energy: Float32Array, binsPerSec: number, segLen: number, totalDur: number, used: Array<[number, number]>): number {
+  const winBins = Math.max(1, Math.round(segLen * binsPerSec));
+  const overlaps = (s: number) => used.some(([u0, u1]) => s < u1 && s + segLen > u0);
+  if (energy.length >= winBins) {
+    let running = 0;
+    for (let i = 0; i < winBins; i++) running += energy[i];
+    let best = -Infinity, bestStart = 0;
+    for (let i = winBins; i < energy.length; i++) {
+      running += energy[i] - energy[i - winBins];
+      const startSec = (i - winBins + 1) / binsPerSec;
+      if (running > best && !overlaps(startSec)) { best = running; bestStart = startSec; }
+    }
+    if (best > -Infinity) return Math.max(0, Math.min(Math.max(0, totalDur - segLen), bestStart));
+  }
+  // Fallback: sequential window after the last used one (wraps if past the end).
+  const span = Math.max(0.1, totalDur - segLen);
+  const lastEnd = used.length ? Math.max(...used.map(u => u[1])) : 0;
+  return Math.max(0, Math.min(span, lastEnd % span));
+}
+
 // Decode an audio/video file on-device and downsample to a compact peak array
 // (~600 buckets) for drawing a clip waveform. Best-effort: returns [] if the
 // browser can't decode (e.g. some video containers) so the UI just shows no
@@ -709,6 +757,81 @@ export default function VideoStudioPro() {
       toastFor(subj ? 'Reframed around your subject — tweak in Transform (PiP)' : 'No clear subject — centered the frame');
     } catch (e) {
       toastFor((e as Error).message || 'Auto-reframe failed');
+    } finally { setBusy(''); }
+  };
+
+  // AI Auto-Cut: drop footage + a song → a paced, BEAT-SYNCED rough cut on the
+  // timeline in seconds. 100% on-device, NO model, NO upload — the free browser
+  // answer to CapCut's signature first step (which CapCut WEB doesn't even have).
+  //  1. detect the music's beats (on-device DSP),
+  //  2. score the footage by audio energy (loud/active = keep),
+  //  3. lay the best segments back-to-back so every cut lands on a beat,
+  //  4. drop the music underneath.
+  const autoCut = async () => {
+    const vids = media.filter(m => m.kind === 'video');
+    if (!vids.length) { toastFor('Import a video clip first'); return; }
+    const music = media.find(m => m.kind === 'audio');
+    const vid = vids.slice().sort((a, b) => b.duration - a.duration)[0]; // longest = most to cut from
+    if (!(await guard())) return;
+    setBusy('Listening for the beat…');
+    try {
+      const { detectBeats } = await import('@/lib/studios/beat-detect');
+      // Beats come from the music if present, else the footage's own audio.
+      const beatSrc = music?.file ?? vid.file;
+      const info = await detectBeats(beatSrc);
+      const songDur = music?.duration ?? Math.min(vid.duration, 30);
+
+      // Build a beat grid spanning the song. Cut every 2 beats (a musical
+      // half-bar) for a punchy pace; fall back to ~1.2s if no clear tempo.
+      let cutPoints: number[] = [];
+      if (info && info.confidence > 0.05 && info.beats.length > 2) {
+        for (let i = 0; i < info.beats.length; i += 2) if (info.beats[i] <= songDur) cutPoints.push(info.beats[i]);
+      }
+      if (cutPoints.length < 2) { cutPoints = []; for (let t = 0; t <= songDur; t += 1.2) cutPoints.push(+t.toFixed(3)); }
+      if (cutPoints[cutPoints.length - 1] < songDur) cutPoints.push(songDur);
+
+      setBusy('Scoring your footage…');
+      // Energy bins of the footage (RMS @ 10 bins/s), on-device.
+      const energy = await videoEnergyBins(vid.file, 10);
+
+      // For each timeline gap between consecutive cut points, pick the
+      // highest-energy unused window of that length from the footage.
+      const next = cloneDoc(docRef.current);
+      const vTrack = next.tracks.find(t => t.kind === 'video')!;
+      // Clear existing video clips on V1 so Auto-Cut produces a clean edit.
+      next.clips = next.clips.filter(c => !(c.kind === 'video' && c.trackId === vTrack.id));
+      const used: Array<[number, number]> = []; // claimed source windows (sec)
+      const binsPerSec = 10;
+      let added = 0;
+      for (let i = 0; i < cutPoints.length - 1; i++) {
+        const segLen = Math.max(0.3, cutPoints[i + 1] - cutPoints[i]);
+        const src = pickBestWindow(energy, binsPerSec, segLen, vid.duration, used);
+        used.push([src, src + segLen]);
+        const c: VideoClip = {
+          id: tid(), kind: 'video', trackId: vTrack.id, mediaId: vid.id,
+          start: +cutPoints[i].toFixed(3), srcStart: +src.toFixed(3), srcEnd: +(src + segLen).toFixed(3),
+          speed: 1, volume: music ? 0 : 1, // duck footage audio under the music
+          brightness: 100, contrast: 100, saturation: 100, hue: 0, opacity: 100,
+          fit: 'cover', transition: 'none', transDur: 0.5,
+        };
+        next.clips.push(c); added++;
+      }
+      // Drop the music on the first audio track.
+      if (music) {
+        const aTrack = next.tracks.find(t => t.kind === 'audio');
+        if (aTrack) {
+          next.clips = next.clips.filter(c => !(c.kind === 'audio' && c.trackId === aTrack.id));
+          next.clips.push({ id: tid(), kind: 'audio', trackId: aTrack.id, mediaId: music.id, start: 0, srcStart: 0, srcEnd: songDur, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0.5 } as AudioClip);
+        }
+      }
+      next.duration = computeDuration(next.clips);
+      next.playhead = 0;
+      commit('auto-cut', next);
+      toastFor(info && info.confidence > 0.05
+        ? `Auto-cut to the beat (${info.bpm} BPM) — ${added} cuts. Polish away.`
+        : `Auto-cut — ${added} cuts. Add music for beat-sync.`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Auto-cut failed');
     } finally { setBusy(''); }
   };
 
@@ -1643,6 +1766,7 @@ export default function VideoStudioPro() {
           <div className={cn('transition-opacity', doc.clips.length === 0 && 'pointer-events-none opacity-35')}>
             <StudioPanel title="Add">
               <div className="space-y-1.5">
+                <StudioButton size="sm" variant="primary" onClick={() => void autoCut()} title="Drop footage + a song → a paced, beat-synced rough cut on the timeline, on your device"><Scissors className="h-3 w-3" /> Auto-Cut</StudioButton>
                 <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
                 <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
                 <StudioButton size="sm" variant="soft" onClick={() => void autoReframe()} title="Find your subject on-device and reframe the clip to keep them centered"><Sparkles className="h-3 w-3" /> Auto-reframe</StudioButton>

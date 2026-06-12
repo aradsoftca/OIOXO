@@ -125,6 +125,10 @@ interface TextClip {
   pos: 'top' | 'center' | 'bottom';
   anim: 'none' | 'fade' | 'slide-up' | 'pop';
   align: CanvasTextAlign;
+  /** Free position (normalized 0..1) when the user has dragged the text on the
+      preview. Overrides pos/align placement. Undefined → use pos/align presets. */
+  nx?: number;
+  ny?: number;
 }
 
 type TimelineClip = VideoClip | AudioClip | TextClip;
@@ -657,6 +661,75 @@ export default function VideoStudioPro() {
     commit(label, next);
   };
 
+  // ── Drag text on the PREVIEW (Canva/CapCut parity) ─────────────────────────
+  // Click a caption on the frame and drag it anywhere. We map the pointer to
+  // normalized 0..1 coords (accounting for objectFit:contain letterboxing) and
+  // write nx/ny on the text clip, which the renderer honours over pos/align.
+  const textDrag = React.useRef<{ id: string } | null>(null);
+  // Pointer → normalized {nx,ny} within the displayed (contained) video frame,
+  // or null if the click is in the letterbox bars.
+  const previewNorm = (e: React.PointerEvent): { nx: number; ny: number } | null => {
+    const cv = previewRef.current;
+    if (!cv) return null;
+    const r = cv.getBoundingClientRect();
+    const arDoc = doc.width / doc.height;
+    const arBox = r.width / r.height;
+    // Contained content rect inside the element box.
+    let cw = r.width, ch = r.height, ox = 0, oy = 0;
+    if (arBox > arDoc) { cw = r.height * arDoc; ox = (r.width - cw) / 2; }
+    else { ch = r.width / arDoc; oy = (r.height - ch) / 2; }
+    const nx = (e.clientX - r.left - ox) / cw;
+    const ny = (e.clientY - r.top - oy) / ch;
+    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
+    return { nx, ny };
+  };
+  const activeTextAt = (p: { nx: number; ny: number }): TextClip | null => {
+    const t = doc.playhead;
+    // Top-most visible text at the playhead whose box contains the point.
+    const txts = doc.clips.filter(cl => cl.kind === 'text' && t >= cl.start && t < clipEnd(cl)) as TextClip[];
+    for (let i = txts.length - 1; i >= 0; i--) {
+      const tx = txts[i];
+      const lines = tx.text.split('\n');
+      const lhN = (tx.size * 1.25 / 1080); // normalized line height (≈ frame-height units)
+      const hN = lines.length * lhN;
+      const wN = Math.max(0.08, Math.max(1, ...lines.map(s => s.length)) * tx.size * 0.6 / 1920);
+      const cxN = tx.nx ?? (tx.align === 'center' ? 0.5 : tx.align === 'right' ? 0.94 : 0.06);
+      const cyN = tx.ny ?? (tx.pos === 'top' ? 0.12 : tx.pos === 'center' ? 0.5 : 0.88);
+      if (Math.abs(p.nx - cxN) <= wN / 2 + 0.02 && Math.abs(p.ny - cyN) <= hN / 2 + 0.03) return tx;
+    }
+    return null;
+  };
+  const onPreviewDown = (e: React.PointerEvent) => {
+    const p = previewNorm(e);
+    if (!p) return;
+    const hit = activeTextAt(p);
+    if (!hit) return;
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    textDrag.current = { id: hit.id };
+    // Seed nx/ny from current placement so the first drag doesn't jump, and select.
+    const cxN = hit.nx ?? (hit.align === 'center' ? 0.5 : hit.align === 'right' ? 0.94 : 0.06);
+    const cyN = hit.ny ?? (hit.pos === 'top' ? 0.12 : hit.pos === 'center' ? 0.5 : 0.88);
+    const seeded = { ...doc, selectedId: hit.id, clips: doc.clips.map(c => c.id === hit.id ? { ...c, nx: cxN, ny: cyN } as TextClip : c) };
+    docRef.current = seeded; setDoc(seeded);
+  };
+  const onPreviewMove = (e: React.PointerEvent) => {
+    if (!textDrag.current) return;
+    const p = previewNorm(e);
+    if (!p) return;
+    const id = textDrag.current.id;
+    // Live, cheap update (no undo entry per frame); keep docRef in sync so the
+    // pointer-up commit captures the final position.
+    const next = { ...docRef.current, clips: docRef.current.clips.map(c => c.id === id ? { ...c, nx: Math.max(0, Math.min(1, p.nx)), ny: Math.max(0, Math.min(1, p.ny)) } as TextClip : c) };
+    docRef.current = next; setDoc(next);
+  };
+  const onPreviewUp = () => {
+    if (!textDrag.current) return;
+    textDrag.current = null;
+    // One undo step for the whole drag.
+    commit('move text', docRef.current);
+  };
+
   const splitAt = (clipId: string, t: number) => {
     const next = cloneDoc(doc);
     const c = next.clips.find(x => x.id === clipId);
@@ -827,16 +900,22 @@ export default function VideoStudioPro() {
         ctx.save();
         ctx.globalAlpha = Math.max(0, alpha);
         ctx.font = `${tx.italic ? 'italic ' : ''}${tx.weight} ${tx.size * (c.width / 1920)}px ${tx.font}`;
-        ctx.textAlign = tx.align;
+        const freePos = tx.nx != null && tx.ny != null;
+        ctx.textAlign = freePos ? 'center' : tx.align;
         ctx.textBaseline = 'middle';
         const lines = tx.text.split('\n');
         const lh = tx.size * 1.25 * (c.width / 1920);
         const totalH = lines.length * lh;
-        let yBase = tx.pos === 'top' ? c.height * 0.12 + lh / 2
+        // Free-dragged position (nx,ny = block CENTER, normalized) overrides the
+        // pos/align presets so the user can place text anywhere on the frame.
+        let yBase = freePos
+          ? tx.ny! * c.height - totalH / 2 + lh / 2
+          : tx.pos === 'top' ? c.height * 0.12 + lh / 2
           : tx.pos === 'center' ? c.height / 2 - totalH / 2 + lh / 2
           : c.height - c.height * 0.12 - totalH + lh / 2;
         yBase += off;
-        const xBase = tx.align === 'center' ? c.width / 2 : tx.align === 'right' ? c.width - 60 : 60;
+        const xBase = freePos ? tx.nx! * c.width
+          : tx.align === 'center' ? c.width / 2 : tx.align === 'right' ? c.width - 60 : 60;
         for (let i = 0; i < lines.length; i++) {
           const yy = yBase + i * lh;
           if (tx.outline) {
@@ -1454,8 +1533,12 @@ export default function VideoStudioPro() {
             <div className="relative flex h-full w-full items-center justify-center" style={{ transform: `translate(${previewPan.x}px, ${previewPan.y}px) scale(${previewZoom})`, transformOrigin: 'center center' }}>
               <canvas
                 ref={previewRef}
+                onPointerDown={onPreviewDown}
+                onPointerMove={onPreviewMove}
+                onPointerUp={onPreviewUp}
+                onPointerCancel={onPreviewUp}
                 className="block max-h-full max-w-full rounded border border-white/10 shadow-2xl"
-                style={{ aspectRatio: `${doc.width}/${doc.height}`, height: '100%', width: '100%', objectFit: 'contain' }}
+                style={{ aspectRatio: `${doc.width}/${doc.height}`, height: '100%', width: '100%', objectFit: 'contain', cursor: 'default', touchAction: 'none' }}
               />
               <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-zinc-300 backdrop-blur">
                 {doc.width}×{doc.height} · {doc.fps}fps · {fmtT(doc.playhead)} / {fmtT(doc.duration)}
@@ -2112,7 +2195,7 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
         <div className="text-xs text-zinc-500">Position</div>
         <div className="flex gap-1">
           {(['top', 'center', 'bottom'] as const).map(p => (
-            <button key={p} onClick={() => onChange(x => { (x as TextClip).pos = p; })} className={cn('flex-1 rounded px-2 py-1 text-xs', c.pos === p ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{p}</button>
+            <button key={p} onClick={() => onChange(x => { const tc = x as TextClip; tc.pos = p; tc.nx = undefined; tc.ny = undefined; })} className={cn('flex-1 rounded px-2 py-1 text-xs', c.pos === p && c.nx == null ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{p}</button>
           ))}
         </div>
         <div className="text-xs text-zinc-500">Animation</div>

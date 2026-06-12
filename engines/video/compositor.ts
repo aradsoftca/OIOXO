@@ -103,6 +103,8 @@ export interface CompTextClip {
   outline: boolean; outlineColor: string; outlineWidth: number;
   pos: 'top' | 'center' | 'bottom'; anim: 'none' | 'fade' | 'slide-up' | 'pop';
   align: CanvasTextAlign;
+  /** Free drag position (normalized 0..1, block center). Overrides pos/align. */
+  nx?: number; ny?: number;
 }
 
 export type CompClip = CompVideoClip | CompAudioClip | CompTextClip;
@@ -313,16 +315,22 @@ function drawTextClip(
   ctx.save();
   ctx.globalAlpha = Math.max(0, alpha);
   ctx.font = `${tx.italic ? 'italic ' : ''}${tx.weight} ${tx.size * (frameW / 1920)}px ${tx.font}`;
-  ctx.textAlign = tx.align;
+  const freePos = tx.nx != null && tx.ny != null;
+  ctx.textAlign = freePos ? 'center' : tx.align;
   ctx.textBaseline = 'middle';
   const lines = tx.text.split('\n');
   const lh = tx.size * 1.25 * (frameW / 1920);
   const totalH = lines.length * lh;
-  let yBase = tx.pos === 'top' ? frameH * 0.12 + lh / 2
+  // WYSIWYG with the preview: honour the free-dragged nx/ny (block center) over
+  // the pos/align presets so the export matches what the user placed on-frame.
+  let yBase = freePos
+    ? tx.ny! * frameH - totalH / 2 + lh / 2
+    : tx.pos === 'top' ? frameH * 0.12 + lh / 2
     : tx.pos === 'center' ? frameH / 2 - totalH / 2 + lh / 2
     : frameH - frameH * 0.12 - totalH + lh / 2;
   yBase += off;
-  const xBase = tx.align === 'center' ? frameW / 2 : tx.align === 'right' ? frameW - 60 : 60;
+  const xBase = freePos ? tx.nx! * frameW
+    : tx.align === 'center' ? frameW / 2 : tx.align === 'right' ? frameW - 60 : 60;
   for (let i = 0; i < lines.length; i++) {
     const yy = yBase + i * lh;
     if (tx.outline) {

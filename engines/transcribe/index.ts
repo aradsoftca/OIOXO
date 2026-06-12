@@ -75,16 +75,24 @@ async function getPipeline(size: TranscribeSize, onProgress?: (p: TranscribeProg
     cached = null;
   }
 
-  const lib = await import('@xenova/transformers');
+  // Prefer transformers.js v3 (@huggingface/transformers). v2 (@xenova) 2.17.2
+  // is hard-broken in a cross-origin-isolated tab: its bundled onnxruntime-web
+  // 1.14.0 unconditionally imports the JSEP loader `ort-wasm-simd-threaded.jsep.mjs`
+  // that ORT version never shipped → a 404 that silently killed every studio's
+  // transcription. v3 ships a matched modern ORT (WebGPU + WASM, real JSEP), so
+  // the same pipeline runs. Fall back to v2 only if v3 isn't present.
+  const lib: any = await import('@huggingface/transformers').catch(() => null) // eslint-disable-line @typescript-eslint/no-explicit-any
+    ?? await import('@xenova/transformers');
   // Make sure models load from the HF CDN, not local /models.
   lib.env.allowLocalModels = false;
   lib.env.allowRemoteModels = true;
-  // Run inference multi-threaded (we ship cross-origin isolation, so the
-  // onnxruntime WASM threadpool works) and in a proxy worker so the heavy
-  // compute never blocks the page. Big speedup vs the single-threaded default.
+  lib.env.useBrowserCache = true;
+  // v2 needs the WASM threadpool tuned; v3 manages its own runtime, so this is
+  // a best-effort no-op there.
   configureOnnxRuntime(lib);
 
   const pipe = await lib.pipeline('automatic-speech-recognition', MODEL_ID[size], {
+    quantized: true,
     progress_callback: (data: { status: string; progress?: number; loaded?: number; total?: number; file?: string }) => {
       if (!onProgress) return;
       const ratio = data.progress != null ? data.progress / 100

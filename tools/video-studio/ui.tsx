@@ -601,11 +601,17 @@ export default function VideoStudioPro() {
     }
 
     next.duration = computeDuration(next.clips);
+    // Park the playhead in the MIDDLE of the first text clip rather than at 0.
+    // Intro animations (pop/fade) ramp alpha from 0 over the clip's first ~25%,
+    // so at t=0 the title is fully transparent — the preview would look empty
+    // even though the redraw fired. The midpoint is past the ramp, so the user
+    // immediately SEES the template's title.
+    const firstText = next.clips.find(c => c.kind === 'text') as TextClip | undefined;
+    if (firstText) next.playhead = firstText.start + firstText.duration / 2;
     commit(`apply template: ${tpl.name}`, next);
     setTemplatesDialog(false);
-    // Force the preview to paint the title at t=0 (otherwise the canvas only
-    // redraws on the next playhead move and the template looks empty).
-    requestAnimationFrame(() => drawPreviewFrame(0));
+    // Preview repaints via the content-change effect (throttledDraw watches the
+    // clip set + playhead), so the title paints right after the template loads.
     const slotCount = slots.length;
     toastFor(slotCount
       ? `Template "${tpl.name}" loaded — ${slotCount} clip slot${slotCount > 1 ? 's' : ''} ready, drop your media onto them`
@@ -755,10 +761,10 @@ export default function VideoStudioPro() {
   // Click a caption on the frame and drag it anywhere. We map the pointer to
   // normalized 0..1 coords (accounting for objectFit:contain letterboxing) and
   // write nx/ny on the text clip, which the renderer honours over pos/align.
-  const textDrag = React.useRef<{ id: string } | null>(null);
+  const textDrag = React.useRef<{ id: string; offX: number; offY: number } | null>(null);
   // Pointer → normalized {nx,ny} within the displayed (contained) video frame,
   // or null if the click is in the letterbox bars.
-  const previewNorm = (e: React.PointerEvent): { nx: number; ny: number } | null => {
+  const previewNorm = (e: React.PointerEvent, allowOutside = false): { nx: number; ny: number } | null => {
     const cv = previewRef.current;
     if (!cv) return null;
     const r = cv.getBoundingClientRect();
@@ -770,7 +776,10 @@ export default function VideoStudioPro() {
     else { ch = r.width / arDoc; oy = (r.height - ch) / 2; }
     const nx = (e.clientX - r.left - ox) / cw;
     const ny = (e.clientY - r.top - oy) / ch;
-    if (nx < 0 || nx > 1 || ny < 0 || ny > 1) return null;
+    // For a press we require an in-frame click; during a drag we allow the
+    // pointer to drift past the frame edge (callers clamp) so the text keeps
+    // tracking smoothly instead of freezing at the border.
+    if (!allowOutside && (nx < 0 || nx > 1 || ny < 0 || ny > 1)) return null;
     return { nx, ny };
   };
   const activeTextAt = (p: { nx: number; ny: number }): TextClip | null => {
@@ -796,21 +805,25 @@ export default function VideoStudioPro() {
     if (!hit) return;
     e.preventDefault();
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    textDrag.current = { id: hit.id };
-    // Seed nx/ny from current placement so the first drag doesn't jump, and select.
+    // Seed nx/ny from current placement, and remember the grab OFFSET (pointer −
+    // block center) so dragging the edge of the text doesn't snap its center to
+    // the cursor — the text moves relative to where you grabbed it.
     const cxN = hit.nx ?? (hit.align === 'center' ? 0.5 : hit.align === 'right' ? 0.94 : 0.06);
     const cyN = hit.ny ?? (hit.pos === 'top' ? 0.12 : hit.pos === 'center' ? 0.5 : 0.88);
+    textDrag.current = { id: hit.id, offX: p.nx - cxN, offY: p.ny - cyN };
     const seeded = { ...doc, selectedId: hit.id, clips: doc.clips.map(c => c.id === hit.id ? { ...c, nx: cxN, ny: cyN } as TextClip : c) };
     docRef.current = seeded; setDoc(seeded);
   };
   const onPreviewMove = (e: React.PointerEvent) => {
     if (!textDrag.current) return;
-    const p = previewNorm(e);
+    const p = previewNorm(e, true);
     if (!p) return;
-    const id = textDrag.current.id;
+    const { id, offX, offY } = textDrag.current;
+    const nx = Math.max(0, Math.min(1, p.nx - offX));
+    const ny = Math.max(0, Math.min(1, p.ny - offY));
     // Live, cheap update (no undo entry per frame); keep docRef in sync so the
     // pointer-up commit captures the final position.
-    const next = { ...docRef.current, clips: docRef.current.clips.map(c => c.id === id ? { ...c, nx: Math.max(0, Math.min(1, p.nx)), ny: Math.max(0, Math.min(1, p.ny)) } as TextClip : c) };
+    const next = { ...docRef.current, clips: docRef.current.clips.map(c => c.id === id ? { ...c, nx, ny } as TextClip : c) };
     docRef.current = next; setDoc(next);
   };
   const onPreviewUp = () => {
@@ -1023,7 +1036,11 @@ export default function VideoStudioPro() {
   }, [doc, mediaMap]);
 
   const throttledDraw = useRafThrottle(drawPreviewFrame);
-  React.useEffect(() => { throttledDraw(doc.playhead); }, [doc.playhead, throttledDraw]);
+  // Redraw when the playhead moves OR when the rendered content changes (clips
+  // added/removed/edited, background). Without the content deps, applying a
+  // template — which leaves playhead at 0 — never repainted, so the title at
+  // t=0 stayed invisible and the template looked like it did nothing.
+  React.useEffect(() => { throttledDraw(doc.playhead); }, [doc.playhead, doc.clips, doc.background, doc.width, doc.height, throttledDraw]);
 
   usePinchPan({ ref: previewWrapRef, zoom: previewZoom, pan: previewPan, setZoom: setPreviewZoom, setPan: setPreviewPan, minZoom: 0.2, maxZoom: 6 });
 

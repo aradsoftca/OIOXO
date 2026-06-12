@@ -1343,7 +1343,9 @@ export default function OfficeStudioPro() {
       toastFor('Freeze cleared');
     } else {
       next.freeze[sheet.id] = { rows: r, cols: c };
-      toastFor(`Freeze: ${r} row${r === 1 ? '' : 's'}, ${c} col${c === 1 ? '' : 's'}`);
+      toastFor(c > 0
+        ? `Froze ${c} column${c === 1 ? '' : 's'} — they stay put as you scroll right`
+        : `Freeze set at row ${r + 1}`);
     }
     commit('freeze', next);
   };
@@ -1518,6 +1520,7 @@ export default function OfficeStudioPro() {
           )}
           <Grid
             sheet={sheet}
+            freeze={doc.freeze?.[sheet.id] ?? null}
             evaluated={evaluated}
             selection={doc.selection}
             editor={editor}
@@ -1711,8 +1714,9 @@ export default function OfficeStudioPro() {
   );
 }
 
-function Grid({ sheet, evaluated, selection, editor, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
+function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
+  freeze: FreezePanes | null;
   evaluated: Record<string, any>;
   selection: { r: number; c: number; r2: number; c2: number };
   editor: { r: number; c: number; value: string } | null;
@@ -1746,6 +1750,18 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
   const baseColW = (c: number) => sheet.colWidths[c] ?? 96;
   const colW = (c: number) => (resize && resize.c === c ? resize.w : baseColW(c));
   const rowH = (r: number) => sheet.rowHeights[r] ?? cellH;
+
+  // Frozen panes (was stored on the doc but the grid ignored it). We pin the
+  // first `freeze.cols` columns to the left and the first `freeze.rows` rows to
+  // the top using position:sticky — the same mechanism the row/column headers
+  // already use. `frozenCols`/`frozenRows` are clamped so a stale freeze can't
+  // pin the whole sheet. `colLeft(c)` is the sticky left offset for a frozen
+  // column = headerW + sum of the widths of the frozen columns before it.
+  const frozenCols = Math.max(0, Math.min(freeze?.cols ?? 0, sheet.cols - 1));
+  const frozenRows = Math.max(0, Math.min(freeze?.rows ?? 0, sheet.rows - 1));
+  const colLeft = (c: number) => { let x = headerW; for (let i = 0; i < c; i++) x += colW(i); return x; };
+  const frozenColsWidth = colLeft(frozenCols); // left edge of the first non-frozen column
+  const frozenRowsHeight = frozenRows * cellH;
 
   React.useEffect(() => {
     if (!resize) return;
@@ -1826,8 +1842,10 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
     >
       <div style={{ position: 'sticky', top: 0, left: 0, zIndex: 30 }} className="flex border-b border-white/10 bg-[#0f1115]">
         <div style={{ width: headerW, height: cellH }} className="sticky left-0 z-30 shrink-0 border-r border-white/10 bg-[#0f1115]" />
-        {Array.from({ length: sheet.cols }, (_, c) => (
-          <div key={c} style={{ width: colW(c), height: cellH, position: 'relative' }} className={cn(
+        {Array.from({ length: sheet.cols }, (_, c) => {
+          const colFrozen = c < frozenCols;
+          return (
+          <div key={c} style={{ width: colW(c), height: cellH, position: colFrozen ? 'sticky' : 'relative', left: colFrozen ? colLeft(c) : undefined, zIndex: colFrozen ? 31 : undefined }} className={cn(
             'group shrink-0 border-r border-white/10 px-1 text-center text-[10px] font-medium leading-[24px]',
             c >= c0 && c <= c1 ? 'bg-cyan-500/20 text-cyan-200' : 'bg-[#0f1115] text-zinc-500',
           )}>
@@ -1840,7 +1858,8 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
               className="absolute right-0 top-0 z-10 h-full w-1.5 translate-x-1/2 cursor-col-resize hover:bg-cyan-400/60"
             />
           </div>
-        ))}
+          );
+        })}
       </div>
       <div style={{ position: 'relative', height: totalH }}>
         {Array.from({ length: Math.max(0, lastVisible - firstVisible) }, (_, i) => {
@@ -1871,17 +1890,22 @@ function Grid({ sheet, evaluated, selection, editor, locale, currency, commented
                 }
                 const ghosted = inGhost(r, c);
                 const isFillAnchor = r === r1 && c === c1; // bottom-right of selection
+                const colFrozen = c < frozenCols;
                 return (
                   <div
                     key={c}
                     style={{
                       width: colW(c), height: rowH(r),
-                      background: condFmt.bg ?? cell?.style?.bg ?? (inSel ? 'rgba(34,211,238,.08)' : ghosted ? 'rgba(34,211,238,.05)' : undefined),
+                      // Frozen cells need an opaque base so scrolled content
+                      // doesn't show through the pinned column.
+                      background: condFmt.bg ?? cell?.style?.bg ?? (inSel ? 'rgba(34,211,238,.08)' : ghosted ? 'rgba(34,211,238,.05)' : colFrozen ? '#0c0d10' : undefined),
                       color: condFmt.color ?? cell?.style?.color,
                       fontWeight: cell?.style?.bold ? 700 : undefined,
                       fontStyle: cell?.style?.italic ? 'italic' : undefined,
                       textAlign: cell?.style?.align ?? (typeof v === 'number' ? 'right' : 'left'),
-                      position: 'relative',
+                      position: colFrozen ? 'sticky' : 'relative',
+                      left: colFrozen ? colLeft(c) : undefined,
+                      zIndex: colFrozen ? 15 : undefined,
                       boxShadow: ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
                     }}
                     className={cn(

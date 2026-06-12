@@ -18,9 +18,31 @@ interface ShortcutsContextValue {
 
 const ShortcutsContext = React.createContext<ShortcutsContextValue | null>(null);
 
+// Module-level store for the registered groups. The studio component that calls
+// useRegisterShortcuts() is the PARENT that renders <StudioShell> (which in turn
+// renders <ShortcutsProvider>), so it sits ABOVE the provider in the tree and a
+// plain useContext() would read null — leaving the "?" overlay permanently empty
+// ("No shortcuts registered") even though the shortcuts themselves work. Holding
+// the groups in a module store + subscription decouples registration from tree
+// position so the overlay reflects them wherever the hook is called.
+let storeGroups: ShortcutGroup[] = [];
+const storeSubs = new Set<(g: ShortcutGroup[]) => void>();
+function setStoreGroups(g: ShortcutGroup[]) {
+  storeGroups = g;
+  storeSubs.forEach(fn => fn(g));
+}
+
 export function ShortcutsProvider({ children }: { children: React.ReactNode }) {
-  const [groups, setGroups] = React.useState<ShortcutGroup[]>([]);
+  const [groups, setGroups] = React.useState<ShortcutGroup[]>(storeGroups);
   const [open, setOpen] = React.useState(false);
+
+  // Mirror the module store into local state so the overlay re-renders when a
+  // studio registers its shortcuts from above us in the tree.
+  React.useEffect(() => {
+    setGroups(storeGroups);
+    storeSubs.add(setGroups);
+    return () => { storeSubs.delete(setGroups); };
+  }, []);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -54,11 +76,12 @@ export function useShortcutsOverlay() {
 }
 
 export function useRegisterShortcuts(groups: ShortcutGroup[]) {
-  const ctx = React.useContext(ShortcutsContext);
+  // Write to the module store (NOT context) so this works even though the
+  // caller is the studio component that renders the provider — i.e. it is the
+  // provider's PARENT and could not read its context.
   React.useEffect(() => {
-    if (!ctx) return;
-    ctx.setGroups(groups);
-    return () => { ctx.setGroups([]); };
+    setStoreGroups(groups);
+    return () => { setStoreGroups([]); };
   }, [JSON.stringify(groups)]);
 }
 

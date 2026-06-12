@@ -198,8 +198,8 @@ const STUDIO_POLICIES: ToolPolicy[] = [
     levers: [
       { type: 'count-day', free: 2, label: 'Daily exports', response: 'block' },
       { type: 'input-size', free: 25 * 1024 * 1024, unit: 'MB', label: 'Max import size', response: 'block' },
-      { type: 'layers', free: 6, pro: 64, label: 'Layers', response: 'block' },
-      { type: 'output-resolution', free: 2048, pro: 16384, unit: 'p', label: 'Export resolution', response: 'degrade' },
+      { type: 'layers', free: 12, pro: 64, label: 'Layers', response: 'block' },
+      { type: 'output-resolution', free: 4096, pro: 16384, unit: 'p', label: 'Export resolution', response: 'degrade' },
       { type: 'project-saves', free: 5, label: 'Saved projects', response: 'block' },
       { type: 'formats', free: 0, label: 'Free formats', response: 'block', freeFormats: ['png', 'jpg', 'webp'] },
     ],
@@ -311,7 +311,7 @@ const STUDIO_POLICIES: ToolPolicy[] = [
     levers: [
       { type: 'count-day', free: 3, label: 'Daily exports', response: 'block' },
       { type: 'rows', free: 1000, pro: 1_000_000, label: 'Max rows', response: 'block' },
-      { type: 'tracks', free: 3, pro: 50, label: 'Sheets per workbook', response: 'block' },
+      { type: 'tracks', free: 3, pro: 50, unit: 'sheets', label: 'Sheets per workbook', response: 'block' },
       { type: 'formats', free: 0, label: 'Free formats', response: 'block', freeFormats: ['csv', 'xlsx'] },
     ],
     watermarkFree: true,
@@ -962,7 +962,7 @@ function friendlyFor(lever: Lever, value: number, policy: ToolPolicy): string {
     case 'rows':
       return `Free plan caps at ${lever.free} rows.`;
     case 'tracks':
-      return `Free plan allows ${lever.free} tracks. Pro: ${lever.pro}.`;
+      return `Free plan allows ${lever.free} ${lever.unit ?? 'tracks'}. Pro: ${lever.pro}.`;
     case 'layers':
       return `Free plan allows ${lever.free} layers. Pro: ${lever.pro}.`;
     case 'batch':

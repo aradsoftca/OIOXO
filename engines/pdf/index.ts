@@ -7,7 +7,7 @@ import type { PDFFont, PageSizes } from 'pdf-lib';
 import { BRAND_DOMAIN } from '@/lib/brand';
 
 // ---- Brand footer (free) ----------------------------------------------------
-// A faint "Made with xonvert.com" footer on every page of any PDF this engine
+// A faint "Made with <brand>" footer (BRAND_DOMAIN) on every page of any PDF this engine
 // outputs. Default ON (free); Pro calls setPdfWatermark(null). Every save goes
 // through saveBranded() so no output is missed. Fully defensive — a footer
 // failure never blocks the save.

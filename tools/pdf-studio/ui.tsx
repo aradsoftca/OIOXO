@@ -9,6 +9,7 @@ import {
   Droplets, Scissors, FileCheck2, FileType2,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { BRAND_DOMAIN } from '@/lib/brand';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
@@ -1261,7 +1262,7 @@ export default function PdfStudioPro() {
           <div className="rounded bg-emerald-500/10 p-2 text-xs text-emerald-200">Redacted pages are flattened to an image so the hidden text is permanently removed — not just covered. Other pages keep their selectable vector text.</div>
           {!isPro && (
             <div className="flex items-center justify-between gap-2 rounded bg-white/5 p-2 text-[11px] text-zinc-400">
-              <span>Free exports include a small “Made with xonvert.com” footer.</span>
+              <span>Free exports include a small “Made with {BRAND_DOMAIN}” footer.</span>
               <a href="/pricing" className="shrink-0 font-medium text-cyan-300 hover:underline">Upgrade to remove</a>
             </div>
           )}

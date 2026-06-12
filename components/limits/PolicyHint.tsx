@@ -38,7 +38,7 @@ export function PolicyHint({ toolKey, fallbackKey, compact }: { toolKey: string;
       case 'input-duration': items.push(`${l.free}${l.unit ?? ''} max`); break;
       case 'output-resolution': items.push(`${l.free}p max`); break;
       case 'pages': items.push(`${l.free} ${l.unit ?? 'pages'} max`); break;
-      case 'tracks': items.push(`${l.free} tracks`); break;
+      case 'tracks': items.push(`${l.free} ${l.unit ?? 'tracks'}`); break;
       case 'layers': items.push(`${l.free} layers`); break;
       case 'batch': items.push(`${l.free} files/batch`); break;
       case 'participants': items.push(`${l.free} people`); break;

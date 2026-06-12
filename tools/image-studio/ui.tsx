@@ -1780,7 +1780,9 @@ export default function ImageStudioPro() {
       // than stacking a new overlapping layer. Hit-test top-most first; approximate
       // each run's box from its text metrics (baseline top at x,y).
       const hit = [...doc.layers].reverse().find(l => {
-        if (l.kind !== 'text' || !l.visible) return false;
+        // Skip hidden/locked layers — a locked layer must not be click-to-edited
+        // (consistent with the rest of the editor's lock semantics).
+        if (l.kind !== 'text' || !l.visible || l.locked) return false;
         const tl = l as TextLayer;
         const lines = tl.text.split('\n');
         const maxLen = Math.max(1, ...lines.map(s => s.length));
@@ -2527,7 +2529,7 @@ export default function ImageStudioPro() {
                     onToggle={() => updateLayer(l.id, x => { x.visible = !x.visible; }, 'visibility')}
                     onLock={() => updateLayer(l.id, x => { x.locked = !x.locked; }, 'lock')}
                     onRename={n => renameLayer(l.id, n)}
-                    onDoubleClick={() => l.kind === 'text' && setTextEditOpen(l.id)}
+                    onDoubleClick={() => l.kind === 'text' && !l.locked && setTextEditOpen(l.id)}
                   />
                 ))}
               </div>

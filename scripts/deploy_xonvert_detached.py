@@ -48,6 +48,20 @@ def main():
     # SIDE-DIR build (NEXT_DIST_DIR=.next-build): the build writes to .next-build
     # while the live .next keeps serving — site stays UP for the whole build. The
     # finisher VALIDATES .next-build then atomically swaps + restarts (brief blip).
+    #
+    # MEMORY-SAFE BUILD (the box is shared — ~2GB free with 6 other tenants): the
+    # build kept THRASHING (262% CPU, no progress) then writing a CORRUPT chunk
+    # (HTML/RSC bytes where CSS should be → "Unexpected token" minifier crash) =
+    # classic OOM under memory pressure. Two fixes:
+    #   - DISABLE_WEBPACK_BUILD_WORKER=1: don't fork the parallel build worker
+    #     (it ~doubles peak memory). next.config honours this env.
+    #   - NODE_OPTIONS=--max-old-space-size=4096: cap V8 heap so it GCs hard
+    #     instead of letting the OS OOM-corrupt/kill the process. 4GB fits the
+    #     free headroom; aggressive GC is slower but COMPLETES instead of dying.
+    build_env = (
+        f"{tool_key_env}OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} NEXT_DIST_DIR=.next-build "
+        f"DISABLE_WEBPACK_BUILD_WORKER=1 NODE_OPTIONS=--max-old-space-size=4096 "
+    )
     inner = (
         f"cd {R} && "
         f"{{ "
@@ -55,7 +69,7 @@ def main():
         f"npx prisma db push --skip-generate && "
         f"npx prisma generate && "
         f"rm -rf .next-build && "
-        f"{tool_key_env}OBFUSCATE=1 NEXT_BASE_PATH={BASE_PATH} NEXT_DIST_DIR=.next-build npm run build ; "
+        f"{build_env}npm run build ; "
         f"}} > _deploy.log 2>&1 ; echo DONE:$? > _deploy.done"
     )
     launch = (

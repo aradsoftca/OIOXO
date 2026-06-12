@@ -1343,9 +1343,10 @@ export default function OfficeStudioPro() {
       toastFor('Freeze cleared');
     } else {
       next.freeze[sheet.id] = { rows: r, cols: c };
-      toastFor(c > 0
-        ? `Froze ${c} column${c === 1 ? '' : 's'} — they stay put as you scroll right`
-        : `Freeze set at row ${r + 1}`);
+      const parts: string[] = [];
+      if (r > 0) parts.push(`${r} row${r === 1 ? '' : 's'}`);
+      if (c > 0) parts.push(`${c} column${c === 1 ? '' : 's'}`);
+      toastFor(parts.length ? `Froze ${parts.join(' + ')} — they stay put as you scroll` : 'Freeze cleared');
     }
     commit('freeze', next);
   };
@@ -1829,6 +1830,113 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
   }
   const inGhost = (r: number, c: number) => !!ghost && r >= ghost.r0 && r <= ghost.r1 && c >= ghost.c0 && c <= ghost.c1 && !(r >= r0 && r <= r1 && c >= c0 && c <= c1);
 
+  // One row's JSX (header cell + data cells). Extracted so the virtualized list
+  // and the frozen-rows band can share it. mode='flow' = absolute-positioned in
+  // the scrolling list; mode='frozen' = sticky-pinned near the top so it stays
+  // visible on vertical scroll (rows are absolute, so a frozen row can't just be
+  // sticky in-place — it renders in a separate always-present band).
+  const renderRow = (r: number, mode: 'flow' | 'frozen') => {
+    const frozen = mode === 'frozen';
+    return (
+      <div key={`${mode}-${r}`} style={
+        frozen
+          ? { position: 'sticky', top: cellH + r * cellH, left: 0, height: rowH(r), display: 'flex', zIndex: 22, background: '#0c0d10' }
+          : { position: 'absolute', top: rowOffset(r), left: 0, height: rowH(r), display: 'flex' }
+      }>
+        <div style={{ width: headerW, zIndex: frozen ? 33 : undefined }} className={cn(
+          'sticky left-0 z-20 shrink-0 border-b border-r border-white/10 text-center text-[10px] font-medium leading-[24px]',
+          r >= r0 && r <= r1 ? 'bg-cyan-500/20 text-cyan-200' : 'bg-[#0f1115] text-zinc-500',
+        )}>
+          {r + 1}
+        </div>
+        {Array.from({ length: sheet.cols }, (_, c) => {
+          const cell = sheet.cells[cellKey(r, c)];
+          const inSel = r >= r0 && r <= r1 && c >= c0 && c <= c1;
+          const isCursor = r === selection.r && c === selection.c;
+          const isEditing = editor?.r === r && editor?.c === c;
+          const v = evaluated[cellKey(r, c)] ?? cell?.raw ?? '';
+          const display = formatValue(v, cell?.style, locale, currency);
+          const condRange = (sheet.condFormats ?? []).find(cf => r >= cf.r0 && r <= cf.r1 && c >= cf.c0 && c <= cf.c1);
+          let condFmt: ReturnType<typeof evalCondFormat> = {};
+          if (condRange) {
+            const all: any[] = [];
+            for (let rr = condRange.r0; rr <= condRange.r1; rr++) for (let cc = condRange.c0; cc <= condRange.c1; cc++) {
+              all.push(evaluated[cellKey(rr, cc)] ?? sheet.cells[cellKey(rr, cc)]?.raw ?? '');
+            }
+            condFmt = evalCondFormat(v, condRange, all);
+          }
+          const ghosted = inGhost(r, c);
+          const isFillAnchor = r === r1 && c === c1; // bottom-right of selection
+          const colFrozen = c < frozenCols;
+          const sticky = colFrozen || frozen;
+          return (
+            <div
+              key={c}
+              style={{
+                width: colW(c), height: rowH(r),
+                // Frozen cells need an opaque base so scrolled content
+                // doesn't show through the pinned column/row.
+                background: condFmt.bg ?? cell?.style?.bg ?? (inSel ? 'rgba(34,211,238,.08)' : ghosted ? 'rgba(34,211,238,.05)' : sticky ? '#0c0d10' : undefined),
+                color: condFmt.color ?? cell?.style?.color,
+                fontWeight: cell?.style?.bold ? 700 : undefined,
+                fontStyle: cell?.style?.italic ? 'italic' : undefined,
+                textAlign: cell?.style?.align ?? (typeof v === 'number' ? 'right' : 'left'),
+                position: colFrozen ? 'sticky' : 'relative',
+                left: colFrozen ? colLeft(c) : undefined,
+                zIndex: colFrozen ? (frozen ? 24 : 15) : undefined,
+                boxShadow: ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
+              }}
+              className={cn(
+                'shrink-0 overflow-hidden border-b border-r border-white/10 px-1.5 text-[12px] leading-[24px] whitespace-nowrap',
+                isCursor && 'ring-2 ring-cyan-400 ring-inset z-10',
+              )}
+              onPointerDown={(e) => { if (filling.current) return; dragging.current = true; onSelect(r, c, e.shiftKey); }}
+              onPointerEnter={() => { if (filling.current) onFillDragMove(r, c); else if (dragging.current) onSelect(r, c, true); }}
+              onDoubleClick={() => onBeginEdit(r, c)}
+            >
+              {condFmt.bar && (
+                <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${condFmt.bar.pct * 100}%`, background: condFmt.bar.color, opacity: 0.4 }} />
+              )}
+              {commentedCells.has(`${r}_${c}`) && (
+                <div style={{ position: 'absolute', right: 0, top: 0, width: 0, height: 0, borderTop: '6px solid #fbbf24', borderLeft: '6px solid transparent', zIndex: 5 }} />
+              )}
+              {isFillAnchor && !isEditing && (
+                <div
+                  title="Drag to fill series · double-click to fill down"
+                  onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); filling.current = true; dragging.current = false; (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); }}
+                  onDoubleClick={(e) => { e.stopPropagation(); onFillDoubleClick(); }}
+                  style={{ position: 'absolute', right: -3, bottom: -3, width: 7, height: 7, zIndex: 20 }}
+                  className="cursor-crosshair rounded-[1px] border border-[#0a0b0e] bg-cyan-400"
+                />
+              )}
+              {isEditing ? (
+                <input
+                  autoFocus
+                  value={editor.value}
+                  onChange={e => onEditChange(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); onEditCommit(e.shiftKey ? -1 : 1, 0); }
+                    else if (e.key === 'Tab') { e.preventDefault(); onEditCommit(0, e.shiftKey ? -1 : 1); }
+                    else if (e.key === 'Escape') onEditCancel();
+                  }}
+                  onBlur={() => onEditCommit(0, 0)}
+                  className="-mx-1.5 -my-0 h-full w-[calc(100%+.75rem)] border-2 border-cyan-400 bg-[#0a0b0e] px-1.5 outline-none text-zinc-100"
+                />
+              ) : isSparkCell(cell?.raw) ? (
+                <SparklineRender raw={cell!.raw} sheet={sheet} evaluated={evaluated} />
+              ) : (
+                <span className={cn('relative', cell?.raw?.startsWith('=') && 'text-zinc-200', String(v).startsWith('#') && String(v).length < 7 && 'text-rose-400')}>
+                  {condFmt.icon && <span className="mr-1">{condFmt.icon}</span>}
+                  {display}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div
       ref={scrollerRef}
@@ -1862,101 +1970,14 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
         })}
       </div>
       <div style={{ position: 'relative', height: totalH }}>
+        {/* Frozen rows: an always-present sticky band pinned just under the
+            column header. Rendered separately from the virtualized list (which
+            skips them) because the list rows are absolute-positioned. */}
+        {frozenRows > 0 && Array.from({ length: frozenRows }, (_, r) => renderRow(r, 'frozen'))}
         {Array.from({ length: Math.max(0, lastVisible - firstVisible) }, (_, i) => {
           const r = firstVisible + i;
-          return (
-            <div key={r} style={{ position: 'absolute', top: rowOffset(r), left: 0, height: rowH(r), display: 'flex' }}>
-              <div style={{ width: headerW }} className={cn(
-                'sticky left-0 z-20 shrink-0 border-b border-r border-white/10 text-center text-[10px] font-medium leading-[24px]',
-                r >= r0 && r <= r1 ? 'bg-cyan-500/20 text-cyan-200' : 'bg-[#0f1115] text-zinc-500',
-              )}>
-                {r + 1}
-              </div>
-              {Array.from({ length: sheet.cols }, (_, c) => {
-                const cell = sheet.cells[cellKey(r, c)];
-                const inSel = r >= r0 && r <= r1 && c >= c0 && c <= c1;
-                const isCursor = r === selection.r && c === selection.c;
-                const isEditing = editor?.r === r && editor?.c === c;
-                const v = evaluated[cellKey(r, c)] ?? cell?.raw ?? '';
-                const display = formatValue(v, cell?.style, locale, currency);
-                const condRange = (sheet.condFormats ?? []).find(cf => r >= cf.r0 && r <= cf.r1 && c >= cf.c0 && c <= cf.c1);
-                let condFmt: ReturnType<typeof evalCondFormat> = {};
-                if (condRange) {
-                  const all: any[] = [];
-                  for (let rr = condRange.r0; rr <= condRange.r1; rr++) for (let cc = condRange.c0; cc <= condRange.c1; cc++) {
-                    all.push(evaluated[cellKey(rr, cc)] ?? sheet.cells[cellKey(rr, cc)]?.raw ?? '');
-                  }
-                  condFmt = evalCondFormat(v, condRange, all);
-                }
-                const ghosted = inGhost(r, c);
-                const isFillAnchor = r === r1 && c === c1; // bottom-right of selection
-                const colFrozen = c < frozenCols;
-                return (
-                  <div
-                    key={c}
-                    style={{
-                      width: colW(c), height: rowH(r),
-                      // Frozen cells need an opaque base so scrolled content
-                      // doesn't show through the pinned column.
-                      background: condFmt.bg ?? cell?.style?.bg ?? (inSel ? 'rgba(34,211,238,.08)' : ghosted ? 'rgba(34,211,238,.05)' : colFrozen ? '#0c0d10' : undefined),
-                      color: condFmt.color ?? cell?.style?.color,
-                      fontWeight: cell?.style?.bold ? 700 : undefined,
-                      fontStyle: cell?.style?.italic ? 'italic' : undefined,
-                      textAlign: cell?.style?.align ?? (typeof v === 'number' ? 'right' : 'left'),
-                      position: colFrozen ? 'sticky' : 'relative',
-                      left: colFrozen ? colLeft(c) : undefined,
-                      zIndex: colFrozen ? 15 : undefined,
-                      boxShadow: ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
-                    }}
-                    className={cn(
-                      'shrink-0 overflow-hidden border-b border-r border-white/10 px-1.5 text-[12px] leading-[24px] whitespace-nowrap',
-                      isCursor && 'ring-2 ring-cyan-400 ring-inset z-10',
-                    )}
-                    onPointerDown={(e) => { if (filling.current) return; dragging.current = true; onSelect(r, c, e.shiftKey); }}
-                    onPointerEnter={() => { if (filling.current) onFillDragMove(r, c); else if (dragging.current) onSelect(r, c, true); }}
-                    onDoubleClick={() => onBeginEdit(r, c)}
-                  >
-                    {condFmt.bar && (
-                      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${condFmt.bar.pct * 100}%`, background: condFmt.bar.color, opacity: 0.4 }} />
-                    )}
-                    {commentedCells.has(`${r}_${c}`) && (
-                      <div style={{ position: 'absolute', right: 0, top: 0, width: 0, height: 0, borderTop: '6px solid #fbbf24', borderLeft: '6px solid transparent', zIndex: 5 }} />
-                    )}
-                    {isFillAnchor && !isEditing && (
-                      <div
-                        title="Drag to fill series · double-click to fill down"
-                        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); filling.current = true; dragging.current = false; (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId); }}
-                        onDoubleClick={(e) => { e.stopPropagation(); onFillDoubleClick(); }}
-                        style={{ position: 'absolute', right: -3, bottom: -3, width: 7, height: 7, zIndex: 20 }}
-                        className="cursor-crosshair rounded-[1px] border border-[#0a0b0e] bg-cyan-400"
-                      />
-                    )}
-                    {isEditing ? (
-                      <input
-                        autoFocus
-                        value={editor.value}
-                        onChange={e => onEditChange(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') { e.preventDefault(); onEditCommit(e.shiftKey ? -1 : 1, 0); }
-                          else if (e.key === 'Tab') { e.preventDefault(); onEditCommit(0, e.shiftKey ? -1 : 1); }
-                          else if (e.key === 'Escape') onEditCancel();
-                        }}
-                        onBlur={() => onEditCommit(0, 0)}
-                        className="-mx-1.5 -my-0 h-full w-[calc(100%+.75rem)] border-2 border-cyan-400 bg-[#0a0b0e] px-1.5 outline-none text-zinc-100"
-                      />
-                    ) : isSparkCell(cell?.raw) ? (
-                      <SparklineRender raw={cell!.raw} sheet={sheet} evaluated={evaluated} />
-                    ) : (
-                      <span className={cn('relative', cell?.raw?.startsWith('=') && 'text-zinc-200', String(v).startsWith('#') && String(v).length < 7 && 'text-rose-400')}>
-                        {condFmt.icon && <span className="mr-1">{condFmt.icon}</span>}
-                        {display}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
+          if (r < frozenRows) return null; // rendered in the frozen band above
+          return renderRow(r, 'flow');
         })}
       </div>
       {resize && (

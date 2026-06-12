@@ -1259,6 +1259,12 @@ export default function PdfStudioPro() {
           </label>
           {pdfPassword.trim() && <div className="rounded bg-cyan-500/10 p-2 text-[11px] text-cyan-200">Real AES encryption — the file can't be opened without this password. Don't lose it; it can't be recovered.</div>}
           <div className="rounded bg-emerald-500/10 p-2 text-xs text-emerald-200">Redacted pages are flattened to an image so the hidden text is permanently removed — not just covered. Other pages keep their selectable vector text.</div>
+          {!isPro && (
+            <div className="flex items-center justify-between gap-2 rounded bg-white/5 p-2 text-[11px] text-zinc-400">
+              <span>Free exports include a small “Made with xonvert.com” footer.</span>
+              <a href="/pricing" className="shrink-0 font-medium text-cyan-300 hover:underline">Upgrade to remove</a>
+            </div>
+          )}
           <button type="button" onClick={() => void exportImages()} className="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10">Or export every page as PNG images (.zip)</button>
         </Dialog>
       )}

@@ -1599,6 +1599,7 @@ export default function OfficeStudioPro() {
           </div>
           <div className="border-b border-white/5 px-3 py-2 text-[10px] text-zinc-400">
             Author: <input value={commentAuthor} onChange={e => setCommentAuthor(e.target.value)} className="ml-1 rounded border border-white/10 bg-[#0a0b0e] px-1.5 py-0.5 text-zinc-100" />
+            <div className="mt-1 text-[10px] leading-snug text-zinc-500">Comments are saved with this workbook on your device — they’re not synced live to other people.</div>
           </div>
           <div className="border-b border-white/5 p-3">
             <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Selected cell: {colToLetter(sel.c)}{sel.r + 1}</div>

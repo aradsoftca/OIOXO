@@ -565,6 +565,39 @@ const FONTS = [
   'Trebuchet MS, sans-serif', 'Arial Black, sans-serif',
 ];
 
+// --- Free Transform (Ctrl+T) geometry -------------------------------------
+// The transform box is the active image layer's untransformed bounds
+// (canvas size × scale) rotated about its centre. We work in image-space so
+// the overlay can live inside the same translate(pan) scale(zoom) SVG as the
+// selection marquee — no separate coordinate math.
+type XformBox = {
+  cx: number; cy: number;          // centre (image-space)
+  hw: number; hh: number;          // half width / half height (post-scale)
+  rot: number;                     // degrees
+};
+function imageLayerBox(l: ImageLayer): XformBox {
+  const w = l.canvas.width * l.scaleX;
+  const h = l.canvas.height * l.scaleY;
+  return { cx: l.x + w / 2, cy: l.y + h / 2, hw: w / 2, hh: h / 2, rot: l.rotation };
+}
+// The 8 handle anchors in the box's LOCAL frame (before rotation), as
+// (sx, sy) signs of the half-extents. Corners first, then edge midpoints.
+const XFORM_HANDLES: { id: string; sx: number; sy: number }[] = [
+  { id: 'nw', sx: -1, sy: -1 }, { id: 'ne', sx: 1, sy: -1 },
+  { id: 'se', sx: 1, sy: 1 },   { id: 'sw', sx: -1, sy: 1 },
+  { id: 'n', sx: 0, sy: -1 }, { id: 'e', sx: 1, sy: 0 },
+  { id: 's', sx: 0, sy: 1 }, { id: 'w', sx: -1, sy: 0 },
+];
+function rotatePt(x: number, y: number, deg: number) {
+  const r = (deg * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
+  return { x: x * cos - y * sin, y: x * sin + y * cos };
+}
+// World position of a handle given the box.
+function handlePos(box: XformBox, sx: number, sy: number) {
+  const local = rotatePt(sx * box.hw, sy * box.hh, box.rot);
+  return { x: box.cx + local.x, y: box.cy + local.y };
+}
+
 export default function ImageStudioPro() {
   const { guard, gate } = useUsageGate('image');
   const isPro = useIsPro();
@@ -1545,6 +1578,17 @@ export default function ImageStudioPro() {
     { combo: ']', handler: () => setBrushSize(s => Math.min(400, s + 2)) },
     { combo: '+', handler: () => setZoom(z => Math.min(8, z * 1.2)) },
     { combo: '-', handler: () => setZoom(z => Math.max(0.05, z / 1.2)) },
+    // Free Transform: switch to Move so the active image layer's box + handles
+    // appear (scale from corners, rotate from the top knob, drag to move).
+    { combo: 'mod+t', handler: () => { setTool('move'); setTransformActive(true); }, description: 'Free Transform' },
+    // Esc cancels an in-progress transform drag, restoring the snapshot.
+    { combo: 'escape', handler: () => {
+      const xf = xform.current; if (!xf) return;
+      const next = cloneDoc(doc);
+      const l = next.layers.find(x => x.id === xf.layerId);
+      if (l && l.kind === 'image') { const il = l as ImageLayer; il.x = xf.start.x; il.y = xf.start.y; il.scaleX = xf.start.scaleX; il.scaleY = xf.start.scaleY; il.rotation = xf.start.rotation; setDoc(next); }
+      xform.current = null; ptrState.current.down = false; setXformTick(n => n + 1);
+    }},
   ]);
 
   const screenToCanvas = (e: { clientX: number; clientY: number }) => {
@@ -1569,6 +1613,18 @@ export default function ImageStudioPro() {
   // Clone/heal source point (set with Alt-click). Offset from the first stroke
   // point keeps the sampled region tracking the brush.
   const cloneSrc = React.useRef<{ x: number; y: number } | null>(null);
+
+  // Free Transform drag state. `mode` is the handle being dragged (corner/edge
+  // id), 'rotate', or 'move'. We snapshot the layer's geometry + the grab point
+  // at pointer-down so each move recomputes from the original (no drift).
+  const xform = React.useRef<{
+    mode: string;            // handle id | 'rotate' | 'move'
+    layerId: string;
+    start: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
+    box0: XformBox;          // box at grab time
+    grab: { x: number; y: number }; // pointer at grab (image-space)
+  } | null>(null);
+  const [xformTick, setXformTick] = React.useState(0); // re-render the overlay live
 
   /**
    * Clone stamp / healing brush. Samples a circular patch from `cloneSrc` (+the
@@ -1638,6 +1694,31 @@ export default function ImageStudioPro() {
       const factor = e.shiftKey ? 1 / 1.5 : 1.5;
       setZoom(z => Math.max(0.05, Math.min(16, z * factor)));
       return;
+    }
+    // Free Transform: with the Move tool on an image layer, the bounding box +
+    // handles are live. Hit-test a handle (scale), the rotate knob, or the box
+    // interior (move). Tolerance scales with zoom so handles stay grabbable.
+    if (tool === 'move' && activeLayer?.kind === 'image') {
+      const il = activeLayer as ImageLayer;
+      const box = imageLayerBox(il);
+      const tol = 9 / zoom; // ~9 screen px
+      const snap = { x: il.x, y: il.y, scaleX: il.scaleX, scaleY: il.scaleY, rotation: il.rotation };
+      // rotate knob: just outside the top-edge midpoint
+      const topMid = handlePos(box, 0, -1);
+      const knob = { x: topMid.x + rotatePt(0, -24 / zoom, box.rot).x, y: topMid.y + rotatePt(0, -24 / zoom, box.rot).y };
+      if (Math.hypot(p.x - knob.x, p.y - knob.y) <= tol) {
+        xform.current = { mode: 'rotate', layerId: il.id, start: snap, box0: box, grab: p };
+        setXformTick(n => n + 1); return;
+      }
+      for (const h of XFORM_HANDLES) {
+        const hp = handlePos(box, h.sx, h.sy);
+        if (Math.hypot(p.x - hp.x, p.y - hp.y) <= tol) {
+          xform.current = { mode: h.id, layerId: il.id, start: snap, box0: box, grab: p };
+          setXformTick(n => n + 1); return;
+        }
+      }
+      // inside the (unrotated-equivalent) box → move; fall through to the
+      // existing move-drag in onPointerMove otherwise.
     }
     if (tool === 'eyedropper') {
       const px = Math.max(0, Math.min(doc.width - 1, Math.floor(p.x)));
@@ -1760,6 +1841,59 @@ export default function ImageStudioPro() {
       if (ps) setPan({ x: ps.x + e.clientX, y: ps.y + e.clientY });
       return;
     }
+    // Free Transform drag (scale via handles, rotate via knob).
+    if (xform.current) {
+      const xf = xform.current;
+      const next = cloneDoc(doc);
+      const l = next.layers.find(x => x.id === xf.layerId);
+      if (l && l.kind === 'image') {
+        const il = l as ImageLayer;
+        const { box0, start } = xf;
+        if (xf.mode === 'rotate') {
+          const a0 = Math.atan2(xf.grab.y - box0.cy, xf.grab.x - box0.cx);
+          const a1 = Math.atan2(p.y - box0.cy, p.x - box0.cx);
+          let deg = start.rotation + ((a1 - a0) * 180) / Math.PI;
+          if (e.shiftKey) deg = Math.round(deg / 15) * 15; // snap to 15°
+          il.rotation = deg;
+        } else {
+          // Scale: project the pointer delta onto the box's local axes so
+          // rotation is respected. Corner = both axes; edge = one axis.
+          const h = XFORM_HANDLES.find(hh => hh.id === xf.mode)!;
+          const d = rotatePt(p.x - xf.grab.x, p.y - xf.grab.y, -box0.rot); // delta in local frame
+          const cw = il.canvas.width, ch = il.canvas.height;
+          // Each unit of local delta on a side moves that edge; opposite edge
+          // is the anchor, so the box grows from the far side by delta and the
+          // centre shifts by delta/2 along the (rotated) axis.
+          let newSX = start.scaleX, newSY = start.scaleY;
+          let shiftLX = 0, shiftLY = 0;
+          if (h.sx !== 0) {
+            const dw = h.sx * d.x;                    // local-x growth
+            newSX = Math.max(0.02, (box0.hw * 2 + dw) / cw);
+            shiftLX = (h.sx * dw) / 2;
+          }
+          if (h.sy !== 0) {
+            const dh = h.sy * d.y;
+            newSY = Math.max(0.02, (box0.hh * 2 + dh) / ch);
+            shiftLY = (h.sy * dh) / 2;
+          }
+          if (e.shiftKey && h.sx !== 0 && h.sy !== 0) { // uniform on corners
+            const s = Math.max(newSX / start.scaleX, newSY / start.scaleY);
+            newSX = start.scaleX * s; newSY = start.scaleY * s;
+          }
+          il.scaleX = newSX; il.scaleY = newSY;
+          // Move the centre so the anchored (opposite) edge stays put, then
+          // re-derive x/y from the new centre + new size.
+          const worldShift = rotatePt(shiftLX, shiftLY, box0.rot);
+          const newCx = box0.cx + worldShift.x;
+          const newCy = box0.cy + worldShift.y;
+          il.x = newCx - (cw * newSX) / 2;
+          il.y = newCy - (ch * newSY) / 2;
+        }
+        setDoc(next);
+        setXformTick(n => n + 1);
+      }
+      return;
+    }
     if (t === 'brush' || t === 'eraser') {
       const c = ptrState.current.targetCanvas;
       if (c) {
@@ -1818,6 +1952,14 @@ export default function ImageStudioPro() {
     const t = ptrState.current.tool;
     const p = screenToCanvas(e);
     ptrState.current.down = false;
+    if (xform.current) {
+      const mode = xform.current.mode;
+      xform.current = null;
+      setXformTick(n => n + 1);
+      commit(mode === 'rotate' ? 'rotate' : 'scale', doc);
+      ptrState.current.tool = null;
+      return;
+    }
     if (t === 'brush') commit('brush', doc);
     if (t === 'eraser') commit('eraser', doc);
     if (t === 'clone') { ptrState.current.cloneOffset = null; commit('clone stamp', doc); }
@@ -2261,6 +2403,33 @@ export default function ImageStudioPro() {
                 fill="none" stroke="#22d3ee" strokeWidth={1 / zoom} strokeDasharray={`${4 / zoom} ${3 / zoom}`}
               />
             </svg>
+          )}
+
+          {/* Free Transform box + handles — Move tool on an image layer (Ctrl+T
+              focuses it). Drawn in image-space inside the pan/zoom SVG. */}
+          {tool === 'move' && activeLayer?.kind === 'image' && (() => {
+            const box = imageLayerBox(activeLayer as ImageLayer);
+            const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => handlePos(box, sx, sy));
+            const topMid = handlePos(box, 0, -1);
+            const knob = { x: topMid.x + rotatePt(0, -24 / zoom, box.rot).x, y: topMid.y + rotatePt(0, -24 / zoom, box.rot).y };
+            const hs = 5 / zoom; // handle half-size
+            return (
+              <svg className="pointer-events-none absolute inset-0" style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
+                <polygon points={corners.map(c => `${c.x},${c.y}`).join(' ')} fill="none" stroke="#22d3ee" strokeWidth={1.25 / zoom} />
+                <line x1={topMid.x} y1={topMid.y} x2={knob.x} y2={knob.y} stroke="#22d3ee" strokeWidth={1.25 / zoom} />
+                <circle cx={knob.x} cy={knob.y} r={hs} fill="#0a0b0e" stroke="#22d3ee" strokeWidth={1.25 / zoom} />
+                {XFORM_HANDLES.map(h => { const hp = handlePos(box, h.sx, h.sy); return (
+                  <rect key={h.id} x={hp.x - hs} y={hp.y - hs} width={hs * 2} height={hs * 2} fill="#0a0b0e" stroke="#22d3ee" strokeWidth={1.25 / zoom} />
+                ); })}
+              </svg>
+            );
+          })()}
+
+          {/* Live W×H / angle readout while transforming. */}
+          {xform.current && activeLayer?.kind === 'image' && (
+            <div className="pointer-events-none absolute left-1/2 top-4 -translate-x-1/2 rounded-md bg-black/80 px-2.5 py-1 text-[11px] font-medium tabular-nums text-cyan-200 backdrop-blur">
+              {Math.round((activeLayer as ImageLayer).canvas.width * (activeLayer as ImageLayer).scaleX)} × {Math.round((activeLayer as ImageLayer).canvas.height * (activeLayer as ImageLayer).scaleY)} px · {Math.round((activeLayer as ImageLayer).rotation)}°
+            </div>
           )}
 
           {busy && (

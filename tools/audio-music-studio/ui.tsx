@@ -1196,6 +1196,12 @@ export default function MusicStudioPro() {
               <input type="range" min={4} max={64} value={exportBars} onChange={e => setExportBars(+e.target.value)} className="w-full" />
               <div className="text-right text-xs text-zinc-300 tabular-nums">{exportBars} bars · ~{Math.round((exportBars * 4 * (60 / doc.bpm)))}s</div>
             </div>
+            {!isPro && (
+              <div className="flex items-center justify-between gap-2 rounded bg-white/5 p-2 text-[11px] text-zinc-400">
+                <span>Free exports embed a small “Made with xonvert.com” tag in the file’s metadata.</span>
+                <a href="/pricing" className="shrink-0 font-medium text-cyan-300 hover:underline">Upgrade to remove</a>
+              </div>
+            )}
           </div>
         </Dialog>
       )}

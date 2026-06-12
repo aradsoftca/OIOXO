@@ -709,11 +709,18 @@ export default function PdfStudioPro() {
       // covering item(s) and box each item's covered sub-range.
       const items = content.items as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
       let joined = '';
-      const map: { item: any; localStart: number }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
-      for (const item of items) {
+      const map: ({ item: any; localStart: number } | null)[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+      for (let it = 0; it < items.length; it++) {
+        const item = items[it];
         const s = item.str ?? '';
         for (let k = 0; k < s.length; k++) map.push({ item, localStart: k });
         joined += s;
+        // Separate items with a space (mapped to null so we never box it). Many
+        // pdf.js items already carry hasEOL/trailing space, but gluing
+        // "Email:john@x.com" onto the previous token kills the \b word-boundary
+        // and merges two fields into one unmatchable blob — so a phone+email+SSN
+        // line yielded a single match. The separator restores the boundaries.
+        if (it < items.length - 1 && !/\s$/.test(s)) { joined += ' '; map.push(null); }
       }
       const boxFor = (item: any, locStart: number, locEnd: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         const str = item.str ?? '';
@@ -734,14 +741,17 @@ export default function PdfStudioPro() {
       };
       for (const hit of findPii(joined)) {
         // Walk the matched character span and emit a box per source item the
-        // span covers (a single match may span >1 item).
+        // span covers (a single match may span >1 item). map[i] is null at the
+        // injected inter-item separators — skip those.
         let i = hit.start;
         while (i < hit.end && i < map.length) {
-          const item = map[i].item;
-          const runStart = map[i].localStart;
+          const entry = map[i];
+          if (!entry) { i++; continue; }
+          const item = entry.item;
+          const runStart = entry.localStart;
           let j = i;
-          while (j + 1 < hit.end && j + 1 < map.length && map[j + 1].item === item) j++;
-          boxFor(item, runStart, map[j].localStart + 1);
+          while (j + 1 < hit.end && j + 1 < map.length && map[j + 1] && map[j + 1]!.item === item) j++;
+          boxFor(item, runStart, map[j]!.localStart + 1);
           i = j + 1;
         }
       }

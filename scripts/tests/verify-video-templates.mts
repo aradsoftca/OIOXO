@@ -40,6 +40,9 @@ function applyTemplate(tpl) {
   }
   next.slots = slots.length ? slots : undefined;
   if (tpl.colorGrade && tpl.colorGrade !== 'original' && COLOR_GRADES.some(g => g.id === tpl.colorGrade)) next.pendingGrade = tpl.colorGrade;
+  // Park playhead mid-first-text so intro animations (alpha-0 at t=0) are visible.
+  const firstText = next.clips.find(c => c.kind === 'text');
+  if (firstText) next.playhead = firstText.start + firstText.duration / 2;
   return next;
 }
 
@@ -72,6 +75,15 @@ for (const tpl of VIDEO_TEMPLATES) {
   // INVARIANT 3: grade stored iff template declares a real one
   const wantGrade = !!(tpl.colorGrade && tpl.colorGrade !== 'original' && COLOR_GRADES.some(g => g.id === tpl.colorGrade));
   if (wantGrade !== !!doc.pendingGrade) { console.log(`FAIL ${tpl.id}: pendingGrade mismatch`); fail++; continue; }
+  // INVARIANT 3b: playhead parks INSIDE the first text clip's visible window
+  // (past the intro-animation alpha ramp) so the title shows, not at t=0 where
+  // pop/fade animations render it fully transparent. Uses tpl.texts[0] — the
+  // first clip the code pushes, matching `clips.find(kind==='text')`.
+  const ft = tpl.texts.length ? tpl.texts[0] : null;
+  if (ft) {
+    const inWindow = doc.playhead > ft.start && doc.playhead < ft.start + ft.duration;
+    if (!inWindow) { console.log(`FAIL ${tpl.id}: playhead ${doc.playhead} not inside first text [${ft.start},${ft.start + ft.duration}]`); fail++; continue; }
+  }
   // INVARIANT 4: dropping a video fills the first video slot at its start, with grade applied
   const firstVidSlot = (doc.slots ?? []).find(s => s.kind !== 'audio');
   if (firstVidSlot) {

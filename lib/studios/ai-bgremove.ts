@@ -23,6 +23,11 @@ async function loadMatteModel(): Promise<{ model: any; processor: any } | null> 
       lib.env.allowLocalModels = false;
       lib.env.allowRemoteModels = true;
       lib.env.useBrowserCache = true;
+      // Pin the ORT WASM binary to a CDN build whose exports match the v3 glue.
+      // The default resolution was loading a binary missing the symbol the glue
+      // calls ("_OrtGetInputName is not a function"). 1.21.0 ships the matching
+      // exports for transformers.js 3.8.1's runtime.
+      try { lib.env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'; } catch { /* */ }
       const id = 'briaai/RMBG-1.4';
       // WebGPU only when an adapter is ACTUALLY available — navigator.gpu can
       // exist while requestAdapter() returns null (headless / no GPU), and in
@@ -57,7 +62,8 @@ async function computeMatte(src: HTMLCanvasElement): Promise<{ alpha: Uint8Array
   try {
   const lib: any = await import('@huggingface/transformers'); // eslint-disable-line @typescript-eslint/no-explicit-any
   const image = await lib.RawImage.fromCanvas(src);
-  const { pixel_values } = await m.processor(image);
+  const procOut: any = await m.processor(image); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const pixel_values = procOut.pixel_values ?? procOut.input ?? Object.values(procOut)[0];
   const result: any = await m.model({ input: pixel_values }); // eslint-disable-line @typescript-eslint/no-explicit-any
   // RMBG returns its single matte tensor — but the OUTPUT KEY varies by model
   // build (`output`, `logits`, `out`, …). Grab the first value that looks like

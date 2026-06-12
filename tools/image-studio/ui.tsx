@@ -1406,6 +1406,7 @@ export default function ImageStudioPro() {
       }
       next.background = 'transparent';
       commit('remove background', next);
+      bumpRevision(target.id); // invalidate the cached layer render so the cut-out repaints
       toastFor('Background removed');
     } catch (e) {
       toastFor((e as Error).message || 'Could not remove background');

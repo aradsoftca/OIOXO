@@ -24,14 +24,16 @@ async function loadMatteModel(): Promise<{ model: any; processor: any } | null> 
       lib.env.allowRemoteModels = true;
       lib.env.useBrowserCache = true;
       const id = 'briaai/RMBG-1.4';
-      // WebGPU when present (≈10× faster); WASM/quantized fallback otherwise.
-      const canGpu = typeof navigator !== 'undefined' && !!(navigator as { gpu?: unknown }).gpu;
-      let model: any = null;
-      if (canGpu) {
-        try { model = await lib.AutoModel.from_pretrained(id, { device: 'webgpu', dtype: 'fp32' }); }
-        catch { model = null; }
-      }
-      if (!model) model = await lib.AutoModel.from_pretrained(id, { quantized: true });
+      // WebGPU only when an adapter is ACTUALLY available — navigator.gpu can
+      // exist while requestAdapter() returns null (headless / no GPU), and in
+      // that case requesting device:'webgpu' throws "no available backend" and
+      // poisons ORT so the WASM retry fails too. Probe first, then choose.
+      const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+      let hasGpu = false;
+      if (gpu) { try { hasGpu = !!(await gpu.requestAdapter()); } catch { hasGpu = false; } }
+      const model: any = hasGpu // eslint-disable-line @typescript-eslint/no-explicit-any
+        ? await lib.AutoModel.from_pretrained(id, { device: 'webgpu', dtype: 'fp32' })
+        : await lib.AutoModel.from_pretrained(id, { quantized: true });
       const processor = await lib.AutoProcessor.from_pretrained(id);
       return { model, processor };
     } catch {
@@ -52,10 +54,23 @@ async function loadMatteModel(): Promise<{ model: any; processor: any } | null> 
 async function computeMatte(src: HTMLCanvasElement): Promise<{ alpha: Uint8Array; mw: number; mh: number } | null> {
   const m = await loadMatteModel();
   if (!m) return null;
-  const lib: any = await import('@huggingface/transformers');
+  try {
+  const lib: any = await import('@huggingface/transformers'); // eslint-disable-line @typescript-eslint/no-explicit-any
   const image = await lib.RawImage.fromCanvas(src);
   const { pixel_values } = await m.processor(image);
-  const { output } = await m.model({ input: pixel_values });
+  const result: any = await m.model({ input: pixel_values }); // eslint-disable-line @typescript-eslint/no-explicit-any
+  // RMBG returns its single matte tensor — but the OUTPUT KEY varies by model
+  // build (`output`, `logits`, `out`, …). Grab the first value that looks like
+  // an ONNX tensor (has .dims + .data) instead of assuming a key, or the
+  // matte never applies and we silently fall back to the selfie segmenter.
+  let output: { dims: number[]; data: ArrayLike<number> } | null = result?.output ?? null;
+  if (!output || !output.dims || !output.data) {
+    for (const v of Object.values(result ?? {})) {
+      const t = v as { dims?: number[]; data?: ArrayLike<number> };
+      if (t && Array.isArray(t.dims) && t.data) { output = t as { dims: number[]; data: ArrayLike<number> }; break; }
+    }
+  }
+  if (!output) return null;
   const dims: number[] = output.dims;
   const mh = dims[dims.length - 2], mw = dims[dims.length - 1];
   const raw: ArrayLike<number> = output.data;
@@ -67,6 +82,7 @@ async function computeMatte(src: HTMLCanvasElement): Promise<{ alpha: Uint8Array
   const alpha = new Uint8Array(mw * mh);
   for (let i = 0; i < alpha.length; i++) alpha[i] = Math.max(0, Math.min(255, Math.round(((raw[i] - lo) / span) * 255)));
   return { alpha, mw, mh };
+  } catch { return null; } // inference failed → caller falls back to selfie segmenter
 }
 
 const sampleAlpha = (alpha: Uint8Array, mw: number, mh: number, x: number, y: number, w: number, h: number): number => {

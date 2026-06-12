@@ -109,7 +109,12 @@ async function getPipeline(size: TranscribeSize, onProgress?: (p: TranscribeProg
   // build (some drivers/integrated GPUs reject the shader). v2 has no `device`
   // option, so only pass it when v3 is loaded (detected via AutoModel presence).
   const isV3 = typeof lib.AutoModelForVision2Seq !== 'undefined' || typeof lib.AutoModel?.from_pretrained === 'function';
-  const canWebGpu = isV3 && typeof navigator !== 'undefined' && !!(navigator as { gpu?: unknown }).gpu;
+  // navigator.gpu can EXIST while requestAdapter() returns null (headless / no
+  // GPU); requesting device:'webgpu' then throws and can poison the runtime, so
+  // probe for a real adapter before choosing WebGPU.
+  const gpu = (navigator as { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  let canWebGpu = false;
+  if (isV3 && gpu) { try { canWebGpu = !!(await gpu.requestAdapter()); } catch { canWebGpu = false; } }
 
   let pipe: Pipeline | null = null;
   if (canWebGpu) {

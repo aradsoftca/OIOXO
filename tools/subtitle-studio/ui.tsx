@@ -516,9 +516,37 @@ export default function SubtitleStudioPro() {
     const next = cloneDoc(doc);
     const c = next.cues.find(x => x.id === id);
     if (!c || t <= c.start + 0.1 || t >= c.end - 0.1) return;
-    const old = { ...c };
+    const old = { ...c, words: c.words ? c.words.map(w => ({ ...w })) : undefined };
+    // Split the TEXT too — not just the timing. Previously both halves kept the
+    // full text, so a "split" duplicated the line. If we have word timings, cut
+    // on the word boundary at t and reflow each half's words; otherwise split
+    // the text proportionally to where t falls in the cue.
+    let leftText = old.text, rightText = old.text;
+    let leftWords: Cue['words'], rightWords: Cue['words'];
+    if (old.words && old.words.length) {
+      const left = old.words.filter(w => w.start < t);
+      const right = old.words.filter(w => w.start >= t);
+      // Guard against an empty side (t before first / after last word).
+      if (left.length && right.length) {
+        leftWords = left; rightWords = right;
+        leftText = left.map(w => w.text).join(' ').trim();
+        rightText = right.map(w => w.text).join(' ').trim();
+      }
+    } else {
+      const ratio = (t - old.start) / Math.max(0.001, old.end - old.start);
+      // Snap the cut to the nearest word boundary so we never split mid-word.
+      const approx = Math.round(old.text.length * ratio);
+      let cut = old.text.lastIndexOf(' ', approx);
+      if (cut <= 0) cut = old.text.indexOf(' ', approx);
+      if (cut > 0 && cut < old.text.length) {
+        leftText = old.text.slice(0, cut).trim();
+        rightText = old.text.slice(cut).trim();
+      }
+    }
     c.end = t;
-    next.cues.push({ id: cid(), start: t, end: old.end, text: c.text });
+    c.text = leftText;
+    if (leftWords) c.words = leftWords;
+    next.cues.push({ id: cid(), start: t, end: old.end, text: rightText, words: rightWords });
     commit('split', next);
   };
 

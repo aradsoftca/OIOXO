@@ -2218,6 +2218,29 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
                     onPointerDown={(e) => onPointerDownClip(e, c, 'trim-r')}
                     className="h-full w-1.5 cursor-ew-resize bg-white/30 hover:bg-cyan-400"
                   />
+                  {/* Keyframe diamonds — make animation VISIBLE on the timeline
+                      (the audit's #1 video gap: keyframes existed in the model +
+                      inspector but never showed on the clip). One diamond per
+                      keyframe time across all animated params, along the bottom
+                      edge of the clip. Amber so they read against the clip fill. */}
+                  {c.kind === 'video' && (c as VideoClip).keyframes && (() => {
+                    const kfs = (c as VideoClip).keyframes!;
+                    const times = new Set<number>();
+                    for (const k of Object.keys(kfs) as (keyof VideoClipKeyframes)[]) {
+                      const ap = kfs[k]; if (ap) for (const p of ap.keyframes) times.add(Math.round(p.t * 1000) / 1000);
+                    }
+                    if (!times.size) return null;
+                    const dur = Math.max(0.001, clipDuration(c));
+                    return (
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5">
+                        {[...times].map((t, i) => (
+                          <div key={i} title={`Keyframe @ ${t.toFixed(2)}s`}
+                            style={{ position: 'absolute', left: `${Math.max(0, Math.min(1, t / dur)) * 100}%`, bottom: 1 }}
+                            className="h-2 w-2 -translate-x-1/2 rotate-45 border border-amber-200 bg-amber-400 shadow" />
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

@@ -783,6 +783,119 @@ export default function MusicStudioPro() {
     commit('inst', next);
   };
 
+  // Render the song to an AudioBuffer through the full master chain. `include`
+  // selects which instruments play — pass `() => true` for the full mix, or a
+  // single-instrument predicate for a stem. Shared by exportNow + exportStems
+  // so a stem is bit-identical to that track's contribution to the mix.
+  const renderToBuffer = async (include: (instId: string) => boolean): Promise<AudioBuffer> => {
+    const sr = 44100;
+    const stepsTotal = doc.chain.reduce((s, pid) => s + (doc.patterns.find(p => p.id === pid)?.steps ?? 16), 0);
+    const stepDur = 60 / doc.bpm / 4;
+    const totalDur = stepsTotal * stepDur * (exportBars / Math.max(1, doc.chain.length)) + 1;
+    const Ctx = (window.OfflineAudioContext || (window as any).webkitOfflineAudioContext) as typeof OfflineAudioContext;
+    const offline = new Ctx(2, Math.ceil(totalDur * sr), sr);
+    const master = offline.createGain();
+    master.gain.value = doc.master;
+    const chain = buildMasterChain(offline, doc.masterEffects);
+    master.connect(chain.input);
+    chain.output.connect(offline.destination);
+    const soloed = doc.instruments.some(i => i.solo);
+    let tCur = 0;
+    for (let rep = 0; rep < Math.max(1, Math.ceil(exportBars / doc.chain.length)); rep++) {
+      for (const pid of doc.chain) {
+        const pattern = doc.patterns.find(p => p.id === pid);
+        if (!pattern) continue;
+        for (let s = 0; s < pattern.steps; s++) {
+          const swingOff = (s % 2 === 1) ? (doc.swing / 100) * stepDur * 0.5 : 0;
+          const t = tCur + swingOff;
+          for (const inst of doc.instruments) {
+            if (inst.muted || (soloed && !inst.solo) || !include(inst.id)) continue;
+            const trackGain = offline.createGain();
+            trackGain.gain.value = inst.volume;
+            const panner = offline.createStereoPanner();
+            panner.pan.value = inst.pan;
+            trackGain.connect(panner).connect(master);
+            const roll = pattern.roll?.[inst.id];
+            if (roll && roll.length) {
+              for (const note of roll) {
+                if (note.start !== s) continue;
+                const f = noteToFreq(note.pitch, doc.key, inst.octave);
+                const g = offline.createGain(); g.gain.value = note.vel; g.connect(trackGain);
+                scheduleSynth(offline, g, t, f, inst.volume, inst.id as any, note.length * stepDur);
+              }
+            } else {
+              const n = pattern.notes[inst.id]?.[s];
+              if (n == null) continue;
+              const chance = lane01(pattern.chance, inst.id, s, 1);
+              if (chance < 1 && Math.random() > chance) continue;
+              const vel = lane01(pattern.vel, inst.id, s, 1);
+              const stepInst = vel === 1 ? inst : { ...inst, volume: inst.volume * vel };
+              scheduleStep(offline, trackGain, t, stepInst, n, doc.key, stepDur);
+            }
+          }
+          tCur += stepDur;
+        }
+      }
+    }
+    const rendered = await offline.startRendering();
+    let normalized = rendered;
+    for (const e of doc.masterEffects ?? []) {
+      if (e.bypassed) continue;
+      const p = e.params;
+      switch (e.effectId) {
+        case 'normalize':   normalized = audio.normalize(normalized, Number(p.target ?? -3)); break;
+        case 'noise-gate':  normalized = gateBuffer(normalized, Number(p.threshold ?? -40)); break;
+        case 'fade-in':     normalized = audio.fadeIn(normalized, Number(p.duration ?? 0.5)); break;
+        case 'fade-out':    normalized = audio.fadeOut(normalized, Number(p.duration ?? 1)); break;
+        case 'pitch-shift': if (Number(p.semitones ?? 0)) normalized = audio.pitchShift(normalized, Number(p.semitones)); break;
+        case 'speed':       if (Number(p.factor ?? 1) !== 1) normalized = audio.changeTempo(normalized, Number(p.factor)); break;
+        case 'reverse':     normalized = audio.reverse(normalized); break;
+        default: break;
+      }
+    }
+    const peak = audio.peakAmplitude(normalized);
+    if (peak > 1) normalized = audio.gain(normalized, 0.985 / peak);
+    return normalized;
+  };
+
+  // Per-stem export — render each non-muted instrument on its own and zip the
+  // files. BandLab/most browser DAWs CAN'T export stems, so this is a real
+  // differentiator. Reuses renderToBuffer so each stem matches the mix exactly.
+  const exportStems = async () => {
+    const trackHit = checkLever(POLICY_KEY, 'tracks', doc.instruments.length, isPro);
+    if (trackHit) { policyGate.fire(trackHit); return; }
+    const fmtHit = checkFormat(POLICY_KEY, exportFmt, isPro);
+    if (fmtHit) { policyGate.fire(fmtHit); return; }
+    if (!(await guard())) return;
+    const soloed = doc.instruments.some(i => i.solo);
+    const stems = doc.instruments.filter(i => !i.muted && (!soloed || i.solo) && hasAnyNotes(i.id));
+    if (!stems.length) { toastFor('No audible tracks to export'); return; }
+    setBusy('Rendering stems…'); setProgress(0); setExportDialog(false);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      for (let i = 0; i < stems.length; i++) {
+        const inst = stems[i];
+        setBusy(`Rendering stem ${i + 1}/${stems.length}: ${inst.label}…`);
+        setProgress(Math.round((i / stems.length) * 90));
+        const buf = await renderToBuffer(id => id === inst.id);
+        const blob = exportFmt === 'mp3' ? await audio.encodeMp3(buf, 192) : audio.encodeWav(buf);
+        zip.file(`${safeFilename(inst.label)}.${exportFmt}`, blob);
+      }
+      setProgress(95);
+      const out = await zip.generateAsync({ type: 'blob' });
+      downloadBlob(out, `${safeFilename(doc.name)}-stems.zip`);
+      toastFor(`Exported ${stems.length} stems`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Stem export failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
+  // True if an instrument has any note in any pattern (so an empty track isn't
+  // exported as a silent stem).
+  const hasAnyNotes = (instId: InstId): boolean => doc.patterns.some(p =>
+    (p.notes[instId] && p.notes[instId]!.some((n: number | null) => n != null)) || (p.roll?.[instId]?.length ?? 0) > 0);
+
   const exportNow = async () => {
     const trackHit = checkLever(POLICY_KEY, 'tracks', doc.instruments.length, isPro);
     if (trackHit) { policyGate.fire(trackHit); return; }
@@ -803,96 +916,10 @@ export default function MusicStudioPro() {
     setProgress(0);
     setExportDialog(false);
     try {
-      const sr = 44100;
-      const stepsTotal = doc.chain.reduce((s, pid) => s + (doc.patterns.find(p => p.id === pid)?.steps ?? 16), 0);
-      const stepDur = 60 / doc.bpm / 4;
-      const totalDur = stepsTotal * stepDur * (exportBars / Math.max(1, doc.chain.length)) + 1;
-      const Ctx = (window.OfflineAudioContext || (window as any).webkitOfflineAudioContext) as typeof OfflineAudioContext;
-      const offline = new Ctx(2, Math.ceil(totalDur * sr), sr);
-      const master = offline.createGain();
-      master.gain.value = doc.master;
-      // Render through the SAME master chain as live playback (CCW-3) so the
-      // file matches what was heard. Node-expressible effects (gain/EQ/comp/
-      // limiter/reverb/delay/widener/de-ess) are applied here; length-changing
-      // / whole-signal effects are applied as a post-render pass below.
-      const chain = buildMasterChain(offline, doc.masterEffects);
-      master.connect(chain.input);
-      chain.output.connect(offline.destination);
-      const soloed = doc.instruments.some(i => i.solo);
-      let tCur = 0;
-      const chainCount = Math.max(1, Math.floor(exportBars / Math.max(1, doc.chain.length)));
-      for (let rep = 0; rep < Math.max(1, Math.ceil(exportBars / doc.chain.length)); rep++) {
-        for (const pid of doc.chain) {
-          const pattern = doc.patterns.find(p => p.id === pid);
-          if (!pattern) continue;
-          for (let s = 0; s < pattern.steps; s++) {
-            const swingOff = (s % 2 === 1) ? (doc.swing / 100) * stepDur * 0.5 : 0;
-            const t = tCur + swingOff;
-            for (const inst of doc.instruments) {
-              if (inst.muted || (soloed && !inst.solo)) continue;
-              const trackGain = offline.createGain();
-              trackGain.gain.value = inst.volume;
-              const panner = offline.createStereoPanner();
-              panner.pan.value = inst.pan;
-              trackGain.connect(panner).connect(master);
-              const roll = pattern.roll?.[inst.id];
-              if (roll && roll.length) {
-                for (const note of roll) {
-                  if (note.start !== s) continue;
-                  const f = noteToFreq(note.pitch, doc.key, inst.octave);
-                  const g = offline.createGain(); g.gain.value = note.vel; g.connect(trackGain);
-                  scheduleSynth(offline, g, t, f, inst.volume, inst.id as any, note.length * stepDur);
-                }
-              } else {
-                const n = pattern.notes[inst.id]?.[s];
-                if (n == null) continue;
-                // Same per-step chance + velocity model as live playback, so the
-                // exported file carries the evolving, non-robotic groove the user
-                // built and heard (the killer differentiator over flat grids).
-                const chance = lane01(pattern.chance, inst.id, s, 1);
-                if (chance < 1 && Math.random() > chance) continue;
-                const vel = lane01(pattern.vel, inst.id, s, 1);
-                const stepInst = vel === 1 ? inst : { ...inst, volume: inst.volume * vel };
-                scheduleStep(offline, trackGain, t, stepInst, n, doc.key, stepDur);
-              }
-            }
-            tCur += stepDur;
-          }
-        }
-      }
-      setProgress(50);
-      // The node chain (gain/EQ/compressor/limiter/reverb/delay/widener/de-ess)
-      // is already baked into `rendered`. Now apply only the effects that resize
-      // the buffer or need whole-signal analysis, IN RACK ORDER, so the result
-      // is deterministic and matches the rack the user built.
-      const rendered = await offline.startRendering();
-      setProgress(80);
-      let normalized = rendered;
-      for (const e of doc.masterEffects ?? []) {
-        if (e.bypassed) continue;
-        const p = e.params;
-        switch (e.effectId) {
-          case 'normalize':   normalized = audio.normalize(normalized, Number(p.target ?? -3)); break;
-          case 'noise-gate':  normalized = gateBuffer(normalized, Number(p.threshold ?? -40)); break;
-          case 'fade-in':     normalized = audio.fadeIn(normalized, Number(p.duration ?? 0.5)); break;
-          case 'fade-out':    normalized = audio.fadeOut(normalized, Number(p.duration ?? 1)); break;
-          case 'pitch-shift': if (Number(p.semitones ?? 0)) normalized = audio.pitchShift(normalized, Number(p.semitones)); break;
-          // Speed = pitch-preserving tempo change. The old export used
-          // changeSpeed (couples pitch — chipmunk). changeTempo (WSOLA) keeps
-          // pitch, matching what a "Speed" knob on a master bus should do.
-          case 'speed':       if (Number(p.factor ?? 1) !== 1) normalized = audio.changeTempo(normalized, Number(p.factor)); break;
-          case 'reverse':     normalized = audio.reverse(normalized); break;
-          default: break; // handled by the node chain
-        }
-      }
-      // Peak-safety: only attenuate if the mix would clip (never boost), so we
-      // can't override the user's levels or introduce a difference the preview
-      // didn't have — the realtime path is already hard-limited by the device.
-      const peak = audio.peakAmplitude(normalized);
-      if (peak > 1) normalized = audio.gain(normalized, 0.985 / peak);
-      let blob: Blob;
-      if (exportFmt === 'mp3') blob = await audio.encodeMp3(normalized, 192);
-      else blob = audio.encodeWav(normalized);
+      setProgress(40);
+      const normalized = await renderToBuffer(() => true); // full mix
+      setProgress(85);
+      const blob = exportFmt === 'mp3' ? await audio.encodeMp3(normalized, 192) : audio.encodeWav(normalized);
       downloadBlob(blob, `${safeFilename(doc.name)}.${exportFmt}`);
       toastFor('Exported');
     } catch (e) {
@@ -1196,6 +1223,10 @@ export default function MusicStudioPro() {
               <input type="range" min={4} max={64} value={exportBars} onChange={e => setExportBars(+e.target.value)} className="w-full" />
               <div className="text-right text-xs text-zinc-300 tabular-nums">{exportBars} bars · ~{Math.round((exportBars * 4 * (60 / doc.bpm)))}s</div>
             </div>
+            <button type="button" onClick={() => void exportStems()}
+              className="w-full rounded border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10">
+              Or export each track as a separate stem (.zip)
+            </button>
             {!isPro && (
               <div className="flex items-center justify-between gap-2 rounded bg-white/5 p-2 text-[11px] text-zinc-400">
                 <span>Free exports embed a small “Made with xonvert.com” tag in the file’s metadata.</span>

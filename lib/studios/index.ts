@@ -11,6 +11,7 @@ export * from './templates';
 export * from './image-templates';
 export * from './office-templates';
 export * from './subtitle-templates';
+export * from './voice-templates';
 export * from './template-gallery';
 export * from './i18n';
 export * from './ooxml';

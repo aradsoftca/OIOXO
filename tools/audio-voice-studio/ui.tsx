@@ -5,7 +5,7 @@ import {
   Loader2, Download, Plus, Trash2, Copy, Scissors, Mic, Square, Play, Pause,
   Volume2, VolumeX, AudioLines, Upload, Save, Undo2, Redo2, ZoomIn, ZoomOut,
   Magnet, X, Sparkles, Type as TypeIcon, Wand2, SkipBack, SkipForward,
-  Lock, Unlock, FileText, RotateCcw, ClipboardPaste,
+  Lock, Unlock, FileText, RotateCcw, ClipboardPaste, LayoutTemplate,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -28,6 +28,9 @@ import {
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
+  TemplateGallery, type GalleryItem,
+  VOICE_TEMPLATES, VOICE_TEMPLATE_CATEGORIES,
+  materializeVoiceTemplate, renderVoiceThumb,
 } from '@/lib/studios';
 
 interface Track {
@@ -248,6 +251,8 @@ export default function VoiceStudioPro() {
   const [exportDialog, setExportDialog] = React.useState(false);
   const [ttsDialog, setTtsDialog] = React.useState(false);
   const [openDialog, setOpenDialog] = React.useState(false);
+  const [templatesOpen, setTemplatesOpen] = React.useState(false);
+  const [templateCat, setTemplateCat] = React.useState<string>('all');
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [ttsText, setTtsText] = React.useState('Hello, type your script here.');
   const [ttsLang, setTtsLang] = React.useState('en');
@@ -980,6 +985,27 @@ export default function VoiceStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const applyVoiceTemplate = (id: string) => {
+    const tpl = VOICE_TEMPLATES.find(t => t.id === id);
+    if (!tpl) return;
+    // A template pre-configures the track layout (named/leveled/panned lanes);
+    // the user fills it with recordings. Materializes into DocState.
+    const next = materializeVoiceTemplate(tpl) as unknown as DocState;
+    setDoc(next);
+    stack.current.reset(cloneDoc(next), 'template');
+    setTemplatesOpen(false);
+    toastFor(`Started from "${tpl.name}" — record or drop audio into the lanes`);
+  };
+
+  const voiceTemplateItems = React.useMemo<GalleryItem[]>(() => VOICE_TEMPLATES.map(t => ({
+    id: t.id,
+    name: t.name,
+    category: t.category,
+    description: t.description,
+    thumb: renderVoiceThumb(t),
+    meta: [`${t.tracks.length} tracks`],
+  })), []);
+
   useRegisterShortcuts([
     {
       label: 'Playback',
@@ -1068,6 +1094,7 @@ export default function VoiceStudioPro() {
             <StudioButton variant="ghost" size="sm" onClick={() => setTtsDialog(true)}><Wand2 className="h-3.5 w-3.5" /> TTS</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => doc.selectedId ? void transcribeClip(doc.selectedId) : toastFor('Select a clip first')} title="Transcribe the selected clip on your device"><FileText className="h-3.5 w-3.5" /> Transcribe</StudioButton>
             {Object.keys(transcripts).length > 0 && <StudioButton variant="ghost" size="sm" onClick={() => void downloadSrt()} title="Export transcript as SRT subtitles">SRT</StudioButton>}
+            <StudioButton variant="ghost" size="sm" onClick={() => { setTemplateCat('all'); setTemplatesOpen(true); }} title="Templates"><LayoutTemplate className="h-3.5 w-3.5" /> Templates</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
             {/* On mobile Export is pinned in the always-visible right cluster instead. */}
@@ -1128,6 +1155,7 @@ export default function VoiceStudioPro() {
               actions={[
                 { label: 'Record from microphone', description: 'Press R anytime, or click the Record button', icon: <Mic className="h-4 w-4" />, onClick: () => void startRecording(), primary: true },
                 { label: 'Generate from text (TTS)', description: 'Type a script and pick a voice', icon: <Wand2 className="h-4 w-4" />, onClick: () => setTtsDialog(true) },
+                { label: 'Start from a template', description: `${VOICE_TEMPLATES.length} track layouts — podcast, audiobook, voiceover…`, icon: <LayoutTemplate className="h-4 w-4" />, onClick: () => { setTemplateCat('all'); setTemplatesOpen(true); } },
                 { label: 'Import audio file', description: 'WAV, MP3, M4A, OGG, FLAC', icon: <Upload className="h-4 w-4" />, onClick: () => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'audio/*'; i.multiple = true; i.onchange = () => i.files && importFiles(i.files); i.click(); } },
               ]}
               hints={[
@@ -1301,6 +1329,18 @@ export default function VoiceStudioPro() {
             </div>
           </div>
         </Dialog>
+      )}
+      {templatesOpen && (
+        <TemplateGallery
+          title="Voice Project Templates"
+          items={voiceTemplateItems}
+          categories={VOICE_TEMPLATE_CATEGORIES.map(c => ({ id: c.id, label: c.label }))}
+          activeCategory={templateCat}
+          onCategory={setTemplateCat}
+          onPick={applyVoiceTemplate}
+          onClose={() => setTemplatesOpen(false)}
+          accent="emerald"
+        />
       )}
       {openDialog && (
         <Dialog title="Library" onCancel={() => setOpenDialog(false)} onConfirm={() => setOpenDialog(false)} confirmLabel="Close">

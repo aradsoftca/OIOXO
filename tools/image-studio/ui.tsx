@@ -1393,7 +1393,7 @@ export default function ImageStudioPro() {
       const src = getCanvasOf(target)!;
       let result: HTMLCanvasElement;
       try {
-        result = await removeBackgroundAuto(src, (p, r) => { setBusy(p); });
+        result = await removeBackgroundAuto(src, (p, r) => { setBusy(/model/i.test(p) ? `${p} ${Math.round((r || 0) * 100)}%` : p); });
       } catch {
         setBusy('Using fast removal…');
         result = await removeBackgroundByLuma(src, 36);
@@ -1428,7 +1428,7 @@ export default function ImageStudioPro() {
     setBusy('Loading model…');
     try {
       const src = getCanvasOf(target)!;
-      const mask = await subjectMask(src, (p) => setBusy(p));
+      const mask = await subjectMask(src, (p, r) => setBusy(/model/i.test(p) ? `${p} ${Math.round((r || 0) * 100)}%` : p));
       if (!mask) { toastFor('No clear subject found — try the magic wand'); return; }
       const next = cloneDoc(doc);
       next.selection = { kind: 'subject', mask };

@@ -15,7 +15,7 @@ let modelPromise: Promise<any> | null = null;
 // ---------------------------------------------------------------------------
 let mattePromise: Promise<{ model: any; processor: any } | null> | null = null;
 
-async function loadMatteModel(): Promise<{ model: any; processor: any } | null> {
+async function loadMatteModel(onProgress?: ProgressFn): Promise<{ model: any; processor: any } | null> {
   if (mattePromise) return mattePromise;
   const p = (async () => {
     try {
@@ -23,6 +23,15 @@ async function loadMatteModel(): Promise<{ model: any; processor: any } | null> 
       lib.env.allowLocalModels = false;
       lib.env.allowRemoteModels = true;
       lib.env.useBrowserCache = true;
+      // Forward the model DOWNLOAD progress so the UI can show "Downloading
+      // model… 45%" instead of a frozen-looking spinner during the ~40 MB pull.
+      const progress_callback = (d: { status?: string; progress?: number; loaded?: number; total?: number }) => {
+        if (!onProgress) return;
+        const ratio = d.progress != null ? d.progress / 100 : (d.loaded && d.total ? d.loaded / d.total : 0);
+        if (d.status === 'progress' || d.status === 'download' || d.status === 'initiate') {
+          onProgress('Downloading model', Math.max(0, Math.min(1, ratio)));
+        }
+      };
       // Pin the ORT WASM binary to a CDN build whose exports match the v3 glue.
       // The default resolution was loading a binary missing the symbol the glue
       // calls ("_OrtGetInputName is not a function"). 1.21.0 ships the matching
@@ -37,9 +46,9 @@ async function loadMatteModel(): Promise<{ model: any; processor: any } | null> 
       let hasGpu = false;
       if (gpu) { try { hasGpu = !!(await gpu.requestAdapter()); } catch { hasGpu = false; } }
       const model: any = hasGpu // eslint-disable-line @typescript-eslint/no-explicit-any
-        ? await lib.AutoModel.from_pretrained(id, { device: 'webgpu', dtype: 'fp32' })
-        : await lib.AutoModel.from_pretrained(id, { quantized: true });
-      const processor = await lib.AutoProcessor.from_pretrained(id);
+        ? await lib.AutoModel.from_pretrained(id, { device: 'webgpu', dtype: 'fp32', progress_callback })
+        : await lib.AutoModel.from_pretrained(id, { quantized: true, progress_callback });
+      const processor = await lib.AutoProcessor.from_pretrained(id, { progress_callback });
       return { model, processor };
     } catch {
       return null; // caller falls back to the selfie segmenter
@@ -56,8 +65,8 @@ async function loadMatteModel(): Promise<{ model: any; processor: any } | null> 
  * falls back to the selfie segmenter). The matte is FOREGROUND alpha directly,
  * so there is no label-inversion to guess at.
  */
-async function computeMatte(src: HTMLCanvasElement): Promise<{ alpha: Uint8Array; mw: number; mh: number } | null> {
-  const m = await loadMatteModel();
+async function computeMatte(src: HTMLCanvasElement, onProgress?: ProgressFn): Promise<{ alpha: Uint8Array; mw: number; mh: number } | null> {
+  const m = await loadMatteModel(onProgress);
   if (!m) return null;
   try {
   const lib: any = await import('@huggingface/transformers'); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -169,7 +178,7 @@ export async function removeBackgroundAuto(src: HTMLCanvasElement, onProgress?: 
   // Preferred path: RMBG-1.4 general matting — works on ANY subject (object,
   // animal, product, person) and yields a soft alpha for clean edges.
   onProgress?.('Loading model…', 0.05);
-  const matte = await computeMatte(src);
+  const matte = await computeMatte(src, onProgress);
   if (matte) {
     onProgress?.('Compositing…', 0.85);
     const out = document.createElement('canvas');
@@ -295,7 +304,7 @@ export async function findSubjectCenter(src: HTMLCanvasElement): Promise<{ cx: n
 export async function subjectMask(src: HTMLCanvasElement, onProgress?: ProgressFn): Promise<HTMLCanvasElement | null> {
   onProgress?.('Loading model…', 0.05);
   // Preferred: RMBG-1.4 matte → soft white-alpha selection for any subject.
-  const matte = await computeMatte(src);
+  const matte = await computeMatte(src, onProgress);
   if (matte) {
     onProgress?.('Finding subject…', 0.6);
     const out = document.createElement('canvas');

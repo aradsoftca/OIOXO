@@ -828,14 +828,36 @@ export default function OfficeStudioPro() {
     setEditor({ r, c, value: prefill ?? cur });
   };
 
-  const commitEdit = () => {
-    if (!editor) return;
+  // Returns true if the value was committed, false if a validation rule with
+  // showError rejected it (the editor is kept open so the user can fix it).
+  const commitEdit = (): boolean => {
+    if (!editor) return true;
+    // Enforce data-validation rules on entry (was: rules were built in the
+    // dialog but never checked, so the feature did nothing). showError=true
+    // rejects the entry and keeps the editor open; showError=false warns but
+    // still writes. Blank entries are allowed through so a cell can be cleared.
+    const rule = dataValidationModel.current.forCell(editor.r, editor.c);
+    if (rule && String(editor.value ?? '').trim() !== '') {
+      const res = dataValidationModel.current.validate(editor.value, rule);
+      if (!res.ok) {
+        const msg = res.message ?? rule.message ?? 'Value does not meet the validation rule';
+        if (rule.showError) {
+          setValidationError(msg);
+          window.setTimeout(() => setValidationError(null), 3500);
+          return false; // reject — keep the editor open so the user can fix it
+        }
+        // warn-only: surface the message but allow the value through
+        setValidationError(`Warning: ${msg}`);
+        window.setTimeout(() => setValidationError(null), 3500);
+      }
+    }
     setCellRaw(editor.r, editor.c, editor.value);
     setEditor(null);
+    return true;
   };
 
   const moveSelection = (dr: number, dc: number, extend = false) => {
-    if (editor) commitEdit();
+    if (editor && !commitEdit()) return; // rejected by validation — stay put
     setDoc(d => {
       const sh = d.sheets.find(s => s.id === d.activeSheetId)!;
       const r = Math.max(0, Math.min(sh.rows - 1, d.selection.r + dr));
@@ -845,7 +867,7 @@ export default function OfficeStudioPro() {
   };
 
   const selectCell = (r: number, c: number, extend = false) => {
-    if (editor) commitEdit();
+    if (editor && !commitEdit()) return; // rejected by validation — stay put
     setDoc(d => extend ? { ...d, selection: { ...d.selection, r2: r, c2: c } } : { ...d, selection: { r, c, r2: r, c2: c } });
   };
 
@@ -853,7 +875,7 @@ export default function OfficeStudioPro() {
   // (Sheets/Excel parity). From inside data → jump to last filled cell before a
   // gap; from a gap → jump to the next filled cell.
   const jumpToEdge = (dr: number, dc: number, extend = false) => {
-    if (editor) commitEdit();
+    if (editor && !commitEdit()) return; // rejected by validation — stay put
     const sh = sheet;
     const filled = (r: number, c: number) => (sh.cells[cellKey(r, c)]?.raw ?? '') !== '';
     let r = extend ? sel.r2 : sel.r;
@@ -1513,7 +1535,7 @@ export default function OfficeStudioPro() {
             onSelect={selectCell}
             onBeginEdit={beginEdit}
             onEditChange={(v) => setEditor(e => e ? { ...e, value: v } : null)}
-            onEditCommit={(dr, dc) => { commitEdit(); if (dr || dc) moveSelection(dr, dc); }}
+            onEditCommit={(dr, dc) => { if (commitEdit() && (dr || dc)) moveSelection(dr, dc); }}
             onEditCancel={() => setEditor(null)}
             fillDrag={fillDrag}
             onFillDragMove={(r, c) => { setFillChip(null); setFillDrag({ toR: r, toC: c }); }}

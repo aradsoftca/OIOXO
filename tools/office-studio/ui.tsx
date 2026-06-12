@@ -34,6 +34,7 @@ import {
   NamedRangesModel, DataValidationModel, type NamedRange, type DataValidation, type DataValidationRule,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   pushToast, SharedDialog, EmptyState,
+  CollabSession, makeHttpSignal, type CollabPeer,
 } from '@/lib/studios';
 
 interface CellStyle {
@@ -552,6 +553,56 @@ export default function OfficeStudioPro() {
   const lastSnapshot = React.useRef('');
   const recoveryDismissed = React.useRef(false);
 
+  // ── Real cross-device collaboration ───────────────────────────────────────
+  // Cell-level CRDT over the same-origin relay (the proven office-docs path).
+  // Each cell edit broadcasts a `set` op keyed "sheetId:r_c"; remote ops are
+  // applied straight into doc state (LWW in the CRDT). This is the genuine
+  // multi-device co-edit Google Sheets has — not a same-machine fake.
+  const collabRef = React.useRef<CollabSession | null>(null);
+  const applyingRemote = React.useRef(false);
+  const [collabRoom, setCollabRoom] = React.useState<string | null>(null);
+  const [collabPeers, setCollabPeers] = React.useState<CollabPeer[]>([]);
+  const docRef = React.useRef(doc);
+  React.useEffect(() => { docRef.current = doc; }, [doc]);
+
+  // Apply a remote cell `set` into doc state without re-broadcasting.
+  const applyRemoteCell = React.useCallback((opKey: string, raw: any) => {
+    const sep = opKey.indexOf(':'); if (sep < 0) return;
+    const sheetId = opKey.slice(0, sep), cell = opKey.slice(sep + 1);
+    applyingRemote.current = true;
+    const next = cloneDoc(docRef.current);
+    const sh = next.sheets.find(s => s.id === sheetId);
+    if (sh) {
+      if (!raw) delete sh.cells[cell];
+      else sh.cells[cell] = { ...(sh.cells[cell] ?? {}), raw: String(raw) };
+      setDoc(next); force();
+    }
+    applyingRemote.current = false;
+  }, []);
+
+  const startCollab = (room: string) => {
+    if (collabRef.current) collabRef.current.close();
+    const name = `User-${Math.random().toString(36).slice(2, 5)}`;
+    const session = new CollabSession(name, pickPeerColor(name));
+    session.attachSignal(makeHttpSignal(room, session.self.id));
+    // Seed the shared doc with our current cells so a joiner converges to them.
+    for (const sh of docRef.current.sheets) for (const [k, cell] of Object.entries(sh.cells)) {
+      if (cell.raw) session.getDoc().set(`${sh.id}:${k}`, cell.raw);
+    }
+    session.getDoc().onUpdate((_state, op) => {
+      if (op && op.type === 'set' && op.author !== session.self.id && typeof op.key === 'string') {
+        applyRemoteCell(op.key, op.value);
+      }
+    });
+    session.onPeers(setCollabPeers);
+    session.announce();
+    collabRef.current = session;
+    setCollabRoom(room);
+    toastFor(`Sharing — send the room code: ${room}`);
+  };
+  const stopCollab = () => { collabRef.current?.close(); collabRef.current = null; setCollabRoom(null); setCollabPeers([]); };
+  React.useEffect(() => () => { collabRef.current?.close(); }, []);
+
   // Autofill ("fill handle") drag state + post-fill options chip.
   const [fillDrag, setFillDrag] = React.useState<{ toR: number; toC: number } | null>(null);
   const [fillChip, setFillChip] = React.useState<{ r0: number; c0: number; r1: number; c1: number; srcR0: number; srcC0: number; srcR1: number; srcC1: number; mode: 'series' | 'copy' | 'format' } | null>(null);
@@ -573,6 +624,11 @@ export default function OfficeStudioPro() {
     if (!raw) delete sh.cells[key];
     else sh.cells[key] = { ...(sh.cells[key] ?? {}), raw };
     commit('cell', next);
+    // Broadcast the edit to collaborators (unless we're echoing a remote op).
+    if (collabRef.current && !applyingRemote.current) {
+      const op = collabRef.current.getDoc().set(`${sheet.id}:${key}`, raw);
+      collabRef.current.broadcastOp(op);
+    }
   };
 
   const updateStyle = (mut: (s: CellStyle) => void) => {
@@ -1427,6 +1483,19 @@ export default function OfficeStudioPro() {
         }
         right={
           <>
+            {/* Real cross-device collaboration over the same-origin relay. */}
+            {collabRoom ? (
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500/15 px-2 text-xs font-medium text-emerald-200" title={`Live — room ${collabRoom}`}>
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {collabPeers.length > 1 ? `${collabPeers.length} editing` : 'Sharing'}
+                <button onClick={stopCollab} className="ml-1 text-emerald-200/70 hover:text-emerald-100" title="Stop sharing">✕</button>
+              </span>
+            ) : (
+              <StudioButton variant="ghost" size="sm" title="Collaborate live across devices" onClick={() => {
+                const code = prompt('Enter a room code to share or join (any word both sides agree on):', '');
+                if (code && code.trim()) startCollab(code.trim());
+              }}>Share</StudioButton>
+            )}
             <button onClick={() => setShowCommentsPanel(s => !s)} className={cn('inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium', showCommentsPanel ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')} title="Comments panel">
               <MessageSquare className="h-3.5 w-3.5" />
               <CommentsBadge count={comments.filter(c => !c.resolved).length} />

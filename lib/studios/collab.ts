@@ -32,10 +32,32 @@ export class CrdtDoc {
   private oplog: DocOp[] = [];
   private state: string = '';
   private listeners: Array<(state: string, op?: DocOp) => void> = [];
+  // Keyed last-writer-wins map for `set` ops (spreadsheet cells, kv config).
+  // Independent of the text `state`; conflicts resolved by (ts, author) so
+  // every peer converges on the same value for a key. Used by office-studio.
+  private kv: Record<string, any> = {};
+  private kvMeta: Record<string, { ts: number; author: string }> = {};
 
   constructor(localId: string) {
     this.localId = localId;
     this.vector[localId] = 0;
+  }
+
+  getKv(): Record<string, any> { return { ...this.kv }; }
+
+  // Local `set` — record + return the op to broadcast. LWW by (ts, author).
+  set(key: string, value: any): DocOp {
+    const op: DocOp = {
+      id: `${this.localId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      type: 'set', key, value,
+      author: this.localId, ts: Date.now(),
+      vector: this.nextVector(),
+    };
+    this.kv[key] = value;
+    this.kvMeta[key] = { ts: op.ts, author: this.localId };
+    this.oplog.push(op);
+    this.notify(op);
+    return op;
   }
 
   getState(): string { return this.state; }
@@ -93,6 +115,22 @@ export class CrdtDoc {
 
   applyRemote(op: DocOp): boolean {
     if (this.oplog.find(o => o.id === op.id)) return false;
+    // Keyed `set` op — last-writer-wins by (ts, author tiebreak). Deterministic
+    // across peers regardless of arrival order, so spreadsheets converge.
+    if (op.type === 'set') {
+      if (typeof op.key !== 'string' || op.key.length > 512) return false;
+      // Cap value size so a hostile peer can't OOM us with a giant cell.
+      try { if (JSON.stringify(op.value ?? null).length > 256_000) return false; } catch { return false; }
+      const cur = this.kvMeta[op.key];
+      const wins = !cur || op.ts > cur.ts || (op.ts === cur.ts && op.author > cur.author);
+      this.oplog.push(op);
+      for (const k of Object.keys(op.vector)) this.vector[k] = Math.max(this.vector[k] ?? 0, op.vector[k]);
+      if (wins) { this.kv[op.key] = op.value; this.kvMeta[op.key] = { ts: op.ts, author: op.author }; }
+      const OPLOG_MAX = 10_000;
+      if (this.oplog.length > OPLOG_MAX) this.oplog.splice(0, this.oplog.length - OPLOG_MAX);
+      this.notify(op);
+      return true;
+    }
     // Sanity-cap peer-supplied fields. Without this a hostile peer could send
     // {type:'insert', text: <50MB string>} and the receiver's doc state would
     // grow unboundedly; or `len` of 1e9 on delete would freeze the slice. The

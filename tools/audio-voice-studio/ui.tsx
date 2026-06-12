@@ -1145,14 +1145,30 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => void transcribeWords(selectedClip.id)}><FileText className="h-3 w-3" /> Transcribe (words)</StudioButton>
                   {(words[selectedClip.id]?.length ?? 0) > 0 && (
                     <>
-                      <div className="text-[10px] text-zinc-500">Click a word to delete it — that audio is cut. Re-transcribe for further precise edits.</div>
+                      <div className="text-[10px] text-zinc-500">Click a word to jump the playhead there; the word under the playhead highlights as it plays. Use the × to delete a word (and its audio).</div>
                       <div className="flex max-h-48 flex-wrap gap-1 overflow-y-auto">
-                        {words[selectedClip.id].map((w, i) => (
-                          <button key={i} onClick={() => deleteWord(selectedClip.id, i)} title="Click to delete this word + its audio"
-                            className="rounded bg-white/5 px-1.5 py-0.5 text-[12px] text-zinc-200 hover:bg-rose-500/30 hover:text-rose-100 hover:line-through">
-                            {w.text}
-                          </button>
-                        ))}
+                        {words[selectedClip.id].map((w, i) => {
+                          // Bidirectional link (Descript core loop): word time is
+                          // clip-local, so global time = clip.start + w.start.
+                          const gStart = selectedClip.start + w.start;
+                          const gEnd = selectedClip.start + w.end;
+                          const active = doc.playhead >= gStart && doc.playhead < gEnd;
+                          return (
+                            <span key={i}
+                              className={cn(
+                                'group relative inline-flex items-center rounded px-1.5 py-0.5 text-[12px] cursor-pointer transition-colors',
+                                active ? 'bg-cyan-500/30 text-cyan-50 ring-1 ring-cyan-400/60' : 'bg-white/5 text-zinc-200 hover:bg-white/10',
+                              )}
+                              onClick={() => seek(gStart)}
+                              title={`Jump to ${gStart.toFixed(2)}s`}>
+                              {w.text}
+                              <button
+                                onClick={(e) => { e.stopPropagation(); deleteWord(selectedClip.id, i); }}
+                                title="Delete this word + its audio"
+                                className="ml-0.5 hidden text-rose-300 hover:text-rose-100 group-hover:inline">×</button>
+                            </span>
+                          );
+                        })}
                       </div>
                     </>
                   )}

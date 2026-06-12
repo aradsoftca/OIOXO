@@ -589,6 +589,7 @@ export default function VideoStudioPro() {
       if (!next.slots.length) { next.slots = undefined; next.pendingGrade = undefined; }
       next.duration = computeDuration(next.clips);
       commit('fill template slot', next);
+      toastFor(`Added “${item.name}” to the template`);
       return;
     }
 
@@ -632,6 +633,7 @@ export default function VideoStudioPro() {
       next.selectedId = c.id;
     }
     commit('add clip', next);
+    toastFor(`Added “${item.name}” to the timeline`);
   };
 
   const applyTemplate = (tpl: VideoTemplate) => {
@@ -1735,7 +1737,6 @@ export default function VideoStudioPro() {
               {media.map(m => (
                 <button
                   key={m.id}
-                  onDoubleClick={() => addClipFromMedia(m.id)}
                   onClick={() => addClipFromMedia(m.id)}
                   className="group flex w-full items-center gap-2 rounded bg-white/5 p-1.5 text-left hover:bg-white/10"
                   title="Click to add to timeline"

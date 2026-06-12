@@ -2280,12 +2280,12 @@ export default function ImageStudioPro() {
             {/* On mobile Export lives PINNED in the right cluster — buried in this
                 scrollable strip it was effectively unreachable (no scroll affordance). */}
             <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export (Ctrl+E)"><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
-            <StudioButton variant="soft" size="sm" onClick={() => void runSelectSubject()} title="Select Subject — one click selects the person/object (on-device AI)"><Sparkles className="h-3.5 w-3.5" /> Select Subject</StudioButton>
-            <StudioButton variant="soft" size="sm" onClick={() => void runRemoveBg()} title="Remove Background (AI)"><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
-            <StudioButton variant="soft" size="sm" onClick={() => void runRemoveObject()} title="Select an object, then remove it (content-aware, on-device)"><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
-            <StudioButton variant="soft" size="sm" onClick={() => void runAutoEnhance()} title="Auto-enhance (white balance + levels)"><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
-            <StudioButton variant="soft" size="sm" onClick={() => void runExtractPalette()} title="Extract color palette"><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
-            <StudioButton variant="soft" size="sm" onClick={() => setSmartCropDialog(true)} title="Smart crop for social"><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSelectSubject()} title={pristine ? 'Open an image first' : 'Select Subject — one click selects the person/object (on-device AI)'}><Sparkles className="h-3.5 w-3.5" /> Select Subject</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveBg()} title={pristine ? 'Open an image first' : 'Remove Background (AI)'}><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveObject()} title={pristine ? 'Open an image first' : 'Select an object, then remove it (content-aware, on-device)'}><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoEnhance()} title={pristine ? 'Open an image first' : 'Auto-enhance (white balance + levels)'}><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <select
               onChange={e => { if (e.target.value) { applyColorGrade(e.target.value); e.target.value = ''; } }}
               defaultValue=""

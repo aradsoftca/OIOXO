@@ -700,29 +700,57 @@ export default function PdfStudioPro() {
       let added = 0;
       const next = cloneDoc(doc);
       const list = next.annotations[selPage.id] ?? [];
-      for (const item of content.items as any[]) {
+
+      // Build ONE joined string for the page, remembering which source item +
+      // local offset every character came from. pdf.js fragments text into many
+      // items, so an SSN / phone / email can straddle two items — scanning each
+      // item alone misses those (the live "Smart Redact found nothing" bug). We
+      // scan the joined text, then map each global match span back to the
+      // covering item(s) and box each item's covered sub-range.
+      const items = content.items as any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+      let joined = '';
+      const map: { item: any; localStart: number }[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+      for (const item of items) {
+        const s = item.str ?? '';
+        for (let k = 0; k < s.length; k++) map.push({ item, localStart: k });
+        joined += s;
+      }
+      const boxFor = (item: any, locStart: number, locEnd: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         const str = item.str ?? '';
-        const hits = findPii(str);
-        if (!hits.length) continue;
-        const [a, b, c, d, e, f] = item.transform as number[];
-        const baseX = e;
-        const baseY = f;
-        const charW = item.width / Math.max(1, str.length);
+        const [, , , d, e, f] = item.transform as number[];
+        const charW = (item.width || 1) / Math.max(1, str.length);
         const h = Math.abs(d || item.height || 12);
-        for (const hit of hits) {
-          const x = baseX + hit.start * charW;
-          const w = (hit.end - hit.start) * charW;
-          const nx = x / viewport.width;
-          const ny = 1 - (baseY + h) / viewport.height;
-          const nw = w / viewport.width;
-          const nh = h * 1.4 / viewport.height;
-          list.push({ kind: 'rect', nx, ny, nw, nh, color: '#000000', opacity: 1, redact: true });
-          added++;
+        const x = e + locStart * charW;
+        const w = Math.max(1, (locEnd - locStart)) * charW;
+        list.push({
+          kind: 'rect',
+          nx: x / viewport.width,
+          ny: 1 - (f + h) / viewport.height,
+          nw: w / viewport.width,
+          nh: (h * 1.4) / viewport.height,
+          color: '#000000', opacity: 1, redact: true,
+        });
+        added++;
+      };
+      for (const hit of findPii(joined)) {
+        // Walk the matched character span and emit a box per source item the
+        // span covers (a single match may span >1 item).
+        let i = hit.start;
+        while (i < hit.end && i < map.length) {
+          const item = map[i].item;
+          const runStart = map[i].localStart;
+          let j = i;
+          while (j + 1 < hit.end && j + 1 < map.length && map[j + 1].item === item) j++;
+          boxFor(item, runStart, map[j].localStart + 1);
+          i = j + 1;
         }
       }
       next.annotations[selPage.id] = list;
       commit('smart redact', next);
-      toastFor(added ? `Found and redacted ${added} item${added === 1 ? '' : 's'}` : 'No sensitive info found');
+      // Unmissable feedback (the live complaint was silence on a security tool):
+      // a real toast either way, never nothing.
+      if (added) toastFor(`🛡️ Found & marked ${added} sensitive item${added === 1 ? '' : 's'} — Export flattens them permanently`);
+      else toastFor('No emails, phones, SSNs or card numbers detected on this page');
     } catch (e) {
       toastFor('Could not scan this page');
     } finally { setBusy(''); }

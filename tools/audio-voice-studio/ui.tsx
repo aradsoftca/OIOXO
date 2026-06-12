@@ -1213,6 +1213,33 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => void splitVocalsFromClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Split vocals / music</StudioButton>
                 </div>
               </StudioPanel>
+              <StudioPanel title="Transcript">
+                <div className="space-y-2">
+                  <StudioButton size="sm" variant="soft" onClick={() => void transcribeClip(selectedClip.id)}><FileText className="h-3 w-3" /> Transcribe (lines)</StudioButton>
+                  {(transcripts[selectedClip.id]?.length ?? 0) > 0 && (
+                    <>
+                      <div className="text-[10px] text-zinc-500">Click a line to jump the playhead there. The line playing now is highlighted. Export all lines as subtitles with the SRT button up top.</div>
+                      <div className="max-h-48 space-y-0.5 overflow-y-auto">
+                        {transcripts[selectedClip.id].map((ln, i) => {
+                          const active = doc.playhead >= ln.start && doc.playhead < ln.end;
+                          return (
+                            <div key={i}
+                              onClick={() => seek(ln.start)}
+                              title={`Jump to ${ln.start.toFixed(2)}s`}
+                              className={cn(
+                                'cursor-pointer rounded px-2 py-1 text-[12px] leading-snug transition-colors',
+                                active ? 'bg-cyan-500/25 text-cyan-50 ring-1 ring-cyan-400/50' : 'text-zinc-300 hover:bg-white/5',
+                              )}>
+                              <span className="mr-1.5 tabular-nums text-[10px] text-zinc-500">{Math.floor(ln.start / 60)}:{String(Math.floor(ln.start % 60)).padStart(2, '0')}</span>
+                              {ln.text}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              </StudioPanel>
               <StudioPanel title="Transcript — edit by word">
                 <div className="space-y-2">
                   <StudioButton size="sm" variant="soft" onClick={() => void transcribeWords(selectedClip.id)}><FileText className="h-3 w-3" /> Transcribe (words)</StudioButton>

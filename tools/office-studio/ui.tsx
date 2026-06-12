@@ -39,6 +39,7 @@ import {
   materializeOfficeTemplate, renderOfficeThumb,
   CollabSession, makeHttpSignal, type CollabPeer,
 } from '@/lib/studios';
+import { cycleAnchorAtCaret, functionSuggestions, acceptSuggestion } from '@/lib/studios/formula-edit';
 
 interface CellStyle {
   bold?: boolean;
@@ -1825,6 +1826,85 @@ export default function OfficeStudioPro() {
   );
 }
 
+/**
+ * The in-cell editor input, with two Sheets-grade formula affordances:
+ *  - F4 cycles the reference under the caret through $-anchor forms.
+ *  - typing a function name after '=' surfaces an autocomplete dropdown
+ *    (↑/↓ to move, Tab/Enter to accept, Esc to dismiss).
+ * Falls back to plain commit/cancel behaviour for non-formula values.
+ */
+function CellEditorInput({ value, onChange, onCommit, onCancel }: {
+  value: string;
+  onChange: (v: string) => void;
+  onCommit: (dr: number, dc: number) => void;
+  onCancel: () => void;
+}) {
+  const ref = React.useRef<HTMLInputElement>(null);
+  const [caret, setCaret] = React.useState(value.length);
+  const [sugIdx, setSugIdx] = React.useState(0);
+
+  const sug = functionSuggestions(value, caret);
+  React.useEffect(() => { setSugIdx(0); }, [sug?.matches.join(',')]);
+
+  const setValueCaret = (v: string, c: number) => {
+    onChange(v);
+    // Restore caret after React applies the controlled value.
+    requestAnimationFrame(() => { const el = ref.current; if (el) { el.selectionStart = el.selectionEnd = c; setCaret(c); } });
+  };
+
+  const accept = (name: string) => {
+    if (!sug) return;
+    const r = acceptSuggestion(value, sug.replaceStart, sug.replaceEnd, name);
+    setValueCaret(r.value, r.caret);
+  };
+
+  return (
+    <div className="relative -mx-1.5 -my-0 h-full w-[calc(100%+.75rem)]">
+      <input
+        ref={ref}
+        autoFocus
+        value={value}
+        onChange={e => { onChange(e.target.value); setCaret(e.target.selectionStart ?? e.target.value.length); }}
+        onSelect={e => setCaret((e.target as HTMLInputElement).selectionStart ?? caret)}
+        onKeyDown={e => {
+          // Autocomplete navigation takes priority when the dropdown is open.
+          if (sug) {
+            if (e.key === 'ArrowDown') { e.preventDefault(); setSugIdx(i => (i + 1) % sug.matches.length); return; }
+            if (e.key === 'ArrowUp') { e.preventDefault(); setSugIdx(i => (i - 1 + sug.matches.length) % sug.matches.length); return; }
+            if ((e.key === 'Tab' || e.key === 'Enter') && sug.matches[sugIdx]) { e.preventDefault(); accept(sug.matches[sugIdx]); return; }
+            if (e.key === 'Escape') { e.preventDefault(); setCaret(c => c); onChange(value); /* keep editing, just close list */ setSugIdx(-1); return; }
+          }
+          if (e.key === 'F4') {
+            const c = ref.current?.selectionStart ?? caret;
+            const r = cycleAnchorAtCaret(value, c);
+            if (r) { e.preventDefault(); setValueCaret(r.value, r.caret); }
+            return;
+          }
+          if (e.key === 'Enter') { e.preventDefault(); onCommit(e.shiftKey ? -1 : 1, 0); }
+          else if (e.key === 'Tab') { e.preventDefault(); onCommit(0, e.shiftKey ? -1 : 1); }
+          else if (e.key === 'Escape') onCancel();
+        }}
+        onBlur={() => onCommit(0, 0)}
+        className="h-full w-full border-2 border-cyan-400 bg-[#0a0b0e] px-1.5 outline-none text-zinc-100"
+      />
+      {sug && sugIdx >= 0 && (
+        <div className="absolute left-0 top-full z-30 mt-0.5 min-w-[140px] overflow-hidden rounded border border-white/15 bg-[#15171c] shadow-xl">
+          {sug.matches.map((name, i) => (
+            <button
+              key={name}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); accept(name); }}
+              className={cn('block w-full px-2 py-1 text-left text-[12px] font-mono', i === sugIdx ? 'bg-cyan-500/25 text-cyan-100' : 'text-zinc-300 hover:bg-white/5')}
+            >
+              {name}<span className="text-zinc-500">(</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
   freeze: FreezePanes | null;
@@ -2020,17 +2100,11 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
                 />
               )}
               {isEditing ? (
-                <input
-                  autoFocus
+                <CellEditorInput
                   value={editor.value}
-                  onChange={e => onEditChange(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') { e.preventDefault(); onEditCommit(e.shiftKey ? -1 : 1, 0); }
-                    else if (e.key === 'Tab') { e.preventDefault(); onEditCommit(0, e.shiftKey ? -1 : 1); }
-                    else if (e.key === 'Escape') onEditCancel();
-                  }}
-                  onBlur={() => onEditCommit(0, 0)}
-                  className="-mx-1.5 -my-0 h-full w-[calc(100%+.75rem)] border-2 border-cyan-400 bg-[#0a0b0e] px-1.5 outline-none text-zinc-100"
+                  onChange={onEditChange}
+                  onCommit={onEditCommit}
+                  onCancel={onEditCancel}
                 />
               ) : isSparkCell(cell?.raw) ? (
                 <SparklineRender raw={cell!.raw} sheet={sheet} evaluated={evaluated} />

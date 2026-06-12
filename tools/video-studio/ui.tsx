@@ -157,6 +157,26 @@ interface DocState {
   playhead: number;
   duration: number;
   master: { volume: number; audioFade: boolean };
+  /** Empty media slots from an applied template (Hook/Main/CTA structure).
+   *  Rendered as dashed "drop here" guides on the timeline; consumed as the
+   *  user drops media in. Undefined when no template is active. */
+  slots?: TemplateSlot[];
+  /** Color-grade id the active template wants applied to every clip — applied
+   *  to media as it lands in a slot (deferred because a fresh template has no
+   *  clips yet). Cleared once there are no slots left to fill. */
+  pendingGrade?: string;
+}
+
+/** A template slot materialized onto the live doc. Mirrors VideoTemplateSlot
+ *  but carries the resolved track it lives on. */
+interface TemplateSlot {
+  id: string;
+  kind: 'video' | 'image' | 'audio';
+  trackId: string;
+  start: number;
+  duration: number;
+  label: string;
+  hint?: string;
 }
 
 const FONTS = [
@@ -201,6 +221,7 @@ const cloneDoc = (d: DocState): DocState => ({
   tracks: d.tracks.map(t => ({ ...t })),
   clips: d.clips.map(c => ({ ...c })),
   master: { ...d.master },
+  slots: d.slots ? d.slots.map(s => ({ ...s })) : undefined,
 });
 
 const clipDuration = (c: TimelineClip): number => {
@@ -454,6 +475,42 @@ export default function VideoStudioPro() {
     // adds stack correctly instead of clobbering each other.
     const next = cloneDoc(docRef.current);
     let trackId: string;
+
+    // Template slot-fill: if the active template still has an open slot matching
+    // this media kind, drop the clip straight onto it (at the slot's track AND
+    // start time) so the template's structure gets populated where it belongs,
+    // then consume the slot and apply the template's pending color grade. Only
+    // when the caller didn't force a specific track.
+    const slotKind = (item.kind === 'audio' ? 'audio' : 'video');
+    const openSlot = !targetTrackId && next.slots
+      ? next.slots.find(s => (s.kind === 'audio' ? 'audio' : 'video') === slotKind)
+      : undefined;
+    if (openSlot) {
+      const dur = item.duration || openSlot.duration || 5;
+      if (item.kind === 'audio') {
+        const c: AudioClip = {
+          id: tid(), kind: 'audio', trackId: openSlot.trackId, mediaId,
+          start: openSlot.start, srcStart: 0, srcEnd: dur, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0,
+        };
+        next.clips.push(c); next.selectedId = c.id;
+      } else {
+        const grade = next.pendingGrade ? COLOR_GRADES.find(g => g.id === next.pendingGrade) : undefined;
+        const c: VideoClip = {
+          id: tid(), kind: 'video', trackId: openSlot.trackId, mediaId,
+          start: openSlot.start, srcStart: 0, srcEnd: dur, speed: 1, volume: 1,
+          brightness: grade?.brightness ?? 100, contrast: grade?.contrast ?? 100,
+          saturation: grade?.saturation ?? 100, hue: grade?.hue ?? 0, opacity: 100,
+          fit: 'cover', transition: 'none', transDur: 0.5,
+        };
+        next.clips.push(c); next.selectedId = c.id;
+      }
+      next.slots = next.slots!.filter(s => s.id !== openSlot.id);
+      if (!next.slots.length) { next.slots = undefined; next.pendingGrade = undefined; }
+      next.duration = computeDuration(next.clips);
+      commit('fill template slot', next);
+      return;
+    }
+
     if (targetTrackId && next.tracks.find(t => t.id === targetTrackId)) {
       // Caller named a specific track — use it (e.g. drop on A2 to layer music
       // under a voiceover that's already on A1).
@@ -500,6 +557,8 @@ export default function VideoStudioPro() {
     setRecovery(null); // committing to a template supersedes the recover-last-session offer
     const next = NEW_DOC({ id: tpl.id, label: tpl.name, w: tpl.resolution.w, h: tpl.resolution.h, fps: tpl.resolution.fps });
     next.name = tpl.name;
+
+    // 1) Text clips (titles / lower-thirds / CTAs) straight onto the text track.
     const textTrack = next.tracks.find(t => t.kind === 'text');
     if (textTrack) {
       for (const t of tpl.texts) {
@@ -514,12 +573,43 @@ export default function VideoStudioPro() {
         });
       }
     }
-    if (tpl.colorGrade && tpl.colorGrade !== 'original') {
-      next.master.audioFade = true;
+
+    // 2) Materialize the template's media slots (Hook/Main/CTA …) onto real
+    //    tracks so the structure is VISIBLE on the timeline and the user knows
+    //    where to drop clips. Previously these were dropped on the floor, which
+    //    is why a freshly-applied template looked like it did nothing. Each
+    //    slot is laid on the matching track kind, stacking video slots across
+    //    V1/V2 only when they overlap in time.
+    const videoTracks = next.tracks.filter(t => t.kind === 'video');
+    const audioTracks = next.tracks.filter(t => t.kind === 'audio');
+    const slots: TemplateSlot[] = [];
+    for (const s of tpl.slots) {
+      const pool = s.kind === 'audio' ? audioTracks : videoTracks;
+      // Pick the first track in the pool with no slot already overlapping this
+      // time range, so sequential slots share a track and overlapping ones split.
+      const sEnd = s.start + s.duration;
+      const track = pool.find(t => !slots.some(o => o.trackId === t.id && s.start < o.start + o.duration && sEnd > o.start)) ?? pool[0];
+      if (!track) continue;
+      slots.push({ id: s.id, kind: s.kind, trackId: track.id, start: s.start, duration: s.duration, label: s.label, hint: s.hint });
     }
+    next.slots = slots.length ? slots : undefined;
+
+    // 3) Store the template's color grade so it's applied to each clip AS it
+    //    lands in a slot (a fresh template has no media clips to grade yet).
+    if (tpl.colorGrade && tpl.colorGrade !== 'original' && COLOR_GRADES.some(g => g.id === tpl.colorGrade)) {
+      next.pendingGrade = tpl.colorGrade;
+    }
+
+    next.duration = computeDuration(next.clips);
     commit(`apply template: ${tpl.name}`, next);
     setTemplatesDialog(false);
-    toastFor(`Template "${tpl.name}" loaded — drop your media in`);
+    // Force the preview to paint the title at t=0 (otherwise the canvas only
+    // redraws on the next playhead move and the template looks empty).
+    requestAnimationFrame(() => drawPreviewFrame(0));
+    const slotCount = slots.length;
+    toastFor(slotCount
+      ? `Template "${tpl.name}" loaded — ${slotCount} clip slot${slotCount > 1 ? 's' : ''} ready, drop your media onto them`
+      : `Template "${tpl.name}" loaded`);
   };
 
   const applyGradeToClip = (clipId: string, gradeId: string) => {
@@ -1987,6 +2077,27 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
                 onClick={() => onSelect(null)}
               />
             ))}
+
+            {/* Template slot guides — dashed "drop your clip here" placeholders
+                that make an applied template's structure visible. Each is
+                consumed (removed) once media is dropped onto it. */}
+            {(doc.slots ?? []).map(s => {
+              const tr = trackY.find(t => t.id === s.trackId);
+              if (!tr) return null;
+              const x = tToX(s.start);
+              const w = Math.max(8, tToX(s.duration));
+              return (
+                <div
+                  key={`slot-${s.id}`}
+                  style={{ position: 'absolute', left: x, top: tr.y, width: w, height: tr.h - 4 }}
+                  className="flex flex-col justify-center rounded border border-dashed border-cyan-400/50 bg-cyan-400/5 px-2 pointer-events-none overflow-hidden"
+                  title={s.hint}
+                >
+                  <span className="truncate text-[10px] font-medium text-cyan-200/90">{s.label}</span>
+                  {s.hint && <span className="truncate text-[9px] text-cyan-200/50">{s.hint}</span>}
+                </div>
+              );
+            })}
 
             {doc.clips.map(c => {
               const tr = trackY.find(t => t.id === c.trackId);

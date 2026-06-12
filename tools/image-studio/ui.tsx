@@ -633,6 +633,7 @@ export default function ImageStudioPro() {
   const [showAdjustPanel, setShowAdjustPanel] = React.useState(false);
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
+  const inlineTextRef = React.useRef<HTMLTextAreaElement | null>(null);
   const wrapRef = React.useRef<HTMLDivElement | null>(null);
   const scheduleBrushRedraw = useRafThrottle(() => setDoc(d => ({ ...d })));
   const [busy, setBusy] = React.useState<string>('');
@@ -691,6 +692,9 @@ export default function ImageStudioPro() {
     const ctx = out.getContext('2d')!;
     if (doc.background !== 'transparent') { ctx.fillStyle = doc.background; ctx.fillRect(0, 0, doc.width, doc.height); }
     for (const layer of doc.layers) {
+      // While inline-editing a text layer, hide its raster so the live <textarea>
+      // overlay (drawn on top at the same spot) isn't doubled under it.
+      if (textEditOpen && layer.id === textEditOpen && layer.kind === 'text') continue;
       if (layer.kind === 'adjust') {
         if (!layer.visible || layer.opacity <= 0) continue;
         // Mirror compositeDoc: composite the adjusted-below back over the
@@ -751,7 +755,7 @@ export default function ImageStudioPro() {
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     return out;
-  }, [doc]);
+  }, [doc, textEditOpen]);
 
   React.useEffect(() => {
     const c = canvasRef.current;
@@ -1691,6 +1695,20 @@ export default function ImageStudioPro() {
       return;
     }
     if (tool === 'text') {
+      // Clicking ON an existing text layer edits it inline (Photopea/Canva), rather
+      // than stacking a new overlapping layer. Hit-test top-most first; approximate
+      // each run's box from its text metrics (baseline top at x,y).
+      const hit = [...doc.layers].reverse().find(l => {
+        if (l.kind !== 'text' || !l.visible) return false;
+        const tl = l as TextLayer;
+        const lines = tl.text.split('\n');
+        const maxLen = Math.max(1, ...lines.map(s => s.length));
+        const w = maxLen * tl.size * 0.6;
+        const h = lines.length * tl.size * tl.lineHeight;
+        const x0 = tl.align === 'center' ? tl.x - w / 2 : tl.align === 'right' ? tl.x - w : tl.x;
+        return p.x >= x0 - 4 && p.x <= x0 + w + 4 && p.y >= tl.y - 4 && p.y <= tl.y + h + 4;
+      });
+      if (hit) { setActive(hit.id); setTextEditOpen(hit.id); return; }
       const t: TextLayer = {
         id: lid(), kind: 'text', name: 'Text',
         text: 'Type here', x: p.x, y: p.y,
@@ -1978,6 +1996,14 @@ export default function ImageStudioPro() {
 
   const textEditing = textEditOpen ? doc.layers.find(l => l.id === textEditOpen) as TextLayer | undefined : undefined;
 
+  // Focus + select-all the inline text editor when it opens so the user can type
+  // immediately (and a fresh "Type here" placeholder is replaced on first key).
+  React.useEffect(() => {
+    if (!textEditOpen) return;
+    const el = inlineTextRef.current;
+    if (el) { el.focus(); el.select(); }
+  }, [textEditOpen]);
+
   // Pristine = a brand-new, empty doc (one untouched blank paint layer). While
   // pristine, the filter strip and the tool rail do nothing useful, so we quiet
   // them — the first-timer's eye then lands on "open an image", not a wall of
@@ -2189,6 +2215,42 @@ export default function ImageStudioPro() {
                   style={{ backgroundImage: 'linear-gradient(to right,rgba(255,255,255,.08) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,.08) 1px,transparent 1px)', backgroundSize: '32px 32px' }}
                 />
               ) : null}
+              {/* INLINE on-canvas text editing (Photopea/Canva parity): edit the
+                  text exactly where it sits, live, instead of a modal that covers
+                  the image. The textarea lives INSIDE the scale(zoom) transform so
+                  it auto-matches position+size; styled to mirror the rendered run
+                  (baseline top, same font/size/weight/italic/color/lineHeight). The
+                  on-canvas raster of THIS layer is hidden while editing to avoid
+                  double-vision. Enter commits (Shift+Enter = newline), Esc cancels,
+                  blur commits. Advanced styling stays in the top context bar. */}
+              {textEditing && (
+                <textarea
+                  ref={inlineTextRef}
+                  value={textEditing.text}
+                  onChange={(e) => updateLayer(textEditing.id, l => { (l as TextLayer).text = e.target.value; }, 'text edit')}
+                  onBlur={() => setTextEditOpen(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') { e.preventDefault(); setTextEditOpen(null); }
+                    else if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); setTextEditOpen(null); }
+                    e.stopPropagation();
+                  }}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  spellCheck={false}
+                  className="absolute resize-none overflow-hidden whitespace-pre bg-transparent p-0 outline outline-1 outline-cyan-400/80"
+                  style={{
+                    left: textEditing.x, top: textEditing.y,
+                    minWidth: 20,
+                    width: 'auto',
+                    transform: textEditing.align === 'center' ? 'translateX(-50%)' : textEditing.align === 'right' ? 'translateX(-100%)' : undefined,
+                    font: `${textEditing.italic ? 'italic ' : ''}${textEditing.weight} ${textEditing.size}px ${textEditing.font}`,
+                    lineHeight: textEditing.lineHeight,
+                    letterSpacing: textEditing.letterSpacing,
+                    color: textEditing.color,
+                    textAlign: textEditing.align as React.CSSProperties['textAlign'],
+                    caretColor: '#06b6d4',
+                  }}
+                />
+              )}
             </div>
           </div>
 
@@ -2380,14 +2442,10 @@ export default function ImageStudioPro() {
           <div className="mt-2 text-center text-xs text-zinc-500">Click to set as foreground · auto-copied to clipboard</div>
         </DialogShell>
       )}
-      {textEditOpen && textEditing && (
-        <TextEditDialog
-          layer={textEditing}
-          fonts={FONTS}
-          onCancel={() => setTextEditOpen(null)}
-          onSave={(mut) => { updateLayer(textEditOpen, mut, 'text edit'); setTextEditOpen(null); }}
-        />
-      )}
+      {/* Text editing is now INLINE on the canvas (see the textarea overlay in
+          the canvas wrapper); the old modal TextEditDialog is retired. Advanced
+          styling (font/size/color/outline/shadow) lives in the top context bar
+          that appears when a text layer is active. */}
     </StudioShell>
   );
 }

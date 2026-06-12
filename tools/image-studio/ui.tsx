@@ -434,6 +434,18 @@ function applyAdjustmentBelow(target: HTMLCanvasElement, adj: AdjustmentLayer): 
   return out;
 }
 
+/** Resample a canvas to `factor`× its size with high-quality smoothing. */
+function scaleCanvas(src: HTMLCanvasElement, factor: number): HTMLCanvasElement {
+  const w = Math.max(1, Math.round(src.width * factor));
+  const h = Math.max(1, Math.round(src.height * factor));
+  const out = blankCanvas(w, h);
+  const ctx = out.getContext('2d')!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, w, h);
+  return out;
+}
+
 function compositeDoc(doc: DocState): HTMLCanvasElement {
   const out = blankCanvas(doc.width, doc.height);
   const ctx = out.getContext('2d')!;
@@ -691,6 +703,7 @@ export default function ImageStudioPro() {
   const [exportDialog, setExportDialog] = React.useState(false);
   const [exportFmt, setExportFmt] = React.useState<ImageFormat>('png');
   const [exportQ, setExportQ] = React.useState(92);
+  const [exportScale, setExportScale] = React.useState(100); // % of native size
   const [openDialog, setOpenDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [newDialog, setNewDialog] = React.useState(false);
@@ -1112,7 +1125,8 @@ export default function ImageStudioPro() {
     if (!(await guard())) return;
     setBusy('Exporting…');
     try {
-      const blob = await canvasToBlob(composite, exportFmt, exportQ / 100);
+      const src = exportScale === 100 ? composite : scaleCanvas(composite, exportScale / 100);
+      const blob = await canvasToBlob(src, exportFmt, exportQ / 100);
       downloadBlob(blob, `${safeFilename(doc.name)}.${exportFmt}`);
       toastFor('Exported');
       setExportDialog(false);
@@ -2645,7 +2659,7 @@ export default function ImageStudioPro() {
         />
       )}
       {exportDialog && (
-        <ExportDialog fmt={exportFmt} setFmt={setExportFmt} q={exportQ} setQ={setExportQ} onCancel={() => setExportDialog(false)} onExport={exportImage} onPsd={() => void exportPsd()} layerCount={doc.layers.length} />
+        <ExportDialog fmt={exportFmt} setFmt={setExportFmt} q={exportQ} setQ={setExportQ} scale={exportScale} setScale={setExportScale} composite={composite} onCancel={() => setExportDialog(false)} onExport={exportImage} onPsd={() => void exportPsd()} layerCount={doc.layers.length} />
       )}
       {filterDialog && (
         <FilterDialog kind={filterDialog} value={filterParam} setValue={setFilterParam} onCancel={() => setFilterDialog(null)} onApply={(v) => runFilter(filterDialog, v)} />
@@ -3100,7 +3114,30 @@ function NewDocDialog({ onCancel, onCreate }: { onCancel: () => void; onCreate: 
   );
 }
 
-function ExportDialog({ fmt, setFmt, q, setQ, onCancel, onExport, onPsd, layerCount }: { fmt: ImageFormat; setFmt: (f: ImageFormat) => void; q: number; setQ: (n: number) => void; onCancel: () => void; onExport: () => void; onPsd?: () => void; layerCount?: number }) {
+function ExportDialog({ fmt, setFmt, q, setQ, scale, setScale, composite, onCancel, onExport, onPsd, layerCount }: { fmt: ImageFormat; setFmt: (f: ImageFormat) => void; q: number; setQ: (n: number) => void; scale: number; setScale: (n: number) => void; composite: HTMLCanvasElement; onCancel: () => void; onExport: () => void; onPsd?: () => void; layerCount?: number }) {
+  const outW = Math.max(1, Math.round(composite.width * scale / 100));
+  const outH = Math.max(1, Math.round(composite.height * scale / 100));
+
+  // Live file-size estimate: re-encode the (scaled) composite whenever the
+  // format / quality / scale changes — Photopea's "you can see how big it'll be
+  // before you download" affordance. Debounced + cancel-guarded so dragging the
+  // quality slider doesn't thrash.
+  const [estBytes, setEstBytes] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    setEstBytes(null);
+    const handle = window.setTimeout(async () => {
+      try {
+        const src = scale === 100 ? composite : scaleCanvas(composite, scale / 100);
+        const blob = await canvasToBlob(src, fmt, q / 100);
+        if (!cancelled) setEstBytes(blob.size);
+      } catch { if (!cancelled) setEstBytes(null); }
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [fmt, q, scale, composite]);
+
+  const fmtBytes = (n: number) => n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / (1024 * 1024)).toFixed(2)} MB`;
+
   return (
     <DialogShell title="Export" onCancel={onCancel} onConfirm={onExport} confirmLabel="Download">
       <div className="space-y-3">
@@ -3116,6 +3153,20 @@ function ExportDialog({ fmt, setFmt, q, setQ, onCancel, onExport, onPsd, layerCo
             <input type="range" min={10} max={100} value={q} onChange={e => setQ(+e.target.value)} className="w-full" />
           </Field>
         )}
+        <Field label={`Scale ${scale}% — ${outW}×${outH}px`}>
+          <div className="flex items-center gap-2">
+            <input type="range" min={10} max={200} step={5} value={scale} onChange={e => setScale(+e.target.value)} className="flex-1" />
+            <div className="flex gap-1">
+              {[50, 100, 200].map(s => (
+                <button key={s} onClick={() => setScale(s)} className={cn('rounded px-1.5 py-0.5 text-[10px]', scale === s ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-400')}>{s}%</button>
+              ))}
+            </div>
+          </div>
+        </Field>
+        <div className="flex items-center justify-between rounded bg-white/5 px-2.5 py-1.5 text-[11px] text-zinc-400">
+          <span>Estimated file size</span>
+          <span className="font-mono tabular-nums text-zinc-200">{estBytes == null ? 'calculating…' : fmtBytes(estBytes)}</span>
+        </div>
         {onPsd && (
           <div className="border-t border-white/10 pt-2">
             <button onClick={onPsd} className="w-full rounded bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10">Export layered .PSD ({layerCount ?? 0} layer{layerCount === 1 ? '' : 's'}) — opens in Photoshop/Affinity</button>

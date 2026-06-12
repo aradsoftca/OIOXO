@@ -158,6 +158,89 @@ export const VOICE_TEMPLATES: VoiceTemplate[] = [
     ],
     normalize: true,
   },
+  {
+    id: 'podcast-3host', name: 'Podcast — 3 Hosts', category: 'podcast',
+    description: 'Three host lanes, music, and an SFX track.',
+    tracks: [
+      { label: 'Host A', pan: -0.3 },
+      { label: 'Host B' },
+      { label: 'Host C', pan: 0.3 },
+      { label: 'Music / SFX', volume: 0.6 },
+    ],
+    normalize: true,
+  },
+  {
+    id: 'remote-guest', name: 'Remote Guest Call', category: 'podcast',
+    description: 'Local host + remote guest + backup safety track.',
+    tracks: [
+      { label: 'Host (local)', pan: -0.2 },
+      { label: 'Guest (remote)', pan: 0.2 },
+      { label: 'Backup / Safety', volume: 0.9, muted: true },
+    ],
+    normalize: true,
+  },
+  {
+    id: 'news-bulletin', name: 'News Bulletin', category: 'narration',
+    description: 'Anchor read with stinger and bed.',
+    tracks: [
+      { label: 'Anchor' },
+      { label: 'Stinger', volume: 0.8 },
+      { label: 'News Bed', volume: 0.3 },
+    ],
+    normalize: true,
+  },
+  {
+    id: 'ivr-prompts', name: 'IVR / Phone Prompts', category: 'commercial',
+    description: 'Phone-system greeting and menu prompts.',
+    tracks: [
+      { label: 'Greeting' },
+      { label: 'Menu Options' },
+      { label: 'Hold Music', volume: 0.4 },
+    ],
+    normalize: true,
+  },
+  {
+    id: 'product-demo-vo', name: 'Product Demo VO', category: 'commercial',
+    description: 'Narration synced to a product walkthrough.',
+    tracks: [
+      { label: 'Narration' },
+      { label: 'UI Sounds', volume: 0.5 },
+      { label: 'Music', volume: 0.3 },
+    ],
+    normalize: true,
+  },
+  {
+    id: 'character-vo', name: 'Character Voices', category: 'creative',
+    description: 'Separate lanes per character for animation/games.',
+    tracks: [
+      { label: 'Hero', pan: -0.2 },
+      { label: 'Villain', pan: 0.2 },
+      { label: 'Sidekick' },
+      { label: 'Crowd / Extras', volume: 0.6 },
+    ],
+    normalize: true,
+  },
+  {
+    id: 'asmr-roleplay', name: 'ASMR Roleplay', category: 'creative',
+    description: 'Close-mic voice with layered binaural triggers.',
+    tracks: [
+      { label: 'Voice (close)' },
+      { label: 'Triggers L', pan: -0.7 },
+      { label: 'Triggers R', pan: 0.7 },
+      { label: 'Ambience', volume: 0.3 },
+    ],
+    normalize: false,
+  },
+  {
+    id: 'sleep-story', name: 'Sleep Story', category: 'narration',
+    description: 'Soft narrator over warm ambient layers.',
+    tracks: [
+      { label: 'Narrator (soft)' },
+      { label: 'Warm Pad', volume: 0.35 },
+      { label: 'Rain / Nature', volume: 0.3 },
+    ],
+    normalize: false,
+  },
 ];
 
 export function voiceTemplatesByCategory(cat: VoiceTemplateCategory | 'all'): VoiceTemplate[] {

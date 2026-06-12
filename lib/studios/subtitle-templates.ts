@@ -174,6 +174,77 @@ export const SUBTITLE_TEMPLATES: SubtitleTemplate[] = [
       { start: 3, end: 7, text: 'Welcome back to the channel.' },
     ],
   },
+  {
+    id: 'netflix-style', name: 'Streaming (Netflix)', category: 'video',
+    description: 'Clean streaming-style subtitles.',
+    styleId: 'netflix',
+    cues: [
+      { start: 0, end: 3.5, text: "We need to talk about what happened." },
+      { start: 3.5, end: 7, text: "I know. I've been thinking about it too." },
+    ],
+  },
+  {
+    id: 'youtube-auto', name: 'YouTube Standard', category: 'video',
+    description: 'Familiar boxed YouTube captions.',
+    styleId: 'youtube',
+    cues: [
+      { start: 0, end: 3, text: "what's up everyone, welcome back" },
+      { start: 3, end: 6, text: "today we're trying something new" },
+    ],
+  },
+  {
+    id: 'reels-soft', name: 'Reels Soft', category: 'social',
+    description: 'Cleaner bottom captions for Reels.',
+    styleId: 'reels-soft',
+    cues: [
+      { start: 0, end: 2.5, text: 'the one thing I wish I knew' },
+      { start: 2.5, end: 5, text: 'before I started' },
+    ],
+  },
+  {
+    id: 'magazine', name: 'Editorial Caption', category: 'social',
+    description: 'Stylish magazine-style italic captions.',
+    styleId: 'magazine',
+    cues: [
+      { start: 0, end: 3.5, text: 'a closer look at the\nthings that matter' },
+    ],
+  },
+  {
+    id: 'comic', name: 'Comic Book', category: 'social',
+    description: 'Bold comic-style burst captions.',
+    styleId: 'comic',
+    cues: [
+      { start: 0, end: 1.5, text: 'BOOM!' },
+      { start: 1.5, end: 3.5, text: 'plot twist…' },
+    ],
+  },
+  {
+    id: 'sports', name: 'Sports Banner', category: 'video',
+    description: 'High-energy sports lower-third.',
+    styleId: 'broadcast-sports',
+    cues: [
+      { start: 0, end: 3, text: 'WHAT A GOAL!' },
+      { start: 3, end: 6, text: 'right in the top corner' },
+    ],
+  },
+  {
+    id: 'gaming-neon', name: 'Gaming Neon', category: 'social',
+    description: 'Bright magenta neon gaming captions.',
+    styleId: 'gaming-neon',
+    cues: [
+      { start: 0, end: 2, text: 'CLUTCH' },
+      { start: 2, end: 4, text: 'are you KIDDING me' },
+    ],
+  },
+  {
+    id: 'edu-clean', name: 'Lecture / Course', category: 'education',
+    description: 'Readable lecture-style captions.',
+    styleId: 'edu-clean',
+    cues: [
+      { start: 0, end: 4, text: 'In this lesson we will cover three ideas.' },
+      { start: 4, end: 8, text: 'First, the core concept and why it matters.' },
+    ],
+  },
 ];
 
 export function subtitleTemplatesByCategory(cat: SubtitleTemplateCategory | 'all'): SubtitleTemplate[] {

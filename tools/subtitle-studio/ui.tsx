@@ -5,7 +5,7 @@ import {
   Loader2, Download, Upload, Play, Pause, Plus, Trash2, Copy, Scissors,
   Wand2, ChevronLeft, ChevronRight, Type as TypeIcon, FileText, Save,
   Undo2, Redo2, ZoomIn, ZoomOut, Magnet, X, AlertTriangle, SkipBack, SkipForward,
-  Clipboard, RotateCcw,
+  Clipboard, RotateCcw, LayoutTemplate,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -54,6 +54,9 @@ import {
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
+  TemplateGallery, type GalleryItem,
+  SUBTITLE_TEMPLATES, SUBTITLE_TEMPLATE_CATEGORIES,
+  materializeSubtitleTemplate, renderSubtitleThumb,
 } from '@/lib/studios';
 
 interface Cue {
@@ -280,6 +283,8 @@ export default function SubtitleStudioPro() {
   const [exportDialog, setExportDialog] = React.useState(false);
   const [importDialog, setImportDialog] = React.useState(false);
   const [openDialog, setOpenDialog] = React.useState(false);
+  const [templatesOpen, setTemplatesOpen] = React.useState(false);
+  const [templateCat, setTemplateCat] = React.useState<string>('all');
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [transcribeSize, setTranscribeSize] = React.useState<'tiny' | 'base' | 'small'>('tiny');
   const [exportFmt, setExportFmt] = React.useState<'srt' | 'vtt' | 'ass' | 'json'>('srt');
@@ -805,6 +810,25 @@ export default function SubtitleStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const applySubtitleTemplate = (id: string) => {
+    const tpl = SUBTITLE_TEMPLATES.find(t => t.id === id);
+    if (!tpl) return;
+    const next = materializeSubtitleTemplate(tpl) as unknown as DocState;
+    setDoc(next);
+    stack.current.reset(cloneDoc(next), 'template');
+    setTemplatesOpen(false);
+    pushToast(`Started from "${tpl.name}" — import media to preview`);
+  };
+
+  const subtitleTemplateItems = React.useMemo<GalleryItem[]>(() => SUBTITLE_TEMPLATES.map(t => ({
+    id: t.id,
+    name: t.name,
+    category: t.category,
+    description: t.description,
+    thumb: renderSubtitleThumb(t),
+    meta: [`${t.cues.length} cues`],
+  })), []);
+
   const frameStep = 1 / Math.max(1, doc.fps);
 
   useRegisterShortcuts([
@@ -907,6 +931,7 @@ export default function SubtitleStudioPro() {
             </label>
             <StudioButton variant="ghost" size="sm" onClick={pasteFromClipboard} title="Paste SRT/VTT text from clipboard (Ctrl+V)"><Clipboard className="h-3.5 w-3.5" /> Paste</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => setTranscribeDialog(true)} disabled={!mediaFile}><Wand2 className="h-3.5 w-3.5" /> Auto-transcribe</StudioButton>
+            <StudioButton variant="ghost" size="sm" onClick={() => { setTemplateCat('all'); setTemplatesOpen(true); }} title="Templates"><LayoutTemplate className="h-3.5 w-3.5" /> Templates</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
             {/* On mobile Export is pinned in the always-visible right cluster instead. */}
@@ -1031,6 +1056,7 @@ export default function SubtitleStudioPro() {
                     actions={[
                       { label: 'Import video or audio', description: 'MP4, WebM, MP3, WAV, M4A...', icon: <Upload className="h-4 w-4" />, onClick: () => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'video/*,audio/*'; i.onchange = () => i.files && importMedia(i.files); i.click(); }, primary: true },
                       { label: 'Import subtitles', description: 'SRT / VTT / ASS — keep existing timing', icon: <FileText className="h-4 w-4" />, onClick: () => { const i = document.createElement('input'); i.type = 'file'; i.accept = '.srt,.vtt,.ass,.txt'; i.onchange = () => i.files?.[0] && importSubsFile(i.files[0]); i.click(); } },
+                      { label: 'Start from a template', description: `${SUBTITLE_TEMPLATES.length} caption styles — TikTok, lyrics, interview…`, icon: <LayoutTemplate className="h-4 w-4" />, onClick: () => { setTemplateCat('all'); setTemplatesOpen(true); } },
                       { label: 'Paste subtitles', description: 'Ctrl+V an SRT/VTT you copied anywhere', icon: <Clipboard className="h-4 w-4" />, onClick: () => { void pasteFromClipboard(); } },
                       { label: 'Open saved project', description: 'Continue subtitling', icon: <FileText className="h-4 w-4" />, onClick: openSaved },
                     ]}
@@ -1261,6 +1287,18 @@ export default function SubtitleStudioPro() {
             </button>
           </div>
         </Dialog>
+      )}
+      {templatesOpen && (
+        <TemplateGallery
+          title="Caption Templates"
+          items={subtitleTemplateItems}
+          categories={SUBTITLE_TEMPLATE_CATEGORIES.map(c => ({ id: c.id, label: c.label }))}
+          activeCategory={templateCat}
+          onCategory={setTemplateCat}
+          onPick={applySubtitleTemplate}
+          onClose={() => setTemplatesOpen(false)}
+          accent="violet"
+        />
       )}
       {openDialog && (
         <Dialog title="Library" onCancel={() => setOpenDialog(false)} onConfirm={() => setOpenDialog(false)} confirmLabel="Close">

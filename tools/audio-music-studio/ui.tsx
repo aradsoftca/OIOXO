@@ -15,6 +15,7 @@ import { useIsPro } from '@/lib/limits/use-is-pro';
 const POLICY_KEY = 'audio-music-studio';
 import * as audio from '@/engines/audio';
 import { GENRES, KEYS, generateSong, renderSong } from '@/engines/music/studio';
+import { KITS, getActiveKit, setActiveKit, kitById, type Kit } from '@/lib/studios/music-kits';
 import {
   StudioShell, StudioTopBar, StudioBody, StudioSidebar, StudioPanel,
   StudioButton, StudioSlider, StudioSelect,
@@ -87,6 +88,7 @@ interface DocState {
   instruments: Instrument[];
   loopChain: boolean;
   masterEffects?: AppliedEffect[];
+  kitId?: string;
 }
 
 const INSTRUMENTS: Instrument[] = [
@@ -129,6 +131,7 @@ const NEW_DOC = (): DocState => {
     activePatternId: p.id,
     instruments: INSTRUMENTS.map(i => ({ ...i })),
     loopChain: true,
+    kitId: 'classic',
   };
 };
 
@@ -152,90 +155,99 @@ const noteToFreq = (semi: number, key: string, octave: number): number => {
   return 440 * Math.pow(2, (midi - 69) / 12);
 };
 
-function scheduleKick(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number) {
+// All four scheduler primitives read their tone from the ACTIVE kit (passed in
+// so the offline render can use a specific kit too), giving BandLab-style
+// variety without sample assets. Defaults reproduce the original "Classic" kit.
+function scheduleKick(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number, kit: Kit = getActiveKit()) {
+  const v = kit.kick;
   const osc = ctx.createOscillator();
   const g = ctx.createGain();
-  osc.frequency.setValueAtTime(150, t);
-  osc.frequency.exponentialRampToValueAtTime(40, t + 0.18);
-  g.gain.setValueAtTime(vol, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+  osc.type = v.wave ?? 'sine';
+  osc.frequency.setValueAtTime(v.startHz ?? 150, t);
+  osc.frequency.exponentialRampToValueAtTime(v.endHz ?? 40, t + (v.decay ?? 0.25) * 0.72);
+  g.gain.setValueAtTime(vol * (v.gain ?? 1), t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + (v.decay ?? 0.25));
   osc.connect(g).connect(dest);
   osc.start(t);
-  osc.stop(t + 0.3);
+  osc.stop(t + (v.decay ?? 0.25) + 0.05);
 }
-function scheduleSnare(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number) {
+function scheduleSnare(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number, kit: Kit = getActiveKit()) {
+  const v = kit.snare;
   const bufLen = Math.floor(ctx.sampleRate * 0.2);
   const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
   const data = buf.getChannelData(0);
-  for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, 2.5);
+  const pow = v.noiseDecayPow ?? 2.5;
+  for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, pow);
   const src = ctx.createBufferSource();
   src.buffer = buf;
   const hp = ctx.createBiquadFilter();
-  hp.type = 'highpass'; hp.frequency.value = 1200;
+  hp.type = 'highpass'; hp.frequency.value = v.noiseHp ?? 1200;
   const g = ctx.createGain();
-  g.gain.value = vol;
+  g.gain.value = vol * (v.gain ?? 1);
   src.connect(hp).connect(g).connect(dest);
   src.start(t);
 
   const osc = ctx.createOscillator();
   const og = ctx.createGain();
-  osc.type = 'triangle';
-  osc.frequency.setValueAtTime(180, t);
-  osc.frequency.exponentialRampToValueAtTime(80, t + 0.1);
+  osc.type = v.wave ?? 'triangle';
+  osc.frequency.setValueAtTime(v.startHz ?? 180, t);
+  osc.frequency.exponentialRampToValueAtTime(v.endHz ?? 80, t + (v.decay ?? 0.12) * 0.83);
   og.gain.setValueAtTime(vol * 0.6, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  og.gain.exponentialRampToValueAtTime(0.001, t + (v.decay ?? 0.12));
   osc.connect(og).connect(dest);
-  osc.start(t); osc.stop(t + 0.15);
+  osc.start(t); osc.stop(t + (v.decay ?? 0.12) + 0.05);
 }
-function scheduleHihat(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number, open = false) {
+function scheduleHihat(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number, open = false, kit: Kit = getActiveKit()) {
+  const v = kit.hihat;
   const bufLen = Math.floor(ctx.sampleRate * (open ? 0.2 : 0.05));
   const buf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
   const data = buf.getChannelData(0);
-  for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, open ? 1.5 : 3);
+  const pow = (v.noiseDecayPow ?? 3) * (open ? 0.5 : 1);
+  for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufLen, pow);
   const src = ctx.createBufferSource();
   src.buffer = buf;
   const hp = ctx.createBiquadFilter();
-  hp.type = 'highpass'; hp.frequency.value = 7000;
+  hp.type = 'highpass'; hp.frequency.value = v.noiseHp ?? 7000;
   const g = ctx.createGain();
-  g.gain.value = vol * 0.6;
+  g.gain.value = vol * 0.6 * (v.gain ?? 1);
   src.connect(hp).connect(g).connect(dest);
   src.start(t);
 }
-function scheduleClap(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number) {
-  for (let k = 0; k < 4; k++) scheduleHihat(ctx, dest, t + k * 0.01, vol * 0.6);
+function scheduleClap(ctx: BaseAudioContext, dest: AudioNode, t: number, vol: number, kit: Kit = getActiveKit()) {
+  for (let k = 0; k < 4; k++) scheduleHihat(ctx, dest, t + k * 0.01, vol * 0.6, false, kit);
 }
 
-function scheduleSynth(ctx: BaseAudioContext, dest: AudioNode, t: number, freq: number, vol: number, kind: 'bass' | 'lead' | 'pad' | 'pluck', dur: number) {
+function scheduleSynth(ctx: BaseAudioContext, dest: AudioNode, t: number, freq: number, vol: number, kind: 'bass' | 'lead' | 'pad' | 'pluck', dur: number, kit: Kit = getActiveKit()) {
+  const v = kit[kind];
   const osc = ctx.createOscillator();
   const filt = ctx.createBiquadFilter();
   const g = ctx.createGain();
-  if (kind === 'bass') {
-    osc.type = 'sawtooth';
-    filt.type = 'lowpass'; filt.frequency.value = 800; filt.Q.value = 6;
+  osc.type = v.wave;
+  filt.type = 'lowpass'; filt.frequency.value = v.cutoff; if (v.q) filt.Q.value = v.q;
+  const shape = v.shape ?? 'sustain';
+  if (shape === 'pad') {
     g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  } else if (kind === 'lead') {
-    osc.type = 'square';
-    filt.type = 'lowpass'; filt.frequency.value = 2400; filt.Q.value = 4;
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  } else if (kind === 'pad') {
-    osc.type = 'sawtooth';
-    filt.type = 'lowpass'; filt.frequency.value = 1600;
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol * 0.6, t + 0.15);
+    g.gain.linearRampToValueAtTime(vol * 0.6, t + (v.attack ?? 0.15));
     g.gain.setTargetAtTime(0.001, t + dur - 0.1, 0.1);
-  } else {
-    osc.type = 'triangle';
-    filt.type = 'lowpass'; filt.frequency.value = 3200;
+  } else if (shape === 'pluck') {
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + Math.min(0.4, dur));
+  } else { // sustain
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + (v.attack ?? 0.01));
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
   }
   osc.frequency.value = freq;
   osc.connect(filt).connect(g).connect(dest);
   osc.start(t); osc.stop(t + dur + 0.1);
+
+  // Optional detuned second oscillator for width (synthwave/trap kits).
+  if (v.detune) {
+    const osc2 = ctx.createOscillator();
+    osc2.type = v.wave; osc2.frequency.value = freq; osc2.detune.value = v.detune;
+    osc2.connect(filt);
+    osc2.start(t); osc2.stop(t + dur + 0.1);
+  }
 }
 
 function scheduleStep(ctx: BaseAudioContext, dest: AudioNode, t: number, inst: Instrument, note: number, key: string, stepDur: number) {
@@ -551,6 +563,37 @@ export default function MusicStudioPro() {
     p.roll = { ...(p.roll ?? {}), [instId]: notes };
     commit('piano roll', next);
   };
+
+  // Keep the module-level active kit in sync with the doc (covers load/undo).
+  React.useEffect(() => { setActiveKit(doc.kitId ?? 'classic'); }, [doc.kitId]);
+
+  // Click-to-preview: play a short, recognizable 1-bar groove in the given kit
+  // so the user can audition kits without committing — BandLab's loop-browser
+  // affordance. Fully on-device; uses a throwaway AudioContext.
+  const previewKit = React.useCallback((id: string) => {
+    const kit = kitById(id);
+    try {
+      const Ctx = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const ctx = new Ctx();
+      const t0 = ctx.currentTime + 0.04;
+      const beat = 0.26; // ~115 BPM sixteenth-ish feel
+      // Four-on-the-floor kick + offbeat hats + a couple of snare backbeats.
+      for (let i = 0; i < 8; i++) {
+        const t = t0 + i * beat;
+        if (i % 2 === 0) scheduleKick(ctx, ctx.destination, t, 1, kit);
+        scheduleHihat(ctx, ctx.destination, t + beat / 2, 0.5, false, kit);
+        if (i === 2 || i === 6) scheduleSnare(ctx, ctx.destination, t, 0.8, kit);
+      }
+      // A short bass riff so synth kits are audible too.
+      const root = noteToFreq(0, doc.key, 2);
+      [0, 3, 5, 3].forEach((semi, i) => {
+        const f = noteToFreq(semi, doc.key, 2); void root;
+        scheduleSynth(ctx, ctx.destination, t0 + i * beat * 2, f, 0.7, 'bass', beat * 1.8, kit);
+      });
+      // Close the context shortly after the preview ends.
+      window.setTimeout(() => { try { ctx.close(); } catch { /* */ } }, 8 * beat * 1000 + 400);
+    } catch { /* preview is best-effort */ }
+  }, [doc.key]);
 
   const togglePlay = () => {
     if (playing) {
@@ -1085,6 +1128,17 @@ export default function MusicStudioPro() {
           <select value={doc.key} onChange={e => commit('key', { ...cloneDoc(doc), key: e.target.value })} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs">
             {KEYS.map(k => <option key={k} value={k}>{k}</option>)}
           </select>
+        </div>
+        <div className="flex items-center gap-1.5" title="Sound kit — re-voices every instrument. Picking one previews it.">
+          <span className="text-zinc-500">Kit</span>
+          <select
+            value={doc.kitId ?? 'classic'}
+            onChange={e => { const id = e.target.value; setActiveKit(id); commit('kit', { ...cloneDoc(doc), kitId: id }); previewKit(id); }}
+            className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs"
+          >
+            {KITS.map(k => <option key={k.id} value={k.id} title={k.blurb}>{k.label}</option>)}
+          </select>
+          <button onClick={() => previewKit(doc.kitId ?? 'classic')} title="Preview kit" className="rounded p-1 text-zinc-400 hover:bg-white/5 hover:text-white"><Play className="h-3 w-3" /></button>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-zinc-500">Swing</span>

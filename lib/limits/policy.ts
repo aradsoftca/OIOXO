@@ -294,7 +294,7 @@ const STUDIO_POLICIES: ToolPolicy[] = [
     levers: [
       { type: 'count-day', free: 2, label: 'Daily exports', response: 'block' },
       { type: 'input-size', free: 30 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
-      { type: 'pages', free: 50, unit: 'pages', label: 'Max pages', response: 'block' },
+      { type: 'pages', free: 200, unit: 'pages', label: 'Max pages', response: 'block' },
       { type: 'ai-minutes-day', free: 5, pro: 240, unit: 'min', label: 'Daily OCR minutes', response: 'block' },
     ],
     watermarkFree: true,

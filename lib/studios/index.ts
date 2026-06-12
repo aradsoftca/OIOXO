@@ -8,6 +8,8 @@ export * from './workers';
 export * from './ai-bgremove';
 export * from './ai-smart';
 export * from './templates';
+export * from './image-templates';
+export * from './template-gallery';
 export * from './i18n';
 export * from './ooxml';
 export * from './formulas';

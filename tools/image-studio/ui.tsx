@@ -8,7 +8,7 @@ import {
   Eye, EyeOff, Lock, Unlock, ChevronUp, ChevronDown, Trash2, Plus,
   Copy, FolderPlus, Download, Save, Upload, Undo2, Redo2,
   FlipHorizontal2, FlipVertical2, RotateCw, Sparkles, Image as ImageIcon,
-  X, Check, AlertTriangle, FileText, Loader2,
+  X, Check, AlertTriangle, FileText, Loader2, LayoutTemplate,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -42,6 +42,10 @@ import {
   EmptyState, pushToast,
   SharedDialog,
   DesktopOnly, MobileOnly,
+  TemplateGallery, type GalleryItem,
+  IMAGE_TEMPLATES, IMAGE_TEMPLATE_CATEGORIES,
+  materializeImageTemplate, renderImageThumb,
+  type ImageTemplate,
 } from '@/lib/studios';
 
 type ToolKind =
@@ -182,6 +186,17 @@ const NEW_DOC = (w: number, h: number, name = 'Untitled'): DocState => ({
 
 let _lid = 0;
 function lid() { return `L${++_lid}_${Math.random().toString(36).slice(2, 6)}`; }
+
+/** Friendly aspect-ratio badge for the template gallery (e.g. "1:1", "9:16"). */
+function aspectBadge(w: number, h: number): string {
+  if (w === h) return '1:1';
+  const r = w / h;
+  if (Math.abs(r - 16 / 9) < 0.05) return '16:9';
+  if (Math.abs(r - 9 / 16) < 0.05) return '9:16';
+  if (Math.abs(r - 4 / 5) < 0.05) return '4:5';
+  if (Math.abs(r - 3 / 1) < 0.2) return '3:1';
+  return r > 1 ? 'wide' : 'tall';
+}
 
 function cloneLayer(l: Layer): Layer {
   // Layer masks live on LayerBase and were SHARED by reference between undo
@@ -679,6 +694,8 @@ export default function ImageStudioPro() {
   const [openDialog, setOpenDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [newDialog, setNewDialog] = React.useState(false);
+  const [templatesOpen, setTemplatesOpen] = React.useState(false);
+  const [templateCat, setTemplateCat] = React.useState<string>('all');
   const [resizeDialog, setResizeDialog] = React.useState(false);
   const [textEditOpen, setTextEditOpen] = React.useState<string | null>(null);
   const [transformActive, setTransformActive] = React.useState(false);
@@ -1202,6 +1219,39 @@ export default function ImageStudioPro() {
       setBusy('');
     }
   };
+
+  const applyImageTemplate = async (id: string) => {
+    const tpl = IMAGE_TEMPLATES.find(t => t.id === id);
+    if (!tpl) return;
+    setBusy('Loading template…');
+    try {
+      // A template is a recipe → SerializedDoc → the same load path as a saved
+      // project. Text/shape layers stay fully editable.
+      const serialized = materializeImageTemplate(tpl) as unknown as SerializedDoc;
+      const restored = await deserializeDoc(serialized);
+      restored.name = tpl.name;
+      setDoc(restored);
+      stack.current.reset(cloneDoc(restored), 'template');
+      force();
+      setTemplatesOpen(false);
+      dismissWelcome();
+      requestAnimationFrame(fitToScreen);
+      toastFor(`Started from "${tpl.name}"`);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  // Render gallery thumbnails once (each renders the recipe to a small canvas).
+  const templateItems = React.useMemo<GalleryItem[]>(() => IMAGE_TEMPLATES.map(t => ({
+    id: t.id,
+    name: t.name,
+    category: t.category,
+    description: t.description,
+    thumb: renderImageThumb(t),
+    badge: aspectBadge(t.width, t.height),
+    meta: [`${t.layers.length} layers`, `${t.width}×${t.height}`],
+  })), []);
 
   const runFilter = (kind: 'blur' | 'sharpen' | 'noise' | 'pixelate' | 'posterize' | 'emboss' | 'edge', param: number) => {
     const target = activeLayer;
@@ -2170,6 +2220,7 @@ export default function ImageStudioPro() {
         left={
           <>
             <StudioButton variant="ghost" size="sm" onClick={() => setNewDialog(true)} title="New (Ctrl+N)"><FileText className="h-3.5 w-3.5" /> New</StudioButton>
+            <StudioButton variant="ghost" size="sm" onClick={() => { setTemplateCat('all'); setTemplatesOpen(true); }} title="Templates"><LayoutTemplate className="h-3.5 w-3.5" /> Templates</StudioButton>
             <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white">
               <Upload className="h-3.5 w-3.5" /> Open
               <input type="file" accept="image/*" multiple className="hidden" onChange={e => e.target.files && openImageFiles(e.target.files)} />
@@ -2286,7 +2337,8 @@ export default function ImageStudioPro() {
                 title="Start your image project"
                 description="Open a file, drop an image anywhere, or pick a starting size. Layers, AI tools, and ~14 grades are one click away."
                 actions={[
-                  { label: 'Open or drop image', description: 'PNG, JPG, WebP, HEIC...', icon: <Upload className="h-4 w-4" />, onClick: () => { dismissWelcome(); document.querySelector<HTMLInputElement>('input[type=file]')?.click(); }, primary: true },
+                  { label: 'Start from a template', description: `${IMAGE_TEMPLATES.length} ready-made designs in ${IMAGE_TEMPLATE_CATEGORIES.length - 1} categories`, icon: <LayoutTemplate className="h-4 w-4" />, onClick: () => { setTemplateCat('all'); setTemplatesOpen(true); }, primary: true },
+                  { label: 'Open or drop image', description: 'PNG, JPG, WebP, HEIC...', icon: <Upload className="h-4 w-4" />, onClick: () => { dismissWelcome(); document.querySelector<HTMLInputElement>('input[type=file]')?.click(); } },
                   { label: 'New document', description: 'Pick a preset size to start blank', icon: <FileText className="h-4 w-4" />, onClick: () => { dismissWelcome(); setNewDialog(true); } },
                   { label: 'Open from Library', description: 'Continue a saved project', icon: <LayersIcon className="h-4 w-4" />, onClick: () => { dismissWelcome(); void openSaved(); } },
                   { label: 'Start painting now', description: 'Skip and use the current blank canvas', icon: <Brush className="h-4 w-4" />, onClick: dismissWelcome },
@@ -2580,6 +2632,17 @@ export default function ImageStudioPro() {
 
       {newDialog && (
         <NewDocDialog onCancel={() => setNewDialog(false)} onCreate={(w, h, n, bg) => { startNew(w, h, n, bg); setNewDialog(false); }} />
+      )}
+      {templatesOpen && (
+        <TemplateGallery
+          title="Image Templates"
+          items={templateItems}
+          categories={IMAGE_TEMPLATE_CATEGORIES.map(c => ({ id: c.id, label: c.label }))}
+          activeCategory={templateCat}
+          onCategory={setTemplateCat}
+          onPick={(id) => void applyImageTemplate(id)}
+          onClose={() => setTemplatesOpen(false)}
+        />
       )}
       {exportDialog && (
         <ExportDialog fmt={exportFmt} setFmt={setExportFmt} q={exportQ} setQ={setExportQ} onCancel={() => setExportDialog(false)} onExport={exportImage} onPsd={() => void exportPsd()} layerCount={doc.layers.length} />

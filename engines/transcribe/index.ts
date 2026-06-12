@@ -91,19 +91,39 @@ async function getPipeline(size: TranscribeSize, onProgress?: (p: TranscribeProg
   // a best-effort no-op there.
   configureOnnxRuntime(lib);
 
-  const pipe = await lib.pipeline('automatic-speech-recognition', MODEL_ID[size], {
-    quantized: true,
-    progress_callback: (data: { status: string; progress?: number; loaded?: number; total?: number; file?: string }) => {
-      if (!onProgress) return;
-      const ratio = data.progress != null ? data.progress / 100
-        : (data.loaded && data.total ? data.loaded / data.total : 0);
-      const phase = data.status === 'progress' || data.status === 'download' ? 'Loading model'
-        : data.status === 'ready' ? 'Ready'
-        : data.status === 'initiate' ? 'Loading model'
-        : data.status;
-      onProgress({ phase, ratio: Math.max(0, Math.min(1, ratio)) });
-    },
-  }) as unknown as Pipeline;
+  const progress_callback = (data: { status: string; progress?: number; loaded?: number; total?: number; file?: string }) => {
+    if (!onProgress) return;
+    const ratio = data.progress != null ? data.progress / 100
+      : (data.loaded && data.total ? data.loaded / data.total : 0);
+    const phase = data.status === 'progress' || data.status === 'download' ? 'Loading model'
+      : data.status === 'ready' ? 'Ready'
+      : data.status === 'initiate' ? 'Loading model'
+      : data.status;
+    onProgress({ phase, ratio: Math.max(0, Math.min(1, ratio)) });
+  };
+
+  // Prefer the WebGPU execution provider (v3 only) — it's an order of magnitude
+  // faster than WASM for Whisper and, crucially, completes where the WASM path
+  // can stall on long single-context inference. fp16 weights match WebGPU; we
+  // fall back to WASM/q8 if WebGPU isn't present or the GPU session fails to
+  // build (some drivers/integrated GPUs reject the shader). v2 has no `device`
+  // option, so only pass it when v3 is loaded (detected via AutoModel presence).
+  const isV3 = typeof lib.AutoModelForVision2Seq !== 'undefined' || typeof lib.AutoModel?.from_pretrained === 'function';
+  const canWebGpu = isV3 && typeof navigator !== 'undefined' && !!(navigator as { gpu?: unknown }).gpu;
+
+  let pipe: Pipeline | null = null;
+  if (canWebGpu) {
+    try {
+      pipe = await lib.pipeline('automatic-speech-recognition', MODEL_ID[size], {
+        device: 'webgpu', dtype: 'fp16', progress_callback,
+      }) as unknown as Pipeline;
+    } catch { pipe = null; /* fall through to WASM */ }
+  }
+  if (!pipe) {
+    pipe = await lib.pipeline('automatic-speech-recognition', MODEL_ID[size], {
+      quantized: true, progress_callback,
+    }) as unknown as Pipeline;
+  }
   cached = { size, pipeline: pipe };
   return pipe;
 }

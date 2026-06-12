@@ -830,6 +830,51 @@ export default function VoiceStudioPro() {
     toastFor(`Removed “${w.text}”`);
   };
 
+  // Filler words to strip. Matched case-insensitively against the word text with
+  // surrounding punctuation removed ("um," → "um"). Descript's signature feature.
+  const FILLER_WORDS = new Set(['um', 'uh', 'umm', 'uhh', 'er', 'erm', 'ah', 'eh', 'hmm', 'mm', 'like', 'youknow', 'imean', 'sorta', 'kinda']);
+  const isFiller = (text: string) => {
+    const norm = text.toLowerCase().replace(/[^a-z]/g, '');
+    return FILLER_WORDS.has(norm);
+  };
+
+  // Remove every filler word ("um", "uh", …) from a clip in one pass, using the
+  // transcript word timings. Keeps all non-filler audio by splitting the clip
+  // into segments that skip each filler's [start,end] — same mechanism as
+  // delete-word / remove-silences, batched.
+  const removeFillerWords = (id: string) => {
+    const c = doc.clips.find(x => x.id === id);
+    const ws = words[id];
+    if (!c || !ws || !ws.length) { toastFor('Transcribe the clip first'); return; }
+    const fillers = ws.filter(w => isFiller(w.text)).sort((a, b) => a.start - b.start);
+    if (!fillers.length) { toastFor('No filler words found'); return; }
+    const speed = c.speed;
+    const dur = c.trimEnd - c.trimStart;
+    // Build keep-segments = the gaps BETWEEN filler ranges (clip-local seconds).
+    const keep: { srcStart: number; srcEnd: number }[] = [];
+    let cursor = 0; // clip-local seconds
+    let removedSec = 0;
+    for (const f of fillers) {
+      const s = Math.max(cursor, f.start), e = Math.max(s, f.end);
+      if (s - cursor > 0.02) keep.push({ srcStart: c.trimStart + cursor * speed, srcEnd: c.trimStart + s * speed });
+      removedSec += (e - s);
+      cursor = e;
+    }
+    if (dur - cursor * speed > 0.02) keep.push({ srcStart: c.trimStart + cursor * speed, srcEnd: c.trimEnd });
+    const next = cloneDoc(doc);
+    next.clips = next.clips.filter(x => x.id !== id);
+    let curStart = c.start;
+    for (const seg of keep) {
+      const len = (seg.srcEnd - seg.srcStart) / speed;
+      next.clips.push({ ...c, id: nid(), start: curStart, trimStart: seg.srcStart, trimEnd: seg.srcEnd });
+      curStart += len;
+    }
+    next.selectedId = null;
+    commit('remove fillers', next);
+    setWords(state => ({ ...state, [id]: ws.filter(w => !isFiller(w.text)) }));
+    toastFor(`Removed ${fillers.length} filler word${fillers.length === 1 ? '' : 's'} (${removedSec.toFixed(1)}s)`);
+  };
+
   const downloadSrt = async () => {
     const all = Object.values(transcripts).flat().sort((a, b) => a.start - b.start);
     if (!all.length) { toastFor('Transcribe a clip first'); return; }
@@ -1145,6 +1190,7 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => void transcribeWords(selectedClip.id)}><FileText className="h-3 w-3" /> Transcribe (words)</StudioButton>
                   {(words[selectedClip.id]?.length ?? 0) > 0 && (
                     <>
+                      <StudioButton size="sm" variant="soft" onClick={() => removeFillerWords(selectedClip.id)} title="Remove um, uh, er and other filler words in one pass"><Sparkles className="h-3 w-3" /> Remove filler words</StudioButton>
                       <div className="text-[10px] text-zinc-500">Click a word to jump the playhead there; the word under the playhead highlights as it plays. Use the × to delete a word (and its audio).</div>
                       <div className="flex max-h-48 flex-wrap gap-1 overflow-y-auto">
                         {words[selectedClip.id].map((w, i) => {

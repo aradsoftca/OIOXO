@@ -143,6 +143,34 @@ interface MediaItem {
   height: number;
   thumb?: string;
   url: string;
+  peaks?: number[]; // normalized 0..1 amplitude peaks for waveform render (audio/video)
+}
+
+// Decode an audio/video file on-device and downsample to a compact peak array
+// (~600 buckets) for drawing a clip waveform. Best-effort: returns [] if the
+// browser can't decode (e.g. some video containers) so the UI just shows no
+// waveform rather than throwing.
+async function extractPeaks(file: File, buckets = 600): Promise<number[]> {
+  try {
+    const AC: typeof AudioContext = (window.AudioContext || (window as any).webkitAudioContext);
+    if (!AC) return [];
+    const ctx = new AC();
+    const buf = await file.arrayBuffer();
+    const audio = await ctx.decodeAudioData(buf.slice(0));
+    ctx.close();
+    const ch = audio.getChannelData(0);
+    const block = Math.max(1, Math.floor(ch.length / buckets));
+    const peaks: number[] = [];
+    let max = 0.0001;
+    for (let i = 0; i < buckets; i++) {
+      let peak = 0;
+      const s = i * block, e = Math.min(ch.length, s + block);
+      for (let j = s; j < e; j++) { const v = Math.abs(ch[j]); if (v > peak) peak = v; }
+      peaks.push(peak);
+      if (peak > max) max = peak;
+    }
+    return peaks.map(p => p / max); // normalize to 0..1
+  } catch { return []; }
 }
 
 interface DocState {
@@ -450,10 +478,15 @@ export default function VideoStudioPro() {
           width = img.naturalWidth; height = img.naturalHeight; duration = 5;
         }
         const thumb = kind === 'video' ? await makeThumb(f) : kind === 'image' ? url : undefined;
+        // Waveform peaks for audio clips (and video, which usually has a
+        // decodable audio track) so the timeline shows a real wave instead of a
+        // featureless bar — the precision tax the audit flagged. Best-effort.
+        const peaks = kind === 'audio' || kind === 'video' ? await extractPeaks(f) : undefined;
         next.push({
           id: mediaId,
           file: f, name: f.name, kind,
           duration, width, height, thumb, url,
+          peaks: peaks && peaks.length ? peaks : undefined,
         });
         adopted = true;
         } finally {
@@ -2144,10 +2177,39 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
                     onPointerDown={(e) => onPointerDownClip(e, c, 'trim-l')}
                     className="h-full w-1.5 cursor-ew-resize bg-white/30 hover:bg-cyan-400"
                   />
-                  <div className="flex-1 overflow-hidden px-1.5 text-[10px] font-medium text-white truncate">
+                  <div className="relative flex-1 overflow-hidden px-1.5 text-[10px] font-medium text-white truncate">
                     {item?.thumb && c.kind === 'video' && (
                       <img src={item.thumb} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" />
                     )}
+                    {/* Waveform: peaks for the trimmed source span, drawn as a
+                        mirrored amplitude band so audio clips read like audio. */}
+                    {c.kind === 'audio' && item?.peaks && item.peaks.length > 1 && (() => {
+                      const ac = c as AudioClip;
+                      const total = Math.max(0.001, item.duration);
+                      const p0 = Math.max(0, Math.min(1, ac.srcStart / total));
+                      const p1 = Math.max(p0, Math.min(1, ac.srcEnd / total));
+                      const n = item.peaks.length;
+                      const a = Math.floor(p0 * n), b = Math.max(a + 1, Math.floor(p1 * n));
+                      const span = item.peaks.slice(a, b);
+                      const N = Math.min(span.length, Math.max(8, Math.floor(w)));
+                      const step = span.length / N;
+                      const pts: string[] = [];
+                      for (let i = 0; i < N; i++) {
+                        const v = span[Math.floor(i * step)] ?? 0;
+                        const x = (i / (N - 1)) * 100;
+                        pts.push(`${x.toFixed(2)},${(50 - v * 46).toFixed(2)}`);
+                      }
+                      for (let i = N - 1; i >= 0; i--) {
+                        const v = span[Math.floor(i * step)] ?? 0;
+                        const x = (i / (N - 1)) * 100;
+                        pts.push(`${x.toFixed(2)},${(50 + v * 46).toFixed(2)}`);
+                      }
+                      return (
+                        <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                          <polygon points={pts.join(' ')} fill="rgba(255,255,255,.45)" />
+                        </svg>
+                      );
+                    })()}
                     <span className="relative">
                       {c.kind === 'text' ? (c as TextClip).text.slice(0, 40) : item?.name ?? c.kind}
                     </span>

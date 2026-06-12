@@ -9,6 +9,7 @@ export * from './ai-bgremove';
 export * from './ai-smart';
 export * from './templates';
 export * from './image-templates';
+export * from './office-templates';
 export * from './template-gallery';
 export * from './i18n';
 export * from './ooxml';

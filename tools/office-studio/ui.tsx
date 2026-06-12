@@ -7,7 +7,7 @@ import {
   Type as TypeIcon, Hash, Percent, DollarSign, Calendar, Palette,
   ArrowDownAZ, Filter, ChartBar, Sigma, Sparkles, AlertTriangle, Wand2,
   PieChart, BarChart3, LineChart as LineIcon, Table2, MessageSquare,
-  TrendingUp, Tag, Lock as LockIcon, ShieldCheck,
+  TrendingUp, Tag, Lock as LockIcon, ShieldCheck, LayoutTemplate,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -34,6 +34,9 @@ import {
   NamedRangesModel, DataValidationModel, type NamedRange, type DataValidation, type DataValidationRule,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   pushToast, SharedDialog, EmptyState,
+  TemplateGallery, type GalleryItem,
+  OFFICE_TEMPLATES, OFFICE_TEMPLATE_CATEGORIES,
+  materializeOfficeTemplate, renderOfficeThumb,
   CollabSession, makeHttpSignal, type CollabPeer,
 } from '@/lib/studios';
 
@@ -539,6 +542,8 @@ export default function OfficeStudioPro() {
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [openDialog, setOpenDialog] = React.useState(false);
+  const [templatesOpen, setTemplatesOpen] = React.useState(false);
+  const [templateCat, setTemplateCat] = React.useState<string>('all');
   const [exportDialog, setExportDialog] = React.useState(false);
   const [exportFmt, setExportFmt] = React.useState<'csv' | 'tsv' | 'json'>('csv');
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
@@ -1094,6 +1099,28 @@ export default function OfficeStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const applyOfficeTemplate = (id: string) => {
+    const tpl = OFFICE_TEMPLATES.find(t => t.id === id);
+    if (!tpl) return;
+    // A template is a pre-filled Sheet → DocState, the same shape loadProject
+    // returns, so this reuses the open path. Formulas stay live.
+    const next = materializeOfficeTemplate(tpl, doc.locale, doc.currency) as unknown as DocState;
+    setDoc(next);
+    stack.current.reset(cloneDoc(next), 'template');
+    setTemplatesOpen(false);
+    dismissSheetsWelcome();
+    toastFor(`Started from "${tpl.name}"`);
+  };
+
+  const officeTemplateItems = React.useMemo<GalleryItem[]>(() => OFFICE_TEMPLATES.map(t => ({
+    id: t.id,
+    name: t.name,
+    category: t.category,
+    description: t.description,
+    thumb: renderOfficeThumb(t),
+    meta: [`${t.cols}×${t.rows}`],
+  })), []);
+
   useRegisterShortcuts([
     {
       label: 'File',
@@ -1473,6 +1500,7 @@ export default function OfficeStudioPro() {
               }} />
             </label>
             <StudioButton variant="soft" size="sm" onClick={() => void exportXlsxFile()} title="Save as Excel"><Download className="h-3.5 w-3.5" /> .xlsx</StudioButton>
+            <StudioButton variant="ghost" size="sm" onClick={() => { setTemplateCat('all'); setTemplatesOpen(true); }} title="Templates"><LayoutTemplate className="h-3.5 w-3.5" /> Templates</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
             {/* On mobile Export is pinned in the always-visible right cluster instead. */}
@@ -1576,7 +1604,8 @@ export default function OfficeStudioPro() {
                 title="Start your spreadsheet"
                 description="Open an Excel file, paste data, or just type into the grid. 140 formulas, pivot tables and 6 chart types are ready when you are."
                 actions={[
-                  { label: 'Open .xlsx or CSV', description: 'Round-trips Excel files with formulas', icon: <Upload className="h-4 w-4" />, onClick: () => { dismissSheetsWelcome(); document.querySelector<HTMLInputElement>('input[type=file]')?.click(); }, primary: true },
+                  { label: 'Start from a template', description: `${OFFICE_TEMPLATES.length} ready-made sheets — invoice, budget, planner, tracker…`, icon: <LayoutTemplate className="h-4 w-4" />, onClick: () => { setTemplateCat('all'); setTemplatesOpen(true); }, primary: true },
+                  { label: 'Open .xlsx or CSV', description: 'Round-trips Excel files with formulas', icon: <Upload className="h-4 w-4" />, onClick: () => { dismissSheetsWelcome(); document.querySelector<HTMLInputElement>('input[type=file]')?.click(); } },
                   { label: 'Open from Library', description: 'Continue a saved workbook', icon: <FileText className="h-4 w-4" />, onClick: () => { dismissSheetsWelcome(); void openSaved(); } },
                   { label: 'Start blank', description: 'Just give me the grid', icon: <Hash className="h-4 w-4" />, onClick: dismissSheetsWelcome },
                 ]}
@@ -1765,6 +1794,18 @@ export default function OfficeStudioPro() {
             </div>
           </div>
         </Dialog>
+      )}
+      {templatesOpen && (
+        <TemplateGallery
+          title="Spreadsheet Templates"
+          items={officeTemplateItems}
+          categories={OFFICE_TEMPLATE_CATEGORIES.map(c => ({ id: c.id, label: c.label }))}
+          activeCategory={templateCat}
+          onCategory={setTemplateCat}
+          onPick={applyOfficeTemplate}
+          onClose={() => setTemplatesOpen(false)}
+          accent="emerald"
+        />
       )}
       {openDialog && (
         <Dialog title="Library" onCancel={() => setOpenDialog(false)} onConfirm={() => setOpenDialog(false)} confirmLabel="Close">

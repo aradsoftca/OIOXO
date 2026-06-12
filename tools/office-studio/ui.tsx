@@ -604,9 +604,38 @@ export default function OfficeStudioPro() {
     session.announce();
     collabRef.current = session;
     setCollabRoom(room);
-    toastFor(`Sharing — send the room code: ${room}`);
   };
-  const stopCollab = () => { collabRef.current?.close(); collabRef.current = null; setCollabRoom(null); setCollabPeers([]); };
+
+  // Share = start collab + put the room in the URL + copy the share-link, so a
+  // collaborator just opens the link (no "type a secret word both sides agree
+  // on" dance). Sheets-grade entry: one click, send the link.
+  const shareCollab = async () => {
+    const room = Math.random().toString(36).slice(2, 8) + Math.random().toString(36).slice(2, 6);
+    startCollab(room);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('collab', room);
+      window.history.replaceState(null, '', url.toString());
+      await navigator.clipboard.writeText(url.toString());
+      toastFor('Share link copied — anyone who opens it joins live');
+    } catch {
+      toastFor(`Sharing live — room ${room}`);
+    }
+  };
+
+  const stopCollab = () => {
+    collabRef.current?.close(); collabRef.current = null; setCollabRoom(null); setCollabPeers([]);
+    try { const url = new URL(window.location.href); url.searchParams.delete('collab'); window.history.replaceState(null, '', url.toString()); } catch { /* */ }
+  };
+
+  // Auto-join when opened via a share link (?collab=<room>).
+  React.useEffect(() => {
+    try {
+      const room = new URLSearchParams(window.location.search).get('collab');
+      if (room && /^[a-z0-9]{4,32}$/i.test(room) && !collabRef.current) startCollab(room);
+    } catch { /* */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   React.useEffect(() => () => { collabRef.current?.close(); }, []);
 
   // Autofill ("fill handle") drag state + post-fill options chip.
@@ -614,6 +643,10 @@ export default function OfficeStudioPro() {
   const [fillChip, setFillChip] = React.useState<{ r0: number; c0: number; r1: number; c1: number; srcR0: number; srcC0: number; srcR1: number; srcC1: number; mode: 'series' | 'copy' | 'format' } | null>(null);
 
   const sel = doc.selection;
+  // Broadcast our current cell selection so collaborators see our cursor.
+  React.useEffect(() => {
+    if (collabRef.current) collabRef.current.updateCursor(sel.r, sel.c);
+  }, [sel.r, sel.c, collabRoom]);
   const selCell = sheet.cells[cellKey(sel.r, sel.c)];
   // Sync the formula bar with the selected cell. Includes `selCell?.raw` in
   // the dep list so typing into a cell updates the formula bar; previously
@@ -1514,16 +1547,22 @@ export default function OfficeStudioPro() {
           <>
             {/* Real cross-device collaboration over the same-origin relay. */}
             {collabRoom ? (
-              <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500/15 px-2 text-xs font-medium text-emerald-200" title={`Live — room ${collabRoom}`}>
+              <span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500/15 px-2 text-xs font-medium text-emerald-200" title="Live — link copied; collaborators who open it join automatically">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                {/* avatar stack of present collaborators */}
+                {collabPeers.length > 1 && (
+                  <span className="flex -space-x-1">
+                    {collabPeers.slice(0, 4).map(p => (
+                      <span key={p.id} title={p.name} className="inline-block h-4 w-4 rounded-full border border-[#0c0d10] text-[8px] font-bold leading-4 text-center text-black" style={{ background: p.color }}>{p.name.replace(/^User-/, '').slice(0, 1).toUpperCase()}</span>
+                    ))}
+                  </span>
+                )}
                 {collabPeers.length > 1 ? `${collabPeers.length} editing` : 'Sharing'}
-                <button onClick={stopCollab} className="ml-1 text-emerald-200/70 hover:text-emerald-100" title="Stop sharing">✕</button>
+                <button onClick={() => { void (async () => { try { await navigator.clipboard.writeText(window.location.href); toastFor('Link copied'); } catch { /* */ } })(); }} className="ml-1 text-emerald-200/70 hover:text-emerald-100" title="Copy share link">⧉</button>
+                <button onClick={stopCollab} className="text-emerald-200/70 hover:text-emerald-100" title="Stop sharing">✕</button>
               </span>
             ) : (
-              <StudioButton variant="ghost" size="sm" title="Collaborate live across devices" onClick={() => {
-                const code = prompt('Enter a room code to share or join (any word both sides agree on):', '');
-                if (code && code.trim()) startCollab(code.trim());
-              }}>Share</StudioButton>
+              <StudioButton variant="ghost" size="sm" title="Share a live link — collaborators who open it edit with you in real time" onClick={() => void shareCollab()}>Share</StudioButton>
             )}
             <button onClick={() => setShowCommentsPanel(s => !s)} className={cn('inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium', showCommentsPanel ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')} title="Comments panel">
               <MessageSquare className="h-3.5 w-3.5" />
@@ -1624,6 +1663,7 @@ export default function OfficeStudioPro() {
             evaluated={evaluated}
             selection={doc.selection}
             editor={editor}
+            peers={collabPeers.filter(p => p.id !== collabRef.current?.self.id && p.cursor)}
             locale={doc.locale}
             currency={doc.currency}
             commentedCells={React.useMemo(() => {
@@ -1905,12 +1945,13 @@ function CellEditorInput({ value, onChange, onCommit, onCancel }: {
   );
 }
 
-function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
+function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
   freeze: FreezePanes | null;
   evaluated: Record<string, any>;
   selection: { r: number; c: number; r2: number; c2: number };
   editor: { r: number; c: number; value: string } | null;
+  peers: CollabPeer[];
   locale: string;
   currency: string;
   commentedCells: Set<string>;
@@ -2020,6 +2061,11 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
   }
   const inGhost = (r: number, c: number) => !!ghost && r >= ghost.r0 && r <= ghost.r1 && c >= ghost.c0 && c <= ghost.c1 && !(r >= r0 && r <= r1 && c >= c0 && c <= c1);
 
+  // Remote collaborators' cursors keyed by "row_col" → peer, so each cell can
+  // paint the other person's selection rectangle + name flag in their colour.
+  const peerAt = new Map<string, CollabPeer>();
+  for (const p of peers) { if (p.cursor) peerAt.set(`${p.cursor.line}_${p.cursor.col}`, p); }
+
   // One row's JSX (header cell + data cells). Extracted so the virtualized list
   // and the frozen-rows band can share it. mode='flow' = absolute-positioned in
   // the scrolling list; mode='frozen' = sticky-pinned near the top so it stays
@@ -2056,6 +2102,7 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
             condFmt = evalCondFormat(v, condRange, all);
           }
           const ghosted = inGhost(r, c);
+          const peer = peerAt.get(`${r}_${c}`);
           const isFillAnchor = r === r1 && c === c1; // bottom-right of selection
           const colFrozen = c < frozenCols;
           const sticky = colFrozen || frozen;
@@ -2073,8 +2120,8 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
                 textAlign: cell?.style?.align ?? (typeof v === 'number' ? 'right' : 'left'),
                 position: colFrozen ? 'sticky' : 'relative',
                 left: colFrozen ? colLeft(c) : undefined,
-                zIndex: colFrozen ? (frozen ? 24 : 15) : undefined,
-                boxShadow: ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
+                zIndex: peer ? 12 : colFrozen ? (frozen ? 24 : 15) : undefined,
+                boxShadow: peer ? `inset 0 0 0 2px ${peer.color}` : ghosted ? 'inset 0 0 0 1px rgba(34,211,238,.4)' : undefined,
               }}
               className={cn(
                 'shrink-0 overflow-hidden border-b border-r border-white/10 px-1.5 text-[12px] leading-[24px] whitespace-nowrap',
@@ -2112,6 +2159,14 @@ function Grid({ sheet, freeze, evaluated, selection, editor, locale, currency, c
                 <span className={cn('relative', cell?.raw?.startsWith('=') && 'text-zinc-200', String(v).startsWith('#') && String(v).length < 7 && 'text-rose-400')}>
                   {condFmt.icon && <span className="mr-1">{condFmt.icon}</span>}
                   {display}
+                </span>
+              )}
+              {peer && (
+                <span
+                  className="pointer-events-none absolute -top-[14px] left-0 z-30 whitespace-nowrap rounded-sm px-1 text-[9px] font-bold leading-[13px] text-black"
+                  style={{ background: peer.color }}
+                >
+                  {peer.name.replace(/^User-/, '')}
                 </span>
               )}
             </div>

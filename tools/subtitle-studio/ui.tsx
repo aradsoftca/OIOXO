@@ -707,6 +707,26 @@ export default function SubtitleStudioPro() {
   const cuesHaveWords = doc.cues.some(c => c.words && c.words.length);
   const selectedCue = doc.cues.find(c => c.id === doc.selectedId) ?? null;
 
+  // Word-level retime: which word (index) of the selected cue is being tuned.
+  // Rivals' auto-captioners give you a flat block; per-word timing is the
+  // precision feature that makes karaoke/highlight land exactly on the beat.
+  const [selWord, setSelWord] = React.useState(0);
+  React.useEffect(() => { setSelWord(0); }, [doc.selectedId]);
+  // Set the selected word's start or end to the current playhead, keeping
+  // neighbors consistent (a word can't start before the previous ends, etc.)
+  // and the edit clamped inside the cue.
+  const setWordEdge = (edge: 'start' | 'end', t: number) => {
+    if (!selectedCue?.words || !selectedCue.words[selWord]) return;
+    updateCue(selectedCue.id, c => {
+      const ws = c.words!; const i = selWord; const w = ws[i];
+      const lo = i > 0 ? ws[i - 1].end : c.start;
+      const hi = i < ws.length - 1 ? ws[i + 1].start : c.end;
+      const clamped = Math.max(lo, Math.min(hi, t));
+      if (edge === 'start') w.start = Math.min(clamped, w.end - 0.02);
+      else w.end = Math.max(clamped, w.start + 0.02);
+    }, 'retime word');
+  };
+
   const exportNow = async () => {
     const fmtHit = checkFormat(POLICY_KEY, exportFmt, isPro);
     if (fmtHit) { policyGate.fire(fmtHit); return; }
@@ -1087,6 +1107,36 @@ export default function SubtitleStudioPro() {
                 rows={3}
                 className="flex-1 rounded border border-white/10 bg-[#0a0b0e] p-2 text-sm text-zinc-100 outline-none focus:border-cyan-400/50 disabled:opacity-40"
               />
+              {/* Per-word timing editor — click a word, then set its start/end
+                  to the playhead. The precision tool auto-captioners lack. */}
+              {selectedCue?.words && selectedCue.words.length > 0 && (
+                <div className="rounded border border-white/10 bg-[#0a0b0e] p-2">
+                  <div className="mb-1.5 flex items-center justify-between text-[10px] text-zinc-400">
+                    <span>Word timing (karaoke)</span>
+                    <span className="tabular-nums">
+                      {selectedCue.words[selWord] ? `${selectedCue.words[selWord].start.toFixed(2)}s → ${selectedCue.words[selWord].end.toFixed(2)}s` : ''}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {selectedCue.words.map((w, i) => {
+                      const lit = time >= w.start && time < w.end;
+                      return (
+                        <button key={i} onClick={() => setSelWord(i)}
+                          className={cn('rounded px-1.5 py-0.5 text-xs tabular-nums transition-colors',
+                            i === selWord ? 'bg-cyan-500 text-zinc-900' : lit ? 'bg-cyan-500/20 text-cyan-200' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}>
+                          {w.text}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1">
+                    <StudioButton size="sm" variant="soft" onClick={() => setWordEdge('start', time)} title="Set this word's start to the playhead">Start = playhead</StudioButton>
+                    <StudioButton size="sm" variant="soft" onClick={() => setWordEdge('end', time)} title="Set this word's end to the playhead">End = playhead</StudioButton>
+                    <StudioButton size="sm" variant="ghost" onClick={() => setWordEdge('start', (selectedCue.words![selWord]?.start ?? 0) - 0.05)} title="Nudge start −50ms">−50</StudioButton>
+                    <StudioButton size="sm" variant="ghost" onClick={() => setWordEdge('start', (selectedCue.words![selWord]?.start ?? 0) + 0.05)} title="Nudge start +50ms">+50</StudioButton>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

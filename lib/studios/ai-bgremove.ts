@@ -2,6 +2,79 @@ type ProgressFn = (phase: string, ratio: number) => void;
 
 let modelPromise: Promise<any> | null = null;
 
+// ---------------------------------------------------------------------------
+// General-object matting (RMBG-1.4 via transformers.js v3).
+//
+// The selfie segmenter below only knows PERSON vs background and emits a hard
+// binary mask — so on a product/object/animal photo it does nothing useful
+// (the audit's "Remove BG left the background"). RMBG-1.4 is a general
+// background-removal model: it returns a SOFT alpha matte (0..1) for ANY
+// subject, with clean anti-aliased / hair edges — the Canva/Photoshop-class
+// behaviour. Loaded from the official HF CDN (no self-hosting). We prefer it
+// and fall back to the selfie segmenter only if it can't load.
+// ---------------------------------------------------------------------------
+let mattePromise: Promise<{ model: any; processor: any } | null> | null = null;
+
+async function loadMatteModel(): Promise<{ model: any; processor: any } | null> {
+  if (mattePromise) return mattePromise;
+  const p = (async () => {
+    try {
+      const lib: any = await import('@huggingface/transformers');
+      lib.env.allowLocalModels = false;
+      lib.env.allowRemoteModels = true;
+      lib.env.useBrowserCache = true;
+      const id = 'briaai/RMBG-1.4';
+      // WebGPU when present (≈10× faster); WASM/quantized fallback otherwise.
+      const canGpu = typeof navigator !== 'undefined' && !!(navigator as { gpu?: unknown }).gpu;
+      let model: any = null;
+      if (canGpu) {
+        try { model = await lib.AutoModel.from_pretrained(id, { device: 'webgpu', dtype: 'fp32' }); }
+        catch { model = null; }
+      }
+      if (!model) model = await lib.AutoModel.from_pretrained(id, { quantized: true });
+      const processor = await lib.AutoProcessor.from_pretrained(id);
+      return { model, processor };
+    } catch {
+      return null; // caller falls back to the selfie segmenter
+    }
+  })();
+  mattePromise = p;
+  p.catch(() => { if (mattePromise === p) mattePromise = null; });
+  return p;
+}
+
+/**
+ * Run RMBG-1.4 and return a soft alpha matte (Uint8, 0..255) at the model's
+ * native resolution, plus its dimensions. null if the model can't load (caller
+ * falls back to the selfie segmenter). The matte is FOREGROUND alpha directly,
+ * so there is no label-inversion to guess at.
+ */
+async function computeMatte(src: HTMLCanvasElement): Promise<{ alpha: Uint8Array; mw: number; mh: number } | null> {
+  const m = await loadMatteModel();
+  if (!m) return null;
+  const lib: any = await import('@huggingface/transformers');
+  const image = await lib.RawImage.fromCanvas(src);
+  const { pixel_values } = await m.processor(image);
+  const { output } = await m.model({ input: pixel_values });
+  const dims: number[] = output.dims;
+  const mh = dims[dims.length - 2], mw = dims[dims.length - 1];
+  const raw: ArrayLike<number> = output.data;
+  // Normalise to 0..255. RMBG emits 0..1 floats; be defensive if a build emits
+  // logits/other ranges by rescaling to the observed min..max.
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < raw.length; i++) { const v = raw[i]; if (v < lo) lo = v; if (v > hi) hi = v; }
+  const span = hi - lo || 1;
+  const alpha = new Uint8Array(mw * mh);
+  for (let i = 0; i < alpha.length; i++) alpha[i] = Math.max(0, Math.min(255, Math.round(((raw[i] - lo) / span) * 255)));
+  return { alpha, mw, mh };
+}
+
+const sampleAlpha = (alpha: Uint8Array, mw: number, mh: number, x: number, y: number, w: number, h: number): number => {
+  const mx = Math.min(mw - 1, Math.floor((x * mw) / w));
+  const my = Math.min(mh - 1, Math.floor((y * mh) / h));
+  return alpha[my * mw + mx];
+};
+
 /**
  * Robustly decide which mask label is the SUBJECT to KEEP. The selfie segmenter
  * normally labels person=non-zero / background=0, but the labels can be flipped
@@ -71,7 +144,31 @@ async function loadSelfieSegmenter() {
 }
 
 export async function removeBackgroundAuto(src: HTMLCanvasElement, onProgress?: ProgressFn): Promise<HTMLCanvasElement> {
+  // Preferred path: RMBG-1.4 general matting — works on ANY subject (object,
+  // animal, product, person) and yields a soft alpha for clean edges.
   onProgress?.('Loading model…', 0.05);
+  const matte = await computeMatte(src);
+  if (matte) {
+    onProgress?.('Compositing…', 0.85);
+    const out = document.createElement('canvas');
+    out.width = src.width; out.height = src.height;
+    const ctx = out.getContext('2d')!;
+    ctx.drawImage(src, 0, 0);
+    const img = ctx.getImageData(0, 0, src.width, src.height);
+    for (let y = 0; y < src.height; y++) {
+      for (let x = 0; x < src.width; x++) {
+        const a = sampleAlpha(matte.alpha, matte.mw, matte.mh, x, y, src.width, src.height);
+        const o = (y * src.width + x) * 4;
+        // Multiply the matte into any existing alpha — soft edges, not a binary cut.
+        img.data[o + 3] = (img.data[o + 3] * a) / 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    onProgress?.('Done', 1);
+    return out;
+  }
+
+  // Fallback: person-only selfie segmenter (binary mask + anti-inversion guard).
   const seg = await loadSelfieSegmenter();
   onProgress?.('Segmenting…', 0.4);
 
@@ -124,6 +221,25 @@ export async function removeBackgroundAuto(src: HTMLCanvasElement, onProgress?: 
  * the person in frame). Returns null if no subject is found (caller centers).
  */
 export async function findSubjectCenter(src: HTMLCanvasElement): Promise<{ cx: number; cy: number; minX: number; minY: number; maxX: number; maxY: number } | null> {
+  // Preferred: RMBG matte — finds ANY subject, not just a person.
+  const matte = await computeMatte(src);
+  if (matte) {
+    const { alpha, mw, mh } = matte;
+    let sx = 0, sy = 0, n = 0, minX = mw, minY = mh, maxX = 0, maxY = 0;
+    for (let y = 0; y < mh; y++) {
+      for (let x = 0; x < mw; x++) {
+        if (alpha[y * mw + x] > 127) { // foreground
+          sx += x; sy += y; n++;
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (n < mw * mh * 0.01) return null;
+    return { cx: sx / n / mw, cy: sy / n / mh, minX: minX / mw, minY: minY / mh, maxX: maxX / mw, maxY: maxY / mh };
+  }
+
+  // Fallback: person-only selfie segmenter.
   const seg = await loadSelfieSegmenter();
   const result = seg.segment(src);
   const mask = result.categoryMask;
@@ -156,6 +272,31 @@ export async function findSubjectCenter(src: HTMLCanvasElement): Promise<{ cx: n
  */
 export async function subjectMask(src: HTMLCanvasElement, onProgress?: ProgressFn): Promise<HTMLCanvasElement | null> {
   onProgress?.('Loading model…', 0.05);
+  // Preferred: RMBG-1.4 matte → soft white-alpha selection for any subject.
+  const matte = await computeMatte(src);
+  if (matte) {
+    onProgress?.('Finding subject…', 0.6);
+    const out = document.createElement('canvas');
+    out.width = src.width; out.height = src.height;
+    const ctx = out.getContext('2d')!;
+    const img = ctx.createImageData(src.width, src.height);
+    let fg = 0;
+    for (let y = 0; y < src.height; y++) {
+      for (let x = 0; x < src.width; x++) {
+        const a = sampleAlpha(matte.alpha, matte.mw, matte.mh, x, y, src.width, src.height);
+        const o = (y * src.width + x) * 4;
+        img.data[o] = img.data[o + 1] = img.data[o + 2] = 255;
+        img.data[o + 3] = a;
+        if (a > 127) fg++;
+      }
+    }
+    if (fg < src.width * src.height * 0.01) return null;
+    ctx.putImageData(img, 0, 0);
+    onProgress?.('Done', 1);
+    return out;
+  }
+
+  // Fallback: person-only selfie segmenter.
   const seg = await loadSelfieSegmenter();
   onProgress?.('Finding subject…', 0.5);
   const result = seg.segment(src);

@@ -1206,6 +1206,11 @@ export default function ImageStudioPro() {
         if (payload.length < 4_000_000) {
           try {
             localStorage.setItem(RECOVERY_KEY, payload);
+            // If this doc previously overflowed into the IndexedDB slot and has
+            // since shrunk, drop that stale large snapshot so recovery doesn't
+            // later offer it over the current (newer, smaller) localStorage one
+            // and it stops showing as a phantom Library row.
+            void deleteProject(RECOVERY_DB_ID).catch(() => {});
             return;
           } catch { /* quota → fall through to IndexedDB */ }
         }
@@ -1235,7 +1240,11 @@ export default function ImageStudioPro() {
         const raw = localStorage.getItem(RECOVERY_KEY);
         if (raw) {
           const parsed = JSON.parse(raw);
-          if (Date.now() - parsed.at > FRESH) localStorage.removeItem(RECOVERY_KEY);
+          // Treat a missing/non-numeric `at` (corrupt or legacy-format payload)
+          // as stale, not fresh — otherwise `Date.now() - NaN > FRESH` is false
+          // and the corrupt entry would survive AND poison the newest-wins
+          // compare below (idb.at > NaN is always false).
+          if (!Number.isFinite(parsed?.at) || Date.now() - parsed.at > FRESH) localStorage.removeItem(RECOVERY_KEY);
           else local = parsed;
         }
       } catch { /* ignore corrupt localStorage recovery */ }
@@ -1274,7 +1283,9 @@ export default function ImageStudioPro() {
   };
 
   const openSaved = async () => {
-    const list = await listProjects('image');
+    // Exclude the internal crash-recovery slot — it lives in the same project
+    // store but is not a user-saved project and must not appear in the Library.
+    const list = (await listProjects('image')).filter(p => p.id !== RECOVERY_DB_ID);
     setSavedList(list);
     setOpenDialog(true);
   };

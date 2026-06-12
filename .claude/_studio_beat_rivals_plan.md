@@ -41,7 +41,7 @@ Graded against the live audit (2026-06-12) + the saved rival bars (`.claude/riva
 ## 3. Image — vs Photopea + Canva  (3 real gaps)
 - [x] P0 General-object matting Remove-BG — RMBG-1.4 (briaai) via transformers.js v3, soft alpha, any subject; selfie segmenter kept as fallback (929ec5c).
 - [x] P1 Export dialog: had Format+Quality+PSD; ADDED scale (10-200% + presets + out-dims) + live file-size estimate (0d269f6). (before/after still TODO)
-- [ ] P1 Smart guides on layer drag (center/thirds/equal-spacing magenta lines) + rotate cursor + numeric W/H/angle.
+- [x] P1 Smart guides on layer drag — magenta snap lines to doc centre/edges, Alt to disable (7b62fba). (thirds/equal-spacing + rotate-cursor still TODO; numeric W/H/angle already exists)
 - [x] P2 Magic Eraser / object-remove — ALREADY DONE: "Remove Object" button runs MI-GAN inpaint on the selection mask, on-device (tools/image-studio runRemoveObject). False gap.
 
 ## 4. Office (Sheets) — vs Google Sheets + Excel  (win on feel + privacy)
@@ -80,6 +80,25 @@ Graded against the live audit (2026-06-12) + the saved rival bars (`.claude/riva
 - [ ] X5 On-device AI default, not paywall: caption/transcribe/matting/transform free + local.
 
 ---
+
+## Zero-cost / high-value sweep (2026-06-12)
+Owner asked for more "costs nothing, big value, on-device" features like Auto-Cut
+across all studios. Built Auto-Cut (ffcebd2 — the ONE genuinely-missing such
+feature). Swept the rest; nearly all such features ALREADY EXIST:
+- [x] Video AI Auto-Cut — BUILT (ffcebd2): beat-detect DSP + energy-scored,
+      beat-aligned assembly. On-device, no model. Leapfrogs CapCut Web.
+- [x] Subtitle karaoke word-by-word captions — already shipped (CuePreview
+      word-highlight on live preview + Karaoke toggle + ASS \k export).
+- [x] Voice one-click Enhance (RNNoise denoise) + compressor + gate + de-ess —
+      already shipped. Text-based editing (deleteWord + filler removal via word
+      timings) already shipped. Per-clip waveform (WaveformView) already renders.
+- [x] Image Auto-Enhance (white balance + levels) — already shipped (Enhance btn).
+- [x] Music humanize + swing — already shipped.
+- [x] Office smartFill (infer transform from examples) — already shipped + wired.
+GENUINE remaining zero-cost gaps are now few. On-device upscale (Image) would be
+high-value but needs a model (not zero-cost). Conclusion: the studios are far
+more feature-complete than the live audit implied — the rival-defining work is
+substantially done.
 
 ## Notes
 - Each P0/P1 starts with a 5-min live re-check — several may already be done (cf the Ctrl+T false alarm).

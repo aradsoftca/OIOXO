@@ -648,16 +648,48 @@ function xmlEscape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
 }
 
+// Per-slot tint so the filmstrip reads as a real structure (video/image/audio).
+const SLOT_TINT: Record<string, string> = {
+  video: 'rgba(255,255,255,.16)',
+  image: 'rgba(255,255,255,.30)',
+  audio: 'rgba(34,211,238,.35)',
+};
+
 export function generateThumbSvg(template: VideoTemplate): string {
   const [c1, c2, c3] = template.thumbColors;
   const isVertical = template.resolution.h > template.resolution.w;
   const w = 320, h = isVertical ? 180 * (template.resolution.h / template.resolution.w) : 180;
-  const title = template.name.toUpperCase();
-  // Fit the title to the thumbnail width: a 900-weight uppercase glyph averages
-  // ~0.62em wide, so size it so the whole name fits in ~88% of the width, then
-  // clamp. Fixes long names ("INSTAGRAM REEL — CINEMATIC") clipping off both
-  // edges, while short names keep the bold 26px look.
-  const fontSize = Math.max(12, Math.min(26, (w * 0.88) / Math.max(1, title.length * 0.62)));
+
+  // STRUCTURAL preview (not just a flat gradient): a filmstrip across the bottom
+  // shows the slot layout — one cell per slot, width proportional to its
+  // duration, tinted by kind — and the template's FIRST title is drawn near its
+  // intended position so the card conveys what the template actually builds.
+  const stripH = Math.max(18, h * 0.16);
+  const stripY = h - stripH;
+  const total = template.duration || template.slots.reduce((s, sl) => s + sl.duration, 0) || 1;
+  let x = 0;
+  const cells = template.slots.map(sl => {
+    const cw = Math.max(2, (sl.duration / total) * w);
+    const rect = `<rect x="${x.toFixed(1)}" y="${stripY.toFixed(1)}" width="${(cw - 1).toFixed(1)}" height="${stripH.toFixed(1)}" fill="${SLOT_TINT[sl.kind] || SLOT_TINT.video}" />`;
+    x += cw;
+    return rect;
+  }).join('');
+
+  // First title near its intended vertical position.
+  const firstText = template.texts[0];
+  let titleSvg = '';
+  if (firstText) {
+    const ty = firstText.pos === 'top' ? h * 0.2 : firstText.pos === 'bottom' ? h * 0.66 : h * 0.46;
+    const line = firstText.text.split('\n')[0].toUpperCase();
+    const fs = Math.max(11, Math.min(24, (w * 0.8) / Math.max(1, line.length * 0.6)));
+    titleSvg = `<text x="${w / 2}" y="${ty.toFixed(1)}" text-anchor="middle" font-family="Impact,system-ui,sans-serif" font-weight="900" font-size="${fs.toFixed(1)}" fill="#fff" stroke="#000" stroke-width="0.8" paint-order="stroke fill">${xmlEscape(line)}</text>`;
+  }
+
+  // Template name chip + meta (kept, but moved into the filmstrip band).
+  const name = xmlEscape(template.name);
+  const meta = `${template.slots.length} clips · ${template.duration}s · ${template.resolution.w}×${template.resolution.h}`;
+
+  // A subtle dark vignette so white text reads on any gradient.
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
     <defs>
       <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -665,11 +697,18 @@ export function generateThumbSvg(template: VideoTemplate): string {
         <stop offset="50%" stop-color="${c2}" />
         <stop offset="100%" stop-color="${c3}" />
       </linearGradient>
+      <linearGradient id="v" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="55%" stop-color="rgba(0,0,0,0)" />
+        <stop offset="100%" stop-color="rgba(0,0,0,.55)" />
+      </linearGradient>
     </defs>
     <rect width="${w}" height="${h}" fill="url(#g)" />
-    <rect width="${w}" height="${h * 0.18}" y="${h * 0.82}" fill="rgba(0,0,0,.45)" />
-    <text x="${w / 2}" y="${h * 0.5}" text-anchor="middle" font-family="system-ui,sans-serif" font-weight="900" font-size="${fontSize.toFixed(1)}" fill="#fff" stroke="#000" stroke-width="0.6" paint-order="stroke fill">${xmlEscape(title)}</text>
-    <text x="${w / 2}" y="${h * 0.93}" text-anchor="middle" font-family="system-ui,sans-serif" font-size="11" fill="rgba(255,255,255,.85)">${template.duration}s · ${template.resolution.w}×${template.resolution.h}</text>
+    <rect width="${w}" height="${h}" fill="url(#v)" />
+    ${titleSvg}
+    <rect x="0" y="${stripY.toFixed(1)}" width="${w}" height="${stripH.toFixed(1)}" fill="rgba(0,0,0,.5)" />
+    ${cells}
+    <text x="6" y="${(stripY + stripH * 0.62).toFixed(1)}" font-family="system-ui,sans-serif" font-weight="700" font-size="10" fill="#fff">${name}</text>
+    <text x="${w - 6}" y="${(stripY + stripH * 0.62).toFixed(1)}" text-anchor="end" font-family="system-ui,sans-serif" font-size="9" fill="rgba(255,255,255,.8)">${meta}</text>
   </svg>`;
 }
 

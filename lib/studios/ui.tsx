@@ -57,6 +57,9 @@ export function StudioShell({ children, className }: { children: React.ReactNode
               )}
             >
               {children}
+              {/* The single mobile bottom-sheet host — renders whichever panel
+                  the studio has open (one at a time, tab-switchable). */}
+              <MobileSheetHost />
             </div>
           </MobilePanelHost>
         </ShortcutsProvider>
@@ -191,10 +194,10 @@ export function StudioPanel({ title, children, action, defaultOpen = true, class
   );
 }
 
-export function StudioSidebar({ side = 'right', width = 280, children }: { side?: 'left' | 'right'; width?: number; children: React.ReactNode }) {
+export function StudioSidebar({ side = 'right', width = 280, label, children }: { side?: 'left' | 'right'; width?: number; label?: string; children: React.ReactNode }) {
   const { mode } = useResponsiveStudio();
   if (mode !== 'desktop') {
-    return <MobileFloatingPanel side={side}>{children}</MobileFloatingPanel>;
+    return <MobileFloatingPanel side={side} label={label}>{children}</MobileFloatingPanel>;
   }
   return (
     <div
@@ -211,44 +214,113 @@ export function StudioSidebar({ side = 'right', width = 280, children }: { side?
 
 const SidebarCountCtx = React.createContext<{ register: () => number; unregister: (i: number) => void } | null>(null);
 
-function MobileFloatingPanel({ children }: { side: 'left' | 'right'; children: React.ReactNode }) {
-  // A real bottom SHEET, open the moment it mounts. The studio only renders the
-  // <StudioSidebar> when the user taps its top-bar panel button, so the panel
-  // must appear immediately — the old design mounted a 260px side drawer
-  // COLLAPSED behind a 7px "▶" tab, so tapping Layers looked like nothing
-  // happened (you had to find a second tiny tab). Sheet slides up from the
-  // bottom, ~70vh, scrollable, with a grab handle + tap-scrim to dismiss.
-  // Dismiss only hides the sheet locally; the studio's own toggle re-mounts it.
-  const [dismissed, setDismissed] = React.useState(false);
-  React.useEffect(() => { setDismissed(false); }, []);
-  if (dismissed) {
-    // Leave a small reopen pill so the user can bring the panel back without
-    // round-tripping to the top bar.
+// ── Mobile bottom-sheet coordinator ──────────────────────────────────────
+// Studios mount SEVERAL <StudioSidebar>s at once (image 7, video 5, slides 6…).
+// If each rendered its own bottom sheet they'd stack and overlap — unusable.
+// So all sheets share ONE coordinator: at most one sheet is visible at a time,
+// and a slim tab strip lets the user switch between the others that are mounted.
+// The studio's own top-bar toggles still mount/unmount panels; this just decides
+// which mounted one is on screen.
+interface SheetEntry { id: number; node: React.ReactNode; label?: string; }
+let _sheetSeq = 0;
+const _sheetListeners = new Set<() => void>();
+let _sheets: SheetEntry[] = [];
+let _activeSheet = -1;
+let _sheetCollapsed = false;
+function _emitSheets() { _sheetListeners.forEach(l => l()); }
+function _registerSheet(node: React.ReactNode, label?: string): number {
+  const id = ++_sheetSeq;
+  _sheets = [..._sheets, { id, node, label }];
+  _activeSheet = id; _sheetCollapsed = false; // newest opens
+  _emitSheets();
+  return id;
+}
+function _updateSheet(id: number, node: React.ReactNode, label?: string) {
+  _sheets = _sheets.map(s => s.id === id ? { id, node, label } : s); _emitSheets();
+}
+function _unregisterSheet(id: number) {
+  _sheets = _sheets.filter(s => s.id !== id);
+  if (_activeSheet === id) _activeSheet = _sheets.length ? _sheets[_sheets.length - 1].id : -1;
+  _emitSheets();
+}
+function useSheetStore() {
+  const [, force] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => { _sheetListeners.add(force); return () => { _sheetListeners.delete(force); }; }, []);
+  return { sheets: _sheets, active: _activeSheet, collapsed: _sheetCollapsed,
+    setActive: (id: number) => { _activeSheet = id; _sheetCollapsed = false; _emitSheets(); },
+    collapse: () => { _sheetCollapsed = true; _emitSheets(); },
+    expand: () => { _sheetCollapsed = false; _emitSheets(); } };
+}
+
+/** Each mounted mobile sidebar just registers its content; the single host below
+ *  renders the active one. Renders nothing itself. */
+function MobileFloatingPanel({ children, label }: { side: 'left' | 'right'; label?: string; children: React.ReactNode }) {
+  const idRef = React.useRef<number>(0);
+  // Register on mount, unregister on unmount.
+  React.useEffect(() => {
+    idRef.current = _registerSheet(children, label);
+    return () => _unregisterSheet(idRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Keep content fresh on re-render (sliders move, layers change…).
+  React.useEffect(() => { if (idRef.current) _updateSheet(idRef.current, children, label); });
+  return null;
+}
+
+/** The ONE bottom sheet for the whole studio on mobile. Render once near the
+ *  studio root (StudioShell does this). Shows the active panel with a tab strip
+ *  to switch between any other open panels; collapses to a pill. */
+export function MobileSheetHost() {
+  const { mode } = useResponsiveStudio();
+  const { sheets, active, collapsed, setActive, collapse, expand } = useSheetStore();
+  if (mode === 'desktop' || sheets.length === 0) return null;
+  const activeEntry = sheets.find(s => s.id === active) ?? sheets[sheets.length - 1];
+
+  if (collapsed) {
     return (
       <button
-        onClick={() => setDismissed(false)}
-        aria-label="Show panel"
-        className="fixed bottom-16 right-3 z-30 grid h-11 w-11 place-items-center rounded-full border border-white/10 bg-[#111317] text-zinc-300 shadow-lg"
+        onClick={expand}
+        aria-label="Show panels"
+        className="fixed bottom-16 right-3 z-40 grid h-12 w-12 place-items-center rounded-full border border-white/10 bg-[#111317] text-zinc-200 shadow-xl"
       >
         <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        {sheets.length > 1 && (
+          <span className="absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full bg-cyan-500 text-[10px] font-bold text-zinc-900">{sheets.length}</span>
+        )}
       </button>
     );
   }
+
   return (
     <>
-      <div className="fixed inset-0 z-20 bg-black/40" onClick={() => setDismissed(true)} aria-hidden />
-      <div className="fixed inset-x-0 bottom-12 z-30 max-h-[70vh] overflow-y-auto rounded-t-2xl border-t border-white/10 bg-[#0f1115] shadow-2xl animate-in slide-in-from-bottom duration-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        <div className="sticky top-0 z-10 flex items-center justify-center bg-[#0f1115] pt-2 pb-1">
-          <div className="h-1 w-10 rounded-full bg-white/20" />
-          <button
-            onClick={() => setDismissed(true)}
-            aria-label="Close panel"
-            className="absolute right-2 top-1 grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/5"
-          >
+      <div className="fixed inset-0 z-30 bg-black/40" onClick={collapse} aria-hidden />
+      <div className="fixed inset-x-0 bottom-12 z-40 flex max-h-[72vh] flex-col rounded-t-2xl border-t border-white/10 bg-[#0f1115] shadow-2xl animate-in slide-in-from-bottom duration-200">
+        <div className="flex shrink-0 items-center justify-center pt-2 pb-1"><div className="h-1 w-10 rounded-full bg-white/20" /></div>
+        {/* Tab strip — only when more than one panel is open. */}
+        {sheets.length > 1 && (
+          <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 px-2 pb-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {sheets.map((s, i) => (
+              <button
+                key={s.id}
+                onClick={() => setActive(s.id)}
+                className={cn('h-8 shrink-0 rounded-md px-3 text-xs font-medium', s.id === active ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}
+              >
+                {s.label ?? i + 1}
+              </button>
+            ))}
+            <button onClick={collapse} aria-label="Close" className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-md text-zinc-400 hover:bg-white/5">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
+          </div>
+        )}
+        {sheets.length === 1 && (
+          <button onClick={collapse} aria-label="Close panel" className="absolute right-2 top-1 grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/5">
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
+        )}
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {activeEntry?.node}
         </div>
-        {children}
       </div>
     </>
   );

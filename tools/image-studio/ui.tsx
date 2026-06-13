@@ -2642,7 +2642,7 @@ export default function ImageStudioPro() {
         </StudioCanvasArea>
 
         {showLayersPanel ? (
-          <StudioSidebar width={296}>
+          <StudioSidebar width={296} label="Layers">
             {activeLayer && (
               <>
                 <LayerPropsPanel
@@ -2733,7 +2733,7 @@ export default function ImageStudioPro() {
         ) : null}
 
         {showAdjustPanel ? (
-          <StudioSidebar width={260}>
+          <StudioSidebar width={260} label="Adjust">
             <StudioPanel title="Adjustments">
               <div className="grid grid-cols-2 gap-2">
                 <StudioButton size="sm" variant="soft" onClick={() => addAdjustment('bright-contrast')}>Brightness/Contrast</StudioButton>
@@ -2755,7 +2755,7 @@ export default function ImageStudioPro() {
         ) : null}
 
         {showHistoryPanel ? (
-          <StudioSidebar width={200}>
+          <StudioSidebar width={200} label="History">
             <StudioPanel title="History">
               <HistoryList stack={stack.current} onJump={jumpHistory} />
             </StudioPanel>

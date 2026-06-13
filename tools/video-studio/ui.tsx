@@ -1727,7 +1727,7 @@ export default function VideoStudioPro() {
       )}
 
       <StudioBody>
-        <StudioSidebar side="left" width={240}>
+        <StudioSidebar side="left" width={240} label="Media">
           <StudioPanel title="Media">
             <label className="mb-2 flex h-16 cursor-pointer items-center justify-center rounded border border-dashed border-white/15 text-xs text-zinc-500 hover:bg-white/5">
               <Upload className="mr-1.5 h-3.5 w-3.5" /> Drop files here
@@ -1911,7 +1911,7 @@ export default function VideoStudioPro() {
           />
         </div>
 
-        <StudioSidebar width={280}>
+        <StudioSidebar width={280} label="Inspector">
           {selectedClip ? <ClipInspector clip={selectedClip} media={selectedClip.kind !== 'text' ? mediaMap.get(selectedClip.mediaId) ?? null : null} onChange={(mut) => updateClip(selectedClip.id, mut, 'props')} onOpenText={() => selectedClip.kind === 'text' && setTextDialogClip(selectedClip.id)} onApplyGrade={(g) => applyGradeToClip(selectedClip.id, g)} playhead={doc.playhead} /> : (
             <StudioPanel title="Inspector">
               <div className="text-xs text-zinc-500">Select a clip on the timeline to edit its properties.</div>

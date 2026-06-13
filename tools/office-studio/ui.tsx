@@ -673,6 +673,38 @@ export default function OfficeStudioPro() {
     commit('clear', next);
   };
 
+  // ── Find & Replace (Ctrl+H) ───────────────────────────────────────────────
+  const [findReplace, setFindReplace] = React.useState<{ find: string; replace: string; matchCase: boolean } | null>(null);
+  // Find next cell (after the current selection) whose raw value contains `find`.
+  const findNext = (find: string, matchCase: boolean) => {
+    if (!find) return;
+    const cmp = (a: string) => matchCase ? a.includes(find) : a.toLowerCase().includes(find.toLowerCase());
+    const order: [number, number][] = [];
+    for (let r = 0; r < sheet.rows; r++) for (let c = 0; c < sheet.cols; c++) order.push([r, c]);
+    // start just after the current cursor
+    const startIdx = sel.r * sheet.cols + sel.c + 1;
+    for (let i = 0; i < order.length; i++) {
+      const [r, c] = order[(startIdx + i) % order.length];
+      const raw = sheet.cells[cellKey(r, c)]?.raw;
+      if (raw && cmp(String(raw))) { setDoc(d => ({ ...d, selection: { r, c, r2: r, c2: c } })); return true; }
+    }
+    toastFor('No match found');
+    return false;
+  };
+  const replaceAll = (find: string, replace: string, matchCase: boolean) => {
+    if (!find) return;
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    let count = 0;
+    const re = new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), matchCase ? 'g' : 'gi');
+    for (const [k, cell] of Object.entries(sh.cells)) {
+      const raw = String(cell.raw ?? '');
+      if (raw && re.test(raw)) { sh.cells[k] = { ...cell, raw: raw.replace(re, replace) }; count++; }
+    }
+    if (count) commit('replace all', next);
+    toastFor(count ? `Replaced in ${count} cell${count === 1 ? '' : 's'}` : 'No match found');
+  };
+
   // Right-click context menu state (screen position + anchor cell/row/col).
   const [ctxMenu, setCtxMenu] = React.useState<{ x: number; y: number; r: number; c: number } | null>(null);
   React.useEffect(() => {
@@ -1205,6 +1237,8 @@ export default function OfficeStudioPro() {
     { combo: 'mod+o', handler: () => { void openSaved(); } },
     { combo: 'mod+b', handler: () => updateStyle(s => { s.bold = !s.bold; }) },
     { combo: 'mod+i', handler: () => updateStyle(s => { s.italic = !s.italic; }) },
+    { combo: 'mod+h', handler: () => setFindReplace(f => f ?? { find: '', replace: '', matchCase: false }) },
+    { combo: 'mod+f', handler: () => setFindReplace(f => f ?? { find: '', replace: '', matchCase: false }) },
   ]);
 
   React.useEffect(() => {
@@ -1825,6 +1859,21 @@ export default function OfficeStudioPro() {
           onCancel={() => setCondDialog(false)}
           onApply={applyCondFormat}
         />
+      )}
+      {findReplace && (
+        <div className="fixed right-3 top-[96px] z-[90] w-72 rounded-lg border border-white/10 bg-[#16181d] p-3 shadow-2xl">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-xs font-semibold text-zinc-100">Find & replace</span>
+            <button onClick={() => setFindReplace(null)} className="rounded p-1 text-zinc-400 hover:bg-white/5"><X className="h-3.5 w-3.5" /></button>
+          </div>
+          <input autoFocus placeholder="Find" value={findReplace.find} onChange={e => setFindReplace(f => f ? { ...f, find: e.target.value } : f)} onKeyDown={e => { if (e.key === 'Enter') findNext(findReplace.find, findReplace.matchCase); }} className="mb-1.5 h-7 w-full rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs text-zinc-100" />
+          <input placeholder="Replace with" value={findReplace.replace} onChange={e => setFindReplace(f => f ? { ...f, replace: e.target.value } : f)} className="mb-2 h-7 w-full rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs text-zinc-100" />
+          <label className="mb-2 flex items-center gap-1.5 text-[11px] text-zinc-400"><input type="checkbox" checked={findReplace.matchCase} onChange={e => setFindReplace(f => f ? { ...f, matchCase: e.target.checked } : f)} /> Match case</label>
+          <div className="flex gap-1">
+            <button onClick={() => findNext(findReplace.find, findReplace.matchCase)} className="flex-1 rounded bg-white/10 px-2 py-1 text-xs text-zinc-200 hover:bg-white/15">Find next</button>
+            <button onClick={() => replaceAll(findReplace.find, findReplace.replace, findReplace.matchCase)} className="flex-1 rounded bg-cyan-500 px-2 py-1 text-xs font-medium text-zinc-900 hover:brightness-110">Replace all</button>
+          </div>
+        </div>
       )}
       {ctxMenu && (() => {
         // How many rows/cols the current selection spans (insert/delete that many).

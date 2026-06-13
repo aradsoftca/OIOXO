@@ -32,6 +32,13 @@ function setStoreGroups(g: ShortcutGroup[]) {
   storeSubs.forEach(fn => fn(g));
 }
 
+// Imperative open/close, decoupled from context — so a Help "?" button rendered
+// by the STUDIO (which is the provider's parent and can't read its context) can
+// still toggle the overlay. The provider subscribes to this on mount. This makes
+// the cheat-sheet reachable on MOBILE, where there's no keyboard to press "?".
+const openSubs = new Set<(open: boolean) => void>();
+export function openShortcutsOverlay() { openSubs.forEach(fn => fn(true)); }
+
 export function ShortcutsProvider({ children }: { children: React.ReactNode }) {
   const [groups, setGroups] = React.useState<ShortcutGroup[]>(storeGroups);
   const [open, setOpen] = React.useState(false);
@@ -41,7 +48,9 @@ export function ShortcutsProvider({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     setGroups(storeGroups);
     storeSubs.add(setGroups);
-    return () => { storeSubs.delete(setGroups); };
+    const openFn = (o: boolean) => setOpen(o);
+    openSubs.add(openFn);
+    return () => { storeSubs.delete(setGroups); openSubs.delete(openFn); };
   }, []);
 
   React.useEffect(() => {
@@ -145,6 +154,26 @@ export function HelpButton({ className }: { className?: string }) {
       onClick={() => setOpen(true)}
       title="Keyboard shortcuts (?)"
       aria-label="Show keyboard shortcuts"
+      className={cn(
+        'inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-white/5 hover:text-zinc-100',
+        className,
+      )}
+    >
+      <span className="text-xs font-mono font-bold">?</span>
+    </button>
+  );
+}
+
+/** Help "?" button for STUDIO chrome. Unlike HelpButton it uses the imperative
+ *  store (not context), so it works when rendered by the studio above the
+ *  provider — and crucially makes the cheat-sheet reachable on touch devices
+ *  where "?" can't be typed. */
+export function StudioHelpButton({ className }: { className?: string }) {
+  return (
+    <button
+      onClick={() => openShortcutsOverlay()}
+      title="Shortcuts & help (?)"
+      aria-label="Show shortcuts and help"
       className={cn(
         'inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 hover:bg-white/5 hover:text-zinc-100',
         className,

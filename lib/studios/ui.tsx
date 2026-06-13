@@ -4,7 +4,7 @@ import * as React from 'react';
 import { cn } from '@/lib/cn';
 import { StudioResponsive, MobilePanelHost, useResponsiveStudio } from './responsive';
 import { ToastProvider } from './toast';
-import { ShortcutsProvider } from './shortcuts-overlay';
+import { ShortcutsProvider, openShortcutsOverlay } from './shortcuts-overlay';
 
 // M4: grabbable slider thumbs. Native range thumbs are ~6-10px; on touch they
 // need ~22-28px. Injected once per shell so every StudioSlider benefits.
@@ -57,6 +57,11 @@ export function StudioShell({ children, className }: { children: React.ReactNode
               )}
             >
               {children}
+              {/* Always-present "?" help affordance — opens the shortcuts/help
+                  cheat-sheet. Critical on TOUCH devices where "?" can't be typed,
+                  and a consistent discoverability anchor across all 9 studios.
+                  Bottom-left so it clears right-docked inspectors / FABs. */}
+              <StudioHelpFab />
               {/* The single mobile bottom-sheet host — renders whichever panel
                   the studio has open (one at a time, tab-switchable). */}
               <MobileSheetHost />
@@ -275,6 +280,24 @@ function MobileFloatingPanel({ children, label, autoOpen = true }: { side: 'left
 /** The ONE bottom sheet for the whole studio on mobile. Render once near the
  *  studio root (StudioShell does this). Shows the active panel with a tab strip
  *  to switch between any other open panels; collapses to a pill. */
+/** Small floating "?" affordance, pinned bottom-left, that opens the shortcuts/
+ *  help cheat-sheet. Present in every studio via StudioShell. Sits clear of the
+ *  mobile bottom-sheet (which docks bottom-center/right) and respects the safe
+ *  area. Hidden while a mobile sheet is expanded so it never overlaps it. */
+function StudioHelpFab() {
+  return (
+    <button
+      onClick={() => openShortcutsOverlay()}
+      title="Shortcuts & help (?)"
+      aria-label="Show shortcuts and help"
+      className="absolute bottom-2 left-2 z-30 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-[#15171c]/90 text-zinc-400 shadow-lg backdrop-blur transition hover:bg-white/10 hover:text-zinc-100"
+      style={{ marginBottom: 'env(safe-area-inset-bottom)' }}
+    >
+      <span className="font-mono text-sm font-bold">?</span>
+    </button>
+  );
+}
+
 export function MobileSheetHost() {
   const { mode } = useResponsiveStudio();
   const { sheets, active, collapsed, setActive, collapse, expand } = useSheetStore();

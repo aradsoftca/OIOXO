@@ -263,8 +263,8 @@ function runsForElement(el: Element): string {
 
 export interface PptxSlideData {
   background: string;
-  texts: Array<{ x: number; y: number; w: number; h: number; text: string; size: number; color: string; bold: boolean; align: 'left' | 'center' | 'right' }>;
-  shapes: Array<{ kind: 'rect' | 'ellipse'; x: number; y: number; w: number; h: number; fill: string }>;
+  texts: Array<{ x: number; y: number; w: number; h: number; text: string; size: number; color: string; bold: boolean; italic?: boolean; rotation?: number; align: 'left' | 'center' | 'right' }>;
+  shapes: Array<{ kind: 'rect' | 'ellipse'; x: number; y: number; w: number; h: number; fill: string; rotation?: number }>;
 }
 
 export interface PptxData {
@@ -324,7 +324,7 @@ ${deck.slides.map((_, i) => `    <p:sldId id="${256 + i}" r:id="rId${i + 1}"/>`)
       <p:sp>
         <p:nvSpPr><p:cNvPr id="${shapeId++}" name="Shape"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
         <p:spPr>
-          <a:xfrm><a:off x="${emu(sh.x)}" y="${emu(sh.y)}"/><a:ext cx="${emu(sh.w)}" cy="${emu(sh.h)}"/></a:xfrm>
+          <a:xfrm${sh.rotation ? ` rot="${Math.round(sh.rotation * 60000)}"` : ''}><a:off x="${emu(sh.x)}" y="${emu(sh.y)}"/><a:ext cx="${emu(sh.w)}" cy="${emu(sh.h)}"/></a:xfrm>
           <a:prstGeom prst="${sh.kind === 'rect' ? 'rect' : 'ellipse'}"><a:avLst/></a:prstGeom>
           <a:solidFill><a:srgbClr val="${fill}"/></a:solidFill>
         </p:spPr>
@@ -332,12 +332,13 @@ ${deck.slides.map((_, i) => `    <p:sldId id="${256 + i}" r:id="rId${i + 1}"/>`)
     }
     for (const t of s.texts) {
       const color = t.color.replace('#', '').padEnd(6, '0').slice(0, 6);
-      const lines = t.text.split('\n').map(line => `<a:p><a:pPr algn="${t.align === 'center' ? 'ctr' : t.align === 'right' ? 'r' : 'l'}"/><a:r><a:rPr lang="en-US" sz="${t.size * 100}" b="${t.bold ? 1 : 0}"><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${escapeXml(line)}</a:t></a:r></a:p>`).join('');
+      // Emit italic (i="1") alongside bold; PowerPoint reads both on a:rPr.
+      const lines = t.text.split('\n').map(line => `<a:p><a:pPr algn="${t.align === 'center' ? 'ctr' : t.align === 'right' ? 'r' : 'l'}"/><a:r><a:rPr lang="en-US" sz="${t.size * 100}" b="${t.bold ? 1 : 0}"${t.italic ? ' i="1"' : ''}><a:solidFill><a:srgbClr val="${color}"/></a:solidFill></a:rPr><a:t>${escapeXml(line)}</a:t></a:r></a:p>`).join('');
       shapesXml.push(`
       <p:sp>
         <p:nvSpPr><p:cNvPr id="${shapeId++}" name="Text"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>
         <p:spPr>
-          <a:xfrm><a:off x="${emu(t.x)}" y="${emu(t.y)}"/><a:ext cx="${emu(t.w)}" cy="${emu(t.h)}"/></a:xfrm>
+          <a:xfrm${t.rotation ? ` rot="${Math.round(t.rotation * 60000)}"` : ''}><a:off x="${emu(t.x)}" y="${emu(t.y)}"/><a:ext cx="${emu(t.w)}" cy="${emu(t.h)}"/></a:xfrm>
           <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
         </p:spPr>
         <p:txBody>

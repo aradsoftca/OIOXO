@@ -657,6 +657,14 @@ export default function OfficeSlidesPro() {
     setExportDialog(false);
     try {
       if (exportFmt === 'pptx') {
+        // Honesty: images + arrows aren't yet mapped into the .pptx XML, so warn
+        // the user instead of silently dropping them. (Text now keeps italic +
+        // rotation; rect/ellipse keep rotation.) Suggest PDF/PNG which render
+        // everything. Use PNG/PDF export to keep them.
+        const dropped = doc.slides.some(s => s.elements.some(e => e.kind === 'image' || e.kind === 'arrow'));
+        if (dropped) {
+          toastFor('Note: images & arrows aren’t in .pptx yet — export PDF or PNG to keep them');
+        }
         const pptxData: PptxData = {
           name: doc.name,
           width: doc.width,
@@ -666,13 +674,13 @@ export default function OfficeSlidesPro() {
             texts: s.elements.filter(e => e.kind === 'text').map(e => ({
               x: e.x, y: e.y, w: e.w, h: e.h,
               text: e.text ?? '', size: e.size ?? 28,
-              color: e.color ?? '#000000', bold: !!e.bold,
+              color: e.color ?? '#000000', bold: !!e.bold, italic: !!e.italic, rotation: e.rotation || 0,
               align: (e.align === 'center' || e.align === 'right' ? e.align : 'left') as 'left' | 'center' | 'right',
             })),
             shapes: s.elements.filter(e => e.kind === 'rect' || e.kind === 'ellipse').map(e => ({
               kind: e.kind as 'rect' | 'ellipse',
               x: e.x, y: e.y, w: e.w, h: e.h,
-              fill: e.fill ?? '#000000',
+              fill: e.fill ?? '#000000', rotation: e.rotation || 0,
             })),
           })),
         };

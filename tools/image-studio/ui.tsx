@@ -30,7 +30,7 @@ import {
   canvasToBlob, downloadBlob, safeFilename, type ImageFormat,
   useShortcuts, formatCombo,
   removeBackgroundAuto, removeBackgroundByLuma, subjectMask,
-  autoEnhance, extractPalette, smartCrop,
+  autoEnhance, extractPalette, smartCrop, upscaleImage,
   COLOR_GRADES, type ColorGrade,
   useRafThrottle, usePinchPan, useResponsiveStudio, deviceProfile, LayerCompositeCache,
   AnimationPanel, computeElementState, totalAnimationDuration,
@@ -1571,6 +1571,41 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runUpscale = async () => {
+    // Edge-aware 2x super-resolution of the whole picture. Flatten the current
+    // composite, upscale it, and replace the doc with a single 2x image layer —
+    // this guarantees the output is pixel-exact to what's on screen (no per-layer
+    // transform drift) and matches what rivals' "Upscale" / "Enlarge" does.
+    const MAX_PX = 8192; // cap the long edge so we never blow up memory on a phone
+    if (doc.width * 2 > MAX_PX || doc.height * 2 > MAX_PX) {
+      toastFor(`Already at max size (${MAX_PX}px limit)`); return;
+    }
+    setBusy('Upscaling 2×…');
+    try {
+      await new Promise(r => requestAnimationFrame(r)); // let the toast paint
+      const flat = upscaleImage(composite, 2);
+      const next: DocState = {
+        name: doc.name,
+        width: flat.width,
+        height: flat.height,
+        background: doc.background,
+        selection: null,
+        activeId: null,
+        layers: [],
+      };
+      const id = lid();
+      next.layers = [{
+        id, kind: 'image', name: 'Upscaled', canvas: flat,
+        x: 0, y: 0, scaleX: 1, scaleY: 1, rotation: 0,
+        visible: true, locked: false, opacity: 1, blend: 'source-over',
+        adjust: { ...ZERO_ADJUST },
+      } as ImageLayer];
+      next.activeId = id;
+      commit('upscale 2×', next);
+      toastFor(`Upscaled to ${flat.width}×${flat.height} ✓`);
+    } finally { setBusy(''); }
+  };
+
   const runExtractPalette = async () => {
     const target = activeLayer;
     if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
@@ -2656,6 +2691,7 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveBg()} title={pristine ? 'Open an image first' : 'Remove Background (AI)'}><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveObject()} title={pristine ? 'Open an image first' : 'Select an object, then remove it (content-aware, on-device)'}><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoEnhance()} title={pristine ? 'Open an image first' : 'Auto-enhance (white balance + levels)'}><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runUpscale()} title={pristine ? 'Open an image first' : 'Upscale 2× — edge-aware super-resolution (on-device)'}><Sparkles className="h-3.5 w-3.5" /> Upscale 2×</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <select

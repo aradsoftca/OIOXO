@@ -79,6 +79,81 @@ export function autoEnhance(src: HTMLCanvasElement): EnhanceResult {
   return { canvas: sharp, magnitude };
 }
 
+/**
+ * Edge-aware super-resolution upscale (on-device, no model). A plain
+ * `drawImage` enlargement is bilinear → soft and "toy". This does a bilinear
+ * base upsample, then a gradient-GATED unsharp pass: it recovers crisp detail
+ * along real edges while leaving flat regions untouched, so it doesn't amplify
+ * noise or banding the way a uniform sharpen would. Result reads as genuinely
+ * enlarged, not stretched. `factor` is typically 2.
+ */
+export function upscaleImage(src: HTMLCanvasElement, factor = 2): HTMLCanvasElement {
+  const w = Math.max(1, Math.round(src.width * factor));
+  const h = Math.max(1, Math.round(src.height * factor));
+  const out = blankCanvas(w, h);
+  const ctx = out.getContext('2d')!;
+  // High-quality bilinear base.
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(src, 0, 0, w, h);
+
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  // Luma of the base, used both for edge detection and as the unsharp source.
+  const luma = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    luma[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  }
+  // 3x3 Gaussian blur of luma (separable approx) for the unsharp low-pass.
+  const blur = new Float32Array(w * h);
+  const tmp = new Float32Array(w * h);
+  // horizontal [1 2 1]/4
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const l = x > 0 ? luma[row + x - 1] : luma[row + x];
+      const r = x < w - 1 ? luma[row + x + 1] : luma[row + x];
+      tmp[row + x] = (l + 2 * luma[row + x] + r) * 0.25;
+    }
+  }
+  // vertical [1 2 1]/4
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const u = y > 0 ? tmp[row + x - w] : tmp[row + x];
+      const dn = y < h - 1 ? tmp[row + x + w] : tmp[row + x];
+      blur[row + x] = (u + 2 * tmp[row + x] + dn) * 0.25;
+    }
+  }
+  // Per-pixel: gradient magnitude gates the unsharp amount. Flat → ~0, edge → full.
+  const AMOUNT = 1.1;        // peak unsharp strength
+  const GATE = 2;            // gradient below this = treated as flat (noise floor)
+  const GATE_FULL = 14;      // gradient at/above this = full strength
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < w; x++) {
+      const p = row + x;
+      const gx = (x < w - 1 ? luma[p + 1] : luma[p]) - (x > 0 ? luma[p - 1] : luma[p]);
+      const gy = (y < h - 1 ? luma[p + w] : luma[p]) - (y > 0 ? luma[p - w] : luma[p]);
+      const grad = Math.sqrt(gx * gx + gy * gy);
+      let gate = (grad - GATE) / (GATE_FULL - GATE);
+      gate = gate < 0 ? 0 : gate > 1 ? 1 : gate;
+      if (gate === 0) continue;
+      const hi = luma[p] - blur[p];          // high-frequency detail
+      const boost = hi * AMOUNT * gate;       // gated unsharp
+      if (boost === 0) continue;
+      const o = p * 4;
+      d[o] = clamp255(d[o] + boost);
+      d[o + 1] = clamp255(d[o + 1] + boost);
+      d[o + 2] = clamp255(d[o + 2] + boost);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return out;
+}
+
+function clamp255(v: number): number { return v < 0 ? 0 : v > 255 ? 255 : v; }
+
 export function extractPalette(src: HTMLCanvasElement, k = 6): string[] {
   const ctx = src.getContext('2d')!;
   const w = src.width, h = src.height;

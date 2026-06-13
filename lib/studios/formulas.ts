@@ -463,6 +463,16 @@ export function callFormula(name: string, args: any[]): any {
     case 'RANK.AVG':    { const target = getNum(args[0]); const ord = args.length > 2 && getNum(args[2]) !== 0; const ns = flatNums(args[1]).slice().sort((a, b) => ord ? a - b : b - a); let first = -1, count = 0; for (let i = 0; i < ns.length; i++) if (ns[i] === target) { if (first < 0) first = i; count++; } return first < 0 ? '#N/A' : first + 1 + (count - 1) / 2; }
     case 'LARGE':       { const ns = flatNums(args[0]).slice().sort((a, b) => b - a); const k = Math.round(getNum(args[1])); return k >= 1 && k <= ns.length ? ns[k - 1] : '#NUM!'; }
     case 'SMALL':       { const ns = flatNums(args[0]).slice().sort((a, b) => a - b); const k = Math.round(getNum(args[1])); return k >= 1 && k <= ns.length ? ns[k - 1] : '#NUM!'; }
+
+    // --- More stats: percentile/quartile variants, percent-rank, regression ---
+    case 'MODE.SNGL':   { const ns = flatNums(args); const counts = new Map<number, number>(); for (const n of ns) counts.set(n, (counts.get(n) ?? 0) + 1); let best = 0, bn = 0; for (const [v, c] of counts) if (c > bn) { bn = c; best = v; } return bn > 1 ? best : '#N/A'; }
+    case 'PERCENTILE.EXC': { const ns = flatNums(args[0]).sort((a, b) => a - b); const p = getNum(args[1]); const N = ns.length; if (!N) return '#NUM!'; if (p <= 0 || p >= 1 || p < 1 / (N + 1) || p > N / (N + 1)) return '#NUM!'; const idx = p * (N + 1) - 1; const lo = Math.floor(idx), hi = Math.ceil(idx); return ns[lo] + (ns[hi] - ns[lo]) * (idx - lo); }
+    case 'QUARTILE.INC': { const ns = flatNums(args[0]).sort((a, b) => a - b); const q = getNum(args[1]); if (!ns.length) return 0; const p = q / 4; const idx = p * (ns.length - 1); const lo = Math.floor(idx), hi = Math.ceil(idx); return ns[lo] + (ns[hi] - ns[lo]) * (idx - lo); }
+    case 'QUARTILE.EXC': { const ns = flatNums(args[0]).sort((a, b) => a - b); const q = getNum(args[1]); const N = ns.length; if (!N) return '#NUM!'; const p = q / 4; if (p <= 0 || p >= 1) return '#NUM!'; const idx = p * (N + 1) - 1; const lo = Math.floor(idx), hi = Math.ceil(idx); return ns[lo] + (ns[hi] - ns[lo]) * (idx - lo); }
+    case 'PERCENTRANK': case 'PERCENTRANK.INC': { const ns = flatNums(args[0]).slice().sort((a, b) => a - b); const x = getNum(args[1]); const sig = args.length > 2 ? Math.max(1, Math.floor(getNum(args[2]))) : 3; const N = ns.length; if (!N) return '#NUM!'; if (x < ns[0] || x > ns[N - 1]) return '#N/A'; let i = 0; while (i < N && ns[i] <= x) i++; const below = i - 1; let rank: number; if (below >= 0 && ns[below] === x) rank = below / (N - 1); else { const lo = below, hi = below + 1; const frac = (x - ns[lo]) / (ns[hi] - ns[lo]); rank = (lo + frac) / (N - 1); } const m = Math.pow(10, sig); return Math.floor(rank * m) / m; }
+    case 'PERCENTRANK.EXC': { const ns = flatNums(args[0]).slice().sort((a, b) => a - b); const x = getNum(args[1]); const sig = args.length > 2 ? Math.max(1, Math.floor(getNum(args[2]))) : 3; const N = ns.length; if (!N) return '#NUM!'; if (x < ns[0] || x > ns[N - 1]) return '#N/A'; let lo = 0; while (lo + 1 < N && ns[lo + 1] <= x) lo++; let rank: number; if (ns[lo] === x) rank = (lo + 1) / (N + 1); else { const frac = (x - ns[lo]) / (ns[lo + 1] - ns[lo]); rank = (lo + 1 + frac) / (N + 1); } const m = Math.pow(10, sig); return Math.floor(rank * m) / m; }
+    case 'FORECAST': case 'FORECAST.LINEAR': { const x = getNum(args[0]); const ys = flatNums(args[1]); const xs = flatNums(args[2]); const n = Math.min(xs.length, ys.length); if (n < 1) return '#N/A'; const mx = xs.slice(0, n).reduce((s, v) => s + v, 0) / n; const my = ys.slice(0, n).reduce((s, v) => s + v, 0) / n; let num = 0, den = 0; for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); den += (xs[i] - mx) ** 2; } if (den === 0) return '#DIV/0!'; const slope = num / den; return my + slope * (x - mx); }
+    case 'STEYX':       { const ys = flatNums(args[0]); const xs = flatNums(args[1]); const n = Math.min(xs.length, ys.length); if (n < 3) return '#DIV/0!'; const mx = xs.slice(0, n).reduce((s, v) => s + v, 0) / n; const my = ys.slice(0, n).reduce((s, v) => s + v, 0) / n; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; } if (sxx === 0) return '#DIV/0!'; return Math.sqrt((syy - (sxy * sxy) / sxx) / (n - 2)); }
   }
   return '#NAME?';
 }
@@ -531,7 +541,7 @@ export const FORMULA_NAMES = [
   'ROUND', 'ROUNDUP', 'ROUNDDOWN', 'TRUNC', 'CEILING', 'FLOOR', 'ABS', 'SIGN', 'SQRT', 'POWER', 'EXP', 'LN', 'LOG', 'LOG10', 'MOD', 'INT', 'PI',
   'EVEN', 'ODD', 'GCD', 'LCM', 'RAND', 'RANDBETWEEN',
   'SIN', 'COS', 'TAN', 'ASIN', 'ACOS', 'ATAN', 'ATAN2', 'SINH', 'COSH', 'TANH', 'RADIANS', 'DEGREES',
-  'MEDIAN', 'MODE', 'STDEV', 'STDEVP', 'VAR', 'VARP', 'PERCENTILE', 'QUARTILE', 'RANK', 'CORREL', 'SLOPE', 'INTERCEPT',
+  'MEDIAN', 'MODE', 'STDEV', 'STDEV.S', 'STDEVP', 'STDEV.P', 'VAR', 'VAR.S', 'VARP', 'VAR.P', 'PERCENTILE', 'PERCENTILE.INC', 'QUARTILE', 'RANK', 'CORREL', 'SLOPE', 'INTERCEPT',
   'COUNTIF', 'COUNTIFS', 'SUMIF', 'SUMIFS', 'AVERAGEIF', 'AVERAGEIFS', 'MAXIFS', 'MINIFS',
   'IF', 'IFS', 'IFERROR', 'IFNA', 'SWITCH', 'AND', 'OR', 'XOR', 'NOT', 'TRUE', 'FALSE',
   'CONCATENATE', 'CONCAT', 'TEXTJOIN', 'LEN', 'UPPER', 'LOWER', 'PROPER', 'TRIM', 'CLEAN',
@@ -563,4 +573,7 @@ export const FORMULA_NAMES = [
   'ISNONTEXT', 'ISERR', 'NA', 'ERROR.TYPE',
   'CEILING.MATH', 'CEILING.PRECISE', 'ISO.CEILING', 'FLOOR.MATH', 'FLOOR.PRECISE',
   'SUMX2MY2', 'SUMX2PY2', 'SUMXMY2', 'RANK.AVG', 'RANK.EQ', 'LARGE', 'SMALL',
+  'MODE.SNGL', 'PERCENTILE.EXC', 'QUARTILE.INC', 'QUARTILE.EXC',
+  'PERCENTRANK', 'PERCENTRANK.INC', 'PERCENTRANK.EXC',
+  'FORECAST', 'FORECAST.LINEAR', 'STEYX',
 ];

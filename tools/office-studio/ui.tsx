@@ -2750,6 +2750,16 @@ function ChartDialog({ headerRange, onCancel, onCreate }: { headerRange: string;
   );
 }
 
+// Extra presets defined here (self-contained) to surface engine rule kinds that
+// the shared PRESET_RULES list does not expose yet: `between`, `contains`, plus a
+// couple more numeric highlights. The cond-format engine already evaluates these.
+const EXTRA_COND_PRESETS: { name: string; rule: CondRule }[] = [
+  { name: 'Between 0 and 100 → blue', rule: { kind: 'between', min: 0, max: 100, bg: '#dbeafe', color: '#1e3a8a' } },
+  { name: 'Greater than 100 → green', rule: { kind: 'gt', threshold: 100, bg: '#dcfce7', color: '#14532d' } },
+  { name: 'Contains "error" → red', rule: { kind: 'contains', text: 'error', bg: '#fee2e2', color: '#7f1d1d' } },
+  { name: 'Top 10 → gold', rule: { kind: 'top', n: 10, bg: '#fef3c7', color: '#78350f' } },
+];
+
 function CondDialog({ onCancel, onApply }: { onCancel: () => void; onApply: (rule: CondRule) => void }) {
   return (
     <Dialog title="Conditional formatting" onCancel={onCancel} onConfirm={onCancel} confirmLabel="Close">
@@ -2757,6 +2767,11 @@ function CondDialog({ onCancel, onApply }: { onCancel: () => void; onApply: (rul
         <div className="text-xs text-zinc-400">Apply preset to current selection:</div>
         {PRESET_RULES.map(p => (
           <button key={p.name} onClick={() => onApply(p.rules[0])} className="block w-full rounded bg-white/5 px-3 py-2 text-left text-xs text-zinc-200 hover:bg-white/10">
+            {p.name}
+          </button>
+        ))}
+        {EXTRA_COND_PRESETS.map(p => (
+          <button key={p.name} onClick={() => onApply(p.rule)} className="block w-full rounded bg-white/5 px-3 py-2 text-left text-xs text-zinc-200 hover:bg-white/10">
             {p.name}
           </button>
         ))}

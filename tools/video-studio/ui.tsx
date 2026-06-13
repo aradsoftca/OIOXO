@@ -3037,6 +3037,22 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
                 ))}
               </select>
             )}
+            <div className="text-xs text-zinc-500">Quick looks (one tap)</div>
+            <div className="grid grid-cols-3 gap-1">
+              {([
+                { id: 'punchy', label: 'Punchy', brightness: 104, contrast: 122, saturation: 130, hue: 0 },
+                { id: 'bw', label: 'B&W', brightness: 102, contrast: 112, saturation: 0, hue: 0 },
+                { id: 'warm', label: 'Warm', brightness: 104, contrast: 104, saturation: 112, hue: -12 },
+                { id: 'cool', label: 'Cool', brightness: 100, contrast: 106, saturation: 108, hue: 14 },
+                { id: 'faded', label: 'Faded', brightness: 108, contrast: 86, saturation: 82, hue: 0 },
+                { id: 'reset', label: 'Reset color', brightness: 100, contrast: 100, saturation: 100, hue: 0 },
+              ] as const).map(q => {
+                const active = Math.abs(c.brightness - q.brightness) < 2 && Math.abs(c.contrast - q.contrast) < 2 && Math.abs(c.saturation - q.saturation) < 2 && Math.abs(c.hue - q.hue) < 3;
+                return (
+                  <button key={q.id} onClick={() => onChange(x => { const v = x as VideoClip; v.brightness = q.brightness; v.contrast = q.contrast; v.saturation = q.saturation; v.hue = q.hue; })} className={cn('rounded px-1.5 py-1 text-[10px]', active ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}>{q.label}</button>
+                );
+              })}
+            </div>
             <AnimatableSlider label="Brightness" value={c.brightness} min={0} max={200} suffix="%" paramName="brightness" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).brightness = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), brightness: kf }; })} />
             <AnimatableSlider label="Contrast" value={c.contrast} min={0} max={200} suffix="%" paramName="contrast" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).contrast = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), contrast: kf }; })} />
             <AnimatableSlider label="Saturation" value={c.saturation} min={0} max={200} suffix="%" paramName="saturation" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).saturation = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), saturation: kf }; })} />

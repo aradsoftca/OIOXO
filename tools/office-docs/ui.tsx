@@ -101,7 +101,7 @@ export default function OfficeDocsPro() {
   const [exportDialog, setExportDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [exportFmt, setExportFmt] = React.useState<'md' | 'html' | 'pdf' | 'txt' | 'docx'>('docx');
-  const [wordCount, setWordCount] = React.useState({ words: 0, chars: 0, paragraphs: 0 });
+  const [wordCount, setWordCount] = React.useState({ words: 0, chars: 0, paragraphs: 0, sentences: 0 });
   const [outline, setOutline] = React.useState<{ level: number; text: string; id: string }[]>([]);
   const [readability, setReadability] = React.useState<ReturnType<typeof readabilityScore> | null>(null);
   const [summaryDialog, setSummaryDialog] = React.useState<string[] | null>(null);
@@ -446,7 +446,12 @@ export default function OfficeDocsPro() {
     const words = txt.trim().length ? txt.trim().split(/\s+/).length : 0;
     const chars = txt.length;
     const paragraphs = el.querySelectorAll('p, h1, h2, h3, h4, li, blockquote').length;
-    setWordCount({ words, chars, paragraphs });
+    // Sentence count: split on terminal punctuation (. ! ? … and their
+    // full-width CJK equivalents), ignoring empties from trailing marks.
+    const sentences = txt.trim().length
+      ? (txt.match(/[^.!?。！？…]+[.!?。！？…]*/g) ?? []).filter(s => s.trim().length).length
+      : 0;
+    setWordCount({ words, chars, paragraphs, sentences });
     const headings = Array.from(el.querySelectorAll('h1, h2, h3'));
     setOutline(headings.map((h, i) => {
       if (!h.id) h.id = `h-${i}`;
@@ -1479,6 +1484,10 @@ export default function OfficeDocsPro() {
         <span>{wordCount.words} words</span>
         <span>{wordCount.chars} characters</span>
         <span>{wordCount.paragraphs} blocks</span>
+        <span title="Sentences detected in the document">{wordCount.sentences} sentences</span>
+        {wordCount.sentences > 0 && (
+          <span title="Average words per sentence">{Math.round(wordCount.words / wordCount.sentences)} words/sentence</span>
+        )}
         {readability && (
           <span className={cn(
             readability.flesch >= 60 ? 'text-emerald-300' : readability.flesch >= 30 ? 'text-amber-300' : 'text-rose-300'

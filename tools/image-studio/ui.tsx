@@ -2195,6 +2195,55 @@ export default function ImageStudioPro() {
     );
   };
 
+  // CANVAS CROP to a common aspect ratio (Photoshop Image > Crop to ratio):
+  // compute the LARGEST centered rect of the target aspect that fits inside the
+  // current canvas, then crop every paint layer's pixels (drawImage with the
+  // crop offset) and shift every positioned layer so the composite is unchanged
+  // except for the new, tighter doc bounds. Mirrors transformDoc's per-layer-
+  // kind handling.
+  const cropDoc = (aspect: '1:1' | '16:9' | '4:5' | '9:16') => {
+    if (pristine) { toastFor('Open or create an image first'); return; }
+    const [aw, ah] = aspect.split(':').map(Number);
+    const docW = doc.width, docH = doc.height;
+    const target = aw / ah;
+    // Largest centered rect of `target` aspect that fits in the current canvas.
+    let cw = docW, ch = Math.round(docW / target);
+    if (ch > docH) { ch = docH; cw = Math.round(docH * target); }
+    const offX = Math.round((docW - cw) / 2);
+    const offY = Math.round((docH - ch) / 2);
+    if (cw === docW && ch === docH) { toastFor(`Already ${aspect}`); return; }
+    const next = cloneDoc(doc);
+    // Crop a doc-space canvas (paint layer or mask) to the centered rect.
+    const cropCanvas = (src: HTMLCanvasElement) => {
+      const out = blankCanvas(cw, ch);
+      out.getContext('2d')!.drawImage(src, offX, offY, cw, ch, 0, 0, cw, ch);
+      return out;
+    };
+    for (const l of next.layers) {
+      // Masks live in full-document space on every layer kind — crop them like
+      // a doc-sized canvas so masking survives the crop.
+      if (l.mask) l.mask = cropCanvas(l.mask);
+      if (l.kind === 'paint') {
+        // Paint layers fill the whole doc at origin — crop the pixels.
+        l.canvas = cropCanvas(l.canvas);
+      } else if (l.kind === 'image') {
+        // Image layers keep their own pixels; just shift the top-left so they
+        // stay put relative to the new (translated) origin.
+        l.x -= offX; l.y -= offY;
+      } else if (l.kind === 'text' || l.kind === 'shape') {
+        // Vector text/shape: shift the anchor into the cropped coordinate space.
+        l.x -= offX; l.y -= offY;
+      }
+      // Adjustment layers have no pixels/position — nothing to crop.
+    }
+    next.width = cw; next.height = ch;
+    if (next.selection) next.selection.mask = cropCanvas(next.selection.mask);
+    // The composite cache is keyed by props, NOT pixel content — every layer's
+    // pixels/position just changed, so clear it (same as undo/redo + rotate).
+    cacheRef.current.clear();
+    commit(`crop canvas ${aspect}`, next);
+  };
+
   const clearSelection = () => {
     if (!doc.selection) return;
     setDoc(d => ({ ...d, selection: null }));
@@ -3081,6 +3130,20 @@ export default function ImageStudioPro() {
             <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('ccw')} title={pristine ? 'Open an image first' : 'Rotate canvas 90° counter-clockwise'}><RotateCcw className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('flip-h')} title={pristine ? 'Open an image first' : 'Flip canvas horizontal'}><FlipHorizontal2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('flip-v')} title={pristine ? 'Open an image first' : 'Flip canvas vertical'}><FlipVertical2 className="h-3.5 w-3.5" /></StudioButton>
+            {/* CANVAS CROP to a common aspect ratio — crops the whole document to
+                the largest centered rect of the chosen aspect. */}
+            <select
+              onChange={e => { if (e.target.value) { cropDoc(e.target.value as '1:1' | '16:9' | '4:5' | '9:16'); e.target.value = ''; } }}
+              defaultValue=""
+              disabled={pristine}
+              title={pristine ? 'Open an image first' : 'Crop canvas to aspect ratio (centered)'}
+              className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs text-zinc-100 disabled:opacity-40"
+            >
+              <option value="" disabled>✂ Crop…</option>
+              {(['1:1', '16:9', '4:5', '9:16'] as const).map(r => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
             <select
               onChange={e => { if (e.target.value) { applyColorGrade(e.target.value); e.target.value = ''; } }}
               defaultValue=""

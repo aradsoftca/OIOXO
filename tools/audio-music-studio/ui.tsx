@@ -1240,6 +1240,7 @@ export default function MusicStudioPro() {
             value={doc.masterEffects ?? []}
             onChange={(next) => commit('master fx', { ...cloneDoc(doc), masterEffects: next })}
             title="Master chain"
+            presetKind="music.masterChain"
           />
           <StudioPanel title="Mix">
             {doc.instruments.map(inst => (

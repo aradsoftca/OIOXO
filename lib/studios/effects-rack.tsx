@@ -2,12 +2,25 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/cn';
-import { AUDIO_EFFECTS, EFFECT_CATEGORIES, makeAppliedEffect, type AppliedEffect, type EffectCategory } from './effect-presets';
+import { AUDIO_EFFECTS, EFFECT_CATEGORIES, makeAppliedEffect, type AppliedEffect, type EffectCategory, type EffectDef } from './effect-presets';
+import { PresetBar } from './presets-ui';
 
-export function EffectsRack({ value, onChange, title = 'Effects' }: {
+/** A pluggable effect catalog so the SAME rack serves audio, video, image, …
+ *  (C2 shared engine). Defaults to the audio catalog for back-compat. */
+export interface EffectCatalog {
+  effects: EffectDef[];
+  categories: { id: string; label: string }[];
+}
+const AUDIO_CATALOG: EffectCatalog = { effects: AUDIO_EFFECTS, categories: EFFECT_CATEGORIES };
+
+export function EffectsRack({ value, onChange, title = 'Effects', catalog = AUDIO_CATALOG, presetKind }: {
   value: AppliedEffect[];
   onChange: (next: AppliedEffect[]) => void;
   title?: string;
+  /** Effect definitions + categories this rack offers. */
+  catalog?: EffectCatalog;
+  /** When set, shows a C4 preset bar to save/apply the WHOLE chain by name. */
+  presetKind?: string;
 }) {
   const [adding, setAdding] = React.useState(false);
 
@@ -32,9 +45,19 @@ export function EffectsRack({ value, onChange, title = 'Effects' }: {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between px-3 py-2">
+      <div className="flex items-center justify-between gap-1 px-3 py-2">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{title}</span>
-        <button onClick={() => setAdding(true)} className="rounded bg-cyan-500/15 px-2 py-1 text-[10px] font-semibold text-cyan-200 hover:bg-cyan-500/25">+ Add effect</button>
+        <div className="flex items-center gap-1">
+          {presetKind && (
+            <PresetBar<AppliedEffect[]>
+              kind={presetKind}
+              label="Chains"
+              capture={() => value.map(e => ({ ...e, params: { ...e.params } }))}
+              onApply={(chain) => onChange(chain.map(e => ({ ...e, uid: makeAppliedEffect(e.effectId).uid })))}
+            />
+          )}
+          <button onClick={() => setAdding(true)} className="rounded bg-cyan-500/15 px-2 py-1 text-[10px] font-semibold text-cyan-200 hover:bg-cyan-500/25">+ Add effect</button>
+        </div>
       </div>
 
       <div className="space-y-1.5 px-3">
@@ -46,6 +69,7 @@ export function EffectsRack({ value, onChange, title = 'Effects' }: {
           <EffectCard
             key={eff.uid}
             effect={eff}
+            catalog={catalog}
             first={i === 0}
             last={i === value.length - 1}
             onUpdate={(mut) => update(eff.uid, mut)}
@@ -58,6 +82,7 @@ export function EffectsRack({ value, onChange, title = 'Effects' }: {
 
       {adding && (
         <EffectPickerDialog
+          catalog={catalog}
           onCancel={() => setAdding(false)}
           onPick={(effectId) => {
             onChange([...value, makeAppliedEffect(effectId)]);
@@ -69,8 +94,9 @@ export function EffectsRack({ value, onChange, title = 'Effects' }: {
   );
 }
 
-function EffectCard({ effect, first, last, onUpdate, onRemove, onUp, onDown }: {
+function EffectCard({ effect, catalog, first, last, onUpdate, onRemove, onUp, onDown }: {
   effect: AppliedEffect;
+  catalog: EffectCatalog;
   first: boolean;
   last: boolean;
   onUpdate: (mut: (e: AppliedEffect) => void) => void;
@@ -78,7 +104,7 @@ function EffectCard({ effect, first, last, onUpdate, onRemove, onUp, onDown }: {
   onUp: () => void;
   onDown: () => void;
 }) {
-  const def = AUDIO_EFFECTS.find(d => d.id === effect.effectId);
+  const def = catalog.effects.find(d => d.id === effect.effectId);
   const [expanded, setExpanded] = React.useState(true);
   if (!def) return null;
   return (
@@ -153,9 +179,9 @@ function ParamControl({ param, value, onChange }: { param: any; value: any; onCh
   );
 }
 
-function EffectPickerDialog({ onCancel, onPick }: { onCancel: () => void; onPick: (effectId: string) => void }) {
-  const [cat, setCat] = React.useState<EffectCategory>('eq');
-  const inCat = AUDIO_EFFECTS.filter(e => e.category === cat);
+function EffectPickerDialog({ catalog, onCancel, onPick }: { catalog: EffectCatalog; onCancel: () => void; onPick: (effectId: string) => void }) {
+  const [cat, setCat] = React.useState<string>(catalog.categories[0]?.id ?? 'eq');
+  const inCat = catalog.effects.filter(e => e.category === cat);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onCancel}>
       <div onClick={e => e.stopPropagation()} className="flex h-[60vh] w-[560px] flex-col rounded-lg border border-white/10 bg-[#111317] shadow-2xl">
@@ -165,7 +191,7 @@ function EffectPickerDialog({ onCancel, onPick }: { onCancel: () => void; onPick
         </div>
         <div className="flex flex-1 min-h-0">
           <div className="w-32 shrink-0 border-r border-white/5 p-1">
-            {EFFECT_CATEGORIES.map(c => (
+            {catalog.categories.map(c => (
               <button key={c.id} onClick={() => setCat(c.id)} className={cn(
                 'flex w-full items-center rounded px-2 py-1.5 text-left text-xs',
                 cat === c.id ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-300 hover:bg-white/5'

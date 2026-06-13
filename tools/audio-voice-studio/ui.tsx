@@ -1283,6 +1283,7 @@ export default function VoiceStudioPro() {
                 value={selectedClip.effects ?? []}
                 onChange={(next) => updateClip(selectedClip.id, c => { c.effects = next; }, 'effect chain')}
                 title="Effect chain"
+                presetKind="voice.fxChain"
               />
             </>
           ) : (

@@ -26,6 +26,10 @@ import {
   type ColorWheels, type CurveSet,
 } from '@/lib/studios/color-wheels';
 import { sampleAnimated, type AnimatedParam } from '@/lib/studios/keyframes';
+import { sampleTextAnim, type TextAnimId } from '@/lib/studios/text-animations';
+import { buildAudioChain, type AudioEffect } from '@/lib/studios/audio-effects';
+import { setupTransition, type TransitionId } from '@/lib/studios/transitions';
+import { effectFilterFragment, hasPixelEffects, applyPixelEffects, type VideoEffect } from '@/lib/studios/video-effects';
 import { BRAND_DOMAIN } from '@/lib/brand';
 
 // ---- Brand watermark (free tier) --------------------------------------------
@@ -80,10 +84,18 @@ export interface CompVideoClip {
   keyframes?: {
     brightness?: AnimatedParam<number>; contrast?: AnimatedParam<number>;
     saturation?: AnimatedParam<number>; hue?: AnimatedParam<number>; opacity?: AnimatedParam<number>;
+    // Motion keyframes (mirror the editor's VideoClipKeyframes): animate the PiP
+    // transform so a clip can pan, zoom, grow, or spin over its duration.
+    posX?: AnimatedParam<number>; posY?: AnimatedParam<number>;
+    scale?: AnimatedParam<number>; rotation?: AnimatedParam<number>;
   };
   colorWheels?: ColorWheels;
   curves?: CurveSet;
-  transition?: 'none' | 'fade' | 'slide' | 'wipe';
+  /** Creative effects + source crop — mirror the editor's VideoClip so export
+   *  matches preview. */
+  effects?: VideoEffect[];
+  crop?: { x: number; y: number; w: number; h: number };
+  transition?: TransitionId;
   transDur?: number;
   /** Chroma key (green/blue screen). Keyed pixels become transparent so the
    *  track below shows through. No model — per-pixel distance in RGB. */
@@ -94,6 +106,10 @@ export interface CompAudioClip {
   id: string; kind: 'audio'; trackId: string; mediaId: string;
   start: number; srcStart: number; srcEnd: number; speed: number;
   volume: number; fadeIn: number; fadeOut: number;
+  /** Volume automation (keyframed gain, clip-local seconds) + effects rack —
+   *  mirror the editor's AudioClip so the export sounds like the preview. */
+  volumeKf?: AnimatedParam<number>;
+  effects?: AudioEffect[];
 }
 
 export interface CompTextClip {
@@ -101,10 +117,13 @@ export interface CompTextClip {
   start: number; duration: number; text: string; font: string; size: number;
   color: string; weight: number; italic: boolean;
   outline: boolean; outlineColor: string; outlineWidth: number;
-  pos: 'top' | 'center' | 'bottom'; anim: 'none' | 'fade' | 'slide-up' | 'pop';
+  pos: 'top' | 'center' | 'bottom'; anim: TextAnimId;
   align: CanvasTextAlign;
   /** Free drag position (normalized 0..1, block center). Overrides pos/align. */
   nx?: number; ny?: number;
+  /** Manual per-text keyframes (mirror the editor's TextClip.kf) so hand-animated
+   *  text (grow/move/spin over time) exports identically to the preview. */
+  kf?: { scale?: AnimatedParam<number>; opacity?: AnimatedParam<number>; posX?: AnimatedParam<number>; posY?: AnimatedParam<number>; rotation?: AnimatedParam<number> };
 }
 
 export type CompClip = CompVideoClip | CompAudioClip | CompTextClip;
@@ -263,32 +282,47 @@ function drawClipFrame(
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, opacity / 100));
 
-  // Optional PiP transform around the frame center.
-  if (c.transform && (c.transform.scale !== 1 || c.transform.x !== 0 || c.transform.y !== 0 || c.transform.rotation !== 0)) {
-    const cx = frameW / 2 + c.transform.x * frameW;
-    const cy = frameH / 2 + c.transform.y * frameH;
+  // Optional PiP transform around the frame center — each axis can be keyframed
+  // (posX/posY/scale/rotation) for motion; falls back to the static transform.
+  const baseTf = c.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 };
+  const tfX = sampleParam(c, 'posX', baseTf.x, localT);
+  const tfY = sampleParam(c, 'posY', baseTf.y, localT);
+  const tfScale = sampleParam(c, 'scale', baseTf.scale, localT);
+  const tfRot = sampleParam(c, 'rotation', baseTf.rotation, localT);
+  if (tfScale !== 1 || tfX !== 0 || tfY !== 0 || tfRot !== 0) {
+    const cx = frameW / 2 + tfX * frameW;
+    const cy = frameH / 2 + tfY * frameH;
     ctx.translate(cx, cy);
-    ctx.rotate((c.transform.rotation * Math.PI) / 180);
-    ctx.scale(c.transform.scale, c.transform.scale);
+    ctx.rotate((tfRot * Math.PI) / 180);
+    ctx.scale(tfScale, tfScale);
     ctx.translate(-frameW / 2, -frameH / 2);
   }
 
-  (ctx as any).filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)`;
+  const fxFrag = effectFilterFragment(c.effects, frameW);
+  (ctx as any).filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)${fxFrag ? ' ' + fxFrag : ''}`;
+  const cr = c.crop;
+  const drawSrc = (img: CanvasImageSource) => {
+    if (cr && (cr.x !== 0 || cr.y !== 0 || cr.w !== 1 || cr.h !== 1)) {
+      ctx.drawImage(img, cr.x * sw, cr.y * sh, cr.w * sw, cr.h * sh, tx, ty, tw, th);
+    } else {
+      ctx.drawImage(img, tx, ty, tw, th);
+    }
+  };
   if (c.chromaKey) {
     // Key the source on its own buffer first, then draw the alpha-bearing
     // result so the track below shows through the keyed-out region.
     const keyed = chromaKeySource(src, c.chromaKey);
-    if (keyed) ctx.drawImage(keyed, tx, ty, tw, th);
-    else ctx.drawImage(src, tx, ty, tw, th);
+    drawSrc(keyed ?? src);
   } else {
-    ctx.drawImage(src, tx, ty, tw, th);
+    drawSrc(src);
   }
   (ctx as any).filter = 'none';
 
   // Color wheels + curves operate on pixels (CSS filters can't express them).
   const hasWheels = c.colorWheels && !isZeroWheels(c.colorWheels);
   const hasCurves = c.curves && (c.curves.master || c.curves.r || c.curves.g || c.curves.b);
-  if (hasWheels || hasCurves) {
+  const hasPixFx = hasPixelEffects(c.effects);
+  if (hasWheels || hasCurves || hasPixFx) {
     try {
       const dx = Math.max(0, Math.floor(tx)), dy = Math.max(0, Math.floor(ty));
       const dwInt = Math.min(frameW - dx, Math.ceil(tw)), dhInt = Math.min(frameH - dy, Math.ceil(th));
@@ -296,6 +330,9 @@ function drawClipFrame(
         const img = ctx.getImageData(dx, dy, dwInt, dhInt);
         if (hasWheels) applyColorWheelsToImageData(img.data, c.colorWheels!);
         if (hasCurves) applyCurveSet(img.data, c.curves!);
+        // Same pixel-effects + grain seed as the preview (localT*1000 rounded) so
+        // the exported frame is identical to what the user saw.
+        if (hasPixFx) applyPixelEffects(img, c.effects, Math.round(localT * 1000));
         ctx.putImageData(img, dx, dy);
       }
     } catch { /* tainted canvas / OOB — skip pixel grade for this frame */ }
@@ -307,41 +344,74 @@ function drawTextClip(
   ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
   tx: CompTextClip, frameW: number, frameH: number, t: number,
 ): void {
+  // MIRRORS tools/video-studio/ui.tsx drawTextClip EXACTLY (preset animation
+  // library + manual keyframes + reveal + blur + block transform). Keep the two
+  // in lock-step or captions diverge between preview and the exported file.
   const localT = (t - tx.start) / Math.max(tx.duration, 0.01);
-  let alpha = 1, off = 0;
-  if (tx.anim === 'fade') alpha = Math.min(1, Math.min(localT * 4, (1 - localT) * 4));
-  if (tx.anim === 'slide-up') off = (1 - Math.min(1, localT * 6)) * 40;
-  if (tx.anim === 'pop') alpha = Math.min(1, localT * 8);
+  const u = frameW / 1920;
+  const anim = sampleTextAnim(tx.anim, localT, frameW);
+  const kfScale = tx.kf?.scale ? sampleAnimated(tx.kf.scale, localT) : 1;
+  const kfAlpha = tx.kf?.opacity ? sampleAnimated(tx.kf.opacity, localT) / 100 : 1;
+  const kfRot = tx.kf?.rotation ? (sampleAnimated(tx.kf.rotation, localT) * Math.PI) / 180 : 0;
+  const kfDX = tx.kf?.posX ? sampleAnimated(tx.kf.posX, localT) * frameW : 0;
+  const kfDY = tx.kf?.posY ? sampleAnimated(tx.kf.posY, localT) * frameH : 0;
+  const alpha = Math.max(0, anim.alpha * kfAlpha);
+  if (alpha <= 0) return;
+  const scale = anim.scale * kfScale;
+  const rotate = anim.rotate + kfRot;
+
   ctx.save();
-  ctx.globalAlpha = Math.max(0, alpha);
-  ctx.font = `${tx.italic ? 'italic ' : ''}${tx.weight} ${tx.size * (frameW / 1920)}px ${tx.font}`;
+  ctx.globalAlpha = alpha;
+  if (anim.blur > 0) (ctx as any).filter = `blur(${anim.blur}px)`;
+  ctx.font = `${tx.italic ? 'italic ' : ''}${tx.weight} ${tx.size * u}px ${tx.font}`;
   const freePos = tx.nx != null && tx.ny != null;
   ctx.textAlign = freePos ? 'center' : tx.align;
   ctx.textBaseline = 'middle';
-  const lines = tx.text.split('\n');
-  const lh = tx.size * 1.25 * (frameW / 1920);
-  const totalH = lines.length * lh;
-  // WYSIWYG with the preview: honour the free-dragged nx/ny (block center) over
-  // the pos/align presets so the export matches what the user placed on-frame.
-  let yBase = freePos
+  const fullLines = tx.text.split('\n');
+  let lines = fullLines;
+  if (anim.reveal < 1) {
+    if (tx.anim === 'word-by-word') {
+      const words = tx.text.split(/(\s+)/);
+      const nShow = Math.ceil(words.filter(w => w.trim()).length * anim.reveal);
+      let shown = 0; const out: string[] = [];
+      for (const w of words) { if (w.trim()) { if (shown >= nShow) break; shown++; } out.push(w); }
+      lines = out.join('').split('\n');
+    } else {
+      const nChars = Math.ceil(tx.text.length * anim.reveal);
+      lines = tx.text.slice(0, nChars).split('\n');
+    }
+  }
+  const lh = tx.size * 1.25 * u;
+  const totalH = fullLines.length * lh;
+  const yBase = freePos
     ? tx.ny! * frameH - totalH / 2 + lh / 2
     : tx.pos === 'top' ? frameH * 0.12 + lh / 2
     : tx.pos === 'center' ? frameH / 2 - totalH / 2 + lh / 2
     : frameH - frameH * 0.12 - totalH + lh / 2;
-  yBase += off;
   const xBase = freePos ? tx.nx! * frameW
     : tx.align === 'center' ? frameW / 2 : tx.align === 'right' ? frameW - 60 : 60;
+  const blockCX = xBase + anim.dx + kfDX;
+  const blockCY = yBase + totalH / 2 - lh / 2 + anim.dy + kfDY;
+  if (scale !== 1 || rotate !== 0) {
+    ctx.translate(blockCX, blockCY);
+    ctx.rotate(rotate);
+    ctx.scale(scale, scale);
+    ctx.translate(-blockCX, -blockCY);
+  }
+  const drawX = xBase + anim.dx + kfDX;
+  const drawY0 = yBase + anim.dy + kfDY;
   for (let i = 0; i < lines.length; i++) {
-    const yy = yBase + i * lh;
+    const yy = drawY0 + i * lh;
     if (tx.outline) {
       ctx.lineJoin = 'round';
-      ctx.lineWidth = Math.max(2, tx.outlineWidth * (frameW / 1920));
+      ctx.lineWidth = Math.max(2, tx.outlineWidth * u);
       ctx.strokeStyle = tx.outlineColor;
-      ctx.strokeText(lines[i], xBase, yy);
+      ctx.strokeText(lines[i], drawX, yy);
     }
     ctx.fillStyle = tx.color;
-    ctx.fillText(lines[i], xBase, yy);
+    ctx.fillText(lines[i], drawX, yy);
   }
+  (ctx as any).filter = 'none';
   ctx.restore();
 }
 
@@ -398,22 +468,10 @@ export async function renderTimelineFrame(
     if (inTransition) {
       const p = Math.min(1, localT / transDur); // 0→1 across the transition
       ctx.save();
-      if (active.transition === 'fade') {
-        ctx.globalAlpha = p;
-        drawClipFrame(ctx, frame, frameW, frameH, active, localT);
-      } else if (active.transition === 'slide') {
-        // SLIDE: the incoming clip translates in from the right edge, covering
-        // the outgoing clip as it moves — distinct from 'wipe' (a static reveal).
-        ctx.translate(frameW * (1 - p), 0);
-        drawClipFrame(ctx, frame, frameW, frameH, active, localT);
-      } else {
-        // WIPE: reveal the incoming clip left-to-right through a growing clip
-        // rect, while it stays in place.
-        ctx.beginPath();
-        ctx.rect(0, 0, frameW * p, frameH);
-        ctx.clip();
-        drawClipFrame(ctx, frame, frameW, frameH, active, localT);
-      }
+      // Shared transition library — identical setup in preview + export.
+      setupTransition(ctx, active.transition as TransitionId, p, frameW, frameH);
+      drawClipFrame(ctx, frame, frameW, frameH, active, localT);
+      (ctx as any).filter = 'none';
       ctx.restore();
     } else {
       drawClipFrame(ctx, frame, frameW, frameH, active, localT);
@@ -466,17 +524,37 @@ async function mixAudio(doc: CompDoc, mediaMap: Map<string, CompMedia>): Promise
     node.buffer = buf;
     node.playbackRate.value = Math.max(0.25, Math.min(4, ac.speed || 1));
     const gain = ctx.createGain();
-    const vol = Math.max(0, Math.min(1, (ac.volume ?? 1) * doc.master.volume));
+    const masterVol = Math.max(0, Math.min(2, doc.master.volume));
     const startAt = Math.max(0, ac.start);
     const dur = clipEnd(ac) - ac.start;
     const g = gain.gain;
-    g.setValueAtTime(ac.fadeIn > 0 ? 0 : vol, startAt);
-    if (ac.fadeIn > 0) g.linearRampToValueAtTime(vol, startAt + Math.min(ac.fadeIn, dur));
-    if (ac.fadeOut > 0) {
-      g.setValueAtTime(vol, Math.max(startAt, startAt + dur - ac.fadeOut));
-      g.linearRampToValueAtTime(0, startAt + dur);
+    // VOLUME AUTOMATION: if the clip has a keyframed gain envelope, schedule it
+    // sample-accurately (clip-local seconds → absolute timeline seconds) so one
+    // part can be ducked and another lifted. Else use the static volume + fades.
+    if (ac.volumeKf && ac.volumeKf.keyframes.length) {
+      const kfs = ac.volumeKf.keyframes;
+      g.setValueAtTime(Math.max(0, kfs[0].value) * masterVol, startAt);
+      for (const k of kfs) {
+        const at = startAt + Math.max(0, Math.min(dur, k.t));
+        g.linearRampToValueAtTime(Math.max(0, k.value) * masterVol, at);
+      }
+    } else {
+      const vol = Math.max(0, Math.min(2, (ac.volume ?? 1) * masterVol));
+      g.setValueAtTime(ac.fadeIn > 0 ? 0 : vol, startAt);
+      if (ac.fadeIn > 0) g.linearRampToValueAtTime(vol, startAt + Math.min(ac.fadeIn, dur));
+      if (ac.fadeOut > 0) {
+        g.setValueAtTime(vol, Math.max(startAt, startAt + dur - ac.fadeOut));
+        g.linearRampToValueAtTime(0, startAt + dur);
+      }
     }
-    node.connect(gain).connect(ctx.destination);
+    // EFFECTS RACK: source → effect chain → gain → destination. Pitch is applied
+    // as detune on the source (100 cents per semitone).
+    const chain = buildAudioChain(ctx, ac.effects);
+    if (chain.pitchSemitones) {
+      try { node.detune.value = chain.pitchSemitones * 100; } catch { /* detune unsupported */ }
+    }
+    node.connect(chain.input);
+    chain.output.connect(gain).connect(ctx.destination);
     node.start(startAt, Math.max(0, ac.srcStart), dur * (node.playbackRate.value));
     placed++;
   }

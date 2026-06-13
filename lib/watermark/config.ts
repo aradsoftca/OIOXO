@@ -30,10 +30,26 @@ export const WM_LOGO = IS_OIOXO ? '/oioxo-icon.png' : '/icon.png';
  *  filenames in a capture-phase click handler and can't await). Default ON
  *  (free-safe); updated whenever isWatermarkOn() resolves. */
 let _wmSync = true;
-export function watermarkOnSync(): boolean { return _wmSync; }
+
+/** Authoritative override for environments that own their Pro state outside the
+ *  web `/api/entitlement` flow (the native xtudio apps read it from a signed,
+ *  device-bound entitlement). When set, it wins over the async fetch — so a Pro
+ *  app user is never watermarked and a free one always is, without depending on
+ *  the cookie-based web entitlement that doesn't exist in the WebView. `null`
+ *  (the web default) leaves the original fetch-driven behavior untouched. */
+let _wmOverride: boolean | null = null;
+export function setWatermarkOverride(on: boolean | null): void {
+  _wmOverride = on;
+  if (on !== null) _wmSync = on;
+}
+
+export function watermarkOnSync(): boolean {
+  return _wmOverride !== null ? _wmOverride : _wmSync;
+}
 
 /** True when the current session should be watermarked (i.e. NOT Pro/Team). */
 export async function isWatermarkOn(): Promise<boolean> {
+  if (_wmOverride !== null) return _wmOverride;
   try {
     const e = await getEntitlement();
     _wmSync = !isPro(e);

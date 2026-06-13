@@ -32,6 +32,11 @@ import {
   WebCodecsPlayer, blitFrameToCanvas, deviceProfile, useRafThrottle, targetFps,
   usePinchPan,
   type AnimatedParam, sampleAnimated, addKeyframe, removeKeyframe, makeStatic, isAnimated,
+  type TextAnimId, TEXT_ANIMATIONS, sampleTextAnim,
+  type AudioEffect, type AudioEffectType, AUDIO_EFFECT_DEFAULTS, AUDIO_EFFECT_LABELS,
+  type TransitionId, TRANSITION_LIST, setupTransition,
+  type VideoEffect, type VideoEffectType, VIDEO_EFFECT_LABELS, VIDEO_EFFECT_DEFAULT_AMOUNT,
+  effectFilterFragment, hasPixelEffects, applyPixelEffects,
   ColorWheelsPanel, RgbCurvesPanel,
   type ColorWheels, type CurveSet, ZERO_WHEELS, isZeroWheels,
   applyColorWheelsToImageData, applyCurveSet,
@@ -58,6 +63,14 @@ interface VideoClipKeyframes {
   saturation?: AnimatedParam<number>;
   hue?: AnimatedParam<number>;
   opacity?: AnimatedParam<number>;
+  // Motion keyframes — animate the PiP transform so a clip can pan, zoom
+  // (Ken Burns by hand), grow, spin, or fly across the frame over time. posX/posY
+  // are normalized to the frame (0 = centered, ±0.5 = edge); scale 1 = fit;
+  // rotation in degrees. Sampled in drawVideoFrame so preview == export.
+  posX?: AnimatedParam<number>;
+  posY?: AnimatedParam<number>;
+  scale?: AnimatedParam<number>;
+  rotation?: AnimatedParam<number>;
 }
 
 interface VideoClip {
@@ -76,12 +89,18 @@ interface VideoClip {
   hue: number;
   opacity: number;
   fit: 'contain' | 'cover';
-  transition?: 'none' | 'fade' | 'slide' | 'wipe';
+  transition?: TransitionId;
   transDur?: number;
   chromaKey?: { color: string; similarity: number; smoothness: number; spill: number };
   keyframes?: VideoClipKeyframes;
   colorWheels?: ColorWheels;
   curves?: CurveSet;
+  /** Stackable creative effects (blur/glow/vignette/grain/pixelate/…) applied
+   *  identically in preview + export. */
+  effects?: VideoEffect[];
+  /** Source-space crop rect (normalized 0..1) applied before fit, so a placed
+   *  image/video can be cropped without a separate tool. */
+  crop?: { x: number; y: number; w: number; h: number };
   /** PiP transform around the frame center. x/y normalized to frame (0 = centered),
    *  scale 1 = fit, rotation in degrees. Used for picture-in-picture / split / Ken Burns. */
   transform?: { x: number; y: number; scale: number; rotation: number };
@@ -105,6 +124,13 @@ interface AudioClip {
   volume: number;
   fadeIn: number;
   fadeOut: number;
+  /** Volume AUTOMATION — keyframed gain envelope (0..2 = 0..200%) sampled in
+   *  CLIP-LOCAL SECONDS so a user can duck one part and lift another. When
+   *  present it overrides the static `volume` in the mixdown. */
+  volumeKf?: AnimatedParam<number>;
+  /** Per-clip audio effects rack (EQ/reverb/filter/compressor/echo/pitch),
+   *  applied in BOTH the export mixdown and live preview. */
+  effects?: AudioEffect[];
 }
 
 interface TextClip {
@@ -123,8 +149,13 @@ interface TextClip {
   outlineColor: string;
   outlineWidth: number;
   pos: 'top' | 'center' | 'bottom';
-  anim: 'none' | 'fade' | 'slide-up' | 'pop';
+  anim: TextAnimId;
   align: CanvasTextAlign;
+  /** Optional manual keyframes layered ON TOP of the preset animation, so a user
+   *  can hand-animate text scale/opacity/position/rotation (e.g. make a title
+   *  grow over its whole duration). Sampled with the same keyframe engine as
+   *  video clips → identical in preview + export. */
+  kf?: { scale?: AnimatedParam<number>; opacity?: AnimatedParam<number>; posX?: AnimatedParam<number>; posY?: AnimatedParam<number>; rotation?: AnimatedParam<number> };
   /** Free position (normalized 0..1) when the user has dragged the text on the
       preview. Overrides pos/align placement. Undefined → use pos/align presets. */
   nx?: number;
@@ -1111,7 +1142,10 @@ export default function VideoStudioPro() {
       // (fade) — a visible cue matching the export's WYSIWYG transition.
       const transDur = active.transDur ?? 0.5;
       const inTrans = !!active.transition && active.transition !== 'none' && (t - active.start) < transDur && ai > 0;
-      let transAlpha = 1;
+      // True transition parity with the export: during the opening transDur, draw
+      // the held previous frame underneath, then set up the SAME transition (slide/
+      // wipe/zoom/circle/blur/spin/fade…) on the incoming frame via setupTransition.
+      const transP = inTrans ? Math.min(1, (t - active.start) / transDur) : 1;
       if (inTrans) {
         const prev = trackClips[ai - 1];
         const pItem = mediaMap.get(prev.mediaId);
@@ -1120,12 +1154,20 @@ export default function VideoStudioPro() {
           if (pItem.kind === 'image') { const im = new Image(); im.src = pItem.url; if (im.complete) drawVideoFrame(ctx, im, c.width, c.height, prev, pLocalT); }
           else { const pv = getMediaEl(pItem) as HTMLVideoElement; if (pv.readyState >= 2) drawVideoFrame(ctx, pv, c.width, c.height, prev, pLocalT); }
         }
-        if (active.transition === 'fade') transAlpha = Math.min(1, (t - active.start) / transDur);
       }
+      // Wrap a draw with the transition setup so preview == export.
+      const drawWithTrans = (cx: CanvasRenderingContext2D, drawFn: () => void) => {
+        if (!inTrans) { drawFn(); return; }
+        cx.save();
+        setupTransition(cx, active.transition as TransitionId, transP, c.width, c.height);
+        drawFn();
+        cx.filter = 'none';
+        cx.restore();
+      };
       if (item.kind === 'image') {
         const img = new Image();
         img.src = item.url;
-        if (img.complete) drawVideoFrame(ctx, img, c.width, c.height, active, 0, transAlpha);
+        if (img.complete) drawWithTrans(ctx, () => drawVideoFrame(ctx, img, c.width, c.height, active, 0, 1));
       } else {
         const local = (t - active.start) * active.speed + active.srcStart;
         const localT = t - active.start;
@@ -1136,14 +1178,14 @@ export default function VideoStudioPro() {
             const cc = previewRef.current;
             if (!cc) return;
             const ctx2 = cc.getContext('2d')!;
-            drawVideoFrame(ctx2, bitmap as any, cc.width, cc.height, active, localT, transAlpha);
+            drawWithTrans(ctx2, () => drawVideoFrame(ctx2, bitmap as any, cc.width, cc.height, active, localT, 1));
           });
         } else {
           const v = getMediaEl(item) as HTMLVideoElement;
           if (Math.abs(v.currentTime - local) > 0.2 && !isNaN(v.duration)) {
             try { v.currentTime = Math.min(Math.max(local, 0), v.duration); } catch {}
           }
-          if (v.readyState >= 2) drawVideoFrame(ctx, v, c.width, c.height, active, localT, transAlpha);
+          if (v.readyState >= 2) drawWithTrans(ctx, () => drawVideoFrame(ctx, v, c.width, c.height, active, localT, 1));
         }
       }
     }
@@ -1152,43 +1194,7 @@ export default function VideoStudioPro() {
     if (textTrack) {
       const txts = doc.clips.filter(cl => cl.trackId === textTrack.id && cl.kind === 'text' && t >= cl.start && t < clipEnd(cl)) as TextClip[];
       for (const tx of txts) {
-        const localT = (t - tx.start) / Math.max(tx.duration, 0.01);
-        let alpha = 1;
-        let off = 0;
-        if (tx.anim === 'fade') alpha = Math.min(1, Math.min(localT * 4, (1 - localT) * 4));
-        if (tx.anim === 'slide-up') off = (1 - Math.min(1, localT * 6)) * 40;
-        if (tx.anim === 'pop') alpha = Math.min(1, localT * 8);
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, alpha);
-        ctx.font = `${tx.italic ? 'italic ' : ''}${tx.weight} ${tx.size * (c.width / 1920)}px ${tx.font}`;
-        const freePos = tx.nx != null && tx.ny != null;
-        ctx.textAlign = freePos ? 'center' : tx.align;
-        ctx.textBaseline = 'middle';
-        const lines = tx.text.split('\n');
-        const lh = tx.size * 1.25 * (c.width / 1920);
-        const totalH = lines.length * lh;
-        // Free-dragged position (nx,ny = block CENTER, normalized) overrides the
-        // pos/align presets so the user can place text anywhere on the frame.
-        let yBase = freePos
-          ? tx.ny! * c.height - totalH / 2 + lh / 2
-          : tx.pos === 'top' ? c.height * 0.12 + lh / 2
-          : tx.pos === 'center' ? c.height / 2 - totalH / 2 + lh / 2
-          : c.height - c.height * 0.12 - totalH + lh / 2;
-        yBase += off;
-        const xBase = freePos ? tx.nx! * c.width
-          : tx.align === 'center' ? c.width / 2 : tx.align === 'right' ? c.width - 60 : 60;
-        for (let i = 0; i < lines.length; i++) {
-          const yy = yBase + i * lh;
-          if (tx.outline) {
-            ctx.lineJoin = 'round';
-            ctx.lineWidth = Math.max(2, tx.outlineWidth * (c.width / 1920));
-            ctx.strokeStyle = tx.outlineColor;
-            ctx.strokeText(lines[i], xBase, yy);
-          }
-          ctx.fillStyle = tx.color;
-          ctx.fillText(lines[i], xBase, yy);
-        }
-        ctx.restore();
+        drawTextClip(ctx, tx, c.width, c.height, t);
       }
     }
   }, [doc, mediaMap]);
@@ -1985,6 +1991,83 @@ export default function VideoStudioPro() {
   );
 }
 
+// Shared text renderer — used by the live preview AND mirrored exactly by the
+// export compositor (see engines/video/compositor.ts drawCompText) so captions
+// look identical on screen and in the file. Handles the preset animation library
+// (sampleTextAnim), manual per-text keyframes (grow/move by hand), character
+// reveal (typewriter / word-by-word), blur-in, and the block transform.
+function drawTextClip(ctx: CanvasRenderingContext2D, tx: TextClip, cw: number, ch: number, t: number) {
+  const localT = (t - tx.start) / Math.max(tx.duration, 0.01);
+  const u = cw / 1920;
+  const anim = sampleTextAnim(tx.anim, localT, cw);
+  // Manual keyframes layer on top of (multiply/add) the preset.
+  const kfScale = tx.kf?.scale ? sampleAnimated(tx.kf.scale, localT) : 1;
+  const kfAlpha = tx.kf?.opacity ? sampleAnimated(tx.kf.opacity, localT) / 100 : 1;
+  const kfRot = tx.kf?.rotation ? (sampleAnimated(tx.kf.rotation, localT) * Math.PI) / 180 : 0;
+  const kfDX = tx.kf?.posX ? sampleAnimated(tx.kf.posX, localT) * cw : 0;
+  const kfDY = tx.kf?.posY ? sampleAnimated(tx.kf.posY, localT) * ch : 0;
+  const alpha = Math.max(0, anim.alpha * kfAlpha);
+  if (alpha <= 0) return;
+  const scale = anim.scale * kfScale;
+  const rotate = anim.rotate + kfRot;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (anim.blur > 0) ctx.filter = `blur(${anim.blur}px)`;
+  ctx.font = `${tx.italic ? 'italic ' : ''}${tx.weight} ${tx.size * u}px ${tx.font}`;
+  const freePos = tx.nx != null && tx.ny != null;
+  ctx.textAlign = freePos ? 'center' : tx.align;
+  ctx.textBaseline = 'middle';
+  // Character reveal (typewriter/word-by-word) clips the visible text.
+  const fullLines = tx.text.split('\n');
+  let lines = fullLines;
+  if (anim.reveal < 1) {
+    if (tx.anim === 'word-by-word') {
+      const words = tx.text.split(/(\s+)/);
+      const nShow = Math.ceil(words.filter(w => w.trim()).length * anim.reveal);
+      let shown = 0; const out: string[] = [];
+      for (const w of words) { if (w.trim()) { if (shown >= nShow) break; shown++; } out.push(w); }
+      lines = out.join('').split('\n');
+    } else {
+      const nChars = Math.ceil(tx.text.length * anim.reveal);
+      lines = tx.text.slice(0, nChars).split('\n');
+    }
+  }
+  const lh = tx.size * 1.25 * u;
+  const totalH = fullLines.length * lh;
+  let yBase = freePos
+    ? tx.ny! * ch - totalH / 2 + lh / 2
+    : tx.pos === 'top' ? ch * 0.12 + lh / 2
+    : tx.pos === 'center' ? ch / 2 - totalH / 2 + lh / 2
+    : ch - ch * 0.12 - totalH + lh / 2;
+  const xBase = freePos ? tx.nx! * cw
+    : tx.align === 'center' ? cw / 2 : tx.align === 'right' ? cw - 60 : 60;
+  // Apply preset/keyframe transform around the text block center.
+  const blockCX = xBase + anim.dx + kfDX;
+  const blockCY = yBase + totalH / 2 - lh / 2 + anim.dy + kfDY;
+  if (scale !== 1 || rotate !== 0) {
+    ctx.translate(blockCX, blockCY);
+    ctx.rotate(rotate);
+    ctx.scale(scale, scale);
+    ctx.translate(-blockCX, -blockCY);
+  }
+  const drawX = xBase + anim.dx + kfDX;
+  const drawY0 = yBase + anim.dy + kfDY;
+  for (let i = 0; i < lines.length; i++) {
+    const yy = drawY0 + i * lh;
+    if (tx.outline) {
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = Math.max(2, tx.outlineWidth * u);
+      ctx.strokeStyle = tx.outlineColor;
+      ctx.strokeText(lines[i], drawX, yy);
+    }
+    ctx.fillStyle = tx.color;
+    ctx.fillText(lines[i], drawX, yy);
+  }
+  ctx.filter = 'none';
+  ctx.restore();
+}
+
 function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | HTMLImageElement | ImageBitmap, dw: number, dh: number, v: VideoClip, localT = 0, alphaMul = 1) {
   const sw = src instanceof HTMLVideoElement ? src.videoWidth : (src as any).naturalWidth ?? (src as ImageBitmap).width;
   const sh = src instanceof HTMLVideoElement ? src.videoHeight : (src as any).naturalHeight ?? (src as ImageBitmap).height;
@@ -2006,27 +2089,46 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
   ctx.save();
   ctx.globalAlpha = Math.max(0, Math.min(1, (opacity / 100) * alphaMul));
   // PiP transform around the frame center — mirrors the export compositor's
-  // drawClipFrame so preview == output.
-  const tf = v.transform;
-  if (tf && (tf.scale !== 1 || tf.x !== 0 || tf.y !== 0 || tf.rotation !== 0)) {
-    const cx = dw / 2 + tf.x * dw;
-    const cy = dh / 2 + tf.y * dh;
+  // drawClipFrame so preview == output. Each axis can be KEYFRAMED (posX/posY/
+  // scale/rotation) for motion (pan, zoom, grow, spin); when a keyframe track
+  // exists it overrides the static transform value, else we fall back to the
+  // static v.transform so existing projects render unchanged.
+  const baseTf = v.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 };
+  const tfX = sampleClipParam(v, 'posX', baseTf.x, localT);
+  const tfY = sampleClipParam(v, 'posY', baseTf.y, localT);
+  const tfScale = sampleClipParam(v, 'scale', baseTf.scale, localT);
+  const tfRot = sampleClipParam(v, 'rotation', baseTf.rotation, localT);
+  if (tfScale !== 1 || tfX !== 0 || tfY !== 0 || tfRot !== 0) {
+    const cx = dw / 2 + tfX * dw;
+    const cy = dh / 2 + tfY * dh;
     ctx.translate(cx, cy);
-    ctx.rotate((tf.rotation * Math.PI) / 180);
-    ctx.scale(tf.scale, tf.scale);
+    ctx.rotate((tfRot * Math.PI) / 180);
+    ctx.scale(tfScale, tfScale);
     ctx.translate(-dw / 2, -dh / 2);
   }
-  ctx.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)`;
+  // Effect CSS-filter fragment composes with the grade filter (blur/glow/b&w/…).
+  const fxFrag = effectFilterFragment(v.effects, dw);
+  ctx.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%) hue-rotate(${hue}deg)${fxFrag ? ' ' + fxFrag : ''}`;
+  // Source-space crop (normalized) → drawImage source rect. Default = full frame.
+  const cr = v.crop;
+  const drawSrc = (img: any) => {
+    if (cr && (cr.x !== 0 || cr.y !== 0 || cr.w !== 1 || cr.h !== 1)) {
+      ctx.drawImage(img, cr.x * sw, cr.y * sh, cr.w * sw, cr.h * sh, tx, ty, tw, th);
+    } else {
+      ctx.drawImage(img, tx, ty, tw, th);
+    }
+  };
   if (v.chromaKey) {
     const keyed = chromaKeySource(src as any, v.chromaKey);
-    ctx.drawImage((keyed ?? (src as any)) as any, tx, ty, tw, th);
+    drawSrc((keyed ?? (src as any)) as any);
   } else {
-    ctx.drawImage(src as any, tx, ty, tw, th);
+    drawSrc(src as any);
   }
   ctx.filter = 'none';
   const hasWheels = v.colorWheels && !isZeroWheels(v.colorWheels);
   const hasCurves = v.curves && (v.curves.master || v.curves.r || v.curves.g || v.curves.b);
-  if (hasWheels || hasCurves) {
+  const hasPixFx = hasPixelEffects(v.effects);
+  if (hasWheels || hasCurves || hasPixFx) {
     try {
       // Clamp the read rect into the canvas. A negative-origin getImageData
       // (cover clips that overflow the frame) returns transparent-black pad
@@ -2040,6 +2142,9 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
         const imgData = ctx.getImageData(dx, dy, dwInt, dhInt);
         if (hasWheels) applyColorWheelsToImageData(imgData.data, v.colorWheels!);
         if (hasCurves) applyCurveSet(imgData.data, v.curves!);
+        // Pixel effects (vignette/grain/pixelate/sharpen/…). Seed grain on the
+        // integer source time so it's stable per frame AND identical to export.
+        if (hasPixFx) applyPixelEffects(imgData, v.effects, Math.round(localT * 1000));
         ctx.putImageData(imgData, dx, dy);
       }
     } catch {}
@@ -2431,9 +2536,9 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
               ))}
             </div>
             <div className="text-xs text-zinc-500">Transition in (blends from the previous clip)</div>
-            <div className="flex gap-1">
-              {(['none', 'fade', 'slide', 'wipe'] as const).map(tr => (
-                <button key={tr} onClick={() => onChange(x => { (x as VideoClip).transition = tr; if (!(x as VideoClip).transDur) (x as VideoClip).transDur = 0.5; })} className={cn('flex-1 rounded px-2 py-1 text-xs', (c.transition ?? 'none') === tr ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{tr}</button>
+            <div className="grid grid-cols-3 gap-1">
+              {TRANSITION_LIST.map(tr => (
+                <button key={tr.id} onClick={() => onChange(x => { (x as VideoClip).transition = tr.id; if (!(x as VideoClip).transDur) (x as VideoClip).transDur = 0.5; })} className={cn('rounded px-1.5 py-1 text-[10px]', (c.transition ?? 'none') === tr.id ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}>{tr.label}</button>
               ))}
             </div>
             {(c.transition && c.transition !== 'none') && (
@@ -2465,18 +2570,98 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
             <AnimatableSlider label="Hue" value={c.hue} min={-180} max={180} suffix="°" paramName="hue" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).hue = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), hue: kf }; })} />
           </div>
         </StudioPanel>
-        <StudioPanel title="Transform (PiP)" defaultOpen={!!c.transform && (c.transform.scale !== 1 || c.transform.x !== 0 || c.transform.y !== 0 || c.transform.rotation !== 0)}>
+        <StudioPanel title="Motion / Transform" defaultOpen={!!c.transform && (c.transform.scale !== 1 || c.transform.x !== 0 || c.transform.y !== 0 || c.transform.rotation !== 0) || !!(c.keyframes?.posX || c.keyframes?.posY || c.keyframes?.scale || c.keyframes?.rotation)}>
           <div className="space-y-2">
             {(() => {
               const tf = c.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 };
               const setTf = (patch: Partial<typeof tf>) => onChange(x => { const cur = (x as VideoClip).transform ?? { x: 0, y: 0, scale: 1, rotation: 0 }; (x as VideoClip).transform = { ...cur, ...patch }; });
+              // Drop a 2-keyframe motion preset across the clip's full duration on
+              // the given params. CRITICAL: video-clip keyframes are sampled in
+              // SECONDS (localT = playhead - clip.start), NOT normalized — so the
+              // end keyframe must sit at the clip's real duration or the motion
+              // finishes in the first second and freezes. clipDuration(c) gives
+              // the on-timeline seconds. Renders identically in preview + export
+              // because both sample posX/posY/scale/rotation at the same localT.
+              const dur = clipDuration(c);
+              const applyMotion = (kfs: Partial<Record<'posX' | 'posY' | 'scale' | 'rotation', [number, number]>>) => onChange(x => {
+                const v = x as VideoClip;
+                const next = { ...(v.keyframes ?? {}) };
+                for (const k of Object.keys(kfs) as (keyof typeof kfs)[]) {
+                  const [a, b] = kfs[k]!;
+                  next[k] = { defaultValue: a, keyframes: [{ t: 0, value: a, easing: 'ease-in-out' }, { t: dur, value: b, easing: 'ease-in-out' }] };
+                }
+                v.keyframes = next;
+              });
               return (
                 <>
-                  <StudioSlider label="Scale" value={Math.round(tf.scale * 100)} min={5} max={400} onChange={v => setTf({ scale: v / 100 })} suffix="%" />
-                  <StudioSlider label="Position X" value={Math.round(tf.x * 100)} min={-100} max={100} onChange={v => setTf({ x: v / 100 })} suffix="%" />
-                  <StudioSlider label="Position Y" value={Math.round(tf.y * 100)} min={-100} max={100} onChange={v => setTf({ y: v / 100 })} suffix="%" />
-                  <StudioSlider label="Rotation" value={tf.rotation} min={-180} max={180} onChange={v => setTf({ rotation: v })} suffix="°" />
-                  <button onClick={() => onChange(x => { (x as VideoClip).transform = undefined; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Reset transform</button>
+                  <div className="grid grid-cols-2 gap-1 pb-1">
+                    {([
+                      ['Ken Burns in', () => applyMotion({ scale: [1, 1.25] })],
+                      ['Ken Burns out', () => applyMotion({ scale: [1.25, 1] })],
+                      ['Grow', () => applyMotion({ scale: [0.2, 1] })],
+                      ['Shrink', () => applyMotion({ scale: [1, 0.2] })],
+                      ['Spin', () => applyMotion({ rotation: [0, 360] })],
+                      ['Fly in ←', () => applyMotion({ posX: [-0.6, 0] })],
+                      ['Fly in →', () => applyMotion({ posX: [0.6, 0] })],
+                      ['Pan up', () => applyMotion({ posY: [0.4, -0.4] })],
+                    ] as const).map(([lbl, fn]) => (
+                      <button key={lbl} onClick={fn} className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">{lbl}</button>
+                    ))}
+                  </div>
+                  {/* Sliders operate in the renderer's NATIVE units (scale 0.05..4,
+                      pos -1..1, rotation deg) so keyframes the slider stores are
+                      sampled correctly by drawVideoFrame/compositor. A display
+                      formatter shows them as friendly %/° without changing storage. */}
+                  <AnimatableSlider label="Scale" value={tf.scale} min={0.05} max={4} step={0.01} format={v => `${Math.round(v * 100)}%`} paramName="scale" clip={c} localT={localT}
+                    onChange={v => setTf({ scale: v })}
+                    onAnimate={kf => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), scale: kf }; })} />
+                  <AnimatableSlider label="Position X" value={tf.x} min={-1} max={1} step={0.01} format={v => `${Math.round(v * 100)}%`} paramName="posX" clip={c} localT={localT}
+                    onChange={v => setTf({ x: v })}
+                    onAnimate={kf => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), posX: kf }; })} />
+                  <AnimatableSlider label="Position Y" value={tf.y} min={-1} max={1} step={0.01} format={v => `${Math.round(v * 100)}%`} paramName="posY" clip={c} localT={localT}
+                    onChange={v => setTf({ y: v })}
+                    onAnimate={kf => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), posY: kf }; })} />
+                  <AnimatableSlider label="Rotation" value={tf.rotation} min={-180} max={180} suffix="°" paramName="rotation" clip={c} localT={localT}
+                    onChange={v => setTf({ rotation: v })}
+                    onAnimate={kf => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), rotation: kf }; })} />
+                  <button onClick={() => onChange(x => { const v = x as VideoClip; v.transform = undefined; const k = { ...(v.keyframes ?? {}) }; delete k.posX; delete k.posY; delete k.scale; delete k.rotation; v.keyframes = k; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Reset motion</button>
+                </>
+              );
+            })()}
+          </div>
+        </StudioPanel>
+        <StudioPanel title="Effects" defaultOpen={!!(c.effects && c.effects.length)}>
+          <div className="space-y-2">
+            {(c.effects ?? []).map((e, i) => (
+              <div key={i} className="rounded border border-white/10 bg-white/5 p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-200">
+                    <input type="checkbox" checked={e.enabled} onChange={ev => onChange(x => { const v = x as VideoClip; v.effects = (v.effects ?? []).map((o, j) => j === i ? { ...o, enabled: ev.target.checked } : o); })} /> {VIDEO_EFFECT_LABELS[e.type]}
+                  </label>
+                  <button onClick={() => onChange(x => { const v = x as VideoClip; v.effects = (v.effects ?? []).filter((_, j) => j !== i); })} className="grid h-4 w-4 place-items-center rounded text-[9px] text-zinc-400 hover:bg-rose-500/20 hover:text-rose-300">×</button>
+                </div>
+                {e.enabled && <StudioSlider label="Amount" value={e.amount} min={0} max={100} onChange={v => onChange(x => { const vc = x as VideoClip; vc.effects = (vc.effects ?? []).map((o, j) => j === i ? { ...o, amount: v } : o); })} suffix="%" />}
+              </div>
+            ))}
+            <div className="grid grid-cols-2 gap-1">
+              {(Object.keys(VIDEO_EFFECT_LABELS) as VideoEffectType[]).filter(tp => !(c.effects ?? []).some(e => e.type === tp)).map(tp => (
+                <button key={tp} onClick={() => onChange(x => { const v = x as VideoClip; v.effects = [...(v.effects ?? []), { type: tp, enabled: true, amount: VIDEO_EFFECT_DEFAULT_AMOUNT[tp] }]; })} className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">+ {VIDEO_EFFECT_LABELS[tp]}</button>
+              ))}
+            </div>
+          </div>
+        </StudioPanel>
+        <StudioPanel title="Crop" defaultOpen={!!c.crop}>
+          <div className="space-y-2">
+            {(() => {
+              const cr = c.crop ?? { x: 0, y: 0, w: 1, h: 1 };
+              const setCr = (patch: Partial<typeof cr>) => onChange(x => { const v = x as VideoClip; const cur = v.crop ?? { x: 0, y: 0, w: 1, h: 1 }; v.crop = { ...cur, ...patch }; });
+              return (
+                <>
+                  <StudioSlider label="Left" value={Math.round(cr.x * 100)} min={0} max={90} onChange={v => setCr({ x: v / 100, w: Math.min(cr.w, 1 - v / 100) })} suffix="%" />
+                  <StudioSlider label="Top" value={Math.round(cr.y * 100)} min={0} max={90} onChange={v => setCr({ y: v / 100, h: Math.min(cr.h, 1 - v / 100) })} suffix="%" />
+                  <StudioSlider label="Width" value={Math.round(cr.w * 100)} min={10} max={100} onChange={v => setCr({ w: Math.min(v / 100, 1 - cr.x) })} suffix="%" />
+                  <StudioSlider label="Height" value={Math.round(cr.h * 100)} min={10} max={100} onChange={v => setCr({ h: Math.min(v / 100, 1 - cr.y) })} suffix="%" />
+                  <button onClick={() => onChange(x => { (x as VideoClip).crop = undefined; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Reset crop</button>
                 </>
               );
             })()}
@@ -2521,16 +2706,50 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
   }
   if (clip.kind === 'audio') {
     const c = clip;
+    const dur = clipDuration(c);
+    const localT = Math.max(0, (playhead ?? 0) - c.start);
+    const automated = !!c.volumeKf && c.volumeKf.keyframes.length > 0;
+    const curVol = automated ? sampleAnimated(c.volumeKf!, localT) : c.volume;
+    const addVolKf = () => onChange(x => {
+      const a = x as AudioClip;
+      const base = a.volumeKf ?? makeStatic(a.volume);
+      a.volumeKf = addKeyframe(base, localT, curVol, 'linear');
+    });
+    const setEffects = (fx: AudioEffect[]) => onChange(x => { (x as AudioClip).effects = fx; });
+    const fx = c.effects ?? [];
     return (
+      <>
       <StudioPanel title="Audio">
         <div className="space-y-3">
           <div className="text-xs text-zinc-400">{media?.name}</div>
-          <StudioSlider label="Volume" value={Math.round(c.volume * 100)} min={0} max={200} onChange={v => onChange(x => { (x as AudioClip).volume = v / 100; })} suffix="%" />
+          <div className="flex items-center justify-between text-[10px] text-zinc-400">
+            <span className="flex items-center gap-1.5">Volume {automated && <span className="rounded bg-cyan-500/20 px-1 text-[9px] font-semibold text-cyan-300">{c.volumeKf!.keyframes.length}KF</span>}</span>
+            <span className="flex items-center gap-1">
+              <button onClick={addVolKf} title="Add volume keyframe at playhead — automate (duck/lift) the level" className="grid h-4 w-4 place-items-center rounded bg-white/5 text-[9px] hover:bg-cyan-500/20 hover:text-cyan-300">◆</button>
+              {automated && <button onClick={() => onChange(x => { (x as AudioClip).volumeKf = undefined; })} title="Clear automation" className="grid h-4 w-4 place-items-center rounded bg-white/5 text-[9px] hover:bg-rose-500/20 hover:text-rose-300">×</button>}
+              <span className="ml-1 tabular-nums text-zinc-300">{Math.round(curVol * 100)}%</span>
+            </span>
+          </div>
+          <input type="range" min={0} max={200} value={Math.round(curVol * 100)} onChange={e => { const v = parseFloat(e.target.value) / 100; if (automated) onChange(x => { (x as AudioClip).volumeKf = addKeyframe(c.volumeKf!, localT, v, 'linear'); }); else onChange(x => { (x as AudioClip).volume = v; }); }} className="h-1 w-full" />
+          {automated && <div className="text-[9px] text-cyan-300/70">Automation on — drag the slider at different playhead times to duck/lift.</div>}
           <StudioSlider label="Speed" value={Math.round(c.speed * 100)} min={50} max={200} onChange={v => onChange(x => { (x as AudioClip).speed = v / 100; })} suffix="%" />
           <StudioSlider label="Fade in" value={c.fadeIn} min={0} max={5} step={0.1} onChange={v => onChange(x => { (x as AudioClip).fadeIn = v; })} suffix="s" />
           <StudioSlider label="Fade out" value={c.fadeOut} min={0} max={5} step={0.1} onChange={v => onChange(x => { (x as AudioClip).fadeOut = v; })} suffix="s" />
         </div>
       </StudioPanel>
+      <StudioPanel title="Audio effects" defaultOpen={fx.length > 0}>
+        <div className="space-y-2">
+          {fx.map((e, i) => (
+            <AudioEffectRow key={i} fx={e} onChange={n => setEffects(fx.map((o, j) => j === i ? n : o))} onRemove={() => setEffects(fx.filter((_, j) => j !== i))} />
+          ))}
+          <div className="grid grid-cols-2 gap-1">
+            {(Object.keys(AUDIO_EFFECT_LABELS) as AudioEffectType[]).filter(tp => !fx.some(e => e.type === tp)).map(tp => (
+              <button key={tp} onClick={() => setEffects([...fx, { type: tp, enabled: true, ...AUDIO_EFFECT_DEFAULTS[tp] }])} className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">+ {AUDIO_EFFECT_LABELS[tp]}</button>
+            ))}
+          </div>
+        </div>
+      </StudioPanel>
+      </>
     );
   }
   const c = clip;
@@ -2546,10 +2765,28 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
           ))}
         </div>
         <div className="text-xs text-zinc-500">Animation</div>
-        <div className="grid grid-cols-2 gap-1">
-          {(['none', 'fade', 'slide-up', 'pop'] as const).map(a => (
-            <button key={a} onClick={() => onChange(x => { (x as TextClip).anim = a; })} className={cn('rounded px-2 py-1 text-xs', c.anim === a ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{a}</button>
+        <div className="grid grid-cols-3 gap-1">
+          {TEXT_ANIMATIONS.map(a => (
+            <button key={a.id} onClick={() => onChange(x => { (x as TextClip).anim = a.id; })} className={cn('rounded px-1.5 py-1 text-[10px]', c.anim === a.id ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}>{a.label}</button>
           ))}
+        </div>
+        <div className="text-xs text-zinc-500 pt-1">Hand-animate (keyframes over the clip)</div>
+        <div className="grid grid-cols-2 gap-1">
+          {(() => {
+            const setKf = (patch: Partial<NonNullable<TextClip['kf']>>) => onChange(x => { const tc = x as TextClip; tc.kf = { ...(tc.kf ?? {}), ...patch }; });
+            // Text keyframes are sampled in NORMALIZED localT (0..1), so end at t:1.
+            const ramp = (a: number, b: number) => ({ defaultValue: a, keyframes: [{ t: 0, value: a, easing: 'ease-in-out' as const }, { t: 1, value: b, easing: 'ease-in-out' as const }] });
+            return ([
+              ['Grow over time', () => setKf({ scale: ramp(0.5, 1.6) })],
+              ['Shrink', () => setKf({ scale: ramp(1.6, 0.6) })],
+              ['Spin', () => setKf({ rotation: ramp(0, 360) })],
+              ['Drift up', () => setKf({ posY: ramp(0.15, -0.15) })],
+              ['Pulse in', () => setKf({ opacity: ramp(0, 100) })],
+              ['Clear', () => onChange(x => { (x as TextClip).kf = undefined; })],
+            ] as const).map(([lbl, fn]) => (
+              <button key={lbl} onClick={fn} className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">{lbl}</button>
+            ));
+          })()}
         </div>
       </div>
     </StudioPanel>
@@ -2648,12 +2885,43 @@ interface DocStateLite extends Omit<DocState, 'selectedId' | 'playhead'> {
   mediaRefs: { id: string; name: string; kind: 'video' | 'audio' | 'image'; duration: number; width: number; height: number; thumb?: string }[];
 }
 
-function AnimatableSlider({ label, value, min, max, suffix, paramName, clip, localT, onChange, onAnimate }: {
+function AudioEffectRow({ fx, onChange, onRemove }: { fx: AudioEffect; onChange: (n: AudioEffect) => void; onRemove: () => void }) {
+  const set = (patch: Partial<AudioEffect>) => onChange({ ...fx, ...patch });
+  const S = ({ label, k, min, max, step = 1, suffix }: { label: string; k: keyof AudioEffect; min: number; max: number; step?: number; suffix?: string }) => (
+    <StudioSlider label={label} value={(fx[k] as number) ?? 0} min={min} max={max} step={step} onChange={v => set({ [k]: v } as Partial<AudioEffect>)} suffix={suffix} />
+  );
+  return (
+    <div className="rounded border border-white/10 bg-white/5 p-2 space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-200">
+          <input type="checkbox" checked={fx.enabled} onChange={e => set({ enabled: e.target.checked })} /> {AUDIO_EFFECT_LABELS[fx.type]}
+        </label>
+        <button onClick={onRemove} className="grid h-4 w-4 place-items-center rounded text-[9px] text-zinc-400 hover:bg-rose-500/20 hover:text-rose-300">×</button>
+      </div>
+      {fx.enabled && (
+        <div className="space-y-1">
+          {fx.type === 'eq' && <><S label="Low" k="low" min={-24} max={24} suffix="dB" /><S label="Mid" k="mid" min={-24} max={24} suffix="dB" /><S label="High" k="high" min={-24} max={24} suffix="dB" /></>}
+          {(fx.type === 'lowpass' || fx.type === 'highpass') && <><S label="Frequency" k="freq" min={40} max={16000} step={10} suffix="Hz" /><S label="Resonance" k="q" min={0.1} max={12} step={0.1} /></>}
+          {fx.type === 'reverb' && <><S label="Amount" k="amount" min={0} max={1} step={0.01} /><S label="Room size" k="time" min={0.2} max={5} step={0.1} suffix="s" /></>}
+          {fx.type === 'echo' && <><S label="Delay" k="time" min={0.05} max={1.5} step={0.01} suffix="s" /><S label="Feedback" k="feedback" min={0} max={0.9} step={0.01} /><S label="Mix" k="amount" min={0} max={1} step={0.01} /></>}
+          {fx.type === 'compressor' && <><S label="Threshold" k="threshold" min={-60} max={0} suffix="dB" /><S label="Ratio" k="ratio" min={1} max={20} /></>}
+          {fx.type === 'pitch' && <S label="Pitch" k="semitones" min={-12} max={12} suffix="st" />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnimatableSlider({ label, value, min, max, suffix, step, format, paramName, clip, localT, onChange, onAnimate }: {
   label: string;
   value: number;
   min: number;
   max: number;
   suffix?: string;
+  /** Range step. Defaults to 1; pass <1 for normalized params (scale/position). */
+  step?: number;
+  /** Custom value display (e.g. show normalized scale as a %). Overrides round+suffix. */
+  format?: (v: number) => string;
   paramName: keyof VideoClipKeyframes;
   clip: VideoClip;
   localT: number;
@@ -2698,11 +2966,11 @@ function AnimatableSlider({ label, value, min, max, suffix, paramName, clip, loc
           )}
           <button onClick={addKf} title="Add keyframe at playhead" className="grid h-4 w-4 place-items-center rounded bg-white/5 text-[9px] hover:bg-cyan-500/20 hover:text-cyan-300">◆</button>
           {animated && <button onClick={clearKf} title="Clear keyframes" className="grid h-4 w-4 place-items-center rounded bg-white/5 text-[9px] hover:bg-rose-500/20 hover:text-rose-300">×</button>}
-          <span className="ml-1 tabular-nums text-zinc-300">{Math.round(animated ? sampledVal : value)}{suffix}</span>
+          <span className="ml-1 tabular-nums text-zinc-300">{format ? format(animated ? sampledVal : value) : `${Math.round(animated ? sampledVal : value)}${suffix ?? ''}`}</span>
         </span>
       </div>
       <input
-        type="range" min={min} max={max} value={animated ? sampledVal : value}
+        type="range" min={min} max={max} step={step ?? 1} value={animated ? sampledVal : value}
         onChange={e => {
           const v = parseFloat(e.target.value);
           if (animated) {

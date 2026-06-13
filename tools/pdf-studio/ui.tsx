@@ -559,6 +559,44 @@ export default function PdfStudioPro() {
     if (added > 0) toastFor(`Appended ${added} page${added === 1 ? '' : 's'}`);
   };
 
+  // Insert a fresh blank page (Acrobat "Insert → Blank Page"). PageRef has no
+  // 'blank' kind — every page must point at a real source PDF — so we generate a
+  // tiny 1-page blank PDF in-studio with pdf-lib, register its bytes + raster as
+  // a new source exactly like addPdf does, then append a PageRef for it. The
+  // blank inherits the SELECTED page's pixel size when one is open (so it slots
+  // in seamlessly), else falls back to US Letter at 72dpi. It lands right after
+  // the selected page, or at the end when nothing is selected.
+  const insertBlankPage = async () => {
+    setBusy('Inserting blank page…');
+    try {
+      // Match the current page's dimensions when we have one, else Letter.
+      const cur = docRef.current.pages.find(p => p.id === docRef.current.selectedId) ?? null;
+      const curRaster = cur ? raster[cur.srcId]?.[cur.srcIndex] : null;
+      const wPt = curRaster ? (curRaster.w / curRaster.h) * 792 : 612;
+      const hPt = 792;
+      const { PDFDocument } = await import('pdf-lib');
+      const blank = await PDFDocument.create();
+      blank.addPage([curRaster ? wPt : 612, curRaster ? hPt : 792]);
+      const bytes = (await blank.save()).buffer as ArrayBuffer;
+      const sid = `s${++_sid}`;
+      const rp = await rasterizePdf(bytes.slice(0), { maxEdge: 1200 });
+      const pagesR: RasterPage[] = rp.map(r => ({ canvas: r.canvas, w: r.width, h: r.height }));
+      setSources(s => ({ ...s, [sid]: bytes }));
+      setRaster(r => ({ ...r, [sid]: pagesR }));
+      const next = cloneDoc(docRef.current);
+      const ref: PageRef = { id: `p${++_pid}`, srcId: sid, srcIndex: 0, rotation: 0 };
+      const at = cur ? next.pages.findIndex(p => p.id === cur.id) + 1 : next.pages.length;
+      next.pages.splice(at, 0, ref);
+      next.selectedId = ref.id;
+      commit('insert blank page', next);
+      toastFor('Blank page inserted');
+    } catch (e) {
+      toastFor((e as Error).message || 'Could not insert a blank page');
+    } finally {
+      setBusy('');
+    }
+  };
+
   // Unlock an encrypted PDF: decrypt the bytes with the password, then open the
   // decrypted result through the normal flow.
   const unlockPdf = async (password: string) => {
@@ -1362,6 +1400,9 @@ export default function PdfStudioPro() {
               <Plus className="h-3.5 w-3.5" /> Append PDF
               <input ref={appendRef} type="file" accept="application/pdf" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) await appendPdf(Array.from(fs)); e.target.value = ''; }} />
             </label>
+            {/* Insert a fresh blank page after the selected page (in-studio
+                generated 1-page PDF registered as a new source). */}
+            <StudioButton variant="ghost" size="sm" onClick={insertBlankPage} title="Insert a blank page after the selected page"><Plus className="h-3.5 w-3.5" /> Blank page</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
             {/* On mobile Export is pinned in the always-visible right cluster instead —

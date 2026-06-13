@@ -9,6 +9,7 @@ import {
   Indent, Outdent, Eraser, Eye, EyeOff, Sparkles, Wand2, Languages, Users, Share2,
   History, Check, X as XIcon, Volume2, MicVocal, Sigma, BookOpen,
   Clock, Calendar, Minus, CornerDownLeft, RotateCcw, Pilcrow, MessageSquare,
+  SeparatorHorizontal,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -642,6 +643,14 @@ export default function OfficeDocsPro() {
   };
 
   const formatBlock = (tag: string) => exec('formatBlock', `<${tag}>`);
+
+  // Insert a page break that is both visible on screen (dashed separator) and
+  // honored by print/PDF export via CSS `page-break-before`. Trailing <p> keeps
+  // the caret on a fresh editable line after the break.
+  const insertPageBreak = () => exec(
+    'insertHTML',
+    '<div style="page-break-before:always;break-before:page;border-top:1px dashed #94a3b8;margin:16px 0;height:0" contenteditable="false" aria-label="Page break"></div><p></p>',
+  );
 
   // Set line spacing on the paragraph(s) in the current selection (Google Docs
   // "Line spacing"). Walks from the selection up to the nearest block element
@@ -1414,6 +1423,10 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => exec('insertOrderedList')} title="Numbered list"><ListOrdered className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('outdent')} title="Outdent"><Outdent className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('indent')} title="Indent"><Indent className="h-3.5 w-3.5" /></Tb>
+        <span className="mx-1 h-4 w-px bg-white/10" />
+        <Tb onClick={() => exec('insertHTML', '<hr/>')} title="Horizontal rule"><Minus className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => formatBlock('blockquote')} title="Blockquote"><Quote className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={insertPageBreak} title="Page break"><SeparatorHorizontal className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('justifyLeft')} title="Left"><AlignLeft className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('justifyCenter')} title="Center"><AlignCenter className="h-3.5 w-3.5" /></Tb>

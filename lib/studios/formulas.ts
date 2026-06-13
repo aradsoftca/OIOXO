@@ -441,6 +441,17 @@ export function callFormula(name: string, args: any[]): any {
     case 'DELTA':       return getNum(args[0]) === (args.length > 1 ? getNum(args[1]) : 0) ? 1 : 0;
     case 'ERF':         { const a = getNum(args[0]); return args.length > 1 ? erf(getNum(args[1])) - erf(a) : erf(a); }
     case 'ERFC':        return 1 - erf(getNum(args[0]));
+    // --- Engineering: complex numbers (string in/out, e.g. "3+4i") ---
+    case 'COMPLEX':     { const re = getNum(args[0]); const im = getNum(args[1]); const suf = args.length > 2 ? String(args[2]) : 'i'; if (suf !== 'i' && suf !== 'j') return '#VALUE!'; return imToText(re, im, suf); }
+    case 'IMREAL':      { const c = parseComplex(args[0]); return c ? c.re : '#NUM!'; }
+    case 'IMAGINARY':   { const c = parseComplex(args[0]); return c ? c.im : '#NUM!'; }
+    case 'IMABS':       { const c = parseComplex(args[0]); return c ? Math.hypot(c.re, c.im) : '#NUM!'; }
+    case 'IMARGUMENT':  { const c = parseComplex(args[0]); if (!c) return '#NUM!'; if (c.re === 0 && c.im === 0) return '#DIV/0!'; return Math.atan2(c.im, c.re); }
+    case 'IMCONJUGATE': { const c = parseComplex(args[0]); return c ? imToText(c.re, -c.im, c.suf) : '#NUM!'; }
+    case 'IMSUM':       { let re = 0, im = 0, suf = 'i'; for (const a of flatAll(args)) { const c = parseComplex(a); if (!c) return '#NUM!'; re += c.re; im += c.im; if (c.suf === 'j') suf = 'j'; } return imToText(re, im, suf); }
+    case 'IMSUB':       { const a = parseComplex(args[0]); const b = parseComplex(args[1]); if (!a || !b) return '#NUM!'; const suf = a.suf === 'j' || b.suf === 'j' ? 'j' : 'i'; return imToText(a.re - b.re, a.im - b.im, suf); }
+    case 'IMPRODUCT':   { let re = 1, im = 0, suf = 'i'; for (const a of flatAll(args)) { const c = parseComplex(a); if (!c) return '#NUM!'; const nr = re * c.re - im * c.im; const ni = re * c.im + im * c.re; re = nr; im = ni; if (c.suf === 'j') suf = 'j'; } return imToText(re, im, suf); }
+    case 'IMDIV':       { const a = parseComplex(args[0]); const b = parseComplex(args[1]); if (!a || !b) return '#NUM!'; const den = b.re * b.re + b.im * b.im; if (den === 0) return '#NUM!'; const suf = a.suf === 'j' || b.suf === 'j' ? 'j' : 'i'; return imToText((a.re * b.re + a.im * b.im) / den, (a.im * b.re - a.re * b.im) / den, suf); }
     // --- More trig: inverse hyperbolic + reciprocal hyperbolic ---
     case 'ASINH':       return Math.asinh(getNum(args[0]));
     case 'ACOSH':       return Math.acosh(getNum(args[0]));
@@ -615,6 +626,36 @@ function gcd(a: number, b: number): number {
   return a;
 }
 
+function parseComplex(v: any): { re: number; im: number; suf: string } | null {
+  if (typeof v === 'number') return { re: v, im: 0, suf: 'i' };
+  const s = String(v ?? '').trim();
+  if (s === '') return { re: 0, im: 0, suf: 'i' };
+  // pure real (no imaginary suffix)
+  if (!/[ij]$/.test(s)) { const n = Number(s); return isNaN(n) ? null : { re: n, im: 0, suf: 'i' }; }
+  const suf = s.slice(-1);
+  const body = s.slice(0, -1); // strip trailing i/j
+  const num = '(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][+-]?\\d+)?';
+  // real + imaginary, e.g. "3+4", "-3-4", "+4", "-4", "4", "" (=1), "+"/"-"
+  const m = body.match(new RegExp(`^([+-]?${num})?([+-](?:${num})?)?$`));
+  if (!m) return null;
+  let re: number, imStr: string;
+  if (m[2] !== undefined && m[2] !== '') { re = m[1] === undefined || m[1] === '' ? 0 : Number(m[1]); imStr = m[2]; }
+  else { re = 0; imStr = m[1] === undefined ? '' : m[1]; }
+  const im = imStr === '' || imStr === '+' ? 1 : imStr === '-' ? -1 : Number(imStr);
+  if (isNaN(re) || isNaN(im)) return null;
+  return { re, im, suf };
+}
+
+function imToText(re: number, im: number, suf: string): string {
+  const r = Math.abs(re) < 1e-15 ? 0 : re;
+  const i = Math.abs(im) < 1e-15 ? 0 : im;
+  if (i === 0) return String(r);
+  const imPart = (i === 1 ? '' : i === -1 ? '-' : String(i)) + suf;
+  if (r === 0) return imPart;
+  const sign = i < 0 ? '' : '+';
+  return String(r) + sign + imPart;
+}
+
 function formatExcelStyle(v: number, fmt: string): string {
   if (!fmt) return String(v);
   if (fmt === '0' || fmt === '0.00') return v.toFixed(fmt === '0.00' ? 2 : 0);
@@ -669,6 +710,7 @@ export const FORMULA_NAMES = [
   'BIN2DEC', 'DEC2BIN', 'HEX2DEC', 'DEC2HEX', 'OCT2DEC', 'DEC2OCT',
   'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
   'GESTEP', 'DELTA', 'ERF', 'ERFC',
+  'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMARGUMENT', 'IMCONJUGATE', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV',
   'ASINH', 'ACOSH', 'ATANH', 'CSCH', 'SECH', 'COTH',
   'ACOT', 'ACOTH', 'ACSC', 'ASEC',
   'VALUETOTEXT', 'ENCODEURL', 'DECODEURL',

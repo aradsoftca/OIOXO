@@ -1814,13 +1814,16 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
-  const runWhiteBalance = async (dir: 'warm' | 'cool') => {
+  const runWhiteBalance = async (dir: 'warm' | 'cool', strong = false) => {
     // One-click color-temperature shift. Warms (+red/-blue) or cools (-red/+blue)
     // the active paint/image layer destructively (clamped to 0..255, alpha kept)
-    // so it composites/exports identically.
+    // so it composites/exports identically. `strong` doubles the nudge ("Warmer"
+    // / "Cooler") and applies a multiplicative tilt (r*1.08, b*0.92) so highlights
+    // shift too, not just an additive offset.
     const target = activeLayer;
     if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
-    setBusy(dir === 'warm' ? 'Warming…' : 'Cooling…');
+    const label = dir === 'warm' ? (strong ? 'Warming more…' : 'Warming…') : (strong ? 'Cooling more…' : 'Cooling…');
+    setBusy(label);
     try {
       const src = getCanvasOf(target)!;
       const w = src.width, h = src.height;
@@ -1828,10 +1831,12 @@ export default function ImageStudioPro() {
       const octx = out.getContext('2d')!;
       const img = src.getContext('2d')!.getImageData(0, 0, w, h);
       const d = img.data;
-      const shift = dir === 'warm' ? 18 : -18;
+      const shift = dir === 'warm' ? (strong ? 36 : 18) : (strong ? -36 : -18);
+      const rMul = strong ? (dir === 'warm' ? 1.08 : 0.92) : 1;
+      const bMul = strong ? (dir === 'warm' ? 0.92 : 1.08) : 1;
       for (let i = 0; i < d.length; i += 4) {
-        d[i] = Math.min(255, Math.max(0, d[i] + shift)) | 0;
-        d[i + 2] = Math.min(255, Math.max(0, d[i + 2] - shift)) | 0;
+        d[i] = Math.min(255, Math.max(0, d[i] * rMul + shift)) | 0;
+        d[i + 2] = Math.min(255, Math.max(0, d[i + 2] * bMul - shift)) | 0;
       }
       octx.putImageData(img, 0, 0);
       const next = cloneDoc(doc);
@@ -1840,8 +1845,53 @@ export default function ImageStudioPro() {
         const l = next.layers[idx];
         if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
       }
-      commit(dir === 'warm' ? 'warm' : 'cool', next);
-      toastFor(dir === 'warm' ? 'Warmed ✓' : 'Cooled ✓');
+      const tag = dir === 'warm' ? (strong ? 'warmer' : 'warm') : (strong ? 'cooler' : 'cool');
+      commit(tag, next);
+      toastFor(dir === 'warm' ? (strong ? 'Warmed more ✓' : 'Warmed ✓') : (strong ? 'Cooled more ✓' : 'Cooled ✓'));
+    } finally { setBusy(''); }
+  };
+
+  const runDehaze = async () => {
+    // One-click dehaze. Atmospheric haze flattens contrast and washes out colour,
+    // so we counter both: stretch each channel around the 128 midpoint (factor 1.2)
+    // to restore contrast, then boost saturation by pushing rgb away from their per-
+    // pixel gray mean. Clamped to 0..255, alpha preserved. Same structure as
+    // runClarity/runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Dehazing…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const contrast = 1.2;
+      const sat = 1.3;
+      for (let i = 0; i < d.length; i += 4) {
+        // contrast stretch around 128
+        let r = 128 + (d[i] - 128) * contrast;
+        let g = 128 + (d[i + 1] - 128) * contrast;
+        let b = 128 + (d[i + 2] - 128) * contrast;
+        // saturation boost: push each channel away from the gray mean
+        const gray = (r + g + b) / 3;
+        r = gray + (r - gray) * sat;
+        g = gray + (g - gray) * sat;
+        b = gray + (b - gray) * sat;
+        d[i] = Math.min(255, Math.max(0, r)) | 0;
+        d[i + 1] = Math.min(255, Math.max(0, g)) | 0;
+        d[i + 2] = Math.min(255, Math.max(0, b)) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('dehaze', next);
+      toastFor('Dehazed ✓');
     } finally { setBusy(''); }
   };
 
@@ -3346,6 +3396,9 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSepia()} title={pristine ? 'Open an image first' : 'Apply classic sepia tone'}><Sparkles className="h-3.5 w-3.5" /> Sepia</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm')} title={pristine ? 'Open an image first' : 'Warm white balance (+red / -blue)'}><Sparkles className="h-3.5 w-3.5" /> Warm</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool')} title={pristine ? 'Open an image first' : 'Cool white balance (-red / +blue)'}><Sparkles className="h-3.5 w-3.5" /> Cool</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm', true)} title={pristine ? 'Open an image first' : 'Warmer — stronger warm tilt (r×1.08 / b×0.92)'}><Sparkles className="h-3.5 w-3.5" /> Warmer</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool', true)} title={pristine ? 'Open an image first' : 'Cooler — stronger cool tilt (r×0.92 / b×1.08)'}><Sparkles className="h-3.5 w-3.5" /> Cooler</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runDehaze()} title={pristine ? 'Open an image first' : 'Dehaze — cut atmospheric haze (contrast + saturation)'}><Sparkles className="h-3.5 w-3.5" /> Dehaze</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLiftShadows()} title={pristine ? 'Open an image first' : 'Lift shadows — recover dark detail (luminance-weighted gain)'}><Sparkles className="h-3.5 w-3.5" /> Lift Shadows</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runClarity()} title={pristine ? 'Open an image first' : 'Clarity — punch up midtone local contrast'}><Sparkles className="h-3.5 w-3.5" /> Clarity</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>

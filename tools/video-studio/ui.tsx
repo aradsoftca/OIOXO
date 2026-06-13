@@ -1004,6 +1004,47 @@ export default function VideoStudioPro() {
     setTextDialogClip(c.id);
   };
 
+  // One-tap styled text presets — drop a pre-styled TextClip at the playhead on
+  // the text track, so a user gets a broadcast-looking title / lower-third /
+  // caption without opening the inspector. Each preset carries its own
+  // font/size/pos/anim/align so the three read distinctly on the canvas.
+  const TEXT_PRESETS: { id: string; name: string; text: string; apply: (c: TextClip) => void }[] = [
+    { id: 'title', name: 'Title', text: 'Your title', apply: c => {
+      c.font = FONTS[2]; c.size = 110; c.weight = 900; c.color = '#ffffff';
+      c.pos = 'center'; c.align = 'center'; c.anim = 'fade';
+      c.outline = true; c.outlineColor = '#000000'; c.outlineWidth = 8;
+    } },
+    { id: 'lower-third', name: 'Lower third', text: 'Name · Title', apply: c => {
+      c.font = FONTS[0]; c.size = 48; c.weight = 700; c.color = '#ffffff';
+      c.pos = 'bottom'; c.align = 'left'; c.anim = 'slide-up';
+      c.outline = true; c.outlineColor = '#000000'; c.outlineWidth = 4;
+      c.nx = 0.08; c.ny = 0.82;
+    } },
+    { id: 'caption', name: 'Caption', text: 'Caption text', apply: c => {
+      c.font = FONTS[0]; c.size = 64; c.weight = 700; c.color = '#ffffff';
+      c.pos = 'bottom'; c.align = 'center'; c.anim = 'fade';
+      c.outline = true; c.outlineColor = '#000000'; c.outlineWidth = 5;
+    } },
+  ];
+
+  const addTextPreset = (preset: typeof TEXT_PRESETS[number]) => {
+    const next = cloneDoc(doc);
+    const tt = next.tracks.find(t => t.kind === 'text');
+    if (!tt) return;
+    const c: TextClip = {
+      id: tid(), kind: 'text', trackId: tt.id,
+      start: Math.max(0, next.playhead), duration: 3,
+      text: preset.text, font: FONTS[2], size: 88, color: '#ffffff',
+      weight: 900, italic: false,
+      outline: true, outlineColor: '#000000', outlineWidth: 6,
+      pos: 'bottom', anim: 'fade', align: 'center',
+    };
+    preset.apply(c);
+    next.clips.push(c);
+    next.selectedId = c.id;
+    commit(`add ${preset.name.toLowerCase()}`, next);
+  };
+
   // Auto-captions: transcribe the first video clip's audio ON-DEVICE (Whisper
   // via engines/subtitle/auto) and drop one styled TextClip per spoken chunk on
   // the text track, timed to where that clip sits on the timeline. The engine
@@ -2143,6 +2184,11 @@ export default function VideoStudioPro() {
               <div className="space-y-1.5">
                 <StudioButton size="sm" variant="primary" onClick={() => void autoCut()} title="Drop footage + a song → a paced, beat-synced rough cut on the timeline, on your device"><Scissors className="h-3 w-3" /> Auto-Cut</StudioButton>
                 <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {TEXT_PRESETS.map(p => (
+                    <StudioButton key={p.id} size="sm" variant="soft" onClick={() => addTextPreset(p)} title={`Insert a pre-styled ${p.name.toLowerCase()} at the playhead`}>{p.name}</StudioButton>
+                  ))}
+                </div>
                 <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
                 {captionClips.length > 0 && (
                   <StudioButton size="sm" variant="soft" onClick={() => setCaptionsPanel(true)} title="Review captions, fix any mistranscribed words, and restyle them"><TypeIcon className="h-3 w-3" /> Edit captions ({captionClips.length})</StudioButton>

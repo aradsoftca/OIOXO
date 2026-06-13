@@ -1494,7 +1494,10 @@ export default function OfficeStudioPro() {
         }
       />
 
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
+      {/* Formatting toolbar. On phones, scroll horizontally and give every child
+          button a 44px touch target (the desktop p-1.5 icons were ~28px slivers)
+          via child selectors so we don't have to size 20 buttons by hand. */}
+      <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:min-h-11 [&>button]:min-w-11 [&>button]:shrink-0 [&>button]:justify-center sm:h-10 sm:gap-2 sm:[&>button]:min-h-0 sm:[&>button]:min-w-0">
         <button onClick={() => updateStyle(s => { s.bold = !s.bold; })} title="Bold (Ctrl+B)" className={cn('rounded p-1.5 hover:bg-white/5', selCell?.style?.bold && 'bg-white/10')}><Bold className="h-3.5 w-3.5" /></button>
         <button onClick={() => updateStyle(s => { s.italic = !s.italic; })} title="Italic (Ctrl+I)" className={cn('rounded p-1.5 hover:bg-white/5', selCell?.style?.italic && 'bg-white/10')}><Italic className="h-3.5 w-3.5" /></button>
         <span className="h-4 w-px bg-white/10" />

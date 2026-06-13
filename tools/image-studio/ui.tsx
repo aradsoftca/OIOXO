@@ -2637,6 +2637,36 @@ export default function ImageStudioPro() {
     commit('fill', next);
   };
 
+  // Flood the ENTIRE active paint layer with the current foreground color,
+  // ignoring any selection (Photoshop's Layer ▸ Fill with no marquee). Useful
+  // for solid-color fill layers / quick backdrops. Paint layers only.
+  const fillLayerWithColor = () => {
+    const layer = activeLayer;
+    if (!layer || layer.kind !== 'paint') { toastFor('Pick a paint layer'); return; }
+    if (layer.locked) { toastFor('Layer is locked'); return; }
+    const next = cloneDoc(doc);
+    const l = next.layers.find(x => x.id === layer.id) as PaintLayer | undefined;
+    if (!l) return;
+    const ctx = l.canvas.getContext('2d')!;
+    ctx.fillStyle = fgColor;
+    ctx.fillRect(0, 0, l.canvas.width, l.canvas.height);
+    commit('fill layer', next);
+  };
+
+  // Wipe the active paint layer back to fully transparent (clearRect over the
+  // whole canvas). Paint layers only.
+  const clearLayer = () => {
+    const layer = activeLayer;
+    if (!layer || layer.kind !== 'paint') { toastFor('Pick a paint layer'); return; }
+    if (layer.locked) { toastFor('Layer is locked'); return; }
+    const next = cloneDoc(doc);
+    const l = next.layers.find(x => x.id === layer.id) as PaintLayer | undefined;
+    if (!l) return;
+    const ctx = l.canvas.getContext('2d')!;
+    ctx.clearRect(0, 0, l.canvas.width, l.canvas.height);
+    commit('clear layer', next);
+  };
+
   useRegisterShortcuts([
     {
       label: 'Tools',
@@ -3766,6 +3796,8 @@ export default function ImageStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => activeLayer && mergeDown(activeLayer.id)} disabled={!activeLayer || doc.layers.findIndex(l => l.id === activeLayer.id) <= 0} title="Merge down — flatten onto the layer below"><Blend className="h-3 w-3" /></StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => moveLayer(activeLayer?.id ?? '', 1)} disabled={!activeLayer}><ChevronUp className="h-3 w-3" /></StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => moveLayer(activeLayer?.id ?? '', -1)} disabled={!activeLayer}><ChevronDown className="h-3 w-3" /></StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => fillLayerWithColor()} disabled={!activeLayer || activeLayer.kind !== 'paint' || activeLayer.locked} title="Fill layer with the foreground color"><PaintBucket className="h-3 w-3" /> Fill</StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => clearLayer()} disabled={!activeLayer || activeLayer.kind !== 'paint' || activeLayer.locked} title="Clear layer to transparent"><Eraser className="h-3 w-3" /> Clear</StudioButton>
                   <StudioButton size="sm" variant="danger" onClick={() => activeLayer && removeLayer(activeLayer.id)} disabled={!activeLayer}><Trash2 className="h-3 w-3" /></StudioButton>
                 </div>
                 {activeLayer && activeLayer.kind !== 'adjust' && (

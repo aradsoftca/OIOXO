@@ -256,6 +256,10 @@ export default function OfficeDocsPro() {
   };
 
   const [reading, setReading] = React.useState(false);
+  // Distraction-free "Reading mode": hides the format ribbon + collab bar and
+  // centres the page so the document reads like a printed sheet. Distinct from
+  // `reading` above (Web-Speech read-aloud).
+  const [readingMode, setReadingMode] = React.useState(false);
   const readPollRef = React.useRef<number | null>(null);
   React.useEffect(() => () => {
     if (readPollRef.current) clearInterval(readPollRef.current);
@@ -526,6 +530,14 @@ export default function OfficeDocsPro() {
       writeRecovery();
       dirtyRef.current = false;
     }, 2000);
+  }, [writeRecovery]);
+
+  // Manual "Save now" — flush the pending debounce immediately rather than
+  // waiting the 2s. Snapshots the live editor HTML, not the lagging doc.html.
+  const saveNow = React.useCallback(() => {
+    if (autosaveTimer.current) { clearTimeout(autosaveTimer.current); autosaveTimer.current = null; }
+    writeRecovery();
+    dirtyRef.current = false;
   }, [writeRecovery]);
 
   // Position the resize overlay over the selected image (page-wrapper coords).
@@ -1338,6 +1350,13 @@ export default function OfficeDocsPro() {
             <span className="ml-2 h-5 w-px bg-white/10" />
             <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-44 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
             <AutosaveIndicator state={saveState} at={lastSavedAt} />
+            <button
+              onClick={saveNow}
+              title="Save now — flush the auto-save immediately to this device"
+              className="ml-1 inline-flex h-6 items-center gap-1 rounded px-1.5 text-[11px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+            >
+              <Save className="h-3 w-3" /> Save now
+            </button>
           </>
         }
         right={
@@ -1373,13 +1392,20 @@ export default function OfficeDocsPro() {
             <StudioButton variant="ghost" size="sm" onClick={() => setFindOpen(o => !o)}><Search className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => exec('undo')}><Undo2 className="h-3.5 w-3.5" /></StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={() => exec('redo')}><Redo2 className="h-3.5 w-3.5" /></StudioButton>
+            <button
+              onClick={() => setReadingMode(v => !v)}
+              title={readingMode ? 'Exit reading mode' : 'Reading mode — hide toolbars for distraction-free reading'}
+              className={cn('inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium', readingMode ? 'bg-cyan-500/20 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')}
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+            </button>
             {/* Keyboard-shortcut help is meaningless on touch; its slot goes to Export. */}
             <DesktopOnly><HelpButton /></DesktopOnly>
             <MobileOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export"><Download className="h-3.5 w-3.5" /></StudioButton></MobileOnly>
           </>
         }
       />
-      {collabPeers.length > 0 && (
+      {!readingMode && collabPeers.length > 0 && (
         <div className="flex h-7 shrink-0 items-center gap-2 border-b border-white/5 bg-emerald-500/5 px-3 text-[11px]">
           <Users className="h-3 w-3 text-emerald-300" />
           <span className="text-zinc-400">Live with:</span>
@@ -1392,6 +1418,7 @@ export default function OfficeDocsPro() {
         </div>
       )}
 
+      {!readingMode && (
       <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:h-10 sm:overflow-visible">
         <select value={doc.locale} onChange={e => setDoc(d => ({ ...d, locale: e.target.value }))} className="h-9 shrink-0 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs sm:h-7" title="Document language (spell-check, direction, fonts)">
           {LOCALES.map(l => <option key={l.code} value={l.code}>{l.nativeName}</option>)}
@@ -1492,6 +1519,16 @@ export default function OfficeDocsPro() {
           <Tb onClick={() => setDoc(d => ({ ...d, showOutline: !d.showOutline }))} title="Outline">{doc.showOutline ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}</Tb>
         </div>
       </div>
+      )}
+
+      {/* Reading mode — a thin exit affordance replaces the hidden ribbon so the
+          user always has a way back to the editor. */}
+      {readingMode && (
+        <div className="flex h-9 shrink-0 items-center justify-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-[11px] text-zinc-500">
+          <BookOpen className="h-3 w-3 text-cyan-300" /> Reading mode — toolbars hidden for distraction-free reading.
+          <button onClick={() => setReadingMode(false)} className="rounded bg-white/10 px-2 py-0.5 text-zinc-200 hover:bg-white/15">Exit</button>
+        </div>
+      )}
 
       {findOpen && (
         <div className="flex items-center gap-2 border-b border-white/5 bg-[#111317] px-3 py-2 text-xs">
@@ -1520,7 +1557,7 @@ export default function OfficeDocsPro() {
       )}
 
       <StudioBody>
-        {doc.showOutline && (
+        {!readingMode && doc.showOutline && (
           <StudioSidebar side="left" width={220}>
             <StudioPanel title="Outline">
               <div className="space-y-0.5">
@@ -1536,7 +1573,7 @@ export default function OfficeDocsPro() {
           </StudioSidebar>
         )}
 
-        <div className="relative flex flex-1 min-w-0 flex-col items-center overflow-y-auto bg-[#0a0b0e] py-8">
+        <div className={cn('relative flex flex-1 min-w-0 flex-col items-center overflow-y-auto bg-[#0a0b0e]', readingMode ? 'py-16' : 'py-8')}>
           {!docsWelcomed && docsLooksUntouched && (
             <div className="absolute inset-0 z-20 flex items-center justify-center bg-[#0a0b0e]/95 backdrop-blur-sm">
               <EmptyState

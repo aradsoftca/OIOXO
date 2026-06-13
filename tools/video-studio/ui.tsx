@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Save, Upload, FileText, Undo2, Redo2,
   Eye, EyeOff, Lock, Unlock, SkipBack, SkipForward, Magnet,
   ImageIcon, AudioLines, X, Sparkles, LayoutTemplate, Palette,
-  Activity, BarChart3, History,
+  Activity, BarChart3, History, Maximize2,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -468,6 +468,7 @@ export default function VideoStudioPro() {
 
   const previewRef = React.useRef<HTMLCanvasElement | null>(null);
   const previewWrapRef = React.useRef<HTMLDivElement | null>(null);
+  const timelineBarRef = React.useRef<HTMLDivElement | null>(null);
   const playStart = React.useRef<{ at: number; t0: number } | null>(null);
   const videoElems = React.useRef<Map<string, HTMLVideoElement>>(new Map());
   const audioElems = React.useRef<Map<string, HTMLAudioElement>>(new Map());
@@ -1756,6 +1757,21 @@ export default function VideoStudioPro() {
     setDoc(d => ({ ...d, playhead: Math.max(0, Math.min(d.duration, t)) }));
   };
 
+  // Zoom-to-fit — pick a px/s so the whole timeline (doc.duration) fits the
+  // visible timeline width. Measure the transport bar (full timeline width);
+  // if it can't be measured, fall back to a duration-based zoom. Clamped to the
+  // same 20–800 px/s bounds as the +/- zoom buttons.
+  const fitZoom = () => {
+    const dur = doc.duration;
+    if (dur <= 0) { setZoom(100); return; }
+    const w = timelineBarRef.current?.clientWidth ?? 0;
+    // Leave a small margin (label gutter + breathing room) so the tail clip
+    // isn't flush against the edge.
+    const avail = w > 80 ? w - 80 : 0;
+    const next = avail > 0 ? avail / dur : Math.max(20, Math.min(800, 800 / dur));
+    setZoom(Math.max(20, Math.min(800, next)));
+  };
+
   const exportNow = async () => {
     const preset = PRESETS.find(p => p.id === exportPreset) ?? PRESETS[0];
     const resHit = checkLever(POLICY_KEY, 'output-resolution', preset.h, isPro);
@@ -2023,6 +2039,7 @@ export default function VideoStudioPro() {
       items: [
         { combo: '+', description: 'Zoom in timeline' },
         { combo: '-', description: 'Zoom out timeline' },
+        { combo: 'shift+z', description: 'Zoom to fit' },
       ],
     },
   ]);
@@ -2065,6 +2082,7 @@ export default function VideoStudioPro() {
     { combo: 'w', handler: () => trimToPlayhead('right') },
     { combo: '+', handler: () => setZoom(z => Math.min(800, z * 1.25)) },
     { combo: '-', handler: () => setZoom(z => Math.max(20, z / 1.25)) },
+    { combo: 'shift+z', handler: () => fitZoom() },
   ]);
 
   return (
@@ -2307,7 +2325,7 @@ export default function VideoStudioPro() {
             )}
           </div>
 
-          <div className="flex items-center gap-2 overflow-x-auto border-y border-white/5 bg-[#0f1115] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+          <div ref={timelineBarRef} className="flex items-center gap-2 overflow-x-auto border-y border-white/5 bg-[#0f1115] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
             <button onClick={() => seek(0)} className="rounded p-1 text-zinc-400 hover:bg-white/5 hover:text-white"><SkipBack className="h-4 w-4" /></button>
             <button onClick={togglePlay} className="rounded bg-cyan-500 p-1.5 text-zinc-900 hover:bg-cyan-400">
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -2324,6 +2342,7 @@ export default function VideoStudioPro() {
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => setSnap(s => !s)} className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
               <button onClick={() => setRipple(r => !r)} title="Ripple trim — trimming a clip edge shifts later clips to close/open the gap" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', ripple ? 'bg-amber-500/20 text-amber-200' : 'text-zinc-400 hover:bg-white/5')}><Scissors className="h-3 w-3" /> Ripple trim</button>
+              <button onClick={fitZoom} title="Zoom to fit — scale the timeline so the whole project fits the view" className="rounded p-1 text-zinc-400 hover:bg-white/5 hover:text-white"><Maximize2 className="h-3.5 w-3.5" /></button>
               <button onClick={() => setZoom(z => Math.max(20, z / 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomOut className="h-3.5 w-3.5" /></button>
               <span className="text-[10px] tabular-nums text-zinc-500">{Math.round(zoom)}px/s</span>
               <button onClick={() => setZoom(z => Math.min(800, z * 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomIn className="h-3.5 w-3.5" /></button>

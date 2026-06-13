@@ -162,6 +162,12 @@ export default function PdfStudioPro() {
   const [sources, setSources] = React.useState<Record<string, ArrayBuffer>>({});
   const [raster, setRaster] = React.useState<Record<string, RasterPage[]>>({});
 
+  // Quick-navigation for large PDFs: typed "go to page N" jump + First/Last.
+  // Thumbnail DOM nodes are tracked by page id so selecting a page (anywhere —
+  // jump box, First/Last, or keyboard) scrolls it into view in the Pages grid.
+  const thumbRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
+  const [pageJump, setPageJump] = React.useState('');
+
   // Latest-doc ref so builders that fire several times before React re-renders
   // (e.g. opening multiple PDFs in one `for…await` loop) stack instead of
   // clobbering each other. Synced from every doc mutation below.
@@ -503,6 +509,26 @@ export default function PdfStudioPro() {
 
   const selPage = doc.pages.find(p => p.id === doc.selectedId) ?? null;
   const selRaster = selPage ? raster[selPage.srcId]?.[selPage.srcIndex] : null;
+
+  // Scroll the selected page's thumbnail into view whenever selection changes —
+  // makes the jump box / First-Last / keyboard navigation usable on long docs.
+  React.useEffect(() => {
+    if (!doc.selectedId) return;
+    thumbRefs.current[doc.selectedId]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [doc.selectedId]);
+
+  // Select a page by id using the existing selection mechanism (setDoc selectedId).
+  const goToPage = (id: string | undefined) => { if (id) setDoc(d => ({ ...d, selectedId: id })); };
+  // Resolve a 1-based page number typed in the jump box, clamped to range.
+  const jumpToPage = () => {
+    const total = doc.pages.length;
+    if (!total) return;
+    const n = parseInt(pageJump, 10);
+    if (!Number.isFinite(n)) return;
+    const idx = Math.min(Math.max(n, 1), total) - 1;
+    goToPage(doc.pages[idx]?.id);
+    setPageJump('');
+  };
 
   const addPdf = async (file: File, overrideBytes?: ArrayBuffer) => {
     setRecovery(null); // opening a real PDF supersedes the recover-last-session offer
@@ -1505,6 +1531,23 @@ export default function PdfStudioPro() {
               <StudioButton size="sm" variant="soft" onClick={rotateAllPages} disabled={!doc.pages.length} title="Rotate every page 90° clockwise"><RotateCw className="h-3 w-3" /> Rotate all ↻</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={reversePageOrder} disabled={doc.pages.length < 2} title="Reverse the order of all pages"><ArrowUpDown className="h-3 w-3" /> Reverse order</StudioButton>
             </div>
+            {/* Quick navigation for large PDFs: First / Last + "go to page N". */}
+            <div className="mb-2 flex items-center gap-1.5">
+              <StudioButton size="sm" variant="soft" onClick={() => goToPage(doc.pages[0]?.id)} disabled={!doc.pages.length} title="Jump to the first page"><ChevronsLeft className="h-3 w-3" /> First</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={() => goToPage(doc.pages[doc.pages.length - 1]?.id)} disabled={!doc.pages.length} title="Jump to the last page"><ChevronsRight className="h-3 w-3" /> Last</StudioButton>
+              <input
+                type="number"
+                min={1}
+                max={doc.pages.length || 1}
+                value={pageJump}
+                onChange={e => setPageJump(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); jumpToPage(); } }}
+                disabled={!doc.pages.length}
+                placeholder="Go to #"
+                title="Type a page number and press Enter to jump to it"
+                className="h-7 w-16 rounded border border-white/10 bg-transparent px-2 text-xs text-zinc-200 outline-none hover:border-white/20 focus:border-cyan-400/50 disabled:opacity-40"
+              />
+            </div>
             <div className="mb-2 flex gap-1.5">
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'start')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the front"><ChevronsLeft className="h-3 w-3" /> To start</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'end')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the back"><ChevronsRight className="h-3 w-3" /> To end</StudioButton>
@@ -1521,6 +1564,7 @@ export default function PdfStudioPro() {
                 return (
                   <div
                     key={p.id}
+                    ref={el => { thumbRefs.current[p.id] = el; }}
                     onClick={() => setDoc(d => ({ ...d, selectedId: p.id }))}
                     style={{ contentVisibility: 'auto', containIntrinsicSize: '0 120px' } as React.CSSProperties}
                     className={cn('group relative cursor-pointer overflow-hidden rounded border bg-white', doc.selectedId === p.id ? 'border-cyan-400 ring-2 ring-cyan-400/40' : 'border-white/10 hover:border-white/30')}

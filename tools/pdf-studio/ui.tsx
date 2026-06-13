@@ -1129,7 +1129,7 @@ export default function PdfStudioPro() {
           ))}
         </StudioToolDock>
 
-        <StudioSidebar side="left" width={200}>
+        <StudioSidebar side="left" width={200} label="Pages" autoOpen={false}>
           <StudioPanel title={`Pages · ${doc.pages.length}`}>
             <div className="grid max-h-[70vh] grid-cols-2 gap-1.5 overflow-y-auto">
               {doc.pages.map((p, i) => {

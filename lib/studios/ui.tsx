@@ -194,10 +194,10 @@ export function StudioPanel({ title, children, action, defaultOpen = true, class
   );
 }
 
-export function StudioSidebar({ side = 'right', width = 280, label, children }: { side?: 'left' | 'right'; width?: number; label?: string; children: React.ReactNode }) {
+export function StudioSidebar({ side = 'right', width = 280, label, autoOpen = true, children }: { side?: 'left' | 'right'; width?: number; label?: string; autoOpen?: boolean; children: React.ReactNode }) {
   const { mode } = useResponsiveStudio();
   if (mode !== 'desktop') {
-    return <MobileFloatingPanel side={side} label={label}>{children}</MobileFloatingPanel>;
+    return <MobileFloatingPanel side={side} label={label} autoOpen={autoOpen}>{children}</MobileFloatingPanel>;
   }
   return (
     <div
@@ -226,12 +226,17 @@ let _sheetSeq = 0;
 const _sheetListeners = new Set<() => void>();
 let _sheets: SheetEntry[] = [];
 let _activeSheet = -1;
-let _sheetCollapsed = false;
+// Start COLLAPSED behind the pill. A sheet only auto-OPENS when its source panel
+// opts in (`autoOpen`, default true) — that's the case for panels the studio
+// mounts on a user TAP (Layers, Adjust). Always-present panels (PDF's page list)
+// pass autoOpen={false} so they don't cover the document on launch.
+let _sheetCollapsed = true;
 function _emitSheets() { _sheetListeners.forEach(l => l()); }
-function _registerSheet(node: React.ReactNode, label?: string): number {
+function _registerSheet(node: React.ReactNode, label: string | undefined, autoOpen: boolean): number {
   const id = ++_sheetSeq;
   _sheets = [..._sheets, { id, node, label }];
-  _activeSheet = id; _sheetCollapsed = false; // newest opens
+  _activeSheet = id;
+  if (autoOpen) _sheetCollapsed = false; // user opened this one → show it
   _emitSheets();
   return id;
 }
@@ -254,11 +259,11 @@ function useSheetStore() {
 
 /** Each mounted mobile sidebar just registers its content; the single host below
  *  renders the active one. Renders nothing itself. */
-function MobileFloatingPanel({ children, label }: { side: 'left' | 'right'; label?: string; children: React.ReactNode }) {
+function MobileFloatingPanel({ children, label, autoOpen = true }: { side: 'left' | 'right'; label?: string; autoOpen?: boolean; children: React.ReactNode }) {
   const idRef = React.useRef<number>(0);
   // Register on mount, unregister on unmount.
   React.useEffect(() => {
-    idRef.current = _registerSheet(children, label);
+    idRef.current = _registerSheet(children, label, autoOpen);
     return () => _unregisterSheet(idRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -273,6 +278,7 @@ function MobileFloatingPanel({ children, label }: { side: 'left' | 'right'; labe
 export function MobileSheetHost() {
   const { mode } = useResponsiveStudio();
   const { sheets, active, collapsed, setActive, collapse, expand } = useSheetStore();
+  // After the app has settled, later-mounted panels (user taps) auto-open.
   if (mode === 'desktop' || sheets.length === 0) return null;
   const activeEntry = sheets.find(s => s.id === active) ?? sheets[sheets.length - 1];
 

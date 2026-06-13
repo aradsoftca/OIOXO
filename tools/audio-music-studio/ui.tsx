@@ -1596,11 +1596,34 @@ function PianoRoll({ inst, steps, notes, currentStep, onChange }: {
     if (left && left.start + left.length === step) { onChange(notes.map(n => n === left ? { ...n, length: n.length + (step - (left.start + left.length) + 1) } : n)); return; }
     onChange([...notes, { pitch, start: step, length: 1, vel: 0.85 }]);
   };
+  // Quantize: snap every note's start to the nearest multiple of `grid` steps,
+  // and round its length to at least one grid unit — the core MIDI tightening op.
+  const quantize = (grid: number) => {
+    if (grid < 1) return;
+    onChange(notes.map(n => {
+      const start = Math.round(n.start / grid) * grid;
+      const length = Math.max(grid, Math.round(n.length / grid) * grid);
+      return { ...n, start: Math.max(0, Math.min(steps - 1, start)), length };
+    }));
+  };
   return (
     <div className="mt-2 rounded border border-white/10 bg-[#0a0b0e] p-2">
       <div className="mb-1 flex items-center justify-between">
         <span className="text-xs font-semibold text-zinc-200" style={{ color: inst.color }}>🎹 {inst.label} — piano roll</span>
-        <span className="text-[10px] text-zinc-500">click=add · click head=delete · click right=extend</span>
+        <div className="flex items-center gap-2">
+          <select
+            onChange={e => { const g = parseInt(e.target.value); if (g) quantize(g); e.currentTarget.selectedIndex = 0; }}
+            title="Quantize: snap note starts/lengths to a grid"
+            className="h-6 rounded border border-white/10 bg-[#0a0b0e] px-1 text-[10px] text-zinc-200"
+          >
+            <option value="">Quantize…</option>
+            <option value="1">1/16 (tight)</option>
+            <option value="2">1/8</option>
+            <option value="4">1/4</option>
+            <option value="8">1/2</option>
+          </select>
+          <span className="text-[10px] text-zinc-500">click=add · head=delete · right=extend</span>
+        </div>
       </div>
       <div className="max-h-64 overflow-auto">
         {rows.map(pitch => {

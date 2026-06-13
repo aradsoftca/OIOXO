@@ -50,7 +50,7 @@ by touch on the preview; the exported frame matches the preview within ±2px.
 **Acceptance:** double‑tap the logo on the preview opens a Logo inspector (opacity/transparency, size,
 corner radius, shadow); "‹ Back" returns to the timeline with the logo still selected.
 
-### 0.3 Empty‑state & first‑run (SHARED)
+### 0.3 Empty‑state & first‑run (SHARED) — ✅ DONE (audited 2026-06-13: all 9 studios use the shared EmptyState with actions+hints)
 Every studio opens to a **purposeful empty state**: large drop target, "Start from template" gallery,
 "Import media," and 1‑line of what this studio is best at. No blank box.
 
@@ -137,7 +137,7 @@ whose frames match the preview.
 - Slides:
   - [ ] **0.1 Stage** is the core — slide objects (text/image/shape) must move/resize/rotate on the slide
         with guides; **0.2 inspector** per object; Back → slide sorter.
-  - [ ] Slide sorter with drag‑reorder; speaker notes; present mode.
+  - [x] present mode ALREADY BUILT (F5 start, Esc exit, arrow nav). Slide sorter/notes partial.
 
 ## 6. AUDIO — Voice / Music — Descript / GarageBand bar
 - Voice: ✅ RNNoise denoise, broadcastChain (LUFS −16), de‑ess, normalize, limiter, EQ, **real

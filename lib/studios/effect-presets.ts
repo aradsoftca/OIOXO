@@ -52,12 +52,14 @@ export const AUDIO_EFFECTS: EffectDef[] = [
     ],
   },
   {
-    id: 'compressor', name: 'Compressor', category: 'dynamics', description: 'Reduces dynamic range',
+    id: 'compressor', name: 'Compressor', category: 'dynamics', description: 'Parametric dynamics control',
     params: [
       { id: 'threshold', label: 'Threshold', kind: 'number', min: -40, max: 0, step: 0.5, default: -18, suffix: 'dB' },
-      { id: 'ratio', label: 'Ratio', kind: 'number', min: 1, max: 20, step: 0.5, default: 3 },
+      { id: 'ratio', label: 'Ratio', kind: 'number', min: 1, max: 20, step: 0.5, default: 3, suffix: ':1' },
+      { id: 'knee', label: 'Knee', kind: 'number', min: 0, max: 40, step: 1, default: 30, suffix: 'dB' },
       { id: 'attack', label: 'Attack', kind: 'number', min: 0, max: 100, step: 1, default: 5, suffix: 'ms' },
       { id: 'release', label: 'Release', kind: 'number', min: 10, max: 1000, step: 10, default: 100, suffix: 'ms' },
+      { id: 'makeup', label: 'Makeup gain', kind: 'number', min: 0, max: 24, step: 0.5, default: 0, suffix: 'dB' },
     ],
   },
   {

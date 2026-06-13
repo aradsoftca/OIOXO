@@ -25,6 +25,10 @@ export interface AudioEffect {
   // compressor
   threshold?: number; // dB
   ratio?: number;
+  knee?: number;      // dB (soft-knee width)
+  attack?: number;    // ms
+  release?: number;   // ms
+  makeup?: number;    // dB
   // pitch (semitones, via playbackRate-style detune on a wrapper — applied upstream)
   semitones?: number;
 }
@@ -90,10 +94,17 @@ export function buildAudioChain(ctx: AnyCtx, effects: AudioEffect[] | undefined)
         break;
       }
       case 'compressor': {
+        // Fully parametric (Audition-grade): honour attack/release/knee + a
+        // post makeup-gain, instead of hardcoding them. Params arrive in the
+        // UI's units (attack/release in ms, makeup in dB) → convert here.
         const comp = ctx.createDynamicsCompressor();
-        comp.threshold.value = d.threshold ?? -24; comp.ratio.value = d.ratio ?? 4;
-        comp.knee.value = 30; comp.attack.value = 0.003; comp.release.value = 0.25;
+        comp.threshold.value = d.threshold ?? -24;
+        comp.ratio.value = d.ratio ?? 4;
+        comp.knee.value = d.knee ?? 30;
+        comp.attack.value = (d.attack != null ? d.attack / 1000 : 0.003);
+        comp.release.value = (d.release != null ? d.release / 1000 : 0.25);
         head.connect(comp); head = comp;
+        if (d.makeup) { const g = ctx.createGain(); g.gain.value = Math.pow(10, d.makeup / 20); head.connect(g); head = g; }
         break;
       }
       case 'reverb': {

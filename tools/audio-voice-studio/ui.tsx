@@ -181,8 +181,8 @@ const applyEffectChain = (buf: AudioBuffer, chain: AppliedEffect[]): AudioBuffer
         if (Number(p.treble ?? 0)) out = audio.trebleBoost(out, Number(p.treble));
         break;
       case 'compressor':
-        // Real compressor with attack/release — was a static peak-based gain cut.
-        out = audio.compress(out, Number(p.threshold ?? -18), Number(p.ratio ?? 3), Number(p.attack ?? 5), Number(p.release ?? 100));
+        // Fully parametric: threshold/ratio/attack/release + soft knee + makeup gain.
+        out = audio.compress(out, Number(p.threshold ?? -18), Number(p.ratio ?? 3), Number(p.attack ?? 5), Number(p.release ?? 100), Number(p.makeup ?? 0), Number(p.knee ?? 30));
         break;
       case 'limiter':      out = audio.normalize(out, Number(p.ceiling ?? -1)); break;
       case 'noise-gate':   out = audio.gate(out, Number(p.threshold ?? -40)); break;

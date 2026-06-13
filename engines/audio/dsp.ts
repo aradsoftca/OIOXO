@@ -188,21 +188,30 @@ export function pitchShift(x: Float32Array, semitones: number): Float32Array {
 export function compress(
   x: Float32Array, sampleRate: number,
   thresholdDb: number, ratio: number, attackSec: number, releaseSec: number,
-  makeupDb = 0,
+  makeupDb = 0, kneeDb = 0,
 ): Float32Array {
   const thr = thresholdDb;
   const r = Math.max(1, ratio);
   const atk = Math.exp(-1 / (Math.max(1e-4, attackSec) * sampleRate));
   const rel = Math.exp(-1 / (Math.max(1e-4, releaseSec) * sampleRate));
   const makeup = Math.pow(10, makeupDb / 20);
+  const k = Math.max(0, kneeDb);
+  const slope = 1 - 1 / r;
   const out = new Float32Array(x.length);
   let env = 0; // smoothed level estimate (linear)
   for (let i = 0; i < x.length; i++) {
     const a = Math.abs(x[i]);
     env = a > env ? atk * env + (1 - atk) * a : rel * env + (1 - rel) * a;
     const levelDb = env > 1e-6 ? 20 * Math.log10(env) : -120;
+    // Soft-knee static curve: below thr-k/2 = no reduction, above thr+k/2 =
+    // full ratio, quadratic interpolation across the knee width in between.
     let gainDb = 0;
-    if (levelDb > thr) gainDb = (thr - levelDb) * (1 - 1 / r); // negative
+    if (k > 0 && levelDb > thr - k / 2 && levelDb < thr + k / 2) {
+      const over = levelDb - (thr - k / 2);
+      gainDb = -slope * (over * over) / (2 * k);
+    } else if (levelDb >= thr + k / 2) {
+      gainDb = (thr - levelDb) * slope; // negative (full ratio)
+    }
     out[i] = x[i] * Math.pow(10, gainDb / 20) * makeup;
   }
   return out;

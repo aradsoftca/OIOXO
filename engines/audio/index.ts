@@ -131,8 +131,8 @@ export function reverb(ab: AudioBuffer, amount = 0.5): AudioBuffer {
   return applyDsp(ab, (x, sr) => dsp.reverb(x, sr, amount), 0.6);
 }
 /** Real feed-forward compressor (attack/release ballistics), not a static trim. */
-export function compress(ab: AudioBuffer, thresholdDb: number, ratio: number, attackMs = 5, releaseMs = 100, makeupDb = 0): AudioBuffer {
-  return applyDsp(ab, (x, sr) => dsp.compress(x, sr, thresholdDb, ratio, attackMs / 1000, releaseMs / 1000, makeupDb));
+export function compress(ab: AudioBuffer, thresholdDb: number, ratio: number, attackMs = 5, releaseMs = 100, makeupDb = 0, kneeDb = 0): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.compress(x, sr, thresholdDb, ratio, attackMs / 1000, releaseMs / 1000, makeupDb, kneeDb));
 }
 /** Downward noise gate — attenuates below threshold. */
 export function gate(ab: AudioBuffer, thresholdDb: number): AudioBuffer {

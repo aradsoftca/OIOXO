@@ -432,6 +432,9 @@ export default function VideoStudioPro() {
   const [tool, setTool] = React.useState<Tool>('select');
   const [playing, setPlaying] = React.useState(false);
   const [snap, setSnap] = React.useState(true);
+  // Ripple trim: when on, trimming a clip edge shifts all LATER clips on the
+  // same track by the same delta so the gap closes/opens (DaVinci/Premiere).
+  const [ripple, setRipple] = React.useState(false);
   const [zoom, setZoom] = React.useState(100);
   const [busy, setBusy] = React.useState('');
   const [progress, setProgress] = React.useState(0);
@@ -1333,6 +1336,51 @@ export default function VideoStudioPro() {
     commit('ripple delete', next);
   };
 
+  // Trim a clip edge to timeline-time `t`. When `ripple` is on, the change in
+  // duration is propagated: downstream clips on the same track shift by the same
+  // delta so the cut closes/opens the gap (Premiere/DaVinci ripple trim).
+  const trimClip = (id: string, edge: 'l' | 'r', t: number) => {
+    const next = cloneDoc(doc);
+    const c = next.clips.find(x => x.id === id);
+    if (!c) return;
+    const oldEnd = clipEnd(c), oldStart = c.start;
+    if (c.kind === 'text') {
+      if (edge === 'l') { const newDur = c.duration + (oldStart - t); if (newDur > 0.05) { c.start = t; c.duration = newDur; } }
+      else { c.duration = Math.max(0.05, t - c.start); }
+    } else {
+      if (edge === 'l') {
+        const delta = t - c.start;
+        const newSrcStart = (c as VideoClip).srcStart + delta * (c as VideoClip).speed;
+        if (newSrcStart < (c as VideoClip).srcEnd - 0.05 && t < clipEnd(c) - 0.05) { c.start = t; (c as VideoClip).srcStart = newSrcStart; }
+      } else {
+        const newSrcEnd = (c as VideoClip).srcStart + (t - c.start) * (c as VideoClip).speed;
+        if (newSrcEnd > (c as VideoClip).srcStart + 0.05) (c as VideoClip).srcEnd = newSrcEnd;
+      }
+    }
+    if (ripple) {
+      // How much the EDGE moved on the timeline → shift everything downstream.
+      const newStart = c.start, newEnd = clipEnd(c);
+      const shift = edge === 'l' ? (newStart - oldStart) : (newEnd - oldEnd);
+      if (shift !== 0) {
+        const fromX = edge === 'l' ? oldStart : oldEnd;
+        for (const o of next.clips) if (o.id !== c.id && o.trackId === c.trackId && o.start >= fromX - 1e-4) o.start = Math.max(0, o.start + shift);
+      }
+    }
+    commit(ripple ? 'ripple trim' : 'trim', next);
+  };
+  // Slip: slide the source window (srcStart/srcEnd) under a fixed clip position
+  // by `dt` seconds — the clip stays put, a different part of the footage plays.
+  const slipClip = (id: string, dt: number) => {
+    const next = cloneDoc(doc);
+    const c = next.clips.find(x => x.id === id) as VideoClip | undefined;
+    if (!c || c.kind !== 'video') return;
+    const span = c.srcEnd - c.srcStart;
+    let ns = c.srcStart + dt * c.speed;
+    ns = Math.max(0, ns);
+    c.srcStart = ns; c.srcEnd = ns + span;
+    commit('slip', next);
+  };
+
   // Trim around the playhead — CapCut's Q ("delete left of cursor") and W
   // ("delete right of cursor"), the fast-trim verbs power users live on. We trim
   // the SELECTED clip if the playhead sits inside it; otherwise we trim every
@@ -1916,6 +1964,9 @@ export default function VideoStudioPro() {
     { combo: 'delete', handler: () => doc.selectedId && deleteClip(doc.selectedId) },
     { combo: 'backspace', handler: () => doc.selectedId && deleteClip(doc.selectedId) },
     { combo: 'shift+delete', handler: () => doc.selectedId && rippleDelete(doc.selectedId) },
+    { combo: 'r', handler: () => setRipple(r => !r) },
+    { combo: 'alt+,', handler: () => doc.selectedId && slipClip(doc.selectedId, -0.2) },
+    { combo: 'alt+.', handler: () => doc.selectedId && slipClip(doc.selectedId, 0.2) },
     { combo: 'mod+d', handler: () => doc.selectedId && duplicateClip(doc.selectedId) },
     { combo: 's', handler: () => doc.selectedId && splitAt(doc.selectedId, doc.playhead) },
     // CapCut's core gesture — split at the playhead. We split the selected clip,
@@ -2178,6 +2229,7 @@ export default function VideoStudioPro() {
             <button onClick={() => doc.selectedId && rippleDelete(doc.selectedId)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"><Trash2 className="h-3 w-3" /> Ripple</button>
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => setSnap(s => !s)} className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
+              <button onClick={() => setRipple(r => !r)} title="Ripple trim — trimming a clip edge shifts later clips to close/open the gap" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', ripple ? 'bg-amber-500/20 text-amber-200' : 'text-zinc-400 hover:bg-white/5')}><Scissors className="h-3 w-3" /> Ripple trim</button>
               <button onClick={() => setZoom(z => Math.max(20, z / 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomOut className="h-3.5 w-3.5" /></button>
               <span className="text-[10px] tabular-nums text-zinc-500">{Math.round(zoom)}px/s</span>
               <button onClick={() => setZoom(z => Math.min(800, z * 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomIn className="h-3.5 w-3.5" /></button>
@@ -2193,21 +2245,7 @@ export default function VideoStudioPro() {
             onSeek={seek}
             onSelect={(id) => setDoc(d => ({ ...d, selectedId: id }))}
             onMoveClip={(id, start, trackId) => updateClip(id, c => { c.start = start; if (trackId) c.trackId = trackId; }, 'move')}
-            onTrimClip={(id, edge, t) => updateClip(id, c => {
-              if (c.kind === 'text') {
-                if (edge === 'l') { const old = c.start; const newDur = c.duration + (old - t); if (newDur > 0.05) { c.start = t; c.duration = newDur; } }
-                else { c.duration = Math.max(0.05, t - c.start); }
-              } else {
-                if (edge === 'l') {
-                  const delta = t - c.start;
-                  const newSrcStart = c.srcStart + delta * c.speed;
-                  if (newSrcStart < c.srcEnd - 0.05 && t < clipEnd(c) - 0.05) { c.start = t; c.srcStart = newSrcStart; }
-                } else {
-                  const newSrcEnd = c.srcStart + (t - c.start) * c.speed;
-                  if (newSrcEnd > c.srcStart + 0.05) c.srcEnd = newSrcEnd;
-                }
-              }
-            }, 'trim')}
+            onTrimClip={(id, edge, t) => trimClip(id, edge, t)}
             onSplit={(id) => splitAt(id, doc.playhead)}
             onTrackToggle={(id, key) => {
               const next = cloneDoc(doc);

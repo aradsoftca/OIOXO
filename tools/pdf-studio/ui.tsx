@@ -708,28 +708,14 @@ export default function PdfStudioPro() {
     } finally { setBusy(''); }
   };
 
-  const runSmartRedact = async () => {
-    if (!selPage) { toastFor('Open a page first'); return; }
-    setBusy('Scanning for sensitive info…');
-    try {
-      const bytes = sources[selPage.srcId];
-      if (!bytes) return;
-      // pdfjs-dist exports its API as NAMED exports on the module namespace —
-      // there is NO `default`. Destructuring `{ default: pdfjsLib }` gave undefined
-      // and getDocument threw "Cannot read properties of undefined", silently
-      // killing Smart Redact (and edit-text). Use the namespace, like every other
-      // pdf.js caller in the repo (engines/pdf, pdf-mastery, doctranslate).
-      const pdfjsLib: any = await import('pdfjs-dist');
-      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
-      const pdfDoc = await pdfjsLib.getDocument({ data: bytes.slice(0) }).promise;
-      const page = await pdfDoc.getPage(selPage.srcIndex + 1);
-      const viewport = page.getViewport({ scale: 1 });
-      const content = await page.getTextContent();
-      let added = 0;
-      const next = cloneDoc(doc);
-      const list = next.annotations[selPage.id] ?? [];
+  // Scan ONE pdf.js page for PII, returning redaction-rect annotations (in the
+  // page's normalized space). Shared by single-page + whole-document redaction.
+  const scanPageForPii = async (page: any): Promise<Annotation[]> => {
+    const viewport = page.getViewport({ scale: 1 });
+    const content = await page.getTextContent();
+    const list: Annotation[] = [];
 
-      // Build ONE joined string for the page, remembering which source item +
+    // Build ONE joined string for the page, remembering which source item +
       // local offset every character came from. pdf.js fragments text into many
       // items, so an SSN / phone / email can straddle two items — scanning each
       // item alone misses those (the live "Smart Redact found nothing" bug). We
@@ -765,7 +751,6 @@ export default function PdfStudioPro() {
           nh: (h * 1.4) / viewport.height,
           color: '#000000', opacity: 1, redact: true,
         });
-        added++;
       };
       for (const hit of findPii(joined)) {
         // Walk the matched character span and emit a box per source item the
@@ -783,15 +768,46 @@ export default function PdfStudioPro() {
           i = j + 1;
         }
       }
-      next.annotations[selPage.id] = list;
-      commit('smart redact', next);
-      // Unmissable feedback (the live complaint was silence on a security tool):
-      // a real toast either way, never nothing.
-      if (added) toastFor(`🛡️ Found & marked ${added} sensitive item${added === 1 ? '' : 's'} — Export flattens them permanently`);
-      else toastFor('No emails, phones, SSNs or card numbers detected on this page');
+    return list;
+  };
+
+  // Smart Redact the CURRENT page (default) or the WHOLE document. Whole-doc mode
+  // groups source PDFs (one pdf.js doc per source) so a multi-source project is
+  // covered too — the audit's "single-page only" compliance gap.
+  const runSmartRedact = async (scope: 'page' | 'document' = 'page') => {
+    if (!selPage) { toastFor('Open a page first'); return; }
+    setBusy(scope === 'document' ? 'Scanning all pages for sensitive info…' : 'Scanning for sensitive info…');
+    try {
+      const pdfjsLib: any = await import('pdfjs-dist'); // eslint-disable-line @typescript-eslint/no-explicit-any
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
+      const next = cloneDoc(doc);
+      let added = 0;
+      const targets = scope === 'document' ? doc.pages : [selPage];
+      // Cache one pdf.js doc per source so we don't re-parse for every page.
+      const docCache = new Map<string, any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const getDoc = async (srcId: string) => {
+        if (docCache.has(srcId)) return docCache.get(srcId);
+        const d = await pdfjsLib.getDocument({ data: sources[srcId].slice(0) }).promise;
+        docCache.set(srcId, d); return d;
+      };
+      for (let pi = 0; pi < targets.length; pi++) {
+        const pg = targets[pi];
+        if (!sources[pg.srcId]) continue;
+        if (scope === 'document') setProgress(Math.round(((pi + 1) / targets.length) * 100));
+        const pdfDoc = await getDoc(pg.srcId);
+        const page = await pdfDoc.getPage(pg.srcIndex + 1);
+        const hits = await scanPageForPii(page);
+        if (hits.length) {
+          next.annotations[pg.id] = [...(next.annotations[pg.id] ?? []), ...hits];
+          added += hits.length;
+        }
+      }
+      if (added) commit('smart redact', next);
+      if (added) toastFor(`🛡️ Found & marked ${added} sensitive item${added === 1 ? '' : 's'}${scope === 'document' ? ` across ${targets.length} pages` : ''} — Export flattens them permanently`);
+      else toastFor(`No emails, phones, SSNs or card numbers detected${scope === 'document' ? ' in the document' : ' on this page'}`);
     } catch (e) {
-      toastFor('Could not scan this page');
-    } finally { setBusy(''); }
+      toastFor('Could not scan');
+    } finally { setBusy(''); setProgress(0); }
   };
 
   // Edit existing PDF text: find the text run nearest the click, let the user
@@ -1150,7 +1166,8 @@ export default function PdfStudioPro() {
           <select value={ocrLang} onChange={e => setOcrLang(e.target.value)} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs text-zinc-100" title="OCR language">
             {OCR_LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
-          <StudioButton size="sm" variant="soft" onClick={() => void runSmartRedact()} title="Find emails, phones, SSNs and redact them"><Shield className="h-3 w-3" /> Smart Redact</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void runSmartRedact('page')} title="Find emails, phones, SSNs on THIS page and redact them"><Shield className="h-3 w-3" /> Smart Redact</StudioButton>
+          {doc.pages.length > 1 && <StudioButton size="sm" variant="soft" onClick={() => void runSmartRedact('document')} title="Scan ALL pages for emails, phones, SSNs, cards and redact them">All pages</StudioButton>}
           <StudioButton size="sm" variant="soft" onClick={() => void runAutoDeskew()} title="Straighten a tilted scan"><Sparkles className="h-3 w-3" /> Deskew</StudioButton>
           <label className="ml-2 flex items-center gap-1.5">
             <input type="checkbox" checked={doc.pageNumbers} onChange={e => commit('page nums', { ...cloneDoc(doc), pageNumbers: e.target.checked })} />

@@ -345,8 +345,68 @@ export function callFormula(name: string, args: any[]): any {
         default: return '#VALUE!';
       }
     }
+
+    // --- Engineering / advanced math ---
+    case 'SQRTPI':      return Math.sqrt(getNum(args[0]) * Math.PI);
+    case 'SERIESSUM':   { const x = getNum(args[0]), n = getNum(args[1]), m = getNum(args[2]); const coeffs = flatNums(args.slice(3)); let s = 0; for (let i = 0; i < coeffs.length; i++) s += coeffs[i] * Math.pow(x, n + i * m); return s; }
+    case 'MULTINOMIAL': { const ns = flatNums(args).map(v => Math.floor(v)); if (ns.some(v => v < 0)) return '#NUM!'; const total = ns.reduce((a, b) => a + b, 0); let num = factln(total), den = 0; for (const v of ns) den += factln(v); return Math.round(Math.exp(num - den)); }
+    case 'COMBINA':     { const n = Math.floor(getNum(args[0])), k = Math.floor(getNum(args[1])); if (n < 0 || k < 0) return '#NUM!'; const nn = n + k - 1; let r = 1; for (let i = 0; i < k; i++) r = r * (nn - i) / (i + 1); return Math.round(r); }
+    case 'GAMMALN': case 'GAMMALN.PRECISE': { const x = getNum(args[0]); return x <= 0 ? '#NUM!' : gammaln(x); }
+
+    // --- Statistical distributions ---
+    case 'FISHER':      { const x = getNum(args[0]); if (x <= -1 || x >= 1) return '#NUM!'; return 0.5 * Math.log((1 + x) / (1 - x)); }
+    case 'FISHERINV':   { const y = getNum(args[0]); return (Math.exp(2 * y) - 1) / (Math.exp(2 * y) + 1); }
+    case 'GAUSS':       return normsdist(getNum(args[0])) - 0.5;
+    case 'PHI':         { const x = getNum(args[0]); return Math.exp(-(x * x) / 2) / Math.sqrt(2 * Math.PI); }
+    case 'STANDARDIZE': { const sd = getNum(args[2]); if (sd <= 0) return '#NUM!'; return (getNum(args[0]) - getNum(args[1])) / sd; }
+    case 'NORMSDIST': case 'NORM.S.DIST': return normsdist(getNum(args[0]));
+    case 'NORMSINV': case 'NORM.S.INV':   { const p = getNum(args[0]); if (p <= 0 || p >= 1) return '#NUM!'; return normsinv(p); }
+    case 'CONFIDENCE': case 'CONFIDENCE.NORM': { const alpha = getNum(args[0]), sd = getNum(args[1]), n = getNum(args[2]); if (alpha <= 0 || alpha >= 1 || sd <= 0 || n < 1) return '#NUM!'; return normsinv(1 - alpha / 2) * sd / Math.sqrt(n); }
+    case 'EXPONDIST': case 'EXPON.DIST':  { const x = getNum(args[0]), lambda = getNum(args[1]), cum = getNum(args[2]) !== 0; if (x < 0 || lambda <= 0) return '#NUM!'; return cum ? 1 - Math.exp(-lambda * x) : lambda * Math.exp(-lambda * x); }
+    case 'POISSON': case 'POISSON.DIST':  { const k = Math.floor(getNum(args[0])), mean = getNum(args[1]), cum = getNum(args[2]) !== 0; if (k < 0 || mean < 0) return '#NUM!'; if (cum) { let s = 0; for (let i = 0; i <= k; i++) s += Math.exp(-mean + i * Math.log(mean) - factln(i)); return s; } return Math.exp(-mean + k * Math.log(mean) - factln(k)); }
+    case 'BINOMDIST': case 'BINOM.DIST':  { const k = Math.floor(getNum(args[0])), n = Math.floor(getNum(args[1])), p = getNum(args[2]), cum = getNum(args[3]) !== 0; if (k < 0 || k > n || p < 0 || p > 1) return '#NUM!'; const pmf = (j: number) => Math.exp(factln(n) - factln(j) - factln(n - j) + j * Math.log(p || 1e-300) + (n - j) * Math.log(1 - p || 1e-300)); if (cum) { let s = 0; for (let j = 0; j <= k; j++) s += pmf(j); return s; } return pmf(k); }
+
+    // --- Text ---
+    case 'T':           return typeof args[0] === 'string' ? args[0] : '';
   }
   return '#NAME?';
+}
+
+// Standard normal CDF via the Abramowitz-Stegun erf approximation (7.1.26).
+function normsdist(z: number): number {
+  return 0.5 * (1 + erf(z / Math.SQRT2));
+}
+function erf(x: number): number {
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return sign * y;
+}
+// Inverse standard normal CDF — Acklam's rational approximation.
+function normsinv(p: number): number {
+  const a = [-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00];
+  const b = [-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01];
+  const c = [-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00];
+  const d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00];
+  const pl = 0.02425;
+  if (p < pl) { const q = Math.sqrt(-2 * Math.log(p)); return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+  if (p <= 1 - pl) { const q = p - 0.5, r = q * q; return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1); }
+  const q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+}
+// Natural log of the gamma function — Lanczos approximation (g=7).
+function gammaln(x: number): number {
+  const g = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7];
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - gammaln(1 - x);
+  x -= 1;
+  let a = g[0];
+  const t = x + 7.5;
+  for (let i = 1; i < g.length; i++) a += g[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+// Natural log of n! via gammaln(n+1).
+function factln(n: number): number {
+  return n <= 1 ? 0 : gammaln(n + 1);
 }
 
 function gcd(a: number, b: number): number {
@@ -391,4 +451,8 @@ export const FORMULA_NAMES = [
   'FACT', 'FACTDOUBLE', 'COMBIN', 'PERMUT', 'MROUND', 'QUOTIENT', 'SEC', 'CSC', 'COT',
   'BASE', 'DECIMAL', 'ROMAN', 'ARABIC', 'GEOMEAN', 'HARMEAN', 'AVEDEV', 'DEVSQ', 'TRIMMEAN',
   'TEXTBEFORE', 'TEXTAFTER', 'NUMBERVALUE', 'FIXED', 'DOLLAR',
+  'SQRTPI', 'SERIESSUM', 'MULTINOMIAL', 'COMBINA', 'GAMMALN', 'GAMMALN.PRECISE',
+  'FISHER', 'FISHERINV', 'GAUSS', 'PHI', 'STANDARDIZE',
+  'NORMSDIST', 'NORM.S.DIST', 'NORMSINV', 'NORM.S.INV', 'CONFIDENCE', 'CONFIDENCE.NORM',
+  'EXPONDIST', 'EXPON.DIST', 'POISSON', 'POISSON.DIST', 'BINOMDIST', 'BINOM.DIST', 'T',
 ];

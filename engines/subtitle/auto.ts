@@ -80,15 +80,31 @@ function renderCaptionPng(text: string, vw: number, vh: number, style: CaptionSt
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // Word-wrap to ~88% of the width.
+  // Word-wrap to ~88% of the width. CJK-aware: split on spaces for Latin, but a
+  // single token wider than the line (incl. space-less Chinese/Japanese/Thai or
+  // one very long URL) also breaks at CHARACTER boundaries so it never overflows.
   const maxW = vw * 0.88;
-  const words = label.split(/\s+/);
   const lines: string[] = [];
+  // Break any token that's still too wide into char-level pieces that fit.
+  const breakLong = (token: string): string[] => {
+    if (ctx.measureText(token).width <= maxW) return [token];
+    const out: string[] = [];
+    let chunk = '';
+    for (const ch of token) {
+      const t = chunk + ch;
+      if (ctx.measureText(t).width > maxW && chunk) { out.push(chunk); chunk = ch; }
+      else chunk = t;
+    }
+    if (chunk) out.push(chunk);
+    return out;
+  };
   let cur = '';
-  for (const w of words) {
-    const test = cur ? `${cur} ${w}` : w;
-    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
-    else cur = test;
+  for (const word of label.split(/\s+/)) {
+    for (const w of breakLong(word)) {
+      const test = cur ? `${cur} ${w}` : w;
+      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
   }
   if (cur) lines.push(cur);
 

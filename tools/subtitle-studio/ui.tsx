@@ -31,11 +31,14 @@ function readRecovery(): RecoverySnapshot | null {
     return snap;
   } catch { return null; }
 }
-function writeRecovery(doc: DocState) {
+// Returns false if the snapshot couldn't be saved (quota exceeded / private mode)
+// so the caller can warn the user once — silent failure here could lose work.
+function writeRecovery(doc: DocState): boolean {
   try {
     const snap: RecoverySnapshot = { savedAt: Date.now(), name: doc.name, cueCount: doc.cues.length, doc };
     localStorage.setItem(RECOVERY_KEY, JSON.stringify(snap));
-  } catch { /* quota / private mode — non-fatal */ }
+    return true;
+  } catch { return false; }
 }
 function clearRecovery() { try { localStorage.removeItem(RECOVERY_KEY); } catch {} }
 import {
@@ -240,10 +243,18 @@ export default function SubtitleStudioPro() {
   // snapshots once there's real work (cues present) so an empty studio never
   // overwrites a meaningful recovery point. Runs purely on-device.
   const recoveryDirty = React.useRef(false);
+  const quotaWarned = React.useRef(false);
   React.useEffect(() => {
     if (doc.cues.length === 0) return;
     recoveryDirty.current = true;
-    const t = window.setTimeout(() => { writeRecovery(doc); recoveryDirty.current = false; }, 2000);
+    const t = window.setTimeout(() => {
+      const ok = writeRecovery(doc);
+      recoveryDirty.current = false;
+      // Warn ONCE if auto-save can't persist (quota/private mode) so the user
+      // knows their work isn't being snapshotted and can export/save manually.
+      if (!ok && !quotaWarned.current) { quotaWarned.current = true; toastFor('Auto-save failed (storage full) — export or save your project manually'); }
+      else if (ok) quotaWarned.current = false;
+    }, 2000);
     return () => window.clearTimeout(t);
   }, [doc]);
   // Flush a pending snapshot synchronously on tab hide / unload so a crash right

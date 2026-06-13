@@ -91,6 +91,13 @@ interface LayerBase {
   opacity: number;
   blend: BlendMode;
   mask?: HTMLCanvasElement;
+  /** When the mask is disabled, it's kept on the layer but not applied — the
+   *  standard shift-click "disable mask" toggle. */
+  maskDisabled?: boolean;
+  /** Clipping mask: this layer is clipped to the opaque pixels of the layer
+   *  BELOW it (Photoshop "Create Clipping Mask" / Alt-click between layers).
+   *  Lets you confine paint/adjustment/texture to one layer's shape. */
+  clip?: boolean;
   adjust: AdjustParams;
   animations?: AnimationConfig;
   styles?: LayerStyles;
@@ -115,6 +122,9 @@ interface TextLayer extends LayerBase {
   kind: 'text';
   text: string;
   x: number; y: number;
+  /** Free-transform (Ctrl+T) — scale/rotate/flip around the text block centre.
+   *  Optional so old projects default to identity. */
+  scaleX?: number; scaleY?: number; rotation?: number;
   size: number;
   color: string;
   font: string;
@@ -135,6 +145,8 @@ interface ShapeLayer extends LayerBase {
   kind: 'shape';
   shape: 'rect' | 'ellipse';
   x: number; y: number; w: number; h: number;
+  /** Free-transform (Ctrl+T) — scale/rotate/flip around the shape centre. */
+  scaleX?: number; scaleY?: number; rotation?: number;
   fill: string;
   stroke: string;
   strokeWidth: number;
@@ -269,6 +281,17 @@ function renderLayer(layer: Layer, w: number, h: number): HTMLCanvasElement | nu
     ctx.font = style;
     ctx.textAlign = layer.align;
     ctx.textBaseline = 'top';
+    // Free-transform: scale/rotate/flip around the text block centre. Identity
+    // when the optional fields are unset (old projects unchanged).
+    const tBox = textLayerBounds(layer, ctx);
+    const tHasXf = (layer.scaleX ?? 1) !== 1 || (layer.scaleY ?? 1) !== 1 || (layer.rotation ?? 0) !== 0;
+    ctx.save();
+    if (tHasXf) {
+      ctx.translate(tBox.cx, tBox.cy);
+      ctx.rotate(((layer.rotation ?? 0) * Math.PI) / 180);
+      ctx.scale(layer.scaleX ?? 1, layer.scaleY ?? 1);
+      ctx.translate(-tBox.cx, -tBox.cy);
+    }
     if (layer.shadow) {
       ctx.shadowBlur = layer.shadowBlur;
       ctx.shadowColor = layer.shadowColor;
@@ -290,11 +313,22 @@ function renderLayer(layer: Layer, w: number, h: number): HTMLCanvasElement | nu
       else drawSpacedText(ctx, ln, layer.x, y, layer.letterSpacing, false);
     }
     ctx.shadowBlur = 0;
+    ctx.restore();
     return c;
   }
   if (layer.kind === 'shape') {
     const c = blankCanvas(w, h);
     const ctx = c.getContext('2d')!;
+    // Free-transform around the shape centre.
+    const sHasXf = (layer.scaleX ?? 1) !== 1 || (layer.scaleY ?? 1) !== 1 || (layer.rotation ?? 0) !== 0;
+    ctx.save();
+    if (sHasXf) {
+      const cx = layer.x + layer.w / 2, cy = layer.y + layer.h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate(((layer.rotation ?? 0) * Math.PI) / 180);
+      ctx.scale(layer.scaleX ?? 1, layer.scaleY ?? 1);
+      ctx.translate(-cx, -cy);
+    }
     ctx.fillStyle = layer.fill;
     ctx.strokeStyle = layer.stroke;
     ctx.lineWidth = layer.strokeWidth;
@@ -313,9 +347,29 @@ function renderLayer(layer: Layer, w: number, h: number): HTMLCanvasElement | nu
       ctx.fill();
       if (layer.strokeWidth > 0) ctx.stroke();
     }
+    ctx.restore();
     return c;
   }
   return null;
+}
+
+// Natural (pre-transform) bounds of a text layer in image-space, used for the
+// free-transform box + the transform pivot. align affects the x-extent.
+function textLayerBounds(l: TextLayer, ctx: CanvasRenderingContext2D): { x: number; y: number; w: number; h: number; cx: number; cy: number } {
+  const prevFont = ctx.font;
+  ctx.font = `${l.italic ? 'italic ' : ''}${l.weight} ${l.size}px ${l.font}`;
+  const lines = l.text.split('\n');
+  let maxW = 0;
+  for (const ln of lines) {
+    const m = ctx.measureText(ln).width + Math.max(0, (ln.length - 1) * l.letterSpacing);
+    if (m > maxW) maxW = m;
+  }
+  ctx.font = prevFont;
+  const lh = l.size * l.lineHeight;
+  const hgt = Math.max(lh, lines.length * lh);
+  const x = l.align === 'center' ? l.x - maxW / 2 : l.align === 'right' ? l.x - maxW : l.x;
+  const y = l.y;
+  return { x, y, w: maxW, h: hgt, cx: x + maxW / 2, cy: y + hgt / 2 };
 }
 
 function drawSpacedText(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, spacing: number, stroke: boolean) {
@@ -448,6 +502,38 @@ function scaleCanvas(src: HTMLCanvasElement, factor: number): HTMLCanvasElement 
   return out;
 }
 
+// Apply a layer's mask (unless disabled) and clipping mask, then composite the
+// result into `out` honoring opacity + blend. `out` is the accumulated canvas
+// BELOW this layer; for a clipping mask we intersect the layer's alpha with the
+// alpha already in `out` so it only shows over the layer(s) below. Shared by the
+// export compositor and the live preview so they stay pixel-identical.
+function compositeLayerInto(ctx: CanvasRenderingContext2D, out: HTMLCanvasElement, rendered: HTMLCanvasElement, layer: Layer, w: number, h: number): void {
+  let layerCanvas = rendered;
+  const mask = layer.maskDisabled ? undefined : layer.mask;
+  if (mask) {
+    const tmp = blankCanvas(w, h);
+    const tctx = tmp.getContext('2d')!;
+    tctx.drawImage(rendered, 0, 0);
+    tctx.globalCompositeOperation = 'destination-in';
+    tctx.drawImage(mask, 0, 0, w, h);
+    layerCanvas = tmp;
+  }
+  if (layer.clip) {
+    // Clip to the opaque pixels already in `out` (the layer below).
+    const tmp = blankCanvas(w, h);
+    const tctx = tmp.getContext('2d')!;
+    tctx.drawImage(layerCanvas, 0, 0);
+    tctx.globalCompositeOperation = 'destination-in';
+    tctx.drawImage(out, 0, 0);
+    layerCanvas = tmp;
+  }
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+  ctx.drawImage(layerCanvas, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = 'source-over';
+}
+
 function compositeDoc(doc: DocState): HTMLCanvasElement {
   const out = blankCanvas(doc.width, doc.height);
   const ctx = out.getContext('2d')!;
@@ -467,13 +553,23 @@ function compositeDoc(doc: DocState): HTMLCanvasElement {
       const snap = blankCanvas(doc.width, doc.height);
       snap.getContext('2d')!.drawImage(out, 0, 0);
       let adjusted = applyAdjustmentBelow(snap, layer);
-      if (layer.mask) {
+      const aMask = layer.maskDisabled ? undefined : layer.mask;
+      if (aMask) {
         // Confine the adjustment to the painted mask region.
         const tmp = blankCanvas(doc.width, doc.height);
         const tctx = tmp.getContext('2d')!;
         tctx.drawImage(adjusted, 0, 0);
         tctx.globalCompositeOperation = 'destination-in';
-        tctx.drawImage(layer.mask, 0, 0, doc.width, doc.height);
+        tctx.drawImage(aMask, 0, 0, doc.width, doc.height);
+        adjusted = tmp;
+      }
+      if (layer.clip) {
+        // Scope the adjustment to the layer directly below (clipping mask).
+        const tmp = blankCanvas(doc.width, doc.height);
+        const tctx = tmp.getContext('2d')!;
+        tctx.drawImage(adjusted, 0, 0);
+        tctx.globalCompositeOperation = 'destination-in';
+        tctx.drawImage(out, 0, 0);
         adjusted = tmp;
       }
       ctx.globalAlpha = layer.opacity;       // opacity = adjusted/original mix
@@ -485,20 +581,7 @@ function compositeDoc(doc: DocState): HTMLCanvasElement {
     }
     const rendered = renderLayer(layer, doc.width, doc.height);
     if (!rendered) continue;
-    if (layer.mask) {
-      const tmp = blankCanvas(doc.width, doc.height);
-      const tctx = tmp.getContext('2d')!;
-      tctx.drawImage(rendered, 0, 0);
-      tctx.globalCompositeOperation = 'destination-in';
-      tctx.drawImage(layer.mask, 0, 0, doc.width, doc.height);
-      ctx.globalAlpha = layer.opacity;
-      ctx.globalCompositeOperation = layer.blend;
-      ctx.drawImage(tmp, 0, 0);
-    } else {
-      ctx.globalAlpha = layer.opacity;
-      ctx.globalCompositeOperation = layer.blend;
-      ctx.drawImage(rendered, 0, 0);
-    }
+    compositeLayerInto(ctx, out, rendered, layer, doc.width, doc.height);
   }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
@@ -644,6 +727,36 @@ function imageLayerBox(l: ImageLayer): XformBox {
   const w = l.canvas.width * l.scaleX;
   const h = l.canvas.height * l.scaleY;
   return { cx: l.x + w / 2, cy: l.y + h / 2, hw: w / 2, hh: h / 2, rot: l.rotation };
+}
+
+// Whether a layer kind supports free-transform (Ctrl+T).
+function isTransformable(l: Layer): l is ImageLayer | TextLayer | ShapeLayer {
+  return l.kind === 'image' || l.kind === 'text' || l.kind === 'shape';
+}
+
+// Generic free-transform box for any transformable layer. measureCtx is needed
+// to size text. Returns the post-scale box in image-space.
+function layerBox(l: ImageLayer | TextLayer | ShapeLayer, measureCtx?: CanvasRenderingContext2D): XformBox {
+  if (l.kind === 'image') return imageLayerBox(l);
+  if (l.kind === 'shape') {
+    const sx = l.scaleX ?? 1, sy = l.scaleY ?? 1;
+    const w = l.w * sx, h = l.h * sy;
+    return { cx: l.x + l.w / 2, cy: l.y + l.h / 2, hw: Math.abs(w) / 2, hh: Math.abs(h) / 2, rot: l.rotation ?? 0 };
+  }
+  // text
+  const b = measureCtx ? textLayerBounds(l, measureCtx) : { cx: l.x, cy: l.y, w: l.size * 6, h: l.size };
+  const sx = l.scaleX ?? 1, sy = l.scaleY ?? 1;
+  return { cx: b.cx, cy: b.cy, hw: Math.abs(b.w * sx) / 2, hh: Math.abs(b.h * sy) / 2, rot: l.rotation ?? 0 };
+}
+
+// Read/write the transform of any transformable layer uniformly.
+function getXform(l: ImageLayer | TextLayer | ShapeLayer): { scaleX: number; scaleY: number; rotation: number } {
+  return { scaleX: l.scaleX ?? 1, scaleY: l.scaleY ?? 1, rotation: l.rotation ?? 0 };
+}
+function setXform(l: ImageLayer | TextLayer | ShapeLayer, x: { scaleX?: number; scaleY?: number; rotation?: number }): void {
+  if (x.scaleX !== undefined) l.scaleX = x.scaleX;
+  if (x.scaleY !== undefined) l.scaleY = x.scaleY;
+  if (x.rotation !== undefined) l.rotation = x.rotation;
 }
 
 export interface SnapGuide { axis: 'v' | 'h'; pos: number }
@@ -832,12 +945,21 @@ export default function ImageStudioPro() {
         const snap = blankCanvas(doc.width, doc.height);
         snap.getContext('2d')!.drawImage(out, 0, 0);
         let adjusted = applyAdjustmentBelow(snap, layer);
-        if (layer.mask) {
+        const aMask = layer.maskDisabled ? undefined : layer.mask;
+        if (aMask) {
           const tmp = blankCanvas(doc.width, doc.height);
           const tctx = tmp.getContext('2d')!;
           tctx.drawImage(adjusted, 0, 0);
           tctx.globalCompositeOperation = 'destination-in';
-          tctx.drawImage(layer.mask, 0, 0, doc.width, doc.height);
+          tctx.drawImage(aMask, 0, 0, doc.width, doc.height);
+          adjusted = tmp;
+        }
+        if (layer.clip) {
+          const tmp = blankCanvas(doc.width, doc.height);
+          const tctx = tmp.getContext('2d')!;
+          tctx.drawImage(adjusted, 0, 0);
+          tctx.globalCompositeOperation = 'destination-in';
+          tctx.drawImage(out, 0, 0);
           adjusted = tmp;
         }
         ctx.globalAlpha = layer.opacity;
@@ -866,20 +988,7 @@ export default function ImageStudioPro() {
       }
       if (!rendered) continue;
       if (!layer.visible || layer.opacity <= 0) continue;
-      if (layer.mask) {
-        const tmp = blankCanvas(doc.width, doc.height);
-        const tctx = tmp.getContext('2d')!;
-        tctx.drawImage(rendered, 0, 0);
-        tctx.globalCompositeOperation = 'destination-in';
-        tctx.drawImage(layer.mask, 0, 0, doc.width, doc.height);
-        ctx.globalAlpha = layer.opacity;
-        ctx.globalCompositeOperation = layer.blend;
-        ctx.drawImage(tmp, 0, 0);
-      } else {
-        ctx.globalAlpha = layer.opacity;
-        ctx.globalCompositeOperation = layer.blend;
-        ctx.drawImage(rendered, 0, 0);
-      }
+      compositeLayerInto(ctx, out, rendered, layer, doc.width, doc.height);
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
@@ -1601,19 +1710,19 @@ export default function ImageStudioPro() {
   };
 
   const flipActive = (axis: 'h' | 'v') => {
-    if (!activeLayer || (activeLayer.kind !== 'image' && activeLayer.kind !== 'paint')) {
-      toastFor('Pick an image or paint layer');
+    if (!activeLayer || activeLayer.kind === 'adjust') {
+      toastFor('Pick an image, text, shape or paint layer');
       return;
     }
     const next = cloneDoc(doc);
     const l = next.layers.find(x => x.id === activeLayer.id);
-    if (!l || (l.kind !== 'image' && l.kind !== 'paint')) return;
-    if (l.kind === 'image') {
+    if (!l || l.kind === 'adjust') return;
+    if (l.kind === 'image' || l.kind === 'text' || l.kind === 'shape') {
       // NON-DESTRUCTIVE: flip = negate the scale sign on that axis, so it stays
       // reversible and composable with rotation/scale (no pixel rewrite). The
-      // renderLayer transform already scales around the layer center.
-      const il = l as ImageLayer;
-      if (axis === 'h') il.scaleX = -il.scaleX; else il.scaleY = -il.scaleY;
+      // renderLayer transform scales around the layer center for all 3 kinds.
+      const cur = getXform(l);
+      if (axis === 'h') setXform(l, { scaleX: -cur.scaleX }); else setXform(l, { scaleY: -cur.scaleY });
       commit('flip', next);
       return;
     }
@@ -1694,9 +1803,21 @@ export default function ImageStudioPro() {
     const l = next.layers.find(x => x.id === id);
     if (!l) return;
     l.mask = undefined;
+    l.maskDisabled = undefined;
     commit('remove mask', next);
     if (maskEditId === id) setMaskEditId(null);
     bumpRevision(id);
+  };
+
+  // Load a layer's mask as the active selection (the mask's grayscale becomes the
+  // selection alpha) — the standard Ctrl-click-mask move to reselect a region.
+  const maskToSelection = (id: string) => {
+    const l = doc.layers.find(x => x.id === id);
+    if (!l?.mask) { toastFor('No mask on this layer'); return; }
+    const m = blankCanvas(doc.width, doc.height);
+    m.getContext('2d')!.drawImage(l.mask, 0, 0, doc.width, doc.height);
+    setDoc(d => ({ ...d, selection: { kind: 'subject', mask: m } }));
+    toastFor('Mask loaded as selection');
   };
 
   const fillSelectionWith = (color: string) => {
@@ -1791,7 +1912,12 @@ export default function ImageStudioPro() {
       const xf = xform.current; if (!xf) return;
       const next = cloneDoc(doc);
       const l = next.layers.find(x => x.id === xf.layerId);
-      if (l && l.kind === 'image') { const il = l as ImageLayer; il.x = xf.start.x; il.y = xf.start.y; il.scaleX = xf.start.scaleX; il.scaleY = xf.start.scaleY; il.rotation = xf.start.rotation; setDoc(next); }
+      if (l && isTransformable(l)) {
+        if ('x' in l) (l as any).x = xf.start.x;
+        if ('y' in l) (l as any).y = xf.start.y;
+        setXform(l, { scaleX: xf.start.scaleX, scaleY: xf.start.scaleY, rotation: xf.start.rotation });
+        setDoc(next);
+      }
       xform.current = null; ptrState.current.down = false; setXformTick(n => n + 1);
     }},
   ]);
@@ -1929,11 +2055,13 @@ export default function ImageStudioPro() {
     // Free Transform: with the Move tool on an image layer, the bounding box +
     // handles are live. Hit-test a handle (scale), the rotate knob, or the box
     // interior (move). Tolerance scales with zoom so handles stay grabbable.
-    if (tool === 'move' && activeLayer?.kind === 'image') {
-      const il = activeLayer as ImageLayer;
-      const box = imageLayerBox(il);
+    if (tool === 'move' && activeLayer && isTransformable(activeLayer)) {
+      const il = activeLayer;
+      const mctx = canvasRef.current?.getContext('2d') ?? undefined;
+      const box = layerBox(il, mctx);
       const tol = 9 / zoom; // ~9 screen px
-      const snap = { x: il.x, y: il.y, scaleX: il.scaleX, scaleY: il.scaleY, rotation: il.rotation };
+      const xf = getXform(il);
+      const snap = { x: (il as any).x ?? 0, y: (il as any).y ?? 0, scaleX: xf.scaleX, scaleY: xf.scaleY, rotation: xf.rotation };
       // rotate knob: just outside the top-edge midpoint
       const topMid = handlePos(box, 0, -1);
       const knob = { x: topMid.x + rotatePt(0, -24 / zoom, box.rot).x, y: topMid.y + rotatePt(0, -24 / zoom, box.rot).y };
@@ -2068,48 +2196,56 @@ export default function ImageStudioPro() {
       const xf = xform.current;
       const next = cloneDoc(doc);
       const l = next.layers.find(x => x.id === xf.layerId);
-      if (l && l.kind === 'image') {
-        const il = l as ImageLayer;
+      if (l && isTransformable(l)) {
+        const il = l;
         const { box0, start } = xf;
         if (xf.mode === 'rotate') {
           const a0 = Math.atan2(xf.grab.y - box0.cy, xf.grab.x - box0.cx);
           const a1 = Math.atan2(p.y - box0.cy, p.x - box0.cx);
           let deg = start.rotation + ((a1 - a0) * 180) / Math.PI;
           if (e.shiftKey) deg = Math.round(deg / 15) * 15; // snap to 15°
-          il.rotation = deg;
+          setXform(il, { rotation: deg });
         } else {
           // Scale: project the pointer delta onto the box's local axes so
-          // rotation is respected. Corner = both axes; edge = one axis.
+          // rotation is respected. Corner = both axes; edge = one axis. The
+          // NATURAL (unscaled) size is derived from the start box + start scale,
+          // so this works for image (canvas), shape (w/h) and text (measured).
           const h = XFORM_HANDLES.find(hh => hh.id === xf.mode)!;
           const d = rotatePt(p.x - xf.grab.x, p.y - xf.grab.y, -box0.rot); // delta in local frame
-          const cw = il.canvas.width, ch = il.canvas.height;
-          // Each unit of local delta on a side moves that edge; opposite edge
-          // is the anchor, so the box grows from the far side by delta and the
-          // centre shifts by delta/2 along the (rotated) axis.
+          const cw = (box0.hw * 2) / Math.max(0.0001, Math.abs(start.scaleX));
+          const ch = (box0.hh * 2) / Math.max(0.0001, Math.abs(start.scaleY));
           let newSX = start.scaleX, newSY = start.scaleY;
           let shiftLX = 0, shiftLY = 0;
           if (h.sx !== 0) {
-            const dw = h.sx * d.x;                    // local-x growth
-            newSX = Math.max(0.02, (box0.hw * 2 + dw) / cw);
+            const dw = h.sx * d.x;
+            newSX = Math.sign(start.scaleX || 1) * Math.max(0.02, (box0.hw * 2 + dw) / cw);
             shiftLX = (h.sx * dw) / 2;
           }
           if (h.sy !== 0) {
             const dh = h.sy * d.y;
-            newSY = Math.max(0.02, (box0.hh * 2 + dh) / ch);
+            newSY = Math.sign(start.scaleY || 1) * Math.max(0.02, (box0.hh * 2 + dh) / ch);
             shiftLY = (h.sy * dh) / 2;
           }
           if (e.shiftKey && h.sx !== 0 && h.sy !== 0) { // uniform on corners
-            const s = Math.max(newSX / start.scaleX, newSY / start.scaleY);
+            const s = Math.max(Math.abs(newSX / start.scaleX), Math.abs(newSY / start.scaleY));
             newSX = start.scaleX * s; newSY = start.scaleY * s;
           }
-          il.scaleX = newSX; il.scaleY = newSY;
+          setXform(il, { scaleX: newSX, scaleY: newSY });
           // Move the centre so the anchored (opposite) edge stays put, then
           // re-derive x/y from the new centre + new size.
           const worldShift = rotatePt(shiftLX, shiftLY, box0.rot);
           const newCx = box0.cx + worldShift.x;
           const newCy = box0.cy + worldShift.y;
-          il.x = newCx - (cw * newSX) / 2;
-          il.y = newCy - (ch * newSY) / 2;
+          if (il.kind === 'image') {
+            il.x = newCx - (cw * Math.abs(newSX)) / 2;
+            il.y = newCy - (ch * Math.abs(newSY)) / 2;
+          } else if (il.kind === 'shape') {
+            il.x = newCx - (cw * Math.abs(newSX)) / 2;
+            il.y = newCy - (ch * Math.abs(newSY)) / 2;
+            il.w = cw * Math.abs(newSX); il.h = ch * Math.abs(newSY);
+            il.scaleX = Math.sign(newSX || 1); il.scaleY = Math.sign(newSY || 1);
+          }
+          // text: leave x/y anchor; scale handles the visual size around centre.
         }
         setDoc(next);
         setXformTick(n => n + 1);
@@ -2659,10 +2795,10 @@ export default function ImageStudioPro() {
             </svg>
           )}
 
-          {/* Free Transform box + handles — Move tool on an image layer (Ctrl+T
-              focuses it). Drawn in image-space inside the pan/zoom SVG. */}
-          {tool === 'move' && activeLayer?.kind === 'image' && (() => {
-            const box = imageLayerBox(activeLayer as ImageLayer);
+          {/* Free Transform box + handles — Move tool on a transformable layer
+              (image/text/shape). Drawn in image-space inside the pan/zoom SVG. */}
+          {tool === 'move' && activeLayer && isTransformable(activeLayer) && (() => {
+            const box = layerBox(activeLayer, canvasRef.current?.getContext('2d') ?? undefined);
             const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => handlePos(box, sx, sy));
             const topMid = handlePos(box, 0, -1);
             const knob = { x: topMid.x + rotatePt(0, -24 / zoom, box.rot).x, y: topMid.y + rotatePt(0, -24 / zoom, box.rot).y };
@@ -2763,8 +2899,15 @@ export default function ImageStudioPro() {
                     ) : (
                       <>
                         <StudioButton size="sm" variant={maskEditId === activeLayer.id ? 'primary' : 'soft'} onClick={() => setMaskEditId(maskEditId === activeLayer.id ? null : activeLayer.id)} title="Paint into the mask: brush reveals, eraser hides">{maskEditId === activeLayer.id ? '● Editing Mask' : 'Edit Mask'}</StudioButton>
+                        <StudioButton size="sm" variant={activeLayer.maskDisabled ? 'primary' : 'soft'} onClick={() => updateLayer(activeLayer.id, l => { l.maskDisabled = !l.maskDisabled; }, 'toggle mask')} title="Temporarily disable the mask without deleting it">{activeLayer.maskDisabled ? 'Mask off' : 'Disable'}</StudioButton>
+                        <StudioButton size="sm" variant="soft" onClick={() => maskToSelection(activeLayer.id)} title="Load the mask as an active selection">Mask→Sel</StudioButton>
                         <StudioButton size="sm" variant="danger" onClick={() => removeMaskFromLayer(activeLayer.id)} title="Delete the layer mask">Remove Mask</StudioButton>
                       </>
+                    )}
+                    {/* Clipping mask — clip this layer to the one below. Hidden for
+                        the bottom layer (nothing to clip to). */}
+                    {doc.layers.findIndex(l => l.id === activeLayer.id) > 0 && (
+                      <StudioButton size="sm" variant={activeLayer.clip ? 'primary' : 'soft'} onClick={() => updateLayer(activeLayer.id, l => { l.clip = !l.clip; }, 'toggle clip')} title="Clip to layer below — only show over its pixels (Photoshop clipping mask)">{activeLayer.clip ? '▼ Clipped' : 'Clip ▼'}</StudioButton>
                     )}
                   </div>
                 )}

@@ -2002,6 +2002,48 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runGaussianBlur = async () => {
+    // Soften the active layer with a single-pass Gaussian blur (radius 2px) via the
+    // shared canvas-filter helper. Destructive on the active layer, alpha preserved.
+    // Same structure as runClarity/runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Applying Gaussian blur…');
+    try {
+      const src = getCanvasOf(target)!;
+      const out = gaussianBlur(src, 2);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('gaussian-blur', next);
+      toastFor('Gaussian blur applied ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runSharpen = async () => {
+    // Crisp the active layer with a single-pass 3×3 sharpen convolution kernel
+    // ([0,-1,0,-1,5,-1,0,-1,0]) via applyKernel. Destructive on the active layer,
+    // alpha preserved. Same structure as runClarity/runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Sharpening…');
+    try {
+      const src = getCanvasOf(target)!;
+      const out = applyKernel(src, KERNELS.sharpen, 1);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('sharpen', next);
+      toastFor('Sharpened ✓');
+    } finally { setBusy(''); }
+  };
+
   const runFilmGrain = async () => {
     // Per-pixel random noise (±20 on each channel) for an analog film-grain texture.
     // Clamped to 0..255, alpha untouched. Same structure as runClarity/runVignette.
@@ -3432,6 +3474,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLiftShadows()} title={pristine ? 'Open an image first' : 'Lift shadows — recover dark detail (luminance-weighted gain)'}><Sparkles className="h-3.5 w-3.5" /> Lift Shadows</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runClarity()} title={pristine ? 'Open an image first' : 'Clarity — punch up midtone local contrast'}><Sparkles className="h-3.5 w-3.5" /> Clarity</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runGaussianBlur()} title={pristine ? 'Open an image first' : 'Gaussian Blur — soften the active layer'}><Sparkles className="h-3.5 w-3.5" /> Blur</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSharpen()} title={pristine ? 'Open an image first' : 'Sharpen — crisp edges on the active layer'}><Sparkles className="h-3.5 w-3.5" /> Sharpen</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFilmGrain()} title={pristine ? 'Open an image first' : 'Film grain — add subtle analog noise'}><Sparkles className="h-3.5 w-3.5" /> Film Grain</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />
             {/* Looks — one-click photographic tone+color grades on the active layer. */}

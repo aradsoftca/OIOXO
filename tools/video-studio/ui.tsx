@@ -1354,12 +1354,14 @@ export default function VideoStudioPro() {
     return null;
   };
 
-  const splitAt = (clipId: string, t: number) => {
-    const next = cloneDoc(doc);
-    const c = next.clips.find(x => x.id === clipId);
-    if (!c) return;
+  // Pure split mutation on an ALREADY-CLONED clip `c` living in `clips`. Mutates
+  // `c` in place to the left half, pushes the right half into `clips`, and
+  // returns the new clip (or null if the playhead is too close to either edge to
+  // make a real cut). Factored out so one-clip split and "split all" share it and
+  // can batch many cuts into a single undo step.
+  const splitClipInto = (c: TimelineClip, clips: TimelineClip[], t: number): TimelineClip | null => {
     const local = t - c.start;
-    if (local <= 0.05 || local >= clipDuration(c) - 0.05) return;
+    if (local <= 0.05 || local >= clipDuration(c) - 0.05) return null;
     const copy: TimelineClip = JSON.parse(JSON.stringify(c));
     copy.id = tid();
     if (c.kind === 'text') {
@@ -1376,8 +1378,31 @@ export default function VideoStudioPro() {
       vb.srcStart = local0;
       va.srcEnd = local0;
     }
-    next.clips.push(copy);
+    clips.push(copy);
+    return copy;
+  };
+
+  const splitAt = (clipId: string, t: number) => {
+    const next = cloneDoc(doc);
+    const c = next.clips.find(x => x.id === clipId);
+    if (!c) return;
+    if (!splitClipInto(c, next.clips, t)) return;
     commit('split', next);
+  };
+
+  // Split EVERY clip the playhead currently intersects, across all tracks, in one
+  // undo step — DaVinci/Premiere "blade all"/"split all". We clone the doc once,
+  // run the shared split mutation on each intersecting clip, then commit once.
+  const splitAllAtPlayhead = () => {
+    const t = doc.playhead;
+    const next = cloneDoc(doc);
+    // Snapshot the ids that intersect BEFORE mutating (the new right halves we
+    // push must not be re-split). start < playhead < end excludes edge touches.
+    const targets = next.clips.filter(c => t > c.start && t < clipEnd(c));
+    let cuts = 0;
+    for (const c of targets) if (splitClipInto(c, next.clips, t)) cuts++;
+    if (!cuts) { toastFor('Move the playhead over a clip first'); return; }
+    commit(cuts > 1 ? `split ${cuts} clips` : 'split', next);
   };
 
   const deleteClip = (id: string) => {
@@ -2015,6 +2040,7 @@ export default function VideoStudioPro() {
       label: 'Edit',
       items: [
         { combo: 's', description: 'Split clip at playhead' },
+        { combo: 'shift+s', description: 'Split all clips at playhead' },
         { combo: 'mod+b', description: 'Split at playhead (CapCut)' },
         { combo: 'q', description: 'Trim left of playhead' },
         { combo: 'w', description: 'Trim right of playhead' },
@@ -2072,6 +2098,8 @@ export default function VideoStudioPro() {
     { combo: 'shift+.', handler: () => doc.selectedId && nudgeClip(doc.selectedId, 0.1) },
     { combo: 'mod+d', handler: () => doc.selectedId && duplicateClip(doc.selectedId) },
     { combo: 's', handler: () => doc.selectedId && splitAt(doc.selectedId, doc.playhead) },
+    // Blade-all: split every clip the playhead crosses on every track, one undo.
+    { combo: 'shift+s', handler: () => splitAllAtPlayhead() },
     // CapCut's core gesture — split at the playhead. We split the selected clip,
     // or whatever clip the playhead is currently over if nothing is selected.
     { combo: 'mod+b', handler: () => {
@@ -2334,6 +2362,7 @@ export default function VideoStudioPro() {
             <span className="ml-3 text-xs tabular-nums text-zinc-300">{fmtT(doc.playhead)} / {fmtT(doc.duration)}</span>
             <div className="mx-2 h-4 w-px bg-white/10" />
             <button onClick={() => doc.selectedId && splitAt(doc.selectedId, doc.playhead)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><Scissors className="h-3 w-3" /> Split</button>
+            <button onClick={splitAllAtPlayhead} title="Split every clip the playhead crosses, on all tracks (Shift+S)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Scissors className="h-3 w-3" /> Split all</button>
             <button onClick={() => doc.selectedId && duplicateClip(doc.selectedId)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><Copy className="h-3 w-3" /> Duplicate</button>
             <button onClick={() => doc.selectedId && rippleDelete(doc.selectedId)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"><Trash2 className="h-3 w-3" /> Ripple</button>
             <div className="mx-2 h-4 w-px bg-white/10" />

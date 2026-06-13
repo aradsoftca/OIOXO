@@ -6,7 +6,7 @@ import {
   Type as TypeIcon, SquareDashed, Image as ImageIcon, Hash, FileText, Highlighter,
   PenTool, Eraser, Minus, Circle as CircleIcon, Save, Upload, Undo2, Redo2, X,
   MousePointer2, Signature, FileSignature, Sparkles, Shield, ScanText, MessageSquare,
-  Droplets, Scissors, FileCheck2, FileType2, ArrowUpDown,
+  Droplets, Scissors, FileCheck2, FileType2, ArrowUpDown, Info as InfoIcon,
   ChevronsLeft, ChevronsRight,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -238,6 +238,7 @@ export default function PdfStudioPro() {
   const [watermarkDialog, setWatermarkDialog] = React.useState(false);
   const [splitDialog, setSplitDialog] = React.useState(false);
   const [extractDialog, setExtractDialog] = React.useState(false);
+  const [infoDialog, setInfoDialog] = React.useState(false);
   const [formFields, setFormFields] = React.useState<PdfFormField[]>([]);
 
   // Crash-recovery: amber banner if a fresh unsaved snapshot exists on mount.
@@ -1507,6 +1508,7 @@ export default function PdfStudioPro() {
           <StudioButton size="sm" variant="soft" onClick={() => void runSmartRedact('page')} title="Find emails, phones, SSNs on THIS page and redact them"><Shield className="h-3 w-3" /> Smart Redact</StudioButton>
           {doc.pages.length > 1 && <StudioButton size="sm" variant="soft" onClick={() => void runSmartRedact('document')} title="Scan ALL pages for emails, phones, SSNs, cards and redact them">All pages</StudioButton>}
           <StudioButton size="sm" variant="soft" onClick={() => void runAutoDeskew()} title="Straighten a tilted scan"><Sparkles className="h-3 w-3" /> Deskew</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => setInfoDialog(true)} title="Document properties — page count, dimensions, size"><InfoIcon className="h-3 w-3" /> Info</StudioButton>
           <label className="ml-2 flex items-center gap-1.5">
             <input type="checkbox" checked={doc.pageNumbers} onChange={e => commit('page nums', { ...cloneDoc(doc), pageNumbers: e.target.checked })} />
             <Hash className="h-3 w-3" /> Page numbers
@@ -1803,6 +1805,9 @@ export default function PdfStudioPro() {
       {extractDialog && (
         <ExtractDialog totalPages={doc.pages.length} onCancel={() => setExtractDialog(false)} onExtract={(idx) => void runExtract(idx)} />
       )}
+      {infoDialog && (
+        <DocInfoDialog name={doc.name} pages={doc.pages} sources={sources} raster={raster} onCancel={() => setInfoDialog(false)} />
+      )}
       {ocrDialog && (
         <Dialog title={`Extracted text · ${ocrDialog.words.length} words`} wide onCancel={() => setOcrDialog(null)} onConfirm={() => {
           navigator.clipboard?.writeText(ocrDialog.text);
@@ -2013,6 +2018,66 @@ function AnnoResizeHandles({ onStart }: { onStart: (corner: string, e: React.Poi
         />
       ))}
     </>
+  );
+}
+
+// Acrobat-style "Document Properties": page count, per-page rendered
+// dimensions, total document bytes (summed over UNIQUE source buffers — a page
+// range extracted from one PDF shares a single source) and the source-file
+// count. All derived from in-studio state; nothing is re-read off disk.
+function DocInfoDialog({ name, pages, sources, raster, onCancel }: {
+  name: string;
+  pages: PageRef[];
+  sources: Record<string, ArrayBuffer>;
+  raster: Record<string, RasterPage[]>;
+  onCancel: () => void;
+}) {
+  const fmtBytes = (n: number) => {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  };
+  // Total bytes = sum of each unique source actually referenced by a page.
+  const usedSrcIds = Array.from(new Set(pages.map(p => p.srcId)));
+  const totalBytes = usedSrcIds.reduce((s, id) => s + (sources[id]?.byteLength ?? 0), 0);
+  // Group pages by rendered dimensions so repeated sizes collapse to one line.
+  const sizeCounts = new Map<string, number>();
+  for (const p of pages) {
+    const rp = raster[p.srcId]?.[p.srcIndex];
+    const key = rp ? `${rp.w} × ${rp.h} px` : 'unknown';
+    sizeCounts.set(key, (sizeCounts.get(key) ?? 0) + 1);
+  }
+  const rows: Array<[string, React.ReactNode]> = [
+    ['Title', <span className="truncate text-zinc-200">{name || 'Untitled'}</span>],
+    ['Pages', <span className="tabular-nums text-zinc-200">{pages.length}</span>],
+    ['Source files', <span className="tabular-nums text-zinc-200">{usedSrcIds.length}</span>],
+    ['Total size', <span className="tabular-nums text-zinc-200">{fmtBytes(totalBytes)}</span>],
+  ];
+  return (
+    <Dialog title="Document properties" onCancel={onCancel} onConfirm={onCancel} confirmLabel="Close">
+      <div className="space-y-3 text-xs">
+        <div className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1.5">
+          {rows.map(([k, v]) => (
+            <React.Fragment key={k}>
+              <div className="text-zinc-400">{k}</div>
+              <div className="min-w-0">{v}</div>
+            </React.Fragment>
+          ))}
+        </div>
+        <div>
+          <div className="mb-1 text-zinc-400">Page dimensions</div>
+          <div className="max-h-48 space-y-1 overflow-y-auto rounded border border-white/10 bg-[#0a0b0e] p-2">
+            {Array.from(sizeCounts.entries()).map(([size, count]) => (
+              <div key={size} className="flex items-center justify-between text-zinc-200">
+                <span className="tabular-nums">{size}</span>
+                <span className="text-zinc-500">{count} page{count === 1 ? '' : 's'}</span>
+              </div>
+            ))}
+            {sizeCounts.size === 0 && <span className="text-zinc-500">No pages</span>}
+          </div>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

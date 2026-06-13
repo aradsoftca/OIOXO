@@ -422,6 +422,15 @@ export function callFormula(name: string, args: any[]): any {
     case 'T.DIST.RT':     { const x = getNum(args[0]), df = Math.floor(getNum(args[1])); if (df < 1) return '#NUM!'; const ib = betai(df / (df + x * x), df / 2, 0.5); return x >= 0 ? ib / 2 : 1 - ib / 2; }
     case 'T.DIST.2T': case 'TDIST': { const x = getNum(args[0]), df = Math.floor(getNum(args[1])); if (x < 0 || df < 1) return '#NUM!'; return betai(df / (df + x * x), df / 2, 0.5); }
     case 'F.DIST.RT': case 'FDIST': { const x = getNum(args[0]), d1 = Math.floor(getNum(args[1])), d2 = Math.floor(getNum(args[2])); if (x < 0 || d1 < 1 || d2 < 1) return '#NUM!'; return betai(d2 / (d2 + d1 * x), d2 / 2, d1 / 2); }
+    case 'F.DIST':        { const x = getNum(args[0]), d1 = Math.floor(getNum(args[1])), d2 = Math.floor(getNum(args[2])), cum = getNum(args[3]) !== 0; if (x < 0 || d1 < 1 || d2 < 1) return '#NUM!'; if (cum) return 1 - betai(d2 / (d2 + d1 * x), d2 / 2, d1 / 2); return Math.exp(0.5 * (d1 * Math.log(d1) + d2 * Math.log(d2)) + (d1 / 2 - 1) * Math.log(x) - ((d1 + d2) / 2) * Math.log(d2 + d1 * x) - gammaln(d1 / 2) - gammaln(d2 / 2) + gammaln((d1 + d2) / 2)); }
+    case 'CHISQ.INV': { const p = getNum(args[0]), df = Math.floor(getNum(args[1])); if (p < 0 || p >= 1 || df < 1) return '#NUM!'; return gammapinv(p, df / 2) * 2; }
+    // Legacy CHIINV is RIGHT-tailed (= CHISQ.INV.RT), NOT the left-tail CHISQ.INV.
+    case 'CHISQ.INV.RT': case 'CHIINV': { const p = getNum(args[0]), df = Math.floor(getNum(args[1])); if (p <= 0 || p > 1 || df < 1) return '#NUM!'; return gammapinv(1 - p, df / 2) * 2; }
+    case 'BETA.INV': case 'BETAINV': { const p = getNum(args[0]), alpha = getNum(args[1]), beta = getNum(args[2]); const lo = args.length > 4 ? getNum(args[3]) : 0; const hi = args.length > 5 ? getNum(args[4]) : (args.length > 4 ? getNum(args[4]) : 1); if (p <= 0 || p >= 1 || alpha <= 0 || beta <= 0 || hi <= lo) return '#NUM!'; return lo + (hi - lo) * betainv(p, alpha, beta); }
+    case 'T.INV':         { const p = getNum(args[0]), df = Math.floor(getNum(args[1])); if (p <= 0 || p >= 1 || df < 1) return '#NUM!'; const x = Math.sqrt(df * (1 / betainv(p < 0.5 ? 2 * p : 2 * (1 - p), df / 2, 0.5) - 1)); return p < 0.5 ? -x : x; }
+    case 'T.INV.2T': case 'TINV': { const p = getNum(args[0]), df = Math.floor(getNum(args[1])); if (p <= 0 || p > 1 || df < 1) return '#NUM!'; return Math.sqrt(df * (1 / betainv(p, df / 2, 0.5) - 1)); }
+    case 'F.INV':         { const p = getNum(args[0]), d1 = Math.floor(getNum(args[1])), d2 = Math.floor(getNum(args[2])); if (p <= 0 || p >= 1 || d1 < 1 || d2 < 1) return '#NUM!'; const z = betainv(1 - p, d2 / 2, d1 / 2); return (d2 / d1) * (1 / z - 1); }
+    case 'F.INV.RT': case 'FINV': { const p = getNum(args[0]), d1 = Math.floor(getNum(args[1])), d2 = Math.floor(getNum(args[2])); if (p <= 0 || p > 1 || d1 < 1 || d2 < 1) return '#NUM!'; const z = betainv(p, d2 / 2, d1 / 2); return (d2 / d1) * (1 / z - 1); }
 
     // --- Engineering: base conversions ---
     case 'BIN2DEC':     { const s = String(args[0] ?? '').trim(); if (!/^[01]{1,10}$/.test(s)) return '#NUM!'; let v = parseInt(s, 2); if (s.length === 10 && s[0] === '1') v -= 1024; return v; }
@@ -620,6 +629,15 @@ function betacf(x: number, a: number, b: number): number {
   }
   return h;
 }
+// Inverse of betai in x for fixed a,b (bisection on [0,1]) — backs BETA.INV and
+// the t/F inverses (which invert the incomplete beta).
+function betainv(p: number, a: number, b: number): number {
+  if (p <= 0) return 0;
+  if (p >= 1) return 1;
+  let lo = 0, hi = 1;
+  for (let i = 0; i < 200; i++) { const mid = (lo + hi) / 2; if (betai(mid, a, b) < p) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
 
 function gcd(a: number, b: number): number {
   while (b) { [a, b] = [b, a % b]; }
@@ -706,7 +724,9 @@ export const FORMULA_NAMES = [
   'NEGBINOMDIST', 'NEGBINOM.DIST', 'CRITBINOM', 'BINOM.INV',
   'ERF.PRECISE', 'ERFC.PRECISE', 'CHISQ.DIST', 'CHISQ.DIST.RT', 'CHIDIST',
   'GAMMA.DIST', 'GAMMADIST', 'GAMMA.INV', 'GAMMAINV', 'BETA.DIST', 'BETADIST',
-  'T.DIST', 'T.DIST.RT', 'T.DIST.2T', 'TDIST', 'F.DIST.RT', 'FDIST',
+  'T.DIST', 'T.DIST.RT', 'T.DIST.2T', 'TDIST', 'F.DIST.RT', 'FDIST', 'F.DIST',
+  'CHISQ.INV', 'CHIINV', 'CHISQ.INV.RT', 'BETA.INV', 'BETAINV',
+  'T.INV', 'T.INV.2T', 'TINV', 'F.INV', 'F.INV.RT', 'FINV',
   'BIN2DEC', 'DEC2BIN', 'HEX2DEC', 'DEC2HEX', 'OCT2DEC', 'DEC2OCT',
   'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
   'GESTEP', 'DELTA', 'ERF', 'ERFC',

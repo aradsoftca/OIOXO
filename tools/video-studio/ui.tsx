@@ -667,6 +667,35 @@ export default function VideoStudioPro() {
     toastFor(`Added “${item.name}” to the timeline`);
   };
 
+  // Add an image as a LOGO/WATERMARK OVERLAY: dropped on the top video track at
+  // the playhead with a non-identity transform (so it floats over the base video
+  // and gets the move/resize/rotate gizmo), sized small and parked top-right.
+  // The inspector's opacity slider makes it semi-transparent. This is the
+  // "add logo to video, make it transparent, free-move" product flow.
+  const addLogoOverlay = (mediaId: string) => {
+    const item = mediaMap.get(mediaId);
+    if (!item || (item.kind !== 'image' && item.kind !== 'video')) { toastFor('Pick an image for the logo'); return; }
+    const next = cloneDoc(docRef.current);
+    // Put it on the HIGHEST video track so it sits above the base footage.
+    const videoTracks = next.tracks.filter(t => t.kind === 'video');
+    const trackId = (videoTracks[videoTracks.length - 1] ?? videoTracks[0]).id;
+    const head = next.playhead;
+    const dur = item.kind === 'image' ? Math.max(3, next.duration || 5) : (item.duration || 5);
+    const c: VideoClip = {
+      id: tid(), kind: 'video', trackId, mediaId,
+      start: head, srcStart: 0, srcEnd: item.duration || dur, speed: 1, volume: 0,
+      brightness: 100, contrast: 100, saturation: 100, hue: 0, opacity: 100,
+      fit: 'contain', transition: 'none', transDur: 0,
+      // top-right corner, ~28% size — a classic logo bug. Non-identity ⇒ overlay+gizmo.
+      transform: { x: 0.32, y: -0.34, scale: 0.28, rotation: 0 },
+    };
+    next.clips.push(c);
+    next.selectedId = c.id;
+    next.duration = computeDuration(next.clips);
+    commit('add logo overlay', next);
+    toastFor('Logo added — drag to move, corner to resize, opacity in the panel');
+  };
+
   const applyTemplate = (tpl: VideoTemplate) => {
     setRecovery(null); // committing to a template supersedes the recover-last-session offer
     const next = NEW_DOC({ id: tpl.id, label: tpl.name, w: tpl.resolution.w, h: tpl.resolution.h, fps: tpl.resolution.fps });
@@ -990,6 +1019,43 @@ export default function VideoStudioPro() {
   const onPreviewDown = (e: React.PointerEvent) => {
     const p = previewNorm(e);
     if (!p) return;
+    // 1) If an image/video overlay is selected, its gizmo handles win.
+    const b = overlayBox;
+    if (b && selectedOverlay) {
+      const h = gizmoHandleAt(p);
+      if (h) {
+        e.preventDefault();
+        (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+        const tf = selectedOverlay.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 };
+        if (h === 'move') gizmoDrag.current = { mode: 'move', offX: p.nx - b.cx, offY: p.ny - b.cy };
+        else if (h === 'rotate') gizmoDrag.current = { mode: 'rotate', startRot: tf.rotation, startAngle: Math.atan2(p.ny - b.cy, p.nx - b.cx) };
+        else gizmoDrag.current = { mode: 'resize', startScale: tf.scale, startDist: Math.hypot(p.nx - b.cx, p.ny - b.cy) };
+        return;
+      }
+    }
+    // 2) Otherwise try selecting an image/video overlay UNDER the pointer so a
+    //    single tap selects it (then handles appear next frame).
+    {
+      const t = doc.playhead;
+      const overlays = doc.clips.filter(c => c.kind === 'video' && t >= c.start && t < clipEnd(c) && (c as VideoClip).transform && ((c as VideoClip).transform!.scale !== 1 || (c as VideoClip).transform!.x !== 0 || (c as VideoClip).transform!.y !== 0)) as VideoClip[];
+      for (let i = overlays.length - 1; i >= 0; i--) {
+        const v = overlays[i];
+        const tf = v.transform!;
+        const cx = 0.5 + tf.x, cy = 0.5 + tf.y, hw = 0.5 * tf.scale, hh = 0.5 * tf.scale;
+        const a = (tf.rotation * Math.PI) / 180;
+        const dx = p.nx - cx, dy = p.ny - cy;
+        const lx = dx * Math.cos(a) + dy * Math.sin(a), ly = -dx * Math.sin(a) + dy * Math.cos(a);
+        if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) {
+          e.preventDefault();
+          (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+          gizmoDrag.current = { mode: 'move', offX: lx === 0 ? 0 : p.nx - cx, offY: p.ny - cy };
+          const seeded = { ...doc, selectedId: v.id };
+          docRef.current = seeded; setDoc(seeded);
+          return;
+        }
+      }
+    }
+    // 3) Fall back to text drag.
     const hit = activeTextAt(p);
     if (!hit) return;
     e.preventDefault();
@@ -1004,6 +1070,23 @@ export default function VideoStudioPro() {
     docRef.current = seeded; setDoc(seeded);
   };
   const onPreviewMove = (e: React.PointerEvent) => {
+    // Gizmo drag (image/video overlay) takes priority over text drag.
+    if (gizmoDrag.current && selectedOverlay) {
+      const p = previewNorm(e, true);
+      if (!p) return;
+      const g = gizmoDrag.current;
+      const id = selectedOverlay.id;
+      const cur = docRef.current.clips.find(c => c.id === id) as VideoClip | undefined;
+      if (!cur) return;
+      const tf = { ...(cur.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 }) };
+      const cx = 0.5 + tf.x, cy = 0.5 + tf.y;
+      if (g.mode === 'move') { tf.x = Math.max(-0.5, Math.min(0.5, p.nx - 0.5 - g.offX)); tf.y = Math.max(-0.5, Math.min(0.5, p.ny - 0.5 - g.offY)); }
+      else if (g.mode === 'rotate') { let deg = g.startRot + ((Math.atan2(p.ny - cy, p.nx - cx) - g.startAngle) * 180) / Math.PI; if (e.shiftKey) deg = Math.round(deg / 15) * 15; tf.rotation = Math.round(deg); }
+      else { const d = Math.hypot(p.nx - cx, p.ny - cy); tf.scale = Math.max(0.05, Math.min(4, g.startScale * (d / Math.max(0.001, g.startDist)))); }
+      const next = { ...docRef.current, clips: docRef.current.clips.map(c => c.id === id ? { ...c, transform: tf } as VideoClip : c) };
+      docRef.current = next; setDoc(next);
+      return;
+    }
     if (!textDrag.current) return;
     const p = previewNorm(e, true);
     if (!p) return;
@@ -1016,10 +1099,72 @@ export default function VideoStudioPro() {
     docRef.current = next; setDoc(next);
   };
   const onPreviewUp = () => {
+    if (gizmoDrag.current) {
+      const m = gizmoDrag.current.mode;
+      gizmoDrag.current = null;
+      commit(m === 'move' ? 'move overlay' : m === 'rotate' ? 'rotate overlay' : 'resize overlay', docRef.current);
+      return;
+    }
     if (!textDrag.current) return;
     textDrag.current = null;
     // One undo step for the whole drag.
     commit('move text', docRef.current);
+  };
+
+  // ── Direct-manipulation GIZMO for image/video overlays on the preview ──────
+  // The selected image or PiP-video overlay (a clip with a `transform`) gets a
+  // move/resize/rotate gizmo on the frame, like Canva/CapCut. We work in
+  // frame-normalized coords (0..1) so the math matches the renderer/exporter:
+  //   center = (0.5 + tf.x, 0.5 + tf.y);  half-size grows with tf.scale.
+  // The displayed box approximates the clip's fitted rect × scale; this is the
+  // same value the renderer uses, so the handles sit on the real pixels.
+  const selectedOverlay = React.useMemo(() => {
+    const c = doc.clips.find(x => x.id === doc.selectedId);
+    if (!c || (c.kind !== 'video')) return null;
+    const t = doc.playhead;
+    if (!(t >= c.start && t < clipEnd(c))) return null; // only when visible at playhead
+    return c as VideoClip;
+  }, [doc.selectedId, doc.clips, doc.playhead]);
+
+  // Frame-normalized box {cx,cy,hw,hh,rot} of the selected overlay, or null.
+  const overlayBox = React.useMemo(() => {
+    const v = selectedOverlay;
+    if (!v) return null;
+    const tf = v.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 };
+    // Approximate the fitted half-extent: a fit='contain' image fills one axis.
+    // We use a square-ish default and let scale drive size; the renderer applies
+    // the same scale about the frame center so visually it lines up.
+    const baseHW = 0.5, baseHH = 0.5; // unit box = full frame at scale 1
+    return { cx: 0.5 + tf.x, cy: 0.5 + tf.y, hw: baseHW * tf.scale, hh: baseHH * tf.scale, rot: tf.rotation };
+  }, [selectedOverlay]);
+
+  const gizmoDrag = React.useRef<
+    | { mode: 'move'; offX: number; offY: number }
+    | { mode: 'resize'; startScale: number; startDist: number }
+    | { mode: 'rotate'; startRot: number; startAngle: number }
+    | null
+  >(null);
+
+  // Hit-test the gizmo handles at a normalized point. Returns the handle or null.
+  const gizmoHandleAt = (p: { nx: number; ny: number }): 'rotate' | 'resize' | 'move' | null => {
+    const b = overlayBox;
+    if (!b) return null;
+    const tol = 0.04;
+    // rotate handle: above top-center (in unrotated local space, then rotate)
+    const a = (b.rot * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const local = (lx: number, ly: number) => ({ x: b.cx + lx * ca - ly * sa, y: b.cy + lx * sa + ly * ca });
+    const rotPt = local(0, -b.hh - 0.06);
+    if (Math.hypot(p.nx - rotPt.x, p.ny - rotPt.y) <= tol) return 'rotate';
+    // corner handles (resize) — any corner drives uniform scale
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) {
+      const c = local(sx * b.hw, sy * b.hh);
+      if (Math.hypot(p.nx - c.x, p.ny - c.y) <= tol) return 'resize';
+    }
+    // body (move) — point inside the (unrotated) box after de-rotating
+    const dx = p.nx - b.cx, dy = p.ny - b.cy;
+    const lx = dx * ca + dy * sa, ly = -dx * sa + dy * ca;
+    if (Math.abs(lx) <= b.hw && Math.abs(ly) <= b.hh) return 'move';
+    return null;
   };
 
   const splitAt = (clipId: string, t: number) => {
@@ -1759,8 +1904,21 @@ export default function VideoStudioPro() {
                   {/* Discoverability: make "click adds to timeline" obvious. The
                       affordance fades in on hover (group-hover) so the row stays
                       clean at rest but clearly invites the action. */}
-                  <span className="ml-auto flex shrink-0 items-center gap-0.5 rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-200 opacity-0 transition-opacity group-hover:opacity-100">
-                    <Plus className="h-3 w-3" /> Add
+                  <span className="ml-auto flex shrink-0 items-center gap-1">
+                    {m.kind === 'image' && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); addLogoOverlay(m.id); }}
+                        title="Add as a floating logo/watermark overlay (free-move, resize, transparent)"
+                        className="flex items-center gap-0.5 rounded bg-fuchsia-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-fuchsia-200 opacity-0 transition-opacity hover:bg-fuchsia-500/30 group-hover:opacity-100"
+                      >
+                        <ImageIcon className="h-3 w-3" /> Logo
+                      </span>
+                    )}
+                    <span className="flex items-center gap-0.5 rounded bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-cyan-200 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Plus className="h-3 w-3" /> Add
+                    </span>
                   </span>
                 </button>
               ))}
@@ -1811,6 +1969,33 @@ export default function VideoStudioPro() {
                 className="block max-h-full max-w-full rounded border border-white/10 shadow-2xl"
                 style={{ aspectRatio: `${doc.width}/${doc.height}`, height: '100%', width: '100%', objectFit: 'contain', cursor: 'default', touchAction: 'none' }}
               />
+              {/* Direct-manipulation gizmo for the selected image/video overlay.
+                  Same box + preserveAspectRatio as the canvas → its 0..1-in-frame
+                  coords letterbox IDENTICALLY, so handles sit on the real pixels.
+                  pointer-events:none so the canvas keeps receiving the drags. */}
+              {overlayBox && (
+                <svg
+                  viewBox={`0 0 ${doc.width} ${doc.height}`}
+                  preserveAspectRatio="xMidYMid meet"
+                  className="pointer-events-none absolute inset-0 h-full w-full"
+                  style={{ overflow: 'visible' }}
+                >
+                  {(() => {
+                    const b = overlayBox; const W = doc.width, H = doc.height;
+                    const a = (b.rot * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+                    const L = (lx: number, ly: number) => ({ x: (b.cx + lx * ca - ly * sa) * W, y: (b.cy + lx * sa + ly * ca) * H });
+                    const corners = ([[-1, -1], [1, -1], [1, 1], [-1, 1]] as const).map(([sx, sy]) => L(sx * b.hw, sy * b.hh));
+                    const top = L(0, -b.hh), rot = L(0, -b.hh - 0.06);
+                    const hs = Math.max(6, W * 0.008);
+                    return (<>
+                      <polygon points={corners.map(c => `${c.x},${c.y}`).join(' ')} fill="none" stroke="#22d3ee" strokeWidth={Math.max(1.5, W * 0.002)} strokeDasharray={`${W * 0.01} ${W * 0.006}`} />
+                      <line x1={top.x} y1={top.y} x2={rot.x} y2={rot.y} stroke="#22d3ee" strokeWidth={Math.max(1.5, W * 0.002)} />
+                      <circle cx={rot.x} cy={rot.y} r={hs * 0.9} fill="#22d3ee" />
+                      {corners.map((c, i) => <rect key={i} x={c.x - hs} y={c.y - hs} width={hs * 2} height={hs * 2} fill="#fff" stroke="#22d3ee" strokeWidth={Math.max(1.5, W * 0.002)} />)}
+                    </>);
+                  })()}
+                </svg>
+              )}
               <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-zinc-300 backdrop-blur">
                 {doc.width}×{doc.height} · {doc.fps}fps · {fmtT(doc.playhead)} / {fmtT(doc.duration)}
               </div>

@@ -1566,9 +1566,25 @@ function WatermarkDialog({ onCancel, onApply }: { onCancel: () => void; onApply:
   const [fontSize, setFontSize] = React.useState(72);
   const [rotation, setRotation] = React.useState(-30);
   const [position, setPosition] = React.useState<PdfWatermark['position']>('center');
+  const applyPreset = (presetText: string) => {
+    setText(presetText);
+    setColor('#888888');
+    setOpacity(0.3);
+    setFontSize(96);
+    setRotation(-45);
+    setPosition('center');
+  };
   return (
     <Dialog title="Apply watermark" onCancel={onCancel} onConfirm={() => onApply({ text, color, opacity, fontSize, rotation, position })} confirmLabel="Apply">
       <div className="space-y-3 text-xs">
+        <div>
+          <div className="mb-1 text-zinc-400">Quick presets</div>
+          <div className="flex gap-2">
+            {(['DRAFT', 'CONFIDENTIAL', 'SAMPLE'] as const).map(p => (
+              <StudioButton key={p} size="sm" variant="soft" onClick={() => applyPreset(p)} title={`Diagonal ${p} watermark on all pages`}>{p}</StudioButton>
+            ))}
+          </div>
+        </div>
         <label className="block">
           <div className="mb-1 text-zinc-400">Text</div>
           <input value={text} onChange={e => setText(e.target.value)} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-zinc-100" />

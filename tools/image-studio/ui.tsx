@@ -1606,6 +1606,37 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runBlackAndWhite = async () => {
+    // Photoshop Image > Adjustments > Black & White (channel mixer). v1 uses the
+    // standard luminosity weights — destructively bakes the active paint/image
+    // layer to grayscale (alpha preserved) so it composites/exports identically.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Converting to B&W…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const wR = 0.299, wG = 0.587, wB = 0.114; // luminosity weights
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = (wR * d[i] + wG * d[i + 1] + wB * d[i + 2]) | 0;
+        d[i] = gray; d[i + 1] = gray; d[i + 2] = gray;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('black & white', next);
+      toastFor('Converted to B&W ✓');
+    } finally { setBusy(''); }
+  };
+
   const runUpscale = async () => {
     // Edge-aware 2x super-resolution of the whole picture. Flatten the current
     // composite, upscale it, and replace the doc with a single 2x image layer —
@@ -2791,6 +2822,7 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveObject()} title={pristine ? 'Open an image first' : 'Select an object, then remove it (content-aware, on-device)'}><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoEnhance()} title={pristine ? 'Open an image first' : 'Auto-enhance (white balance + levels)'}><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runUpscale()} title={pristine ? 'Open an image first' : 'Upscale 2× — edge-aware super-resolution (on-device)'}><Sparkles className="h-3.5 w-3.5" /> Upscale 2×</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runBlackAndWhite()} title={pristine ? 'Open an image first' : 'Convert to B&W (luminosity)'}><Sparkles className="h-3.5 w-3.5" /> B&W</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />

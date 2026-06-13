@@ -708,6 +708,41 @@ export default function SubtitleStudioPro() {
     toastFor(fixedCount > 0 ? `Split ${fixedCount} long cue${fixedCount === 1 ? '' : 's'}` : 'No cues needed splitting');
   };
 
+  // Pro batch action: auto-extend cues that read too fast (CPS > 21) by pushing
+  // their out-point later until they hit the comfortable reading speed — without
+  // overlapping the next cue (clamp to next.start minus a small gap).
+  const MAX_READ_CPS = 21;
+  const fixReadingSpeed = () => {
+    if (!doc.cues.length) { toastFor('No cues to fix'); return; }
+    const next = cloneDoc(doc);
+    next.cues.sort((a, b) => a.start - b.start);
+    const GAP = 0.04; // keep a small gap before the following cue
+    let fixed = 0;
+    for (let i = 0; i < next.cues.length; i++) {
+      const c = next.cues[i];
+      if (readingSpeedCps(c) <= MAX_READ_CPS) continue;
+      // Duration needed so CPS drops to the max comfortable reading speed.
+      const needEnd = c.start + c.text.length / MAX_READ_CPS;
+      const nextStart = next.cues[i + 1]?.start;
+      const limit = nextStart != null ? nextStart - GAP : Infinity;
+      const ne = Math.max(c.end, Math.min(needEnd, limit));
+      if (ne > c.end + 1e-4) {
+        c.end = ne;
+        if (c.words && c.words.length) {
+          // Keep the last word's out-point aligned with the extended cue end so
+          // karaoke/word timing stays coherent.
+          const lw = c.words[c.words.length - 1];
+          if (lw.end < ne) lw.end = ne;
+        }
+        fixed++;
+      }
+    }
+    if (!fixed) { toastFor('Reading speed is already comfortable ✓'); return; }
+    next.cues.sort((a, b) => a.start - b.start);
+    commit('fix CPS', next);
+    toastFor(`Extended ${fixed} fast cue${fixed === 1 ? '' : 's'} to ≤${MAX_READ_CPS} chars/sec`);
+  };
+
   const translateAll = async () => {
     const targetLang = window.prompt('Translate to language code (e.g. es, fr, de, ja):', 'es');
     if (!targetLang) return;
@@ -1145,6 +1180,7 @@ export default function SubtitleStudioPro() {
             <div className="mx-2 h-4 w-px bg-white/10" />
             <button onClick={() => setSnap(s => !s)} title="Snap cue edges to neighbours · hold Alt while dragging for free placement" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
             <button onClick={fixTiming} title="Fix timing: clamp overlaps, enforce min duration + gap, fix negative durations across all cues" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Fix timing</button>
+            <button onClick={fixReadingSpeed} title="Fix CPS: auto-extend cues that read too fast (>21 chars/sec) until they hit a comfortable reading speed, without overlapping the next cue" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Wand2 className="h-3 w-3" /> Fix CPS</button>
             <div className="mx-1 h-4 w-px bg-white/10" />
             <button onClick={() => shiftTiming(-0.5)} title="Shift all cues (or the selected cue) 0.5s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronLeft className="h-3 w-3" /> Shift −0.5s</button>
             <button onClick={() => shiftTiming(0.5)} title="Shift all cues (or the selected cue) 0.5s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronRight className="h-3 w-3" /> Shift +0.5s</button>

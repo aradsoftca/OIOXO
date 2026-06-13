@@ -2991,6 +2991,11 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
           <div className="space-y-3">
             <div className="text-xs text-zinc-400">{media?.name}</div>
             <StudioSlider label="Speed" value={Math.round(c.speed * 100)} min={50} max={200} onChange={v => onChange(x => { (x as VideoClip).speed = v / 100; })} suffix="%" />
+            <div className="flex gap-1">
+              {([0.5, 1, 1.5, 2] as const).map(sp => (
+                <button key={sp} onClick={() => onChange(x => { (x as VideoClip).speed = sp; })} className={cn('flex-1 rounded px-2 py-1 text-xs', Math.abs(c.speed - sp) < 0.001 ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{sp}×</button>
+              ))}
+            </div>
             <AnimatableSlider label="Opacity" value={c.opacity} min={0} max={100} suffix="%" paramName="opacity" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).opacity = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), opacity: kf }; })} />
             <StudioSlider label="Volume" value={Math.round(c.volume * 100)} min={0} max={200} onChange={v => onChange(x => { (x as VideoClip).volume = v / 100; })} suffix="%" />
             <div className="text-xs text-zinc-500">Fit</div>

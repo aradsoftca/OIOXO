@@ -51,7 +51,7 @@ import {
   type StudioProject, downloadBlob, safeFilename,
   useShortcuts, formatCombo,
   computeWaveformPeaksInWorker,
-  readingSpeedCps, suggestCueSplit,
+  readingSpeedCps, suggestCueSplit, repairCueTiming,
   SUBTITLE_STYLES, type SubtitleStylePreset,
   diarizeAudio, type SpeakerSegment,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
@@ -602,6 +602,22 @@ export default function SubtitleStudioPro() {
     }, edge === 'l' ? 'set in' : 'set out');
   };
 
+  // Pro one-click timing repair (Aegisub "Fix Timing" / CapCut): clamp overlaps,
+  // enforce min duration + min gap, fix negative durations — across all cues.
+  const fixTiming = () => {
+    if (doc.cues.length < 1) { toastFor('No cues to fix'); return; }
+    const res = repairCueTiming(doc.cues, { minDuration: 0.5, minGap: 0.04 });
+    if (!res.fixed) { toastFor('Timing is already clean ✓'); return; }
+    const next = cloneDoc(doc);
+    // res.cues is sorted+repaired; map back by id preserving everything else.
+    const byId = new Map(res.cues.map(c => [c.id, c]));
+    next.cues = next.cues.map(c => { const r = byId.get(c.id); return r ? { ...c, start: r.start, end: r.end } : c; }).sort((a, b) => a.start - b.start);
+    const counts = res.issues.reduce((m, i) => (m[i.kind] = (m[i.kind] || 0) + 1, m), {} as Record<string, number>);
+    const parts = Object.entries(counts).map(([k, n]) => `${n} ${k.replace('-', ' ')}`);
+    commit('fix timing', next);
+    toastFor(`Fixed ${res.fixed}: ${parts.join(', ')}`);
+  };
+
   // Play just the active cue's region, then auto-pause at its out-point — the
   // "tap to play it back to confirm timing" half of the loop.
   const regionStop = React.useRef<number | null>(null);
@@ -1102,6 +1118,7 @@ export default function SubtitleStudioPro() {
             <span className="ml-3 text-xs tabular-nums text-zinc-300">{fmtT(time)} / {fmtT(waveform?.duration ?? 0)}</span>
             <div className="mx-2 h-4 w-px bg-white/10" />
             <button onClick={() => setSnap(s => !s)} title="Snap cue edges to neighbours · hold Alt while dragging for free placement" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
+            <button onClick={fixTiming} title="Fix timing: clamp overlaps, enforce min duration + gap, fix negative durations across all cues" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Fix timing</button>
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => setZoom(z => Math.max(10, z / 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomOut className="h-3.5 w-3.5" /></button>
               <span className="text-[10px] tabular-nums text-zinc-500">{Math.round(zoom)}px/s</span>

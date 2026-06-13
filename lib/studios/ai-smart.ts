@@ -373,6 +373,79 @@ export function suggestCueSplit(cue: CueLike, maxCps = 21): { keep: CueLike; new
   };
 }
 
+export interface TimingIssue {
+  index: number;
+  kind: 'overlap' | 'too-short' | 'too-long-gap' | 'negative';
+  detail: string;
+}
+export interface RepairResult<C extends CueLike & { id?: string }> {
+  cues: C[];
+  issues: TimingIssue[];   // what was found+fixed
+  fixed: number;
+}
+
+/**
+ * Pro subtitle timing repair (Aegisub "Fix Timing" / CapCut auto-fix). Sorts by
+ * start, then for each cue: fixes negative/zero duration, clamps overlaps onto
+ * the next cue (leaving a minimum gap), enforces a minimum on-screen duration,
+ * and optionally closes tiny gaps. Pure + immutable — returns new cues + a
+ * report of every issue fixed so the UI can be honest about what changed.
+ */
+export function repairCueTiming<C extends CueLike & { id?: string }>(
+  input: C[],
+  opts: { minDuration?: number; minGap?: number; closeGapsUnder?: number } = {},
+): RepairResult<C> {
+  const minDur = opts.minDuration ?? 0.5;     // 500ms minimum on screen
+  const minGap = opts.minGap ?? 0.04;         // 2 frames @ ~50fps between cues
+  const closeUnder = opts.closeGapsUnder ?? 0; // 0 = don't auto-close gaps
+  const issues: TimingIssue[] = [];
+  // Work on a sorted copy (stable by start, then end).
+  const cues = input.map(c => ({ ...c })).sort((a, b) => a.start - b.start || a.end - b.end);
+
+  for (let i = 0; i < cues.length; i++) {
+    const c = cues[i];
+    // 1) negative / zero duration → give it minDur.
+    if (c.end <= c.start) {
+      issues.push({ index: i, kind: 'negative', detail: `end ≤ start — set ${minDur}s duration` });
+      c.end = c.start + minDur;
+    }
+    const next = cues[i + 1];
+    if (next) {
+      // 2) overlap with the next cue → pull this end back to next.start − minGap.
+      if (c.end > next.start - minGap) {
+        const target = next.start - minGap;
+        if (target > c.start) {
+          issues.push({ index: i, kind: 'overlap', detail: `overlapped next by ${(c.end - next.start).toFixed(2)}s — clamped` });
+          c.end = target;
+        } else {
+          // No room — nudge the next cue's start forward instead.
+          issues.push({ index: i, kind: 'overlap', detail: `hard overlap — pushed next cue start` });
+          next.start = c.end + minGap;
+          if (next.end <= next.start) next.end = next.start + minDur;
+        }
+      }
+      // 3) optionally close a small gap to the next cue.
+      else if (closeUnder > 0) {
+        const gap = next.start - c.end;
+        if (gap > 0 && gap < closeUnder) {
+          issues.push({ index: i, kind: 'too-long-gap', detail: `closed ${gap.toFixed(2)}s gap` });
+          c.end = next.start - minGap;
+        }
+      }
+    }
+    // 4) enforce minimum duration (after overlap handling, only if room allows).
+    if (c.end - c.start < minDur) {
+      const room = next ? (next.start - minGap) - c.start : Infinity;
+      const want = Math.min(minDur, room);
+      if (want > c.end - c.start) {
+        issues.push({ index: i, kind: 'too-short', detail: `${(c.end - c.start).toFixed(2)}s — extended toward ${minDur}s` });
+        c.end = c.start + want;
+      }
+    }
+  }
+  return { cues, issues, fixed: issues.length };
+}
+
 export interface PiiHit { kind: 'email' | 'phone' | 'ssn' | 'credit-card' | 'iban' | 'ipv4'; text: string; start: number; end: number }
 
 export function findPii(text: string): PiiHit[] {

@@ -358,6 +358,17 @@ export default function OfficeSlidesPro() {
     commit(label, next);
   };
 
+  // Copy the selected slide's background to every slide (PowerPoint "Apply to All").
+  const applyBackgroundToAll = (id: string) => {
+    const next = cloneDoc(doc);
+    const src = next.slides.find(x => x.id === id);
+    if (!src) return;
+    const bg = src.background;
+    for (const s of next.slides) s.background = bg;
+    commit('background to all', next);
+    toastFor('Background applied to all slides');
+  };
+
   const updateElement = (sid: string, eid: string, mut: (e: Element) => void, label = 'element') => {
     const next = cloneDoc(doc);
     const s = next.slides.find(x => x.id === sid);
@@ -1209,6 +1220,7 @@ export default function OfficeSlidesPro() {
                 <div>
                   <div className="mb-1 text-xs text-zinc-400">Background</div>
                   <input type="color" value={slide.background.startsWith('#') ? slide.background : '#000000'} onChange={e => updateSlide(slide.id, s => { s.background = e.target.value; }, 'bg')} className="h-8 w-full rounded border border-white/10" />
+                  <StudioButton size="sm" variant="soft" onClick={() => applyBackgroundToAll(slide.id)} disabled={doc.slides.length < 2} className="mt-1 w-full">Apply background to all slides</StudioButton>
                 </div>
                 <div className="grid grid-cols-2 gap-1">
                   <StudioButton size="sm" variant="soft" onClick={() => addElement('text')}>+ Text</StudioButton>

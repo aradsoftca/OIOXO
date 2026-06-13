@@ -1637,6 +1637,67 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runInvert = async () => {
+    // Photoshop Image > Adjustments > Invert. Destructively bakes the active
+    // paint/image layer to its photographic negative (255-v per channel, alpha
+    // preserved) so it composites/exports identically.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Inverting…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = 255 - d[i]; d[i + 1] = 255 - d[i + 1]; d[i + 2] = 255 - d[i + 2];
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('invert', next);
+      toastFor('Inverted ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runThreshold = async () => {
+    // Photoshop Image > Adjustments > Threshold (at 128). Destructively bakes the
+    // active paint/image layer to pure black/white: luminance >= 128 → white else
+    // black (alpha preserved) so it composites/exports identically.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Thresholding…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const wR = 0.299, wG = 0.587, wB = 0.114; // luminosity weights
+      for (let i = 0; i < d.length; i += 4) {
+        const gray = (wR * d[i] + wG * d[i + 1] + wB * d[i + 2]) | 0;
+        const v = gray >= 128 ? 255 : 0;
+        d[i] = v; d[i + 1] = v; d[i + 2] = v;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('threshold', next);
+      toastFor('Threshold applied ✓');
+    } finally { setBusy(''); }
+  };
+
   const runUpscale = async () => {
     // Edge-aware 2x super-resolution of the whole picture. Flatten the current
     // composite, upscale it, and replace the doc with a single 2x image layer —
@@ -2823,6 +2884,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoEnhance()} title={pristine ? 'Open an image first' : 'Auto-enhance (white balance + levels)'}><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runUpscale()} title={pristine ? 'Open an image first' : 'Upscale 2× — edge-aware super-resolution (on-device)'}><Sparkles className="h-3.5 w-3.5" /> Upscale 2×</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runBlackAndWhite()} title={pristine ? 'Open an image first' : 'Convert to B&W (luminosity)'}><Sparkles className="h-3.5 w-3.5" /> B&W</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runInvert()} title={pristine ? 'Open an image first' : 'Invert colors (negative)'}><Sparkles className="h-3.5 w-3.5" /> Invert</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runThreshold()} title={pristine ? 'Open an image first' : 'Threshold to pure black/white (at 128)'}><Sparkles className="h-3.5 w-3.5" /> Threshold</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />

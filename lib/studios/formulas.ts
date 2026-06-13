@@ -405,6 +405,20 @@ export function callFormula(name: string, args: any[]): any {
     // --- Text ---
     case 'VALUETOTEXT': return Array.isArray(args[0]) ? String(flatAll(args[0])[0] ?? '') : String(args[0] ?? '');
     case 'ENCODEURL':   return encodeURIComponent(String(args[0] ?? ''));
+    case 'DECODEURL':   { try { return decodeURIComponent(String(args[0] ?? '')); } catch { return '#VALUE!'; } }
+    // --- Byte-wise text aliases (single-byte locale: byte length == char length) ---
+    case 'LENB':        return String(args[0] ?? '').length;
+    case 'LEFTB':       return String(args[0] ?? '').slice(0, Math.max(0, getNum(args[1] ?? 1)));
+    case 'RIGHTB':      { const n = Math.max(0, getNum(args[1] ?? 1)); return String(args[0] ?? '').slice(-n); }
+    case 'MIDB':        { const start = getNum(args[1] ?? 1) - 1; const len = getNum(args[2] ?? 0); return String(args[0] ?? '').slice(start, start + len); }
+    case 'FINDB':       { const text = String(args[1] ?? ''); const find = String(args[0] ?? ''); const start = args.length > 2 ? getNum(args[2]) - 1 : 0; const i = text.indexOf(find, start); return i < 0 ? '#VALUE!' : i + 1; }
+    case 'SEARCHB':     { const text = String(args[1] ?? '').toLowerCase(); const find = String(args[0] ?? '').toLowerCase(); const start = args.length > 2 ? getNum(args[2]) - 1 : 0; const i = text.indexOf(find, start); return i < 0 ? '#VALUE!' : i + 1; }
+    case 'REPLACEB':    { const text = String(args[0] ?? ''); const start = getNum(args[1]) - 1; const len = getNum(args[2]); return text.slice(0, start) + String(args[3] ?? '') + text.slice(start + len); }
+    // --- More info / error helpers ---
+    case 'ISNONTEXT':   return typeof args[0] === 'string' && isNaN(parseFloat(args[0])) ? 0 : 1;
+    case 'ISERR':       { const s = String(args[0]); return s.startsWith('#') && s.length < 8 && s !== '#N/A' ? 1 : 0; }
+    case 'NA':          return '#N/A';
+    case 'ERROR.TYPE':  { const s = String(args[0]); const map: Record<string, number> = { '#NULL!':1,'#DIV/0!':2,'#VALUE!':3,'#REF!':4,'#NAME?':5,'#NUM!':6,'#N/A':7 }; return map[s] ?? '#N/A'; }
     case 'T':           return typeof args[0] === 'string' ? args[0] : '';
   }
   return '#NAME?';
@@ -499,5 +513,7 @@ export const FORMULA_NAMES = [
   'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
   'GESTEP', 'DELTA', 'ERF', 'ERFC',
   'ASINH', 'ACOSH', 'ATANH', 'CSCH', 'SECH', 'COTH',
-  'VALUETOTEXT', 'ENCODEURL',
+  'VALUETOTEXT', 'ENCODEURL', 'DECODEURL',
+  'LENB', 'LEFTB', 'RIGHTB', 'MIDB', 'FINDB', 'SEARCHB', 'REPLACEB',
+  'ISNONTEXT', 'ISERR', 'NA', 'ERROR.TYPE',
 ];

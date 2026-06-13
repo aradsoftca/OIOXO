@@ -339,6 +339,14 @@ export default function MusicStudioPro() {
   const [metronome, setMetronome] = React.useState(false);
   const metronomeRef = React.useRef(false);
   React.useEffect(() => { metronomeRef.current = metronome; }, [metronome]);
+  // Humanize (0..100%): subtle timing + velocity randomization applied LIVE at
+  // schedule time so a programmed loop feels played, not robotic (FL Studio /
+  // Ableton "Humanize" parity). Mirrored into a ref so the play-loop reads it
+  // without restarting playback, and applied only during scheduling — the
+  // stored pattern is never mutated.
+  const [humanize, setHumanize] = React.useState(0);
+  const humanizeRef = React.useRef(0);
+  React.useEffect(() => { humanizeRef.current = humanize; }, [humanize]);
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [progress, setProgress] = React.useState(0);
@@ -671,6 +679,10 @@ export default function MusicStudioPro() {
         const swingOffset = (state.step % 2 === 1) ? (live.swing / 100) * stepDur * 0.5 : 0;
         const t = state.nextStepTime + swingOffset;
         const stepIdx = state.step;
+        // Humanize: a per-step amount that timing/velocity jitter is scaled by.
+        // 0 = exact (no change). Bounded so it never pushes a note before the
+        // context's current time.
+        const hum = humanizeRef.current / 100;
         for (const inst of live.instruments) {
           if (inst.muted || (soloed && !inst.solo)) continue;
           const trackGain = c.createGain();
@@ -685,8 +697,14 @@ export default function MusicStudioPro() {
             for (const note of roll) {
               if (note.start !== stepIdx) continue;
               const f = noteToFreq(note.pitch, live.key, inst.octave);
-              const g = c.createGain(); g.gain.value = note.vel; g.connect(trackGain);
-              scheduleSynth(c, g, t, f, inst.volume, inst.id as any, note.length * stepDur);
+              // Humanize roll notes the same way as grid steps (timing + velocity).
+              let noteT = t, noteVel = note.vel;
+              if (hum > 0) {
+                noteT = Math.max(c.currentTime, t + (Math.random() * 2 - 1) * hum * 0.02);
+                noteVel = Math.max(0.05, Math.min(1, note.vel + (Math.random() * 2 - 1) * hum * 0.2));
+              }
+              const g = c.createGain(); g.gain.value = noteVel; g.connect(trackGain);
+              scheduleSynth(c, g, noteT, f, inst.volume, inst.id as any, note.length * stepDur);
             }
           } else {
             const n = pattern.notes[inst.id]?.[stepIdx];
@@ -698,9 +716,17 @@ export default function MusicStudioPro() {
             // Per-step velocity scales the hit's loudness (ghost notes, accents).
             // Floor-protect so a low-velocity ghost note stays audible instead of
             // collapsing below the noise floor when the track volume is also low.
-            const vel = lane01(pattern.vel, inst.id, stepIdx, 1);
+            let vel = lane01(pattern.vel, inst.id, stepIdx, 1);
+            // Humanize: nudge start time by ±(hum * 20ms) and velocity by
+            // ±(hum * 0.2) so each hit lands slightly off-grid / off-level.
+            // Applied only here at schedule time — the stored pattern is intact.
+            let hitT = t;
+            if (hum > 0) {
+              hitT = Math.max(c.currentTime, t + (Math.random() * 2 - 1) * hum * 0.02);
+              vel = Math.max(0.05, Math.min(1, vel + (Math.random() * 2 - 1) * hum * 0.2));
+            }
             const stepInst = vel === 1 ? inst : { ...inst, volume: Math.max(inst.volume * 0.12, inst.volume * vel) };
-            scheduleStep(c, trackGain, t, stepInst, n, live.key, stepDur);
+            scheduleStep(c, trackGain, hitT, stepInst, n, live.key, stepDur);
           }
         }
         // Metronome: click once per beat (a beat = pattern.steps/4 steps, i.e.
@@ -1186,6 +1212,11 @@ export default function MusicStudioPro() {
           <span className="text-zinc-500">Swing</span>
           <input type="range" min={0} max={70} value={doc.swing} onChange={e => commit('swing', { ...cloneDoc(doc), swing: +e.target.value })} className="w-20" />
           <span className="tabular-nums text-zinc-300">{doc.swing}%</span>
+        </div>
+        <div className="flex items-center gap-1.5" title="Humanize — subtle timing + velocity randomization so the loop feels played, not robotic. Applied during playback only.">
+          <span className="text-zinc-500">Humanize</span>
+          <input type="range" min={0} max={100} value={humanize} onChange={e => setHumanize(+e.target.value)} className="w-20" />
+          <span className="tabular-nums text-zinc-300">{humanize}%</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-zinc-500">Master</span>

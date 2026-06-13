@@ -664,6 +664,23 @@ export default function OfficeDocsPro() {
     persistHtml(); recordChange();
   };
 
+  // Capitalization transforms for the current selection (Google Docs
+  // Format > Text > Capitalization). Reads the selected text, transforms it,
+  // and replaces the selection in place via insertText (keeps undo working).
+  const transformCase = (mode: 'upper' | 'lower' | 'title') => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    const selText = sel?.toString() ?? '';
+    if (!selText.trim()) { toastFor('Select some text first'); return; }
+    el?.focus();
+    let out: string;
+    if (mode === 'upper') out = selText.toUpperCase();
+    else if (mode === 'lower') out = selText.toLowerCase();
+    else out = selText.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    document.execCommand('insertText', false, out);
+    persistHtml(); recordChange();
+  };
+
   // ── Clipboard smart paste ──────────────────────────────────────────────
   // Google Docs pastes images inline; we go further — paste an image from
   // anywhere (screenshot, browser, file manager) straight into the caret,
@@ -1288,6 +1305,11 @@ export default function OfficeDocsPro() {
           <option value="2">Double</option>
           <option value="2.5">2.5</option>
         </select>
+        <span className="mx-1 h-4 w-px bg-white/10" />
+        <Tb onClick={() => transformCase('upper')} title="UPPERCASE"><span className="text-[11px] font-semibold">AA</span></Tb>
+        <Tb onClick={() => transformCase('lower')} title="lowercase"><span className="text-[11px] font-semibold">aa</span></Tb>
+        <Tb onClick={() => transformCase('title')} title="Title Case"><span className="text-[11px] font-semibold">Aa</span></Tb>
+        <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('outdent')} title="Decrease indent"><Outdent className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('indent')} title="Increase indent"><Indent className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />

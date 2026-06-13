@@ -160,6 +160,9 @@ interface TextClip {
       preview. Overrides pos/align placement. Undefined → use pos/align presets. */
   nx?: number;
   ny?: number;
+  /** Marks an auto-generated caption (vs a title/lower-third) so the Captions
+      panel can list+correct them and bulk-restyle them as a group. */
+  caption?: boolean;
 }
 
 type TimelineClip = VideoClip | AudioClip | TextClip;
@@ -430,6 +433,8 @@ export default function VideoStudioPro() {
   // element settings view) and a "‹ Back" returns to the timeline. The product
   // interaction model: click=select(+handles), double-click=edit-this-element.
   const [focusedId, setFocusedId] = React.useState<string | null>(null);
+  // Captions editor panel (inline transcription correction + bulk restyle).
+  const [captionsPanel, setCaptionsPanel] = React.useState(false);
   const [templatesDialog, setTemplatesDialog] = React.useState(false);
   const [templateCategory, setTemplateCategory] = React.useState<VideoTemplateCategory | 'all'>('all');
   const [showScopes, setShowScopes] = React.useState(false);
@@ -957,18 +962,38 @@ export default function VideoStudioPro() {
           text: ch.text.trim(), font: FONTS[0], size: 64, color: '#ffffff',
           weight: 800, italic: false,
           outline: true, outlineColor: '#000000', outlineWidth: 5,
-          pos: 'bottom', anim: 'fade', align: 'center',
+          pos: 'bottom', anim: 'fade', align: 'center', caption: true,
         });
         added++;
       }
       commit(`auto-caption (${added})`, next);
-      toastFor(`Added ${added} captions — on-device, nothing uploaded`);
+      setCaptionsPanel(true); // open the editor so the user can fix mistranscriptions
+      toastFor(`Added ${added} captions — review & fix any words on the right`);
     } catch (e) {
       toastFor((e as Error).message || 'Captioning failed');
     } finally {
       setBusy(''); setProgress(0);
     }
   };
+
+  // ── Caption styling presets (restyle ALL captions at once) ─────────────────
+  const CAPTION_STYLES: { id: string; name: string; apply: (c: TextClip) => void }[] = [
+    { id: 'clean', name: 'Clean', apply: c => { c.font = FONTS[0]; c.size = 60; c.color = '#ffffff'; c.weight = 700; c.outline = true; c.outlineColor = '#000'; c.outlineWidth = 4; c.pos = 'bottom'; } },
+    { id: 'boxed', name: 'Boxed', apply: c => { c.font = FONTS[0]; c.size = 56; c.color = '#ffffff'; c.weight = 800; c.outline = true; c.outlineColor = '#000'; c.outlineWidth = 10; c.pos = 'bottom'; } },
+    { id: 'bold', name: 'TikTok bold', apply: c => { c.font = FONTS[2]; c.size = 78; c.color = '#ffffff'; c.weight = 900; c.outline = true; c.outlineColor = '#000'; c.outlineWidth = 8; c.pos = 'center'; c.anim = 'pop'; } },
+    { id: 'yellow', name: 'Pop yellow', apply: c => { c.font = FONTS[2]; c.size = 72; c.color = '#ffe14d'; c.weight = 900; c.outline = true; c.outlineColor = '#000'; c.outlineWidth = 7; c.pos = 'bottom'; } },
+  ];
+  const applyCaptionStyle = (styleId: string) => {
+    const st = CAPTION_STYLES.find(s => s.id === styleId);
+    if (!st) return;
+    const next = cloneDoc(doc);
+    let n = 0;
+    for (const c of next.clips) if (c.kind === 'text' && (c as TextClip).caption) { st.apply(c as TextClip); n++; }
+    if (!n) { toastFor('No captions to style'); return; }
+    commit('style captions', next);
+    toastFor(`Styled ${n} captions — ${st.name}`);
+  };
+  const captionClips = React.useMemo(() => (doc.clips.filter(c => c.kind === 'text' && (c as TextClip).caption) as TextClip[]).sort((a, b) => a.start - b.start), [doc.clips]);
 
   const updateClip = (id: string, mut: (c: TimelineClip) => void, label = 'edit clip') => {
     const next = cloneDoc(doc);
@@ -1962,6 +1987,9 @@ export default function VideoStudioPro() {
                 <StudioButton size="sm" variant="primary" onClick={() => void autoCut()} title="Drop footage + a song → a paced, beat-synced rough cut on the timeline, on your device"><Scissors className="h-3 w-3" /> Auto-Cut</StudioButton>
                 <StudioButton size="sm" variant="soft" onClick={addTextClip}><TypeIcon className="h-3 w-3" /> Text title</StudioButton>
                 <StudioButton size="sm" variant="soft" onClick={() => void autoCaption()} title="Transcribe speech on your device and add captions"><Sparkles className="h-3 w-3" /> Auto-caption</StudioButton>
+                {captionClips.length > 0 && (
+                  <StudioButton size="sm" variant="soft" onClick={() => setCaptionsPanel(true)} title="Review captions, fix any mistranscribed words, and restyle them"><TypeIcon className="h-3 w-3" /> Edit captions ({captionClips.length})</StudioButton>
+                )}
                 <StudioButton size="sm" variant="soft" onClick={() => void autoReframe()} title="Find your subject on-device and reframe the clip to keep them centered"><Sparkles className="h-3 w-3" /> Auto-reframe</StudioButton>
               </div>
             </StudioPanel>
@@ -2185,6 +2213,50 @@ export default function VideoStudioPro() {
           </div>
         );
       })()}
+
+      {/* CAPTIONS editor — inline transcription correction + bulk restyle. Opens
+          after auto-caption. Fix a mistranscription by typing in its field; click
+          a row to jump the playhead there; restyle all captions with one tap. */}
+      {captionsPanel && (
+        <div className="absolute inset-0 z-40 flex flex-col bg-[#0a0b0e]/98 backdrop-blur-sm sm:left-auto sm:right-0 sm:w-[380px] sm:border-l sm:border-white/10 sm:shadow-2xl">
+          <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#0f1115] px-3 py-2.5">
+            <button onClick={() => setCaptionsPanel(false)} className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1.5 text-sm font-medium text-cyan-300 hover:bg-white/10"><ChevronLeft className="h-4 w-4" /> Back</button>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-zinc-100">Captions</div>
+              <div className="truncate text-[11px] text-zinc-500">{captionClips.length} lines · tap a word to fix it</div>
+            </div>
+          </div>
+          <div className="shrink-0 border-b border-white/10 px-3 py-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">Style all captions</div>
+            <div className="flex flex-wrap gap-1.5">
+              {CAPTION_STYLES.map(s => (
+                <button key={s.id} onClick={() => applyCaptionStyle(s.id)} className="rounded-md bg-white/5 px-2.5 py-1 text-xs text-zinc-200 hover:bg-cyan-500/20 hover:text-cyan-100">{s.name}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            {captionClips.length === 0 && <div className="px-1 py-3 text-xs text-zinc-500">No captions yet. Use “Auto-subtitle” to generate them on your device.</div>}
+            {captionClips.map(c => (
+              <div key={c.id} className={cn('mb-1.5 rounded-lg border p-1.5', doc.selectedId === c.id ? 'border-cyan-400/50 bg-cyan-500/5' : 'border-white/5 bg-white/[0.02]')}>
+                <button
+                  onClick={() => { seek(c.start + 0.01); setDoc(d => ({ ...d, selectedId: c.id })); }}
+                  className="mb-1 flex items-center gap-2 text-[10px] tabular-nums text-zinc-500 hover:text-cyan-300"
+                  title="Jump to this caption"
+                >
+                  <Play className="h-2.5 w-2.5" /> {fmtT(c.start)} → {fmtT(clipEnd(c))}
+                </button>
+                <textarea
+                  value={c.text}
+                  onChange={e => updateClip(c.id, (cl) => { (cl as TextClip).text = e.target.value; }, 'edit caption')}
+                  onFocus={() => { seek(c.start + 0.01); setDoc(d => ({ ...d, selectedId: c.id })); }}
+                  rows={Math.min(3, Math.max(1, Math.ceil(c.text.length / 32)))}
+                  className="w-full resize-none rounded bg-black/30 px-2 py-1 text-[13px] text-zinc-100 outline-none focus:ring-1 focus:ring-cyan-500/60"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex h-7 shrink-0 items-center gap-3 border-t border-white/5 bg-[#0f1115] px-3 text-[11px] text-zinc-400">
         <span>{doc.width}×{doc.height} · {doc.fps}fps</span>

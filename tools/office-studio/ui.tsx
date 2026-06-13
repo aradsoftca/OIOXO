@@ -131,6 +131,10 @@ interface EvalContext {
   sheet: Sheet;
   visiting: Set<string>;
   allSheets?: Sheet[];
+  /** 1-based row/col of the cell currently being evaluated — so argument-less
+   *  ROW()/COLUMN() return the real position instead of a hardcoded 1. */
+  curRow?: number;
+  curCol?: number;
 }
 
 function parseSheetRef(s: string): { sheet: string; ref: string } | null {
@@ -160,12 +164,17 @@ function evalCell(r: number, c: number, ctx: EvalContext): any {
     return raw;
   }
   ctx.visiting.add(key);
+  // Track the evaluating cell so ROW()/COLUMN() resolve to it; save/restore for
+  // nested cell evaluation (a referenced cell sets its own position).
+  const prevR = ctx.curRow, prevC = ctx.curCol;
+  ctx.curRow = r + 1; ctx.curCol = c + 1; // stored 0-based, sheet refs are 1-based
   try {
     return evalExpr(raw.slice(1), ctx);
   } catch {
     return '#ERR';
   } finally {
     ctx.visiting.delete(key);
+    ctx.curRow = prevR; ctx.curCol = prevC;
   }
 }
 
@@ -366,6 +375,19 @@ function evalNode(n: Node, ctx: EvalContext): any {
     }
   }
   if (n.kind === 'call') {
+    // ROW()/COLUMN() need the REFERENCE, not its value. With a cell/range arg,
+    // return that ref's row/col; with no arg, the evaluating cell's position.
+    const fn = n.name.toUpperCase();
+    if (fn === 'ROW' || fn === 'COLUMN') {
+      const a = n.args[0];
+      if (!a) return fn === 'ROW' ? (ctx.curRow ?? 1) : (ctx.curCol ?? 1);
+      const refStr = a.kind === 'ref' ? a.val : a.kind === 'range' ? a.a : null;
+      if (refStr) {
+        const rc = refToRC(refStr); // 0-based {r,c}
+        if (rc) return fn === 'ROW' ? rc.r + 1 : rc.c + 1; // ROW/COLUMN are 1-based
+      }
+      return fn === 'ROW' ? (ctx.curRow ?? 1) : (ctx.curCol ?? 1);
+    }
     const args = n.args.map(a => a.kind === 'range' ? expandRange(a.a, a.b, ctx) : evalNode(a, ctx));
     return callFunc(n.name, args, ctx);
   }

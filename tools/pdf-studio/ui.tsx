@@ -670,6 +670,30 @@ export default function PdfStudioPro() {
     next.annotations[pageId] = (next.annotations[pageId] ?? []).filter((_, i) => i !== idx);
     commit('remove anno', next);
   };
+  // Wipe every annotation (text, draw, highlight, redact, image/signature) from a
+  // single page in one undo step — the bulk counterpart to the double-click
+  // delete-one. Leaves the page + other pages' annotations untouched. Form
+  // fields live in their own state (formFields) and are not affected.
+  const clearAnnotationsOnPage = (pageId: string) => {
+    const count = (doc.annotations[pageId] ?? []).length;
+    if (!count) { toastFor('No annotations on this page'); return; }
+    const next = cloneDoc(doc);
+    next.annotations[pageId] = [];
+    setSelAnnoIdx(-1);
+    commit('clear page annotations', next);
+    toastFor(`Cleared ${count} annotation${count === 1 ? '' : 's'} on this page`);
+  };
+  // Wipe annotations across the WHOLE document in one undo step (reset to a
+  // clean editing layer) while keeping pages, rotation and order intact.
+  const clearAllAnnotations = () => {
+    const count = Object.values(doc.annotations).reduce((n, list) => n + list.length, 0);
+    if (!count) { toastFor('No annotations to clear'); return; }
+    const next = cloneDoc(doc);
+    next.annotations = {};
+    setSelAnnoIdx(-1);
+    commit('clear all annotations', next);
+    toastFor(`Cleared ${count} annotation${count === 1 ? '' : 's'} across all pages`);
+  };
 
   // Header/Footer text (Acrobat "Add Header & Footer"): stamp a text annotation
   // at the top and/or bottom of EVERY page, in one undo step. Reuses the same
@@ -1443,6 +1467,12 @@ export default function PdfStudioPro() {
             <div className="mb-2 flex gap-1.5">
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'start')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the front"><ChevronsLeft className="h-3 w-3" /> To start</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'end')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the back"><ChevronsRight className="h-3 w-3" /> To end</StudioButton>
+            </div>
+            {/* Bulk clear of the editing layer — counterpart to the double-click
+                delete-one on individual annotations. */}
+            <div className="mb-2 flex gap-1.5">
+              <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && clearAnnotationsOnPage(doc.selectedId)} disabled={!doc.selectedId || !(doc.annotations[doc.selectedId ?? ''] ?? []).length} title="Remove every annotation, drawing, highlight and redaction on the selected page"><Eraser className="h-3 w-3" /> Clear page marks</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={clearAllAnnotations} disabled={!Object.values(doc.annotations).some(l => l.length)} title="Remove every annotation on every page (pages and order are kept)"><Eraser className="h-3 w-3" /> Clear all marks</StudioButton>
             </div>
             <div className="grid max-h-[70vh] grid-cols-2 gap-1.5 overflow-y-auto">
               {doc.pages.map((p, i) => {

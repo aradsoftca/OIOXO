@@ -1910,6 +1910,79 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runVignette = async () => {
+    // Darken pixels by distance from the canvas centre for a classic lens vignette.
+    // Per pixel: normalized distance d (0 centre … 1 corner), factor falls off only
+    // past the half-radius — factor = 1 - 0.6*smoothstep(0.5,1.0,d). Destructive on
+    // the active layer, alpha preserved. Same structure as runClarity/runLiftShadows.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Applying vignette…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const cx = w / 2, cy = h / 2;
+      const maxDist = Math.hypot(cx, cy) || 1;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const dist = Math.hypot(x - cx, y - cy) / maxDist;
+          // smoothstep(0.5, 1.0, dist)
+          const t = Math.min(1, Math.max(0, (dist - 0.5) / 0.5));
+          const s = t * t * (3 - 2 * t);
+          const factor = 1 - 0.6 * s;
+          const i = (y * w + x) * 4;
+          d[i] = Math.min(255, Math.max(0, d[i] * factor)) | 0;
+          d[i + 1] = Math.min(255, Math.max(0, d[i + 1] * factor)) | 0;
+          d[i + 2] = Math.min(255, Math.max(0, d[i + 2] * factor)) | 0;
+        }
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('vignette', next);
+      toastFor('Vignette applied ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runFilmGrain = async () => {
+    // Per-pixel random noise (±20 on each channel) for an analog film-grain texture.
+    // Clamped to 0..255, alpha untouched. Same structure as runClarity/runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Adding film grain…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const n = (Math.random() * 2 - 1) * 20;
+        d[i] = Math.min(255, Math.max(0, d[i] + n)) | 0;
+        d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + n)) | 0;
+        d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + n)) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('film-grain', next);
+      toastFor('Film grain applied ✓');
+    } finally { setBusy(''); }
+  };
+
   const runLook = async (look: 'vintage' | 'cinematic' | 'noir' | 'faded') => {
     // One-click photographic LOOK presets. Each destructively bakes a tasteful
     // tone+color curve into the active paint/image layer (per-pixel, clamped to
@@ -3275,6 +3348,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool')} title={pristine ? 'Open an image first' : 'Cool white balance (-red / +blue)'}><Sparkles className="h-3.5 w-3.5" /> Cool</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLiftShadows()} title={pristine ? 'Open an image first' : 'Lift shadows — recover dark detail (luminance-weighted gain)'}><Sparkles className="h-3.5 w-3.5" /> Lift Shadows</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runClarity()} title={pristine ? 'Open an image first' : 'Clarity — punch up midtone local contrast'}><Sparkles className="h-3.5 w-3.5" /> Clarity</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFilmGrain()} title={pristine ? 'Open an image first' : 'Film grain — add subtle analog noise'}><Sparkles className="h-3.5 w-3.5" /> Film Grain</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />
             {/* Looks — one-click photographic tone+color grades on the active layer. */}
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('vintage')} title={pristine ? 'Open an image first' : 'Vintage look — lifted blacks, warm, softly desaturated'}><Sparkles className="h-3.5 w-3.5" /> Vintage</StudioButton>

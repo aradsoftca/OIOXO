@@ -1442,7 +1442,13 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => exec('indent')} title="Increase indent"><Indent className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <input type="color" onChange={e => exec('foreColor', e.target.value)} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Text color" />
+        {TEXT_SWATCHES.map(c => (
+          <Swatch key={`fc-${c.hex}`} hex={c.hex} title={`Text: ${c.name}`} onClick={() => exec('foreColor', c.hex)} />
+        ))}
         <input type="color" onChange={e => exec('hiliteColor', e.target.value)} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Highlight" />
+        {HILITE_SWATCHES.map(c => (
+          <Swatch key={`hl-${c.hex}`} hex={c.hex} title={`Highlight: ${c.name}`} onClick={() => exec('hiliteColor', c.hex)} />
+        ))}
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={insertLink} title="Link (Ctrl+K)"><LinkIcon className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={insertImageBtn} title="Image"><ImageIcon className="h-3.5 w-3.5" /></Tb>
@@ -1812,6 +1818,27 @@ export default function OfficeDocsPro() {
 
 const Tb = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
   <button onClick={onClick} title={title} className="grid h-11 w-11 shrink-0 place-items-center rounded text-zinc-300 hover:bg-white/5 hover:text-white sm:h-7 sm:w-7">{children}</button>
+);
+
+const TEXT_SWATCHES = [
+  { name: 'Black', hex: '#000000' },
+  { name: 'Red', hex: '#e11d48' },
+  { name: 'Orange', hex: '#ea580c' },
+  { name: 'Green', hex: '#16a34a' },
+  { name: 'Blue', hex: '#2563eb' },
+  { name: 'Purple', hex: '#7c3aed' },
+];
+
+const HILITE_SWATCHES = [
+  { name: 'Yellow', hex: '#fff59d' },
+  { name: 'Green', hex: '#b9f6ca' },
+  { name: 'Cyan', hex: '#b2ebf2' },
+  { name: 'Pink', hex: '#f8bbd0' },
+  { name: 'Orange', hex: '#ffe0b2' },
+];
+
+const Swatch = ({ hex, title, onClick }: { hex: string; title: string; onClick: () => void }) => (
+  <button onMouseDown={e => e.preventDefault()} onClick={onClick} title={title} className="h-5 w-5 shrink-0 cursor-pointer rounded border border-white/10 hover:ring-1 hover:ring-white/40" style={{ backgroundColor: hex }} />
 );
 
 const FloatBtn = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (

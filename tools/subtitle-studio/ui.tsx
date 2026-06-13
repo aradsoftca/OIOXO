@@ -1400,6 +1400,18 @@ export default function SubtitleStudioPro() {
               {doc.style.background === 'box' && (
                 <input type="color" value={'#' + (doc.style.bgColor.match(/[0-9a-f]{6}/i)?.[0] ?? '000000')} onChange={e => commit('bgc', { ...cloneDoc(doc), style: { ...doc.style, bgColor: e.target.value } })} className="h-6 w-full rounded border border-white/10" />
               )}
+              <label className="flex items-center gap-2 text-xs text-zinc-300">
+                <input type="checkbox" checked={doc.style.shadow} onChange={e => commit('shadow', { ...cloneDoc(doc), style: { ...doc.style, shadow: e.target.checked } })} /> Drop shadow
+              </label>
+              {doc.style.shadow && (
+                <div className="flex items-center gap-2 text-xs text-zinc-400">
+                  <span>Blur</span>
+                  <button onClick={() => commit('sh-blur', { ...cloneDoc(doc), style: { ...doc.style, shadowBlur: Math.max(0, doc.style.shadowBlur - 1) } })} className="rounded bg-white/5 px-2 py-1 hover:bg-white/10" title="Less blur">−</button>
+                  <span className="w-8 text-center tabular-nums text-zinc-300">{doc.style.shadowBlur}px</span>
+                  <button onClick={() => commit('sh-blur', { ...cloneDoc(doc), style: { ...doc.style, shadowBlur: Math.min(40, doc.style.shadowBlur + 1) } })} className="rounded bg-white/5 px-2 py-1 hover:bg-white/10" title="More blur">+</button>
+                  <input type="color" value={'#' + (doc.style.shadowColor.match(/[0-9a-f]{6}/i)?.[0] ?? '000000')} onChange={e => commit('sh-color', { ...cloneDoc(doc), style: { ...doc.style, shadowColor: e.target.value } })} className="h-6 w-10 rounded border border-white/10" title="Shadow color" />
+                </div>
+              )}
               <StudioSelect value={doc.style.pos} options={[
                 { value: 'top', label: 'Top' }, { value: 'center', label: 'Center' }, { value: 'bottom', label: 'Bottom' },
               ]} onChange={v => commit('pos', { ...cloneDoc(doc), style: { ...doc.style, pos: v as CueStyle['pos'] } })} className="w-full" />

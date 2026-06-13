@@ -410,6 +410,28 @@ export async function encryptPdf(
   return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
 }
 
+/**
+ * Decrypt a password-protected PDF: load it with the user/owner password and
+ * re-save WITHOUT encryption, yielding plain bytes the rest of the studio (and
+ * pdf.js rasterizer) can open. Throws 'wrong-password' if the password is wrong
+ * so the caller can re-prompt.
+ */
+export async function decryptPdf(srcBytes: ArrayBuffer, password: string): Promise<ArrayBuffer> {
+  const { PDFDocument } = await import('@cantoo/pdf-lib');
+  let pdf;
+  try {
+    pdf = await PDFDocument.load(srcBytes, { password } as any);
+  } catch (e) {
+    const msg = String((e as Error)?.message || e).toLowerCase();
+    if (/password|encrypt|decrypt/.test(msg)) throw new Error('wrong-password');
+    throw e;
+  }
+  // Saving a doc loaded with the password (without calling pdf.encrypt) yields the
+  // decrypted file.
+  const out = await pdf.save();
+  return new Uint8Array(out).buffer;
+}
+
 export async function applyFormFieldsToPdf(srcBytes: ArrayBuffer, fields: PdfFormField[]): Promise<Blob> {
   const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
   const pdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });

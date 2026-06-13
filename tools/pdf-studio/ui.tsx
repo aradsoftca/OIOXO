@@ -200,6 +200,8 @@ export default function PdfStudioPro() {
   usePinchPan({ ref: editorWrapRef, zoom: editorZoom, pan: editorPan, setZoom: setEditorZoom, setPan: setEditorPan, minZoom: 0.3, maxZoom: 5 });
 
   const [busy, setBusy] = React.useState('');
+  // Password prompt for opening an encrypted PDF: holds the file awaiting unlock.
+  const [pwPrompt, setPwPrompt] = React.useState<{ file: File; error?: boolean } | null>(null);
   const [progress, setProgress] = React.useState(0);
   const [toast, setToast] = React.useState('');
   const [exportDialog, setExportDialog] = React.useState(false);
@@ -407,7 +409,7 @@ export default function PdfStudioPro() {
   const selPage = doc.pages.find(p => p.id === doc.selectedId) ?? null;
   const selRaster = selPage ? raster[selPage.srcId]?.[selPage.srcIndex] : null;
 
-  const addPdf = async (file: File) => {
+  const addPdf = async (file: File, overrideBytes?: ArrayBuffer) => {
     setRecovery(null); // opening a real PDF supersedes the recover-last-session offer
     // Opening a PDF to view / organize it is FREE — like every PDF tool, the
     // credit is charged on the OUTPUT (export / split / OCR / convert), not on
@@ -416,7 +418,7 @@ export default function PdfStudioPro() {
     setBusy('Reading PDF…');
     setProgress(0);
     try {
-      const bytes = await file.arrayBuffer();
+      const bytes = overrideBytes ?? await file.arrayBuffer();
       const sid = `s${++_sid}`;
       const rp = await rasterizePdf(bytes.slice(0), {
         maxEdge: 1200,
@@ -434,9 +436,38 @@ export default function PdfStudioPro() {
       if (!next.name || next.name === 'Untitled') next.name = file.name.replace(/\.pdf$/i, '');
       commit('add pdf', next);
     } catch (e) {
-      toastFor('Could not open PDF — may be password-protected');
+      // pdf.js throws PasswordException for encrypted PDFs — offer to unlock it
+      // instead of a dead-end error (the audit's "can't decrypt" gap).
+      const name = (e as any)?.name; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const msg = String((e as Error)?.message || e).toLowerCase();
+      if (name === 'PasswordException' || /password|encrypt/.test(msg)) {
+        setPwPrompt({ file });
+      } else {
+        toastFor('Could not open this PDF');
+      }
     } finally {
       setBusy(''); setProgress(0);
+    }
+  };
+
+  // Unlock an encrypted PDF: decrypt the bytes with the password, then open the
+  // decrypted result through the normal flow.
+  const unlockPdf = async (password: string) => {
+    if (!pwPrompt) return;
+    setBusy('Unlocking…');
+    try {
+      const bytes = await pwPrompt.file.arrayBuffer();
+      const { decryptPdf } = await import('@/lib/studios');
+      const decrypted = await decryptPdf(bytes, password);
+      const file = pwPrompt.file;
+      setPwPrompt(null);
+      await addPdf(file, decrypted);
+      toastFor('Unlocked');
+    } catch (e) {
+      if ((e as Error).message === 'wrong-password') { setPwPrompt(p => p ? { ...p, error: true } : p); toastFor('Wrong password — try again'); }
+      else { setPwPrompt(null); toastFor('Could not unlock this PDF'); }
+    } finally {
+      setBusy('');
     }
   };
 
@@ -1079,6 +1110,7 @@ export default function PdfStudioPro() {
         </div>
         {gate}
         {openDialog && <OpenDialog items={savedList} onCancel={() => setOpenDialog(false)} onPick={loadFromLibrary} />}
+        {pwPrompt && <PasswordPromptDialog fileName={pwPrompt.file.name} error={pwPrompt.error} busy={!!busy} onCancel={() => setPwPrompt(null)} onUnlock={unlockPdf} />}
       </StudioShell>
     );
   }
@@ -1364,6 +1396,7 @@ export default function PdfStudioPro() {
         </Dialog>
       )}
       {openDialog && <OpenDialog items={savedList} onCancel={() => setOpenDialog(false)} onPick={loadFromLibrary} />}
+      {pwPrompt && <PasswordPromptDialog fileName={pwPrompt.file.name} error={pwPrompt.error} busy={!!busy} onCancel={() => setPwPrompt(null)} onUnlock={unlockPdf} />}
       {showCommentsPanel && selPage && (
         <div className="fixed right-0 top-[88px] bottom-0 z-40 flex w-80 flex-col border-l border-white/10 bg-[#0f1115] shadow-2xl">
           <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
@@ -1545,6 +1578,25 @@ function PreviewCanvas({ canvas, max = 720 }: { canvas: HTMLCanvasElement; max?:
 
 function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {
   return <button title={title} onClick={(e) => { e.stopPropagation(); onClick(); }} className="grid h-5 w-5 place-items-center rounded text-zinc-300 hover:bg-white/10 hover:text-white">{children}</button>;
+}
+
+function PasswordPromptDialog({ fileName, error, busy, onCancel, onUnlock }: { fileName: string; error?: boolean; busy: boolean; onCancel: () => void; onUnlock: (pw: string) => void }) {
+  const [pw, setPw] = React.useState('');
+  return (
+    <Dialog title="Locked PDF" onCancel={onCancel} onConfirm={() => pw && onUnlock(pw)} confirmLabel={busy ? 'Unlocking…' : 'Unlock'}>
+      <div className="space-y-2">
+        <div className="text-xs text-zinc-400"><span className="font-medium text-zinc-200">{fileName}</span> is password-protected. Enter its password to open it — decryption happens on your device.</div>
+        <input
+          autoFocus type="password" value={pw}
+          onChange={e => setPw(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && pw) onUnlock(pw); }}
+          placeholder="PDF password"
+          className="h-9 w-full rounded border border-white/10 bg-[#0a0b0e] px-2 text-sm text-zinc-100"
+        />
+        {error && <div className="rounded bg-rose-500/10 px-2 py-1 text-[11px] text-rose-300">Wrong password — try again.</div>}
+      </div>
+    </Dialog>
+  );
 }
 
 function OpenDialog({ items, onCancel, onPick }: { items: StudioProject[]; onCancel: () => void; onPick: (id: string) => void }) {

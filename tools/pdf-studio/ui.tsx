@@ -187,6 +187,10 @@ export default function PdfStudioPro() {
   const [penWidth, setPenWidth] = React.useState(3);
   const [livePts, setLivePts] = React.useState<number[]>([]);
   const moving = React.useRef<{ pageId: string; idx: number; offX: number; offY: number } | null>(null);
+  // Resize a placed box/image/signature by a corner handle (normalized geometry).
+  const resizing = React.useRef<{ pageId: string; idx: number; corner: string; nx: number; ny: number; nw: number; nh: number; ox: number; oy: number } | null>(null);
+  // Which annotation on the current page is selected (for handles). −1 = none.
+  const [selAnnoIdx, setSelAnnoIdx] = React.useState(-1);
   const drawing = React.useRef<number[] | null>(null);
   const dragRect = React.useRef<{ nx: number; ny: number } | null>(null);
   const pendingImgPos = React.useRef<{ nx: number; ny: number } | null>(null);
@@ -576,6 +580,9 @@ export default function PdfStudioPro() {
 
   const onEditorDown = (e: React.PointerEvent) => {
     if (!selPage) return;
+    // Pressing the canvas background (not an annotation, which stops propagation)
+    // deselects the current annotation so its handles disappear.
+    setSelAnnoIdx(-1);
     const p = norm(e);
     if (tool === 'text') {
       // Inline caret on the page — live preview, no modal round-trip. Commits on
@@ -602,8 +609,18 @@ export default function PdfStudioPro() {
   const startMoveAnno = (e: React.PointerEvent, idx: number, a: Annotation) => {
     if (!selPage || a.kind === 'draw') return;
     e.stopPropagation();
+    setSelAnnoIdx(idx); // select → show resize handles
     const p = norm(e);
     moving.current = { pageId: selPage.id, idx, offX: p.nx - (a as any).nx, offY: p.ny - (a as any).ny };
+  };
+  // Resize a box/image/signature annotation by dragging a corner handle. The
+  // opposite corner stays anchored (normalized 0..1 page coords).
+  const startResizeAnno = (e: React.PointerEvent, idx: number, a: Annotation, corner: string) => {
+    if (!selPage || !('nw' in (a as any))) return;
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const an = a as any;
+    resizing.current = { pageId: selPage.id, idx, corner, nx: an.nx, ny: an.ny, nw: an.nw, nh: an.nh, ox: norm(e).nx, oy: norm(e).ny };
   };
 
   const onEditorMove = (e: React.PointerEvent) => {
@@ -611,6 +628,26 @@ export default function PdfStudioPro() {
       const p = norm(e);
       drawing.current.push(p.nx, p.ny);
       setLivePts(drawing.current.slice());
+      return;
+    }
+    if (resizing.current) {
+      const r = resizing.current;
+      const p = norm(e);
+      const cl01 = (v: number) => Math.max(0, Math.min(1, v));
+      let nx = r.nx, ny = r.ny, nw = r.nw, nh = r.nh;
+      const MIN = 0.02;
+      // east/west edges move the right/left side; north/south move bottom/top.
+      if (r.corner.includes('e')) nw = Math.max(MIN, cl01(p.nx) - r.nx);
+      if (r.corner.includes('w')) { const right = r.nx + r.nw; nx = Math.min(cl01(p.nx), right - MIN); nw = right - nx; }
+      if (r.corner.includes('s')) nh = Math.max(MIN, cl01(p.ny) - r.ny);
+      if (r.corner.includes('n')) { const bottom = r.ny + r.nh; ny = Math.min(cl01(p.ny), bottom - MIN); nh = bottom - ny; }
+      setDoc(d => ({
+        ...d,
+        annotations: {
+          ...d.annotations,
+          [r.pageId]: (d.annotations[r.pageId] ?? []).map((an, j) => j === r.idx ? { ...an, nx, ny, nw, nh } as Annotation : an),
+        },
+      }));
       return;
     }
     if (!moving.current) return;
@@ -650,6 +687,11 @@ export default function PdfStudioPro() {
   };
 
   const onEditorUp = (e: React.PointerEvent) => {
+    if (resizing.current) {
+      stack.current.push('resize anno', cloneDoc(doc));
+      resizing.current = null;
+      return;
+    }
     if (drawing.current) {
       if (selPage && drawing.current.length >= 4) {
         addAnno(selPage.id, { kind: 'draw', pts: drawing.current, color: textColor, width: penWidth });
@@ -1270,13 +1312,17 @@ export default function PdfStudioPro() {
                 if (a.kind === 'rect') return (
                   <div key={i} onPointerDown={(e) => startMoveAnno(e, i, a)} onDoubleClick={() => delAnno(selPage.id, i)}
                     title={a.redact ? 'Redaction — content underneath is permanently removed on export' : undefined}
-                    className={cn('absolute cursor-move', a.redact && 'outline outline-1 outline-rose-500/70')}
-                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, width: `${a.nw * 100}%`, height: `${a.nh * 100}%`, background: a.color, opacity: a.opacity ?? 1 }} />
+                    className={cn('absolute cursor-move', a.redact && 'outline outline-1 outline-rose-500/70', selAnnoIdx === i && 'outline outline-2 outline-cyan-400')}
+                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, width: `${a.nw * 100}%`, height: `${a.nh * 100}%`, background: a.color, opacity: a.opacity ?? 1 }}>
+                    {selAnnoIdx === i && <AnnoResizeHandles onStart={(c, e) => startResizeAnno(e, i, a, c)} />}
+                  </div>
                 );
                 if (a.kind === 'image') return (
                   <div key={i} onPointerDown={(e) => startMoveAnno(e, i, a)} onDoubleClick={() => delAnno(selPage.id, i)}
-                    className="absolute cursor-move border border-dashed border-cyan-400/60"
-                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, width: `${a.nw * 100}%`, height: `${a.nh * 100}%`, background: 'rgba(34,211,238,.05)' }} />
+                    className={cn('absolute cursor-move border border-dashed border-cyan-400/60', selAnnoIdx === i && 'outline outline-2 outline-cyan-400')}
+                    style={{ left: `${a.nx * 100}%`, top: `${a.ny * 100}%`, width: `${a.nw * 100}%`, height: `${a.nh * 100}%`, background: 'rgba(34,211,238,.05)' }}>
+                    {selAnnoIdx === i && <AnnoResizeHandles onStart={(c, e) => startResizeAnno(e, i, a, c)} />}
+                  </div>
                 );
                 return null;
               })}
@@ -1574,6 +1620,31 @@ function PreviewCanvas({ canvas, max = 720 }: { canvas: HTMLCanvasElement; max?:
     ctx.drawImage(canvas, 0, 0, dst.width, dst.height);
   }, [canvas, max]);
   return <canvas ref={ref} className="block max-h-full max-w-full" />;
+}
+
+/** Four corner resize handles for a selected box/image/signature annotation.
+ *  Each calls onStart(corner, event) → the studio's startResizeAnno. */
+function AnnoResizeHandles({ onStart }: { onStart: (corner: string, e: React.PointerEvent) => void }) {
+  // Each corner anchored at a page %, then translated by −50% so the dot centers
+  // exactly on the box corner.
+  const corners: { c: string; left: string; top: string; cur: string }[] = [
+    { c: 'nw', left: '0%', top: '0%', cur: 'nwse-resize' },
+    { c: 'ne', left: '100%', top: '0%', cur: 'nesw-resize' },
+    { c: 'sw', left: '0%', top: '100%', cur: 'nesw-resize' },
+    { c: 'se', left: '100%', top: '100%', cur: 'nwse-resize' },
+  ];
+  return (
+    <>
+      {corners.map(({ c, left, top, cur }) => (
+        <div
+          key={c}
+          onPointerDown={(e) => onStart(c, e)}
+          className="absolute z-10 h-2.5 w-2.5 rounded-full border-2 border-cyan-400 bg-white [touch-action:none] [@media(pointer:coarse)]:h-5 [@media(pointer:coarse)]:w-5"
+          style={{ left, top, transform: 'translate(-50%, -50%)', cursor: cur }}
+        />
+      ))}
+    </>
+  );
 }
 
 function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {

@@ -82,6 +82,9 @@ export interface CompVideoClip {
   fit: 'contain' | 'cover';
   /** Optional PiP transform — normalized to frame (0..1 center, scale 1 = fit). */
   transform?: { x: number; y: number; scale: number; rotation: number };
+  /** Mirror the clip horizontally / vertically (matches editor preview). */
+  flipH?: boolean;
+  flipV?: boolean;
   keyframes?: {
     brightness?: AnimatedParam<number>; contrast?: AnimatedParam<number>;
     saturation?: AnimatedParam<number>; hue?: AnimatedParam<number>; opacity?: AnimatedParam<number>;
@@ -293,12 +296,13 @@ function drawClipFrame(
   const tfY = sampleParam(c, 'posY', baseTf.y, localT);
   const tfScale = sampleParam(c, 'scale', baseTf.scale, localT);
   const tfRot = sampleParam(c, 'rotation', baseTf.rotation, localT);
-  if (tfScale !== 1 || tfX !== 0 || tfY !== 0 || tfRot !== 0) {
+  if (tfScale !== 1 || tfX !== 0 || tfY !== 0 || tfRot !== 0 || c.flipH || c.flipV) {
     const cx = frameW / 2 + tfX * frameW;
     const cy = frameH / 2 + tfY * frameH;
     ctx.translate(cx, cy);
     ctx.rotate((tfRot * Math.PI) / 180);
-    ctx.scale(tfScale, tfScale);
+    // Mirror axes alongside scale (identical to the editor preview drawVideoFrame).
+    ctx.scale(tfScale * (c.flipH ? -1 : 1), tfScale * (c.flipV ? -1 : 1));
     ctx.translate(-frameW / 2, -frameH / 2);
   }
 

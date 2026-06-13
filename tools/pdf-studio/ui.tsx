@@ -1136,6 +1136,7 @@ export default function PdfStudioPro() {
     { combo: 'delete', handler: () => doc.selectedId && deletePage(doc.selectedId) },
     { combo: 'left', handler: () => doc.selectedId && movePage(doc.selectedId, -1) },
     { combo: 'right', handler: () => doc.selectedId && movePage(doc.selectedId, 1) },
+    { combo: 'mod+d', handler: () => doc.selectedId && duplicatePage(doc.selectedId) },
   ]);
 
   if (!doc.pages.length) {

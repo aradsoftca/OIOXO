@@ -258,6 +258,7 @@ export default function OfficeDocsPro() {
   const [voiceTyping, setVoiceTyping] = React.useState(false);
   const voiceTypingRef = React.useRef<VoiceTypingHandler | null>(null);
   const [equationDialog, setEquationDialog] = React.useState(false);
+  const [symbolDialog, setSymbolDialog] = React.useState(false);
 
   // ── Autosave + crash recovery ───────────────────────────────────────────
   // Google Docs' silent auto-save is table stakes; its weakness is being
@@ -1321,6 +1322,7 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => insertTable(3, 3)} title="Insert 3×3 table"><TableIcon className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('removeFormat')} title="Clear formatting"><Eraser className="h-3.5 w-3.5" /></Tb>
         <div className="ml-auto flex items-center gap-1">
+          <Tb onClick={() => setSymbolDialog(true)} title="Insert special character / symbol"><span className="text-[13px] font-semibold leading-none">Ω</span></Tb>
           <Tb onClick={() => setEquationDialog(true)} title="Insert equation (LaTeX)"><Sigma className="h-3.5 w-3.5" /></Tb>
           <Tb onClick={insertToc} title="Insert Table of Contents"><BookOpen className="h-3.5 w-3.5" /></Tb>
           <button onClick={reading ? stopReading : startReadAloud} title={reading ? 'Stop reading' : 'Read aloud'} className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', reading ? 'bg-cyan-500/20 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')}>
@@ -1636,6 +1638,10 @@ export default function OfficeDocsPro() {
       {equationDialog && (
         <EquationDialog onCancel={() => setEquationDialog(false)} onInsert={insertEquation} />
       )}
+
+      {symbolDialog && (
+        <SymbolDialog onCancel={() => setSymbolDialog(false)} onInsert={s => exec('insertText', s)} />
+      )}
       {summaryDialog && (
         <Dialog title="Summary" onCancel={() => setSummaryDialog(null)} onConfirm={() => insertSummary(summaryDialog)} confirmLabel="Insert into doc">
           <div className="max-h-96 space-y-2 overflow-y-auto rounded bg-white/5 p-3 text-sm text-zinc-200">
@@ -1710,6 +1716,44 @@ function AutosaveIndicator({ state, at }: { state: 'idle' | 'saving' | 'saved'; 
 
 function Dialog({ title, children, onCancel, onConfirm, confirmLabel = 'OK' }: { title: string; children: React.ReactNode; onCancel: () => void; onConfirm: () => void; confirmLabel?: string }) {
   return <SharedDialog title={title} onClose={onCancel} onConfirm={onConfirm} confirmLabel={confirmLabel} width="sm">{children}</SharedDialog>;
+}
+
+const SYMBOL_GROUPS: { label: string; chars: string[] }[] = [
+  { label: 'Common', chars: ['©', '®', '™', '§', '¶', '†', '‡', '•', '–', '—', '…', '°', '′', '″', '«', '»'] },
+  { label: 'Currency', chars: ['€', '£', '¥', '¢', '₹', '₽', '₿'] },
+  { label: 'Math', chars: ['±', '×', '÷', '≤', '≥', '≠', '≈', '∞', '∑', '∏', '√', '∫', '∂', '∆', '∇', 'µ'] },
+  { label: 'Arrows', chars: ['→', '←', '↑', '↓', '↔', '⇒', '⇐', '⇔'] },
+  { label: 'Fractions', chars: ['½', '¼', '¾', '⅓', '⅔', '⅛'] },
+  { label: 'Greek', chars: ['α', 'β', 'γ', 'δ', 'ε', 'θ', 'λ', 'μ', 'π', 'σ', 'φ', 'ψ', 'ω', 'Σ', 'Ω', 'Δ'] },
+  { label: 'Marks & emoji', chars: ['✓', '✗', '★', '☆', '☑', '☐', '❤', '👍', '😀', '🔥', '⚠', '✏'] },
+];
+
+function SymbolDialog({ onCancel, onInsert }: { onCancel: () => void; onInsert: (symbol: string) => void }) {
+  return (
+    <SharedDialog title="Insert special character" onClose={onCancel} width="sm">
+      <div className="space-y-3 text-xs">
+        {SYMBOL_GROUPS.map(group => (
+          <div key={group.label}>
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-400">{group.label}</div>
+            <div className="flex flex-wrap gap-1">
+              {group.chars.map(ch => (
+                <button
+                  key={ch}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => onInsert(ch)}
+                  title={`Insert ${ch}`}
+                  className="grid h-8 w-8 place-items-center rounded bg-white/5 text-[15px] text-zinc-100 hover:bg-cyan-500/20 hover:text-white"
+                >
+                  {ch}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+        <p className="text-[10px] text-zinc-500">Click a character to insert it at the cursor.</p>
+      </div>
+    </SharedDialog>
+  );
 }
 
 function EquationDialog({ onCancel, onInsert }: { onCancel: () => void; onInsert: (latex: string, displayMode: boolean) => void }) {

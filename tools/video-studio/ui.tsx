@@ -117,6 +117,10 @@ interface VideoClip {
   /** PiP transform around the frame center. x/y normalized to frame (0 = centered),
    *  scale 1 = fit, rotation in degrees. Used for picture-in-picture / split / Ken Burns. */
   transform?: { x: number; y: number; scale: number; rotation: number };
+  /** Mirror the placed media. Applied around the frame center in preview +
+   *  export so a flipped clip reads identically in both. */
+  flipH?: boolean;
+  flipV?: boolean;
 }
 
 function sampleClipParam(c: VideoClip, name: keyof VideoClipKeyframes, defaultVal: number, localT: number): number {
@@ -2560,12 +2564,12 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
   const tfY = sampleClipParam(v, 'posY', baseTf.y, localT);
   const tfScale = sampleClipParam(v, 'scale', baseTf.scale, localT);
   const tfRot = sampleClipParam(v, 'rotation', baseTf.rotation, localT);
-  if (tfScale !== 1 || tfX !== 0 || tfY !== 0 || tfRot !== 0) {
+  if (tfScale !== 1 || tfX !== 0 || tfY !== 0 || tfRot !== 0 || v.flipH || v.flipV) {
     const cx = dw / 2 + tfX * dw;
     const cy = dh / 2 + tfY * dh;
     ctx.translate(cx, cy);
     ctx.rotate((tfRot * Math.PI) / 180);
-    ctx.scale(tfScale, tfScale);
+    ctx.scale(tfScale * (v.flipH ? -1 : 1), tfScale * (v.flipV ? -1 : 1));
     ctx.translate(-dw / 2, -dh / 2);
   }
   // Effect CSS-filter fragment composes with the grade filter (blur/glow/b&w/…).
@@ -3093,7 +3097,11 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
                   <AnimatableSlider label="Rotation" value={tf.rotation} min={-180} max={180} suffix="°" paramName="rotation" clip={c} localT={localT}
                     onChange={v => setTf({ rotation: v })}
                     onAnimate={kf => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), rotation: kf }; })} />
-                  <button onClick={() => onChange(x => { const v = x as VideoClip; v.transform = undefined; const k = { ...(v.keyframes ?? {}) }; delete k.posX; delete k.posY; delete k.scale; delete k.rotation; v.keyframes = k; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Reset motion</button>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button onClick={() => onChange(x => { const v = x as VideoClip; v.flipH = !v.flipH; })} className={`rounded px-2 py-1 text-xs ${c.flipH ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-zinc-300 hover:bg-white/10'}`}>Flip horizontal</button>
+                    <button onClick={() => onChange(x => { const v = x as VideoClip; v.flipV = !v.flipV; })} className={`rounded px-2 py-1 text-xs ${c.flipV ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/5 text-zinc-300 hover:bg-white/10'}`}>Flip vertical</button>
+                  </div>
+                  <button onClick={() => onChange(x => { const v = x as VideoClip; v.transform = undefined; v.flipH = false; v.flipV = false; const k = { ...(v.keyframes ?? {}) }; delete k.posX; delete k.posY; delete k.scale; delete k.rotation; v.keyframes = k; })} className="w-full rounded bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10">Reset motion</button>
                 </>
               );
             })()}

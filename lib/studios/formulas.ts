@@ -273,6 +273,8 @@ export function callFormula(name: string, args: any[]): any {
     case 'FACTDOUBLE':  { const n = Math.floor(getNum(args[0])); if (n < 0) return '#NUM!'; let f = 1; for (let i = n; i > 1; i -= 2) f *= i; return f; }
     case 'COMBIN':      { const n = Math.floor(getNum(args[0])), k = Math.floor(getNum(args[1])); if (k < 0 || k > n) return '#NUM!'; let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1); return Math.round(r); }
     case 'PERMUT':      { const n = Math.floor(getNum(args[0])), k = Math.floor(getNum(args[1])); if (k < 0 || k > n) return '#NUM!'; let r = 1; for (let i = 0; i < k; i++) r *= (n - i); return r; }
+    case 'PERMUTATIONA': { const n = Math.floor(getNum(args[0])), k = Math.floor(getNum(args[1])); if (n < 0 || k < 0) return '#NUM!'; return Math.round(Math.pow(n, k)); }
+    case 'GAMMA':       { const x = getNum(args[0]); if (x === 0 || (x < 0 && x === Math.floor(x))) return '#NUM!'; if (x > 0) return Math.exp(gammaln(x)); return Math.PI / (Math.sin(Math.PI * x) * Math.exp(gammaln(1 - x))); }
     case 'MROUND':      { const x = getNum(args[0]), m = getNum(args[1]); if (m === 0) return 0; return Math.round(x / m) * m; }
     case 'QUOTIENT':    return Math.trunc(getNum(args[0]) / getNum(args[1]));
     case 'SEC':         return 1 / Math.cos(getNum(args[0]));
@@ -288,6 +290,12 @@ export function callFormula(name: string, args: any[]): any {
     case 'AVEDEV':      { const ns = flatNums(args); if (!ns.length) return '#NUM!'; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + Math.abs(n - m), 0) / ns.length; }
     case 'DEVSQ':       { const ns = flatNums(args); if (!ns.length) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + (n - m) * (n - m), 0); }
     case 'TRIMMEAN':    { const ns = flatNums(args[0]).sort((a, b) => a - b); const pct = getNum(args[1]); const cut = Math.floor(ns.length * pct / 2); const kept = ns.slice(cut, ns.length - cut); return kept.length ? kept.reduce((s, n) => s + n, 0) / kept.length : '#NUM!'; }
+    case 'SKEW':        { const ns = flatNums(args); const n = ns.length; if (n < 3) return '#DIV/0!'; const m = ns.reduce((s, v) => s + v, 0) / n; const sd = Math.sqrt(ns.reduce((s, v) => s + (v - m) ** 2, 0) / (n - 1)); if (sd === 0) return '#DIV/0!'; const sum = ns.reduce((s, v) => s + ((v - m) / sd) ** 3, 0); return (n / ((n - 1) * (n - 2))) * sum; }
+    case 'SKEW.P':      { const ns = flatNums(args); const n = ns.length; if (n < 1) return '#DIV/0!'; const m = ns.reduce((s, v) => s + v, 0) / n; const sd = Math.sqrt(ns.reduce((s, v) => s + (v - m) ** 2, 0) / n); if (sd === 0) return '#DIV/0!'; return ns.reduce((s, v) => s + ((v - m) / sd) ** 3, 0) / n; }
+    case 'KURT':        { const ns = flatNums(args); const n = ns.length; if (n < 4) return '#DIV/0!'; const m = ns.reduce((s, v) => s + v, 0) / n; const sd = Math.sqrt(ns.reduce((s, v) => s + (v - m) ** 2, 0) / (n - 1)); if (sd === 0) return '#DIV/0!'; const sum = ns.reduce((s, v) => s + ((v - m) / sd) ** 4, 0); return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * sum - (3 * (n - 1) ** 2) / ((n - 2) * (n - 3)); }
+    case 'COVARIANCE.P': case 'COVAR': { const xs = flatNums(args[0]); const ys = flatNums(args[1]); const n = Math.min(xs.length, ys.length); if (n < 1) return '#DIV/0!'; const mx = xs.slice(0, n).reduce((s, v) => s + v, 0) / n; const my = ys.slice(0, n).reduce((s, v) => s + v, 0) / n; let c = 0; for (let i = 0; i < n; i++) c += (xs[i] - mx) * (ys[i] - my); return c / n; }
+    case 'COVARIANCE.S': { const xs = flatNums(args[0]); const ys = flatNums(args[1]); const n = Math.min(xs.length, ys.length); if (n < 2) return '#DIV/0!'; const mx = xs.slice(0, n).reduce((s, v) => s + v, 0) / n; const my = ys.slice(0, n).reduce((s, v) => s + v, 0) / n; let c = 0; for (let i = 0; i < n; i++) c += (xs[i] - mx) * (ys[i] - my); return c / (n - 1); }
+    case 'PEARSON': case 'RSQ': { const xs = flatNums(args[0]); const ys = flatNums(args[1]); const n = Math.min(xs.length, ys.length); if (n < 2) return '#DIV/0!'; const mx = xs.slice(0, n).reduce((s, v) => s + v, 0) / n; const my = ys.slice(0, n).reduce((s, v) => s + v, 0) / n; let num = 0, dx = 0, dy = 0; for (let i = 0; i < n; i++) { num += (xs[i] - mx) * (ys[i] - my); dx += (xs[i] - mx) ** 2; dy += (ys[i] - my) ** 2; } if (dx === 0 || dy === 0) return '#DIV/0!'; const r = num / Math.sqrt(dx * dy); return name === 'RSQ' ? r * r : r; }
     // --- Text ---
     case 'TEXTBEFORE':  { const s = String(args[0] ?? ''); const delim = String(args[1] ?? ''); const i = s.indexOf(delim); return i < 0 ? '#N/A' : s.slice(0, i); }
     case 'TEXTAFTER':   { const s = String(args[0] ?? ''); const delim = String(args[1] ?? ''); const i = s.indexOf(delim); return i < 0 ? '#N/A' : s.slice(i + delim.length); }
@@ -402,6 +410,11 @@ export function callFormula(name: string, args: any[]): any {
     case 'CSCH':        return 1 / Math.sinh(getNum(args[0]));
     case 'SECH':        return 1 / Math.cosh(getNum(args[0]));
     case 'COTH':        return 1 / Math.tanh(getNum(args[0]));
+    // --- More trig: inverse reciprocal (Excel principal-value conventions) ---
+    case 'ACOT':        return Math.PI / 2 - Math.atan(getNum(args[0]));
+    case 'ACOTH':       { const x = getNum(args[0]); if (x > -1 && x < 1) return '#NUM!'; return 0.5 * Math.log((x + 1) / (x - 1)); }
+    case 'ACSC':        { const x = getNum(args[0]); if (x > -1 && x < 1) return '#NUM!'; return Math.asin(1 / x); }
+    case 'ASEC':        { const x = getNum(args[0]); if (x > -1 && x < 1) return '#NUM!'; return Math.acos(1 / x); }
     // --- Text ---
     case 'VALUETOTEXT': return Array.isArray(args[0]) ? String(flatAll(args[0])[0] ?? '') : String(args[0] ?? '');
     case 'ENCODEURL':   return encodeURIComponent(String(args[0] ?? ''));
@@ -502,8 +515,9 @@ export const FORMULA_NAMES = [
   'VLOOKUP', 'HLOOKUP', 'XLOOKUP', 'INDEX', 'MATCH', 'CHOOSE', 'ROW', 'COLUMN',
   'ISBLANK', 'ISNUMBER', 'ISTEXT', 'ISLOGICAL', 'ISERROR', 'ISNA', 'ISEVEN', 'ISODD', 'N', 'TYPE',
   'PMT', 'PV', 'FV', 'NPER', 'NPV', 'IRR', 'RATE', 'XNPV', 'XIRR', 'MIRR', 'AGGREGATE',
-  'FACT', 'FACTDOUBLE', 'COMBIN', 'PERMUT', 'MROUND', 'QUOTIENT', 'SEC', 'CSC', 'COT',
+  'FACT', 'FACTDOUBLE', 'COMBIN', 'PERMUT', 'PERMUTATIONA', 'GAMMA', 'MROUND', 'QUOTIENT', 'SEC', 'CSC', 'COT',
   'BASE', 'DECIMAL', 'ROMAN', 'ARABIC', 'GEOMEAN', 'HARMEAN', 'AVEDEV', 'DEVSQ', 'TRIMMEAN',
+  'SKEW', 'SKEW.P', 'KURT', 'COVARIANCE.P', 'COVAR', 'COVARIANCE.S', 'PEARSON', 'RSQ',
   'TEXTBEFORE', 'TEXTAFTER', 'NUMBERVALUE', 'FIXED', 'DOLLAR',
   'SQRTPI', 'SERIESSUM', 'MULTINOMIAL', 'COMBINA', 'GAMMALN', 'GAMMALN.PRECISE',
   'FISHER', 'FISHERINV', 'GAUSS', 'PHI', 'STANDARDIZE',
@@ -513,6 +527,7 @@ export const FORMULA_NAMES = [
   'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
   'GESTEP', 'DELTA', 'ERF', 'ERFC',
   'ASINH', 'ACOSH', 'ATANH', 'CSCH', 'SECH', 'COTH',
+  'ACOT', 'ACOTH', 'ACSC', 'ASEC',
   'VALUETOTEXT', 'ENCODEURL', 'DECODEURL',
   'LENB', 'LEFTB', 'RIGHTB', 'MIDB', 'FINDB', 'SEARCHB', 'REPLACEB',
   'ISNONTEXT', 'ISERR', 'NA', 'ERROR.TYPE',

@@ -1698,6 +1698,82 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runAutoContrast = async () => {
+    // Photoshop Image > Adjustments > Auto Contrast. Destructively bakes the
+    // active paint/image layer with a linear levels stretch: find the overall
+    // luminance min/max and remap each channel so darkest→0, brightest→255
+    // (alpha preserved) so it composites/exports identically.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Auto contrast…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const wR = 0.299, wG = 0.587, wB = 0.114; // luminosity weights
+      let lo = 255, hi = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i + 3] === 0) continue; // skip fully transparent pixels
+        const lum = wR * d[i] + wG * d[i + 1] + wB * d[i + 2];
+        if (lum < lo) lo = lum;
+        if (lum > hi) hi = lum;
+      }
+      const range = hi - lo;
+      if (range > 0) {
+        const scale = 255 / range;
+        for (let i = 0; i < d.length; i += 4) {
+          d[i] = Math.max(0, Math.min(255, (d[i] - lo) * scale)) | 0;
+          d[i + 1] = Math.max(0, Math.min(255, (d[i + 1] - lo) * scale)) | 0;
+          d[i + 2] = Math.max(0, Math.min(255, (d[i + 2] - lo) * scale)) | 0;
+        }
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('auto contrast', next);
+      toastFor('Auto contrast applied ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runSepia = async () => {
+    // Classic sepia tone. Destructively bakes the active paint/image layer with
+    // the standard sepia color matrix (clamped to 255, alpha preserved) so it
+    // composites/exports identically.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Applying sepia…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        d[i] = Math.min(255, 0.393 * r + 0.769 * g + 0.189 * b) | 0;
+        d[i + 1] = Math.min(255, 0.349 * r + 0.686 * g + 0.168 * b) | 0;
+        d[i + 2] = Math.min(255, 0.272 * r + 0.534 * g + 0.131 * b) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('sepia', next);
+      toastFor('Sepia applied ✓');
+    } finally { setBusy(''); }
+  };
+
   const runUpscale = async () => {
     // Edge-aware 2x super-resolution of the whole picture. Flatten the current
     // composite, upscale it, and replace the doc with a single 2x image layer —
@@ -2886,6 +2962,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runBlackAndWhite()} title={pristine ? 'Open an image first' : 'Convert to B&W (luminosity)'}><Sparkles className="h-3.5 w-3.5" /> B&W</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runInvert()} title={pristine ? 'Open an image first' : 'Invert colors (negative)'}><Sparkles className="h-3.5 w-3.5" /> Invert</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runThreshold()} title={pristine ? 'Open an image first' : 'Threshold to pure black/white (at 128)'}><Sparkles className="h-3.5 w-3.5" /> Threshold</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoContrast()} title={pristine ? 'Open an image first' : 'Auto contrast (linear levels stretch)'}><Sparkles className="h-3.5 w-3.5" /> Auto Contrast</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSepia()} title={pristine ? 'Open an image first' : 'Apply classic sepia tone'}><Sparkles className="h-3.5 w-3.5" /> Sepia</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />

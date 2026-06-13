@@ -36,6 +36,7 @@ export * from './effect-presets';
 export * from './effects-rack';
 export * from './presets';
 export * from './presets-ui';
+export * from './lut';
 export * from './audio-master-chain';
 export * from './loudness';
 export * from './resume-pdf';

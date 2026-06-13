@@ -25,6 +25,7 @@ import {
   applyColorWheelsToImageData, applyCurveSet, isZeroWheels,
   type ColorWheels, type CurveSet,
 } from '@/lib/studios/color-wheels';
+import { applyLut, type Lut3D } from '@/lib/studios/lut';
 import { sampleAnimated, type AnimatedParam } from '@/lib/studios/keyframes';
 import { sampleTextAnim, type TextAnimId } from '@/lib/studios/text-animations';
 import { buildAudioChain, type AudioEffect } from '@/lib/studios/audio-effects';
@@ -91,6 +92,9 @@ export interface CompVideoClip {
   };
   colorWheels?: ColorWheels;
   curves?: CurveSet;
+  /** Creative LUT (.cube) applied after wheels+curves — a downloadable film look. */
+  lut?: Lut3D;
+  lutIntensity?: number;
   /** Creative effects + source crop — mirror the editor's VideoClip so export
    *  matches preview. */
   effects?: VideoEffect[];
@@ -321,8 +325,9 @@ function drawClipFrame(
   // Color wheels + curves operate on pixels (CSS filters can't express them).
   const hasWheels = c.colorWheels && !isZeroWheels(c.colorWheels);
   const hasCurves = c.curves && (c.curves.master || c.curves.r || c.curves.g || c.curves.b);
+  const hasLut = !!c.lut && (c.lutIntensity ?? 1) > 0;
   const hasPixFx = hasPixelEffects(c.effects);
-  if (hasWheels || hasCurves || hasPixFx) {
+  if (hasWheels || hasCurves || hasLut || hasPixFx) {
     try {
       const dx = Math.max(0, Math.floor(tx)), dy = Math.max(0, Math.floor(ty));
       const dwInt = Math.min(frameW - dx, Math.ceil(tw)), dhInt = Math.min(frameH - dy, Math.ceil(th));
@@ -330,6 +335,7 @@ function drawClipFrame(
         const img = ctx.getImageData(dx, dy, dwInt, dhInt);
         if (hasWheels) applyColorWheelsToImageData(img.data, c.colorWheels!);
         if (hasCurves) applyCurveSet(img.data, c.curves!);
+        if (hasLut) applyLut(img.data, c.lut!, c.lutIntensity ?? 1);
         // Same pixel-effects + grain seed as the preview (localT*1000 rounded) so
         // the exported frame is identical to what the user saw.
         if (hasPixFx) applyPixelEffects(img, c.effects, Math.round(localT * 1000));

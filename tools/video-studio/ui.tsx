@@ -40,6 +40,7 @@ import {
   ColorWheelsPanel, RgbCurvesPanel,
   type ColorWheels, type CurveSet, ZERO_WHEELS, isZeroWheels,
   applyColorWheelsToImageData, applyCurveSet,
+  applyLut, parseCubeLut, type Lut3D,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
@@ -103,6 +104,10 @@ interface VideoClip {
   keyframes?: VideoClipKeyframes;
   colorWheels?: ColorWheels;
   curves?: CurveSet;
+  /** Creative LUT (.cube) film look + intensity (0..1). Applied after wheels+curves. */
+  lut?: Lut3D;
+  lutName?: string;
+  lutIntensity?: number;
   /** Stackable creative effects (blur/glow/vignette/grain/pixelate/…) applied
    *  identically in preview + export. */
   effects?: VideoEffect[];
@@ -789,6 +794,36 @@ export default function VideoStudioPro() {
     c.saturation = grade.saturation;
     c.hue = grade.hue;
     commit(`grade: ${grade.name}`, next);
+  };
+
+  // Load a .cube LUT and apply it to the selected clip (or all video clips if
+  // none is selected). Parsed once → stored on the clip; applied identically in
+  // preview + export (WYSIWYG).
+  const loadLutFile = async (file: File) => {
+    try {
+      const lut = parseCubeLut(await file.text());
+      if (!lut) { toastFor('Not a valid 3D .cube LUT'); return; }
+      const next = cloneDoc(doc);
+      const targets = doc.selectedId ? next.clips.filter(c => c.id === doc.selectedId && c.kind === 'video') : next.clips.filter(c => c.kind === 'video');
+      if (!targets.length) { toastFor('Add a video clip first'); return; }
+      for (const c of targets) { (c as VideoClip).lut = lut; (c as VideoClip).lutName = file.name.replace(/\.cube$/i, ''); (c as VideoClip).lutIntensity = (c as VideoClip).lutIntensity ?? 1; }
+      commit('apply LUT', next);
+      toastFor(`LUT "${lut.title || file.name}" applied to ${targets.length} clip${targets.length > 1 ? 's' : ''}`);
+    } catch { toastFor('Failed to read LUT'); }
+  };
+  const setLutIntensity = (pct: number) => {
+    if (!doc.selectedId) return;
+    const next = cloneDoc(doc);
+    const c = next.clips.find(x => x.id === doc.selectedId) as VideoClip | undefined;
+    if (!c) return;
+    c.lutIntensity = Math.max(0, Math.min(1, pct / 100));
+    commit('lut intensity', next);
+  };
+  const clearLut = () => {
+    const next = cloneDoc(doc);
+    const targets = doc.selectedId ? next.clips.filter(c => c.id === doc.selectedId) : next.clips.filter(c => c.kind === 'video');
+    for (const c of targets) { delete (c as VideoClip).lut; delete (c as VideoClip).lutName; }
+    commit('clear LUT', next);
   };
 
   const applyGradeToAll = (gradeId: string) => {
@@ -2029,6 +2064,31 @@ export default function VideoStudioPro() {
                     </button>
                   ))}
                 </div>
+                {/* 3D LUT (.cube) — DaVinci/Premiere film looks */}
+                <div className="mt-2 border-t border-white/5 pt-2">
+                  <div className="mb-1 text-[10px] text-zinc-500">3D LUT (.cube){doc.selectedId ? ' — selected clip' : ' — all clips'}</div>
+                  {(() => { const sel = doc.clips.find(c => c.id === doc.selectedId) as VideoClip | undefined; const lutName = sel?.lutName; return (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-1">
+                        <label className="flex flex-1 cursor-pointer items-center justify-center gap-1 rounded bg-cyan-500/15 px-2 py-1.5 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/25">
+                          <Upload className="h-3 w-3" /> {lutName ? 'Replace LUT' : 'Load LUT'}
+                          <input type="file" accept=".cube" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void loadLutFile(f); e.currentTarget.value = ''; }} />
+                        </label>
+                        {lutName && <button onClick={clearLut} className="rounded bg-white/5 px-2 py-1.5 text-[11px] text-zinc-300 hover:bg-white/10">Clear</button>}
+                      </div>
+                      {lutName && (
+                        <>
+                          <div className="truncate text-[10px] text-cyan-300">🎞 {lutName}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-zinc-500">Intensity</span>
+                            <input type="range" min={0} max={100} value={Math.round((sel?.lutIntensity ?? 1) * 100)} onChange={e => setLutIntensity(parseInt(e.target.value))} className="h-1 flex-1" />
+                            <span className="w-7 text-right text-[10px] tabular-nums text-zinc-400">{Math.round((sel?.lutIntensity ?? 1) * 100)}%</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ); })()}
+                </div>
               </div>
             </StudioPanel>
           </div>
@@ -2491,8 +2551,9 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
   ctx.filter = 'none';
   const hasWheels = v.colorWheels && !isZeroWheels(v.colorWheels);
   const hasCurves = v.curves && (v.curves.master || v.curves.r || v.curves.g || v.curves.b);
+  const hasLut = !!v.lut && (v.lutIntensity ?? 1) > 0;
   const hasPixFx = hasPixelEffects(v.effects);
-  if (hasWheels || hasCurves || hasPixFx) {
+  if (hasWheels || hasCurves || hasLut || hasPixFx) {
     try {
       // Clamp the read rect into the canvas. A negative-origin getImageData
       // (cover clips that overflow the frame) returns transparent-black pad
@@ -2506,6 +2567,7 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
         const imgData = ctx.getImageData(dx, dy, dwInt, dhInt);
         if (hasWheels) applyColorWheelsToImageData(imgData.data, v.colorWheels!);
         if (hasCurves) applyCurveSet(imgData.data, v.curves!);
+        if (hasLut) applyLut(imgData.data, v.lut!, v.lutIntensity ?? 1);
         // Pixel effects (vignette/grain/pixelate/sharpen/…). Seed grain on the
         // integer source time so it's stable per frame AND identical to export.
         if (hasPixFx) applyPixelEffects(imgData, v.effects, Math.round(localT * 1000));

@@ -3166,7 +3166,11 @@ function ToolOptionsBar(props: {
   // pushing the canvas down. So on mobile: show ONLY the active tool's options,
   // and when the tool has none (move/select/crop/zoom/hand/eyedropper) collapse
   // the whole bar. Filters/transform move into the "Effects" sheet (top-bar FX).
-  const toolHasOptions = ['brush', 'eraser', 'wand', 'bucket', 'text', 'shape-rect', 'shape-ellipse'].includes(tool);
+  const toolHasOptions = ['brush', 'eraser', 'wand', 'bucket', 'text', 'shape-rect', 'shape-ellipse',
+    // Selection tools carry the Replace/Add/Subtract/Intersect mode toggle + Invert
+    // on mobile too — without these the pro selection ergonomics were unreachable
+    // on a phone (the bar collapsed for marquee/lasso).
+    'marquee-rect', 'marquee-ellipse', 'lasso'].includes(tool);
   const [fxOpen, setFxOpen] = React.useState(false);
   if (isMobile && !toolHasOptions && !props.hasSelection) return null;
   // Phone: raw range inputs are ~6px tall with ungrabbable native thumbs and
@@ -3206,12 +3210,13 @@ function ToolOptionsBar(props: {
       )}
       {(tool === 'marquee-rect' || tool === 'marquee-ellipse' || tool === 'lasso' || tool === 'wand') && (
         <>
-          <div className="flex items-center gap-0.5 rounded bg-black/30 p-0.5">
+          <Label>Selection</Label>
+          <div className="flex shrink-0 items-center gap-0.5 rounded bg-black/30 p-0.5">
             {([['replace', '◻', 'Replace'], ['add', '+', 'Add (Shift)'], ['subtract', '−', 'Subtract (Alt)'], ['intersect', '∩', 'Intersect']] as const).map(([m, sym, title]) => (
-              <button key={m} title={title} onClick={() => props.setSelMode(m)} className={cn('grid h-6 w-6 place-items-center rounded text-xs', props.selMode === m ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/10')}>{sym}</button>
+              <button key={m} title={title} onClick={() => props.setSelMode(m)} className={cn('grid place-items-center rounded', isMobile ? 'h-9 w-9 text-base' : 'h-6 w-6 text-xs', props.selMode === m ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/10')}>{sym}</button>
             ))}
           </div>
-          {props.hasSelection && <button onClick={props.onInvertSelection} title="Invert selection (Ctrl+Shift+I)" className="rounded bg-white/5 px-2 py-1 text-xs text-zinc-200 hover:bg-white/10">Invert</button>}
+          {props.hasSelection && <button onClick={props.onInvertSelection} title="Invert selection (Ctrl+Shift+I)" className={cn('shrink-0 rounded bg-white/5 text-zinc-200 hover:bg-white/10', isMobile ? 'px-3 py-2 min-h-[44px]' : 'px-2 py-1 text-xs')}>Invert</button>}
         </>
       )}
       {tool === 'wand' && (

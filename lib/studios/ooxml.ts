@@ -208,27 +208,56 @@ function htmlToDocxParagraphs(root: Element): string[] {
   return out;
 }
 
+// Normalize a CSS colour (#rgb, #rrggbb, rgb(...)) to a 6-hex string, or '' if
+// none/unparseable. Word's <w:color> + <w:highlight> need bare hex.
+function cssColorToHex(c: string | undefined): string {
+  if (!c) return '';
+  const s = c.trim();
+  let m = /^#([0-9a-f]{3})$/i.exec(s);
+  if (m) return m[1].split('').map(x => x + x).join('').toUpperCase();
+  m = /^#([0-9a-f]{6})$/i.exec(s);
+  if (m) return m[1].toUpperCase();
+  m = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(s);
+  if (m) return [m[1], m[2], m[3]].map(n => Math.max(0, Math.min(255, +n)).toString(16).padStart(2, '0')).join('').toUpperCase();
+  return '';
+}
+
+interface RunStyle { bold: boolean; italic: boolean; underline: boolean; color: string; highlight: string; strike: boolean; }
+
 function runsForElement(el: Element): string {
   const runs: string[] = [];
-  const walk = (node: Node, bold: boolean, italic: boolean, underline: boolean) => {
+  const walk = (node: Node, st: RunStyle) => {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = node.textContent ?? '';
       if (!text) return;
       const props: string[] = [];
-      if (bold) props.push('<w:b/>');
-      if (italic) props.push('<w:i/>');
-      if (underline) props.push('<w:u w:val="single"/>');
+      if (st.bold) props.push('<w:b/>');
+      if (st.italic) props.push('<w:i/>');
+      if (st.underline) props.push('<w:u w:val="single"/>');
+      if (st.strike) props.push('<w:strike/>');
+      if (st.color) props.push(`<w:color w:val="${st.color}"/>`);
+      // Word highlight takes a named value OR a shading fill; use shading so any
+      // hex colour survives (named set is tiny).
+      if (st.highlight) props.push(`<w:shd w:val="clear" w:color="auto" w:fill="${st.highlight}"/>`);
       runs.push(`<w:r>${props.length ? `<w:rPr>${props.join('')}</w:rPr>` : ''}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`);
     } else if (node.nodeType === Node.ELEMENT_NODE) {
       const e = node as HTMLElement;
       const t = e.tagName.toLowerCase();
-      const nb = bold || t === 'b' || t === 'strong' || /font-weight\s*:\s*(bold|[6-9]\d\d)/i.test(e.style?.fontWeight || '');
-      const ni = italic || t === 'i' || t === 'em';
-      const nu = underline || t === 'u';
-      for (const c of Array.from(e.childNodes)) walk(c, nb, ni, nu);
+      const styleColor = cssColorToHex(e.style?.color);
+      const styleBg = cssColorToHex(e.style?.backgroundColor);
+      const next: RunStyle = {
+        bold: st.bold || t === 'b' || t === 'strong' || /font-weight\s*:\s*(bold|[6-9]\d\d)/i.test(e.style?.fontWeight || ''),
+        italic: st.italic || t === 'i' || t === 'em',
+        underline: st.underline || t === 'u',
+        strike: st.strike || t === 's' || t === 'strike' || t === 'del',
+        color: styleColor || st.color,
+        highlight: styleBg || st.highlight,
+      };
+      for (const c of Array.from(e.childNodes)) walk(c, next);
     }
   };
-  for (const c of Array.from(el.childNodes)) walk(c, false, false, false);
+  const base: RunStyle = { bold: false, italic: false, underline: false, color: '', highlight: '', strike: false };
+  for (const c of Array.from(el.childNodes)) walk(c, base);
   return runs.join('');
 }
 

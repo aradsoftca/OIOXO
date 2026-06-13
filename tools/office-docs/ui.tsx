@@ -115,7 +115,10 @@ export default function OfficeDocsPro() {
 
   const recordChange = React.useCallback(() => {
     if (!trackMode) return;
-    const cur = editorRef.current?.innerText ?? '';
+    // Track the full HTML (not innerText) so an accepted/rejected change can
+    // restore the exact formatted content, and so bold/italic/colour applied
+    // while tracking isn't silently dropped from the change record.
+    const cur = editorRef.current?.innerHTML ?? '';
     const prev = lastTrackedHtml.current;
     if (cur === prev) return;
     tcModel.current.record(['text'], 'set', prev, cur, tcAuthor, tcColor, 'edit');
@@ -123,8 +126,32 @@ export default function OfficeDocsPro() {
   }, [trackMode, tcAuthor, tcColor]);
 
   React.useEffect(() => {
-    if (trackMode) lastTrackedHtml.current = editorRef.current?.innerText ?? '';
+    if (trackMode) lastTrackedHtml.current = editorRef.current?.innerHTML ?? '';
   }, [trackMode]);
+
+  // Reject ACTUALLY reverts the document to the change's `before` HTML (the old
+  // model only flipped a status flag and never touched the doc). Accept keeps the
+  // current content. Applying a reject re-bases the tracked baseline so further
+  // edits diff against the reverted state.
+  const applyRejectedHtml = (html: string | null | undefined) => {
+    if (html == null || !editorRef.current) return;
+    editorRef.current.innerHTML = sanitizeHtml(String(html));
+    setDoc(d => ({ ...d, html: String(html) }));
+    lastTrackedHtml.current = String(html);
+    refreshDerived();
+    scheduleAutosave();
+  };
+  const rejectChange = (id: string) => {
+    const ch = tcModel.current.reject(id);
+    applyRejectedHtml(ch?.before);
+  };
+  const rejectAllChanges = () => {
+    // Revert to the oldest change's `before` (the document before any tracked
+    // edit), then mark all rejected.
+    const first = tcChanges.find(c => c.status !== 'rejected');
+    tcModel.current.rejectAll();
+    if (first) applyRejectedHtml(first.before);
+  };
 
   const [reading, setReading] = React.useState(false);
   const readPollRef = React.useRef<number | null>(null);
@@ -262,16 +289,29 @@ export default function OfficeDocsPro() {
     session.attachSignal(makeHttpSignal(id, session.self.id));
     session.onPeers(setCollabPeers);
     const docCrdt = session.getDoc();
-    docCrdt.setState(editorRef.current?.innerText ?? '');
-    docCrdt.onUpdate((state, op) => {
-      if (!op) return;
-      collabSuppressBroadcast.current = true;
-      if (editorRef.current && op.author !== session.self.id) {
-        editorRef.current.innerText = state;
+    // Seed the shared doc with our current FULL HTML (not innerText) so peers get
+    // the formatted document, not a plain-text flattening. Uses the same kv LWW
+    // mechanism office-studio (Sheets) collab uses — proven cross-device.
+    const seedOp = docCrdt.set('html', editorRef.current?.innerHTML ?? doc.html);
+    docCrdt.onUpdate((_state, op) => {
+      if (!op || op.type !== 'set' || op.key !== 'html') return;
+      if (op.author === session.self.id) {
+        // Our own edit — broadcast it to peers.
+        session.broadcastOp(op);
+      } else if (editorRef.current && typeof op.value === 'string') {
+        // A peer's edit — replace our editor with their sanitized HTML (guard the
+        // broadcast loop so we don't echo it back as our own change).
+        collabSuppressBroadcast.current = true;
+        const sel = window.getSelection();
+        const hadFocus = editorRef.current.contains(sel?.anchorNode ?? null);
+        editorRef.current.innerHTML = sanitizeHtml(op.value);
+        setDoc(d => ({ ...d, html: op.value as string }));
+        refreshDerived();
+        collabSuppressBroadcast.current = false;
+        void hadFocus;
       }
-      if (op.author === session.self.id) session.broadcastOp(op);
-      collabSuppressBroadcast.current = false;
     });
+    session.broadcastOp(seedOp);
     session.announce();
     collabRef.current = session;
     setCollabRoom(id);
@@ -384,6 +424,13 @@ export default function OfficeDocsPro() {
     setDoc(d => ({ ...d, html: el.innerHTML }));
     refreshDerived();
     scheduleAutosave();
+    // Live collab: push the FULL HTML to peers (rich text, not innerText).
+    // Skip when we're applying a peer's incoming edit (suppress flag) to avoid
+    // an echo loop. kv-set LWW resolves concurrent edits deterministically.
+    if (collabRef.current && !collabSuppressBroadcast.current) {
+      const op = collabRef.current.getDoc().set('html', el.innerHTML);
+      collabRef.current.broadcastOp(op);
+    }
   }, [scheduleAutosave]);
 
   // Flush a pending autosave the moment the tab is hidden/closed so the very
@@ -854,9 +901,30 @@ export default function OfficeDocsPro() {
     const el = editorRef.current;
     if (!el) return;
     if (replace) {
-      el.innerHTML = el.innerHTML.split(findText).join(replaceText);
+      // Replace ONLY inside text nodes — never on the raw innerHTML string, which
+      // matched across tags/attributes and orphaned markup (e.g. a search term
+      // appearing in a style attr or split across <b>…</b> got mangled). Walking
+      // text nodes keeps all formatting intact. Case-insensitive, all matches.
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const needle = findText.toLowerCase();
+      let count = 0;
+      const nodes: Text[] = [];
+      let n: Node | null;
+      while ((n = walker.nextNode())) nodes.push(n as Text);
+      for (const tn of nodes) {
+        const val = tn.nodeValue ?? '';
+        const lower = val.toLowerCase();
+        if (!lower.includes(needle)) continue;
+        let result = '', i = 0;
+        while (i < val.length) {
+          if (lower.startsWith(needle, i)) { result += replaceText; i += findText.length; count++; }
+          else { result += val[i]; i++; }
+        }
+        tn.nodeValue = result;
+      }
       persistHtml();
-      toastFor('Replaced');
+      recordChange();
+      toastFor(count ? `Replaced ${count}` : 'Not found');
     } else {
       const sel = window.getSelection();
       if (sel) sel.removeAllRanges();
@@ -1099,9 +1167,9 @@ export default function OfficeDocsPro() {
                   { label: 'Start writing', description: 'Use the blank canvas', icon: <Wand2 className="h-4 w-4" />, onClick: dismissDocsWelcome },
                 ]}
                 hints={[
-                  { label: 'Track changes + Comments', description: 'Per-author colors, accept/reject UI' },
+                  { label: 'Track changes', description: 'Per-author colors, real accept/reject that edits the doc' },
                   { label: 'Equations + TOC + Read aloud', description: 'LaTeX equations, auto TOC, Web Speech' },
-                  { label: 'Live collab via P2P', description: 'Share button — document syncs peer-to-peer, encrypted in transit' },
+                  { label: 'Live collab via P2P', description: 'Share button — rich text syncs peer-to-peer, encrypted in transit' },
                 ]}
               />
             </div>
@@ -1264,7 +1332,7 @@ export default function OfficeDocsPro() {
           )}
           <div className="flex gap-1 border-b border-white/5 p-2">
             <button onClick={() => { tcModel.current.acceptAll(); }} className="flex-1 rounded bg-emerald-500/20 px-2 py-1 text-[10px] font-medium text-emerald-200 hover:bg-emerald-500/30">Accept all</button>
-            <button onClick={() => { tcModel.current.rejectAll(); }} className="flex-1 rounded bg-rose-500/20 px-2 py-1 text-[10px] font-medium text-rose-200 hover:bg-rose-500/30">Reject all</button>
+            <button onClick={() => { rejectAllChanges(); }} className="flex-1 rounded bg-rose-500/20 px-2 py-1 text-[10px] font-medium text-rose-200 hover:bg-rose-500/30">Reject all</button>
           </div>
           <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
             {tcChanges.length === 0 && <div className="rounded border border-white/5 bg-white/[.02] p-4 text-center text-[11px] text-zinc-500">No changes recorded yet</div>}
@@ -1279,8 +1347,8 @@ export default function OfficeDocsPro() {
                   <div className="flex items-center gap-0.5">
                     {ch.status === 'pending' && (
                       <>
-                        <button onClick={() => tcModel.current.accept(ch.id)} className="rounded p-0.5 text-emerald-300 hover:bg-emerald-500/20" title="Accept"><Check className="h-3 w-3" /></button>
-                        <button onClick={() => tcModel.current.reject(ch.id)} className="rounded p-0.5 text-rose-300 hover:bg-rose-500/20" title="Reject"><XIcon className="h-3 w-3" /></button>
+                        <button onClick={() => tcModel.current.accept(ch.id)} className="rounded p-0.5 text-emerald-300 hover:bg-emerald-500/20" title="Accept (keep this edit)"><Check className="h-3 w-3" /></button>
+                        <button onClick={() => rejectChange(ch.id)} className="rounded p-0.5 text-rose-300 hover:bg-rose-500/20" title="Reject (revert this edit)"><XIcon className="h-3 w-3" /></button>
                       </>
                     )}
                     {ch.status === 'accepted' && <span className="text-emerald-300 text-[10px]">accepted</span>}

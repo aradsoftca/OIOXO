@@ -433,6 +433,36 @@ export function callFormula(name: string, args: any[]): any {
     case 'NA':          return '#N/A';
     case 'ERROR.TYPE':  { const s = String(args[0]); const map: Record<string, number> = { '#NULL!':1,'#DIV/0!':2,'#VALUE!':3,'#REF!':4,'#NAME?':5,'#NUM!':6,'#N/A':7 }; return map[s] ?? '#N/A'; }
     case 'T':           return typeof args[0] === 'string' ? args[0] : '';
+
+    // --- More math: directional / significance rounding (CEILING.MATH family) ---
+    case 'CEILING.MATH': case 'CEILING.PRECISE': case 'ISO.CEILING': {
+      // CEILING.MATH(x, [significance], [mode]) — round x up to a multiple of
+      // significance. mode != 0 rounds away from zero for negatives; default
+      // (and CEILING.PRECISE / ISO.CEILING) always rounds toward +infinity.
+      const x = getNum(args[0]); const sig = args.length > 1 ? Math.abs(getNum(args[1])) : 1;
+      if (sig === 0) return 0;
+      const mode = name === 'CEILING.MATH' && args.length > 2 ? getNum(args[2]) : 0;
+      if (x < 0 && mode !== 0) return -Math.ceil(Math.abs(x) / sig) * sig;
+      return Math.ceil(x / sig) * sig;
+    }
+    case 'FLOOR.MATH': case 'FLOOR.PRECISE': {
+      // FLOOR.MATH(x, [significance], [mode]) — round x down to a multiple of
+      // significance. mode != 0 rounds toward zero for negatives; default (and
+      // FLOOR.PRECISE) always rounds toward -infinity.
+      const x = getNum(args[0]); const sig = args.length > 1 ? Math.abs(getNum(args[1])) : 1;
+      if (sig === 0) return 0;
+      const mode = name === 'FLOOR.MATH' && args.length > 2 ? getNum(args[2]) : 0;
+      if (x < 0 && mode !== 0) return -Math.floor(Math.abs(x) / sig) * sig;
+      return Math.floor(x / sig) * sig;
+    }
+
+    // --- More stats: paired range sums + ranking variants ---
+    case 'SUMX2MY2':    { const xs = flatNums(args[0]); const ys = flatNums(args[1]); const n = Math.min(xs.length, ys.length); let s = 0; for (let i = 0; i < n; i++) s += xs[i] * xs[i] - ys[i] * ys[i]; return s; }
+    case 'SUMX2PY2':    { const xs = flatNums(args[0]); const ys = flatNums(args[1]); const n = Math.min(xs.length, ys.length); let s = 0; for (let i = 0; i < n; i++) s += xs[i] * xs[i] + ys[i] * ys[i]; return s; }
+    case 'SUMXMY2':     { const xs = flatNums(args[0]); const ys = flatNums(args[1]); const n = Math.min(xs.length, ys.length); let s = 0; for (let i = 0; i < n; i++) s += (xs[i] - ys[i]) * (xs[i] - ys[i]); return s; }
+    case 'RANK.AVG':    { const target = getNum(args[0]); const ord = args.length > 2 && getNum(args[2]) !== 0; const ns = flatNums(args[1]).slice().sort((a, b) => ord ? a - b : b - a); let first = -1, count = 0; for (let i = 0; i < ns.length; i++) if (ns[i] === target) { if (first < 0) first = i; count++; } return first < 0 ? '#N/A' : first + 1 + (count - 1) / 2; }
+    case 'LARGE':       { const ns = flatNums(args[0]).slice().sort((a, b) => b - a); const k = Math.round(getNum(args[1])); return k >= 1 && k <= ns.length ? ns[k - 1] : '#NUM!'; }
+    case 'SMALL':       { const ns = flatNums(args[0]).slice().sort((a, b) => a - b); const k = Math.round(getNum(args[1])); return k >= 1 && k <= ns.length ? ns[k - 1] : '#NUM!'; }
   }
   return '#NAME?';
 }
@@ -531,4 +561,6 @@ export const FORMULA_NAMES = [
   'VALUETOTEXT', 'ENCODEURL', 'DECODEURL',
   'LENB', 'LEFTB', 'RIGHTB', 'MIDB', 'FINDB', 'SEARCHB', 'REPLACEB',
   'ISNONTEXT', 'ISERR', 'NA', 'ERROR.TYPE',
+  'CEILING.MATH', 'CEILING.PRECISE', 'ISO.CEILING', 'FLOOR.MATH', 'FLOOR.PRECISE',
+  'SUMX2MY2', 'SUMX2PY2', 'SUMXMY2', 'RANK.AVG', 'RANK.EQ', 'LARGE', 'SMALL',
 ];

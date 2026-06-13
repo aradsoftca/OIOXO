@@ -3,7 +3,7 @@
 import * as React from 'react';
 import {
   Loader2, Download, Save, Upload, Undo2, Redo2, FileText, Search,
-  Bold, Italic, Underline, Strikethrough, Code, Quote, Link as LinkIcon,
+  Bold, Italic, Underline, Strikethrough, Subscript, Superscript, Code, Quote, Link as LinkIcon,
   List, ListOrdered, Heading1, Heading2, Heading3, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Table as TableIcon, Image as ImageIcon, X, Type as TypeIcon, Palette, Highlighter,
   Indent, Outdent, Eraser, Eye, EyeOff, Sparkles, Wand2, Languages, Users, Share2,
@@ -1282,6 +1282,8 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => exec('italic')} title="Italic (Ctrl+I)"><Italic className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('underline')} title="Underline (Ctrl+U)"><Underline className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('strikeThrough')} title="Strikethrough"><Strikethrough className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => exec('subscript')} title="Subscript"><Subscript className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => exec('superscript')} title="Superscript"><Superscript className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('insertUnorderedList')} title="Bullet list"><List className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('insertOrderedList')} title="Numbered list"><ListOrdered className="h-3.5 w-3.5" /></Tb>

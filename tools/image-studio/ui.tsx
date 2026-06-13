@@ -1774,6 +1774,37 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runWhiteBalance = async (dir: 'warm' | 'cool') => {
+    // One-click color-temperature shift. Warms (+red/-blue) or cools (-red/+blue)
+    // the active paint/image layer destructively (clamped to 0..255, alpha kept)
+    // so it composites/exports identically.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy(dir === 'warm' ? 'Warming…' : 'Cooling…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const shift = dir === 'warm' ? 18 : -18;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = Math.min(255, Math.max(0, d[i] + shift)) | 0;
+        d[i + 2] = Math.min(255, Math.max(0, d[i + 2] - shift)) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit(dir === 'warm' ? 'warm' : 'cool', next);
+      toastFor(dir === 'warm' ? 'Warmed ✓' : 'Cooled ✓');
+    } finally { setBusy(''); }
+  };
+
   const runUpscale = async () => {
     // Edge-aware 2x super-resolution of the whole picture. Flatten the current
     // composite, upscale it, and replace the doc with a single 2x image layer —
@@ -2964,6 +2995,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runThreshold()} title={pristine ? 'Open an image first' : 'Threshold to pure black/white (at 128)'}><Sparkles className="h-3.5 w-3.5" /> Threshold</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoContrast()} title={pristine ? 'Open an image first' : 'Auto contrast (linear levels stretch)'}><Sparkles className="h-3.5 w-3.5" /> Auto Contrast</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSepia()} title={pristine ? 'Open an image first' : 'Apply classic sepia tone'}><Sparkles className="h-3.5 w-3.5" /> Sepia</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm')} title={pristine ? 'Open an image first' : 'Warm white balance (+red / -blue)'}><Sparkles className="h-3.5 w-3.5" /> Warm</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool')} title={pristine ? 'Open an image first' : 'Cool white balance (-red / +blue)'}><Sparkles className="h-3.5 w-3.5" /> Cool</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />

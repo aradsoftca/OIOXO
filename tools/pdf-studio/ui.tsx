@@ -7,6 +7,7 @@ import {
   PenTool, Eraser, Minus, Circle as CircleIcon, Save, Upload, Undo2, Redo2, X,
   MousePointer2, Signature, FileSignature, Sparkles, Shield, ScanText, MessageSquare,
   Droplets, Scissors, FileCheck2, FileType2, ArrowUpDown,
+  ChevronsLeft, ChevronsRight,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { BRAND_DOMAIN } from '@/lib/brand';
@@ -548,6 +549,19 @@ export default function PdfStudioPro() {
     if (i < 0 || j < 0 || j >= next.pages.length) return;
     [next.pages[i], next.pages[j]] = [next.pages[j], next.pages[i]];
     commit('reorder', next);
+  };
+  // Jump the selected page to the very front or back of the document in one
+  // step (splice out + reinsert), instead of click-walking it with the arrows.
+  const movePageTo = (id: string, where: 'start' | 'end') => {
+    const next = cloneDoc(doc);
+    const i = next.pages.findIndex(p => p.id === id);
+    if (i < 0) return;
+    const j = where === 'start' ? 0 : next.pages.length - 1;
+    if (i === j) return;
+    const [moved] = next.pages.splice(i, 1);
+    if (where === 'start') next.pages.unshift(moved);
+    else next.pages.push(moved);
+    commit('move to ' + where, next);
   };
   const rotateAllPages = () => {
     const next = cloneDoc(doc);
@@ -1301,6 +1315,10 @@ export default function PdfStudioPro() {
             <div className="mb-2 flex gap-1.5">
               <StudioButton size="sm" variant="soft" onClick={rotateAllPages} disabled={!doc.pages.length} title="Rotate every page 90° clockwise"><RotateCw className="h-3 w-3" /> Rotate all ↻</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={reversePageOrder} disabled={doc.pages.length < 2} title="Reverse the order of all pages"><ArrowUpDown className="h-3 w-3" /> Reverse order</StudioButton>
+            </div>
+            <div className="mb-2 flex gap-1.5">
+              <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'start')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the front"><ChevronsLeft className="h-3 w-3" /> To start</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'end')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the back"><ChevronsRight className="h-3 w-3" /> To end</StudioButton>
             </div>
             <div className="grid max-h-[70vh] grid-cols-2 gap-1.5 overflow-y-auto">
               {doc.pages.map((p, i) => {

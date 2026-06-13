@@ -5,7 +5,7 @@ import {
   Loader2, Download, Upload, Play, Pause, Plus, Trash2, Copy, Scissors,
   Wand2, ChevronLeft, ChevronRight, Type as TypeIcon, FileText, Save,
   Undo2, Redo2, ZoomIn, ZoomOut, Magnet, X, AlertTriangle, SkipBack, SkipForward,
-  Clipboard, RotateCcw, LayoutTemplate, FastForward, Rewind,
+  Clipboard, RotateCcw, LayoutTemplate, FastForward, Rewind, ArrowDown,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -577,6 +577,30 @@ export default function SubtitleStudioPro() {
     commit('merge', next);
   };
 
+  // The cue immediately following the selected one in timeline order (or null).
+  const followingCue = (id: string | null): Cue | null => {
+    if (!id) return null;
+    const ordered = [...doc.cues].sort((a, b) => a.start - b.start);
+    const idx = ordered.findIndex(c => c.id === id);
+    return idx >= 0 && idx < ordered.length - 1 ? ordered[idx + 1] : null;
+  };
+
+  // Merge the selected cue with the next cue (timeline order): text joined with a
+  // space, start = first cue's start, end = second cue's end, drop the second.
+  const mergeWithFollowing = (id: string) => {
+    const ordered = [...doc.cues].sort((a, b) => a.start - b.start);
+    const idx = ordered.findIndex(c => c.id === id);
+    if (idx < 0 || idx >= ordered.length - 1) return;
+    const a = ordered[idx], b = ordered[idx + 1];
+    const next = cloneDoc(doc);
+    const ai = next.cues.findIndex(c => c.id === a.id);
+    if (ai < 0) return;
+    next.cues[ai] = { ...next.cues[ai], start: a.start, end: b.end, text: `${a.text} ${b.text}`.trim() };
+    next.cues = next.cues.filter(c => c.id !== b.id).sort((x, y) => x.start - y.start);
+    next.selectedId = a.id;
+    commit('merge down', next);
+  };
+
   // --- Commit-and-advance timing loop (Aegisub's biggest speed multiplier) ---
   // Select the next / previous cue (by timeline order) and seek to its start, so a
   // power user can ride down the whole file on the keyboard without the mouse.
@@ -1046,6 +1070,7 @@ export default function SubtitleStudioPro() {
               <StudioButton size="sm" variant="soft" onClick={addCue}><Plus className="h-3 w-3" /> Add</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && splitAtTime(doc.selectedId, time)} disabled={!doc.selectedId}><Scissors className="h-3 w-3" /> Split</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && mergeWithNext(doc.selectedId)} disabled={!doc.selectedId}><Copy className="h-3 w-3" /> Merge</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && mergeWithFollowing(doc.selectedId)} disabled={!followingCue(doc.selectedId)}><ArrowDown className="h-3 w-3" /> Merge ↓</StudioButton>
               <StudioButton size="sm" variant="danger" onClick={() => doc.selectedId && deleteCue(doc.selectedId)} disabled={!doc.selectedId}><Trash2 className="h-3 w-3" /></StudioButton>
             </div>
             <div className="max-h-[60vh] space-y-1 overflow-y-auto">

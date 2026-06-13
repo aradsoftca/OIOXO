@@ -20,6 +20,9 @@ export interface BuildOptions {
   pages: PageRef[];                                // working order
   annotations: Record<string, Annotation[]>;       // pageRef.id → items
   pageNumbers?: boolean;
+  /** Bates numbering (legal discovery): a sequential stamp on every page like
+   *  PREFIX + zero-padded(start + i) + SUFFIX, e.g. "ABC-000042". */
+  bates?: { prefix?: string; suffix?: string; start?: number; digits?: number; position?: 'bl' | 'br' | 'tl' | 'tr' };
   /** DPI for rasterizing pages that contain redactions (higher = sharper, larger file). Default 200. */
   redactDpi?: number;
   /** Re-OCR flattened (redacted) pages so they stay searchable — minus the redacted text. Default true. */
@@ -139,6 +142,7 @@ export async function buildPdf(opts: BuildOptions): Promise<Blob> {
       }
 
       if (opts.pageNumbers) drawPageNumber(page, font, rgb, i + 1, total, W);
+      if (opts.bates) drawBates(page, font, rgb, (opts.bates.start ?? 1) + i, W, H, opts.bates);
       opts.onProgress?.((i + 1) / total);
       continue;
     }
@@ -158,6 +162,7 @@ export async function buildPdf(opts: BuildOptions): Promise<Blob> {
     }
 
     if (opts.pageNumbers) drawPageNumber(page, font, rgb, i + 1, total, W);
+    if (opts.bates) drawBates(page, font, rgb, (opts.bates.start ?? 1) + i, W, H, opts.bates);
     opts.onProgress?.((i + 1) / total);
   }
 
@@ -206,6 +211,24 @@ function drawPageNumber(page: any, font: PdfFont, rgb: RgbFn, n: number, total: 
   const label = `${n} / ${total}`;
   const w = font.widthOfTextAtSize(label, 10);
   page.drawText(label, { x: W / 2 - w / 2, y: 18, size: 10, font, color: rgb(0.4, 0.4, 0.4) });
+}
+
+/** Format a Bates number: PREFIX + zero-padded(seq) + SUFFIX. Exported so the
+ *  UI can preview the exact stamp before exporting. */
+export function formatBates(seq: number, opts: { prefix?: string; suffix?: string; digits?: number } = {}): string {
+  const digits = Math.max(1, Math.min(12, opts.digits ?? 6));
+  return `${opts.prefix ?? ''}${String(Math.max(0, Math.floor(seq))).padStart(digits, '0')}${opts.suffix ?? ''}`;
+}
+
+function drawBates(page: any, font: PdfFont, rgb: RgbFn, seq: number, W: number, H: number, opts: NonNullable<BuildOptions['bates']>): void {
+  const label = formatBates(seq, opts);
+  const size = 9;
+  const w = font.widthOfTextAtSize(label, size);
+  const margin = 24;
+  const pos = opts.position ?? 'br';
+  const x = pos === 'bl' || pos === 'tl' ? margin : W - w - margin;
+  const y = pos === 'tl' || pos === 'tr' ? H - margin : margin - 6;
+  page.drawText(label, { x, y, size, font, color: rgb(0.25, 0.25, 0.25) });
 }
 
 /**

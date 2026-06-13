@@ -17,7 +17,7 @@ import { useIsPro } from '@/lib/limits/use-is-pro';
 
 const POLICY_KEY = 'pdf-studio';
 import { rasterizePdf } from '@/engines/pdf/rasterize';
-import { buildPdf, type PageRef, type Annotation } from '@/engines/pdf/studio';
+import { buildPdf, formatBates, type PageRef, type Annotation } from '@/engines/pdf/studio';
 import {
   StudioShell, StudioTopBar, StudioBody, StudioToolDock, StudioToolButton,
   StudioPanel, StudioSidebar, StudioCanvasArea, StudioStatusBar,
@@ -47,6 +47,8 @@ interface DocState {
   pageNumbers: boolean;
   watermarkText: string;
   watermarkEnabled: boolean;
+  /** Bates numbering (legal discovery stamp) — undefined = off. */
+  bates?: { prefix: string; suffix: string; start: number; digits: number; position: 'bl' | 'br' | 'tl' | 'tr' };
 }
 const cloneDoc = (d: DocState): DocState => ({
   ...d,
@@ -209,6 +211,7 @@ export default function PdfStudioPro() {
   const [progress, setProgress] = React.useState(0);
   const [toast, setToast] = React.useState('');
   const [exportDialog, setExportDialog] = React.useState(false);
+  const [batesDialog, setBatesDialog] = React.useState(false);
   const [openDialog, setOpenDialog] = React.useState(false);
   const [signDialog, setSignDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
@@ -342,7 +345,7 @@ export default function PdfStudioPro() {
 
   const buildSourceBytes = async (): Promise<ArrayBuffer | null> => {
     if (!doc.pages.length) return null;
-    const blob = await buildPdf({ sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers });
+    const blob = await buildPdf({ sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers, bates: doc.bates });
     return await blob.arrayBuffer();
   };
 
@@ -1021,7 +1024,7 @@ export default function PdfStudioPro() {
     if (!(await guard())) return;
     setBusy('Rendering pages to images…'); setProgress(0);
     try {
-      const blob = await buildPdf({ sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers });
+      const blob = await buildPdf({ sources, pages: doc.pages, annotations: doc.annotations, pageNumbers: doc.pageNumbers, bates: doc.bates });
       const { rasterizePdf } = await import('@/engines/pdf/rasterize');
       const rasters = await rasterizePdf(await blob.arrayBuffer(), { maxEdge: 2000, onProgress: (p) => setProgress(Math.round((p.page / p.pageCount) * 90)) });
       const JSZip = (await import('jszip')).default;
@@ -1247,6 +1250,7 @@ export default function PdfStudioPro() {
             <input type="checkbox" checked={doc.pageNumbers} onChange={e => commit('page nums', { ...cloneDoc(doc), pageNumbers: e.target.checked })} />
             <Hash className="h-3 w-3" /> Page numbers
           </label>
+          <StudioButton size="sm" variant={doc.bates ? 'primary' : 'soft'} onClick={() => setBatesDialog(true)} title="Bates numbering — sequential legal-discovery stamp (PREFIX000042SUFFIX) on every page"><Hash className="h-3 w-3" /> Bates{doc.bates ? ' ✓' : ''}</StudioButton>
         </div>
       </div>
 
@@ -1407,6 +1411,14 @@ export default function PdfStudioPro() {
 
       <input ref={imgRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImageFile(f); e.target.value = ''; }} />
 
+      {batesDialog && (
+        <BatesDialog
+          initial={doc.bates ?? { prefix: '', suffix: '', start: 1, digits: 6, position: 'br' }}
+          enabled={!!doc.bates}
+          onCancel={() => setBatesDialog(false)}
+          onApply={(b) => { commit('bates', { ...cloneDoc(doc), bates: b }); setBatesDialog(false); toastFor(b ? 'Bates numbering on — stamped on export' : 'Bates numbering off'); }}
+        />
+      )}
       {exportDialog && (
         <Dialog title="Export PDF" onCancel={() => setExportDialog(false)} onConfirm={exportPdf} confirmLabel="Download">
           <label className="flex items-center gap-2 text-xs text-zinc-300">
@@ -1649,6 +1661,42 @@ function AnnoResizeHandles({ onStart }: { onStart: (corner: string, e: React.Poi
 
 function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {
   return <button title={title} onClick={(e) => { e.stopPropagation(); onClick(); }} className="grid h-5 w-5 place-items-center rounded text-zinc-300 hover:bg-white/10 hover:text-white">{children}</button>;
+}
+
+type BatesCfg = { prefix: string; suffix: string; start: number; digits: number; position: 'bl' | 'br' | 'tl' | 'tr' };
+function BatesDialog({ initial, enabled, onCancel, onApply }: { initial: BatesCfg; enabled: boolean; onCancel: () => void; onApply: (b: BatesCfg | undefined) => void }) {
+  const [cfg, setCfg] = React.useState<BatesCfg>(initial);
+  const set = (p: Partial<BatesCfg>) => setCfg(c => ({ ...c, ...p }));
+  const preview = formatBates(cfg.start, cfg);
+  const POSITIONS: { id: BatesCfg['position']; label: string }[] = [
+    { id: 'bl', label: 'Bottom-left' }, { id: 'br', label: 'Bottom-right' }, { id: 'tl', label: 'Top-left' }, { id: 'tr', label: 'Top-right' },
+  ];
+  return (
+    <Dialog title="Bates numbering" onCancel={onCancel} onConfirm={() => onApply(cfg)} confirmLabel="Apply">
+      <div className="space-y-3 text-xs">
+        <div className="rounded-lg border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-center font-mono text-sm text-cyan-100">{preview}</div>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1"><span className="text-zinc-400">Prefix</span>
+            <input value={cfg.prefix} onChange={e => set({ prefix: e.target.value })} placeholder="e.g. ABC-" className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+          <label className="space-y-1"><span className="text-zinc-400">Suffix</span>
+            <input value={cfg.suffix} onChange={e => set({ suffix: e.target.value })} placeholder="optional" className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+          <label className="space-y-1"><span className="text-zinc-400">Start number</span>
+            <input type="number" min={0} value={cfg.start} onChange={e => set({ start: Math.max(0, parseInt(e.target.value) || 0) })} className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+          <label className="space-y-1"><span className="text-zinc-400">Digits</span>
+            <input type="number" min={1} max={12} value={cfg.digits} onChange={e => set({ digits: Math.max(1, Math.min(12, parseInt(e.target.value) || 6)) })} className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+        </div>
+        <label className="space-y-1 block"><span className="text-zinc-400">Position</span>
+          <div className="grid grid-cols-4 gap-1">
+            {POSITIONS.map(p => (
+              <button key={p.id} onClick={() => set({ position: p.id })} className={cn('rounded px-2 py-1.5 text-[11px]', cfg.position === p.id ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}>{p.label}</button>
+            ))}
+          </div>
+        </label>
+        {enabled && <button onClick={() => onApply(undefined)} className="w-full rounded bg-white/5 px-2 py-1.5 text-zinc-300 hover:bg-white/10">Turn off Bates numbering</button>}
+        <p className="text-[10px] text-zinc-500">Bates numbers are stamped on every page on export — the standard for legal discovery & evidence.</p>
+      </div>
+    </Dialog>
+  );
 }
 
 function PasswordPromptDialog({ fileName, error, busy, onCancel, onUnlock }: { fileName: string; error?: boolean; busy: boolean; onCancel: () => void; onUnlock: (pw: string) => void }) {

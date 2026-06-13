@@ -266,7 +266,7 @@ interface DocState {
   selectedId: string | null;
   playhead: number;
   duration: number;
-  master: { volume: number; audioFade: boolean };
+  master: { volume: number; audioFade: boolean; duck?: boolean };
   /** Empty media slots from an applied template (Hook/Main/CTA structure).
    *  Rendered as dashed "drop here" guides on the timeline; consumed as the
    *  user drops media in. Undefined when no template is active. */
@@ -2169,6 +2169,9 @@ export default function VideoStudioPro() {
             <StudioSlider label="Volume" value={Math.round(doc.master.volume * 100)} min={0} max={200} onChange={v => commit('master vol', { ...cloneDoc(doc), master: { ...doc.master, volume: v / 100 } })} suffix="%" />
             <label className="mt-2 flex items-center gap-2 text-xs text-zinc-300">
               <input type="checkbox" checked={doc.master.audioFade} onChange={e => commit('audio fade', { ...cloneDoc(doc), master: { ...doc.master, audioFade: e.target.checked } })} /> Audio fade in/out
+            </label>
+            <label className="mt-2 flex items-center gap-2 text-xs text-zinc-300" title="Automatically lower music (A2+) under voice/narration on the first audio track (A1)">
+              <input type="checkbox" checked={!!doc.master.duck} onChange={e => commit('duck', { ...cloneDoc(doc), master: { ...doc.master, duck: e.target.checked } })} /> Duck music under voice
             </label>
           </StudioPanel>
         </StudioSidebar>

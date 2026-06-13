@@ -136,7 +136,7 @@ export interface CompMedia {
 export interface CompDoc {
   width: number; height: number; fps: number; background: string;
   duration: number; tracks: CompTrack[]; clips: CompClip[];
-  master: { volume: number; audioFade: boolean };
+  master: { volume: number; audioFade: boolean; duck?: boolean };
 }
 
 export interface ExportOptions {
@@ -512,25 +512,16 @@ async function mixAudio(doc: CompDoc, mediaMap: Map<string, CompMedia>): Promise
     } catch { return null; }
   };
 
-  let placed = 0;
-  for (const ac of audioClips) {
-    const tr = doc.tracks.find((t) => t.id === ac.trackId);
-    if (!tr || tr.muted) continue;
-    const media = mediaMap.get(ac.mediaId);
-    if (!media) continue;
-    const buf = await decode(media);
-    if (!buf) continue;
-    const node = ctx.createBufferSource();
+  const masterVol = Math.max(0, Math.min(2, doc.master.volume));
+  // Place one audio clip into the given context (gain envelope + effects).
+  const placeClip = (targetCtx: OfflineAudioContext, ac: CompAudioClip, buf: AudioBuffer): void => {
+    const node = targetCtx.createBufferSource();
     node.buffer = buf;
     node.playbackRate.value = Math.max(0.25, Math.min(4, ac.speed || 1));
-    const gain = ctx.createGain();
-    const masterVol = Math.max(0, Math.min(2, doc.master.volume));
+    const gain = targetCtx.createGain();
     const startAt = Math.max(0, ac.start);
     const dur = clipEnd(ac) - ac.start;
     const g = gain.gain;
-    // VOLUME AUTOMATION: if the clip has a keyframed gain envelope, schedule it
-    // sample-accurately (clip-local seconds → absolute timeline seconds) so one
-    // part can be ducked and another lifted. Else use the static volume + fades.
     if (ac.volumeKf && ac.volumeKf.keyframes.length) {
       const kfs = ac.volumeKf.keyframes;
       g.setValueAtTime(Math.max(0, kfs[0].value) * masterVol, startAt);
@@ -547,23 +538,103 @@ async function mixAudio(doc: CompDoc, mediaMap: Map<string, CompMedia>): Promise
         g.linearRampToValueAtTime(0, startAt + dur);
       }
     }
-    // EFFECTS RACK: source → effect chain → gain → destination. Pitch is applied
-    // as detune on the source (100 cents per semitone).
-    const chain = buildAudioChain(ctx, ac.effects);
+    const chain = buildAudioChain(targetCtx, ac.effects);
     if (chain.pitchSemitones) {
       try { node.detune.value = chain.pitchSemitones * 100; } catch { /* detune unsupported */ }
     }
     node.connect(chain.input);
-    chain.output.connect(gain).connect(ctx.destination);
+    chain.output.connect(gain).connect(targetCtx.destination);
     node.start(startAt, Math.max(0, ac.srcStart), dur * (node.playbackRate.value));
-    placed++;
-  }
-  if (!placed) return null;
+  };
 
-  // Global fade in/out on the whole mix.
-  const rendered = await ctx.startRendering();
-  if (doc.master.audioFade) applyMasterFade(rendered, 0.5, 0.6);
-  return rendered;
+  // Classify clips: with ducking ON, audio on the FIRST audio track (A1) is the
+  // "voice" and audio on OTHER audio tracks is "music" that gets ducked under it
+  // (the CapCut/Premiere convention: voiceover on A1, music below). Without
+  // ducking everything mixes together as before.
+  const audioTrackIds = doc.tracks.filter((t) => t.kind === 'audio').map((t) => t.id);
+  const voiceTrackId = audioTrackIds[0];
+  const duckOn = !!doc.master.duck && audioTrackIds.length >= 2;
+
+  const liveClips: { ac: CompAudioClip; buf: AudioBuffer; isVoice: boolean }[] = [];
+  for (const ac of audioClips) {
+    const tr = doc.tracks.find((t) => t.id === ac.trackId);
+    if (!tr || tr.muted) continue;
+    const media = mediaMap.get(ac.mediaId);
+    if (!media) continue;
+    const buf = await decode(media);
+    if (!buf) continue;
+    liveClips.push({ ac, buf, isVoice: ac.trackId === voiceTrackId });
+  }
+  if (!liveClips.length) return null;
+
+  if (!duckOn || !liveClips.some((c) => c.isVoice) || !liveClips.some((c) => !c.isVoice)) {
+    // No ducking (or nothing to duck): single combined render, as before.
+    for (const c of liveClips) placeClip(ctx, c.ac, c.buf);
+    const rendered = await ctx.startRendering();
+    if (doc.master.audioFade) applyMasterFade(rendered, 0.5, 0.6);
+    return rendered;
+  }
+
+  // DUCKING: render voice and music separately, derive a speech-presence
+  // envelope from the voice mix, attenuate music where speech is present, sum.
+  const frames = Math.ceil(totalDur * sampleRate);
+  const voiceCtx = new OfflineCtx(2, frames, sampleRate);
+  const musicCtx = new OfflineCtx(2, frames, sampleRate);
+  for (const c of liveClips) placeClip(c.isVoice ? voiceCtx : musicCtx, c.ac, c.buf);
+  const [voiceBuf, musicBuf] = await Promise.all([voiceCtx.startRendering(), musicCtx.startRendering()]);
+
+  const duckGain = computeDuckEnvelope(voiceBuf, sampleRate, { floor: 0.25, threshold: 0.02, attack: 0.08, release: 0.4 });
+  // Sum: voice + music*duckGain, into a fresh buffer.
+  const outCtx = new OfflineCtx(2, frames, sampleRate);
+  const outBuf = outCtx.createBuffer(2, frames, sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const out = outBuf.getChannelData(ch);
+    const v = voiceBuf.getChannelData(Math.min(ch, voiceBuf.numberOfChannels - 1));
+    const m = musicBuf.getChannelData(Math.min(ch, musicBuf.numberOfChannels - 1));
+    for (let i = 0; i < frames; i++) out[i] = v[i] + m[i] * duckGain[i];
+  }
+  if (doc.master.audioFade) applyMasterFade(outBuf, 0.5, 0.6);
+  return outBuf;
+}
+
+/**
+ * Speech-presence ducking envelope from a voice buffer. Short-window RMS gates a
+ * gain that drops to `floor` while speech is present and returns to 1 in the
+ * gaps, with attack/release smoothing so the music dip is musical (no clicks).
+ * Returns a per-sample gain array to multiply the music by.
+ */
+function computeDuckEnvelope(
+  voice: AudioBuffer,
+  sampleRate: number,
+  opts: { floor: number; threshold: number; attack: number; release: number },
+): Float32Array {
+  const n = voice.length;
+  const ch0 = voice.getChannelData(0);
+  const ch1 = voice.numberOfChannels > 1 ? voice.getChannelData(1) : ch0;
+  // Short-term RMS over ~20ms windows → speech presence (1) or gap (0).
+  const win = Math.max(1, Math.round(sampleRate * 0.02));
+  const present = new Float32Array(n);
+  let acc = 0;
+  // running sum of squares over the window (mono mix)
+  const sq = (i: number) => { const s = 0.5 * (ch0[i] + ch1[i]); return s * s; };
+  for (let i = 0; i < n; i++) {
+    acc += sq(i);
+    if (i >= win) acc -= sq(i - win);
+    const rms = Math.sqrt(acc / Math.min(i + 1, win));
+    present[i] = rms > opts.threshold ? 1 : 0;
+  }
+  // Attack/release smoothing toward the target gain (floor when present, 1 in gaps).
+  const gain = new Float32Array(n);
+  const atkCoef = Math.exp(-1 / Math.max(1, opts.attack * sampleRate));
+  const relCoef = Math.exp(-1 / Math.max(1, opts.release * sampleRate));
+  let g = 1;
+  for (let i = 0; i < n; i++) {
+    const target = present[i] ? opts.floor : 1;
+    const coef = target < g ? atkCoef : relCoef; // duck fast, recover slow
+    g = target + (g - target) * coef;
+    gain[i] = g;
+  }
+  return gain;
 }
 
 function applyMasterFade(buf: AudioBuffer, inSec: number, outSec: number): void {

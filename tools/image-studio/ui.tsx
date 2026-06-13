@@ -242,7 +242,9 @@ function renderLayer(layer: Layer, w: number, h: number): HTMLCanvasElement | nu
     const ctx = c.getContext('2d')!;
     const srcC = applyFxStack(layer.canvas, layer.fx);
     ctx.save();
-    ctx.translate(layer.x + (layer.canvas.width * layer.scaleX) / 2, layer.y + (layer.canvas.height * layer.scaleY) / 2);
+    // Position uses the ABSOLUTE scale so a negative scale (non-destructive flip)
+    // mirrors in place instead of sliding the layer off by its width/height.
+    ctx.translate(layer.x + (layer.canvas.width * Math.abs(layer.scaleX)) / 2, layer.y + (layer.canvas.height * Math.abs(layer.scaleY)) / 2);
     ctx.rotate((layer.rotation * Math.PI) / 180);
     ctx.scale(layer.scaleX, layer.scaleY);
     ctx.filter = adjustToFilter(layer.adjust);
@@ -566,6 +568,42 @@ function rectMask(w: number, h: number, x: number, y: number, rw: number, rh: nu
   return c;
 }
 
+type SelMode = 'replace' | 'add' | 'subtract' | 'intersect';
+
+// Combine a freshly-drawn selection mask with the existing selection per the
+// active mode — the core of pro selection ergonomics (build up complex
+// selections instead of replace-only). Masks are grayscale (white = selected).
+function combineSelectionMask(prev: HTMLCanvasElement | null, next: HTMLCanvasElement, mode: SelMode): HTMLCanvasElement {
+  if (!prev || mode === 'replace') return next;
+  const w = next.width, h = next.height;
+  const out = blankCanvas(w, h);
+  const ctx = out.getContext('2d')!;
+  if (mode === 'add') {
+    ctx.drawImage(prev, 0, 0); ctx.drawImage(next, 0, 0); // union (lighter-ish via source-over of white)
+  } else if (mode === 'subtract') {
+    ctx.drawImage(prev, 0, 0);
+    ctx.globalCompositeOperation = 'destination-out'; // remove new region from old
+    ctx.drawImage(next, 0, 0);
+  } else { // intersect
+    ctx.drawImage(prev, 0, 0);
+    ctx.globalCompositeOperation = 'destination-in'; // keep only overlap
+    ctx.drawImage(next, 0, 0);
+  }
+  return out;
+}
+
+// Invert a selection mask (selected ↔ unselected) within the document bounds.
+function invertSelectionMask(mask: HTMLCanvasElement): HTMLCanvasElement {
+  const w = mask.width, h = mask.height;
+  const out = blankCanvas(w, h);
+  const ctx = out.getContext('2d')!;
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.drawImage(mask, 0, 0);
+  return out;
+}
+
 const TOOLS: { tool: ToolKind; label: string; key: string; icon: React.ReactNode }[] = [
   { tool: 'move', label: 'Move', key: 'v', icon: <MousePointer2 className="h-4 w-4" /> },
   { tool: 'marquee-rect', label: 'Rectangle Marquee', key: 'm', icon: <Square className="h-4 w-4" /> },
@@ -696,6 +734,9 @@ export default function ImageStudioPro() {
   const [brushFlow, setBrushFlow] = React.useState(100);
   const [eraserSize, setEraserSize] = React.useState(40);
   const [wandTol, setWandTol] = React.useState(32);
+  // Selection combine mode (replace/add/subtract/intersect) — pro selection
+  // ergonomics so marquee/lasso/wand build up a selection instead of replacing.
+  const [selMode, setSelMode] = React.useState<SelMode>('replace');
   const [textSettings, setTextSettings] = React.useState({
     font: FONTS[0], size: 64, color: '#111111', weight: 700, italic: false,
     align: 'left' as CanvasTextAlign, letterSpacing: 0, lineHeight: 1.2,
@@ -1567,13 +1608,23 @@ export default function ImageStudioPro() {
     const next = cloneDoc(doc);
     const l = next.layers.find(x => x.id === activeLayer.id);
     if (!l || (l.kind !== 'image' && l.kind !== 'paint')) return;
-    const src = (l as PaintLayer | ImageLayer).canvas;
+    if (l.kind === 'image') {
+      // NON-DESTRUCTIVE: flip = negate the scale sign on that axis, so it stays
+      // reversible and composable with rotation/scale (no pixel rewrite). The
+      // renderLayer transform already scales around the layer center.
+      const il = l as ImageLayer;
+      if (axis === 'h') il.scaleX = -il.scaleX; else il.scaleY = -il.scaleY;
+      commit('flip', next);
+      return;
+    }
+    // Paint layers are inherently raster (no transform fields) — flip the pixels.
+    const src = (l as PaintLayer).canvas;
     const out = blankCanvas(src.width, src.height);
     const ctx = out.getContext('2d')!;
     ctx.translate(axis === 'h' ? src.width : 0, axis === 'v' ? src.height : 0);
     ctx.scale(axis === 'h' ? -1 : 1, axis === 'v' ? -1 : 1);
     ctx.drawImage(src, 0, 0);
-    (l as PaintLayer | ImageLayer).canvas = out;
+    (l as PaintLayer).canvas = out;
     commit('flip', next);
   };
 
@@ -1603,6 +1654,15 @@ export default function ImageStudioPro() {
   const clearSelection = () => {
     if (!doc.selection) return;
     setDoc(d => ({ ...d, selection: null }));
+  };
+
+  // Invert the active selection (Ctrl+Shift+I) — the staple "select subject then
+  // invert to mask the background" move. No-op without a selection.
+  const invertSelection = () => {
+    if (!doc.selection) { toastFor('Make a selection first'); return; }
+    const next = cloneDoc(doc);
+    if (next.selection) next.selection = { kind: next.selection.kind, mask: invertSelectionMask(next.selection.mask) };
+    commit('invert selection', next);
   };
 
   // ---- Layer masks (non-destructive) --------------------------------------
@@ -1681,6 +1741,7 @@ export default function ImageStudioPro() {
         { combo: 'mod+z', description: 'Undo' },
         { combo: 'mod+shift+z', description: 'Redo' },
         { combo: 'mod+d', description: 'Deselect' },
+        { combo: 'mod+shift+i', description: 'Invert selection' },
         { combo: 'mod+a', description: 'Select all' },
         { combo: 'delete', description: 'Fill with background' },
       ],
@@ -1708,6 +1769,7 @@ export default function ImageStudioPro() {
     { combo: 'mod+o', handler: () => { void openSaved(); } },
     { combo: 'mod+n', handler: () => setNewDialog(true) },
     { combo: 'mod+d', handler: clearSelection },
+    { combo: 'mod+shift+i', handler: invertSelection },
     { combo: 'mod+0', handler: fitToScreen },
     { combo: 'mod+a', handler: () => {
       const next = cloneDoc(doc);
@@ -1897,9 +1959,9 @@ export default function ImageStudioPro() {
       return;
     }
     if (tool === 'wand') {
-      const mask = magicWand(composite, p.x, p.y, wandTol);
+      const fresh = magicWand(composite, p.x, p.y, wandTol);
       const next = cloneDoc(doc);
-      next.selection = { kind: 'wand', mask };
+      next.selection = { kind: 'wand', mask: combineSelectionMask(doc.selection?.mask ?? null, fresh, selMode) };
       commit('magic wand', next);
       return;
     }
@@ -2145,9 +2207,10 @@ export default function ImageStudioPro() {
       const h = Math.abs(p.y - ptrState.current.startY);
       if (w > 2 && h > 2) {
         const next = cloneDoc(doc);
+        const fresh = rectMask(doc.width, doc.height, x, y, w, h, t === 'marquee-ellipse');
         next.selection = {
           kind: t === 'marquee-rect' ? 'rect' : 'ellipse',
-          mask: rectMask(doc.width, doc.height, x, y, w, h, t === 'marquee-ellipse'),
+          mask: combineSelectionMask(doc.selection?.mask ?? null, fresh, selMode),
         };
         commit('select', next);
       }
@@ -2156,7 +2219,8 @@ export default function ImageStudioPro() {
       const pts = ptrState.current.points;
       if (pts.length > 3) {
         const next = cloneDoc(doc);
-        next.selection = { kind: 'lasso', mask: lassoMask(doc.width, doc.height, pts) };
+        const fresh = lassoMask(doc.width, doc.height, pts);
+        next.selection = { kind: 'lasso', mask: combineSelectionMask(doc.selection?.mask ?? null, fresh, selMode) };
         commit('lasso', next);
       }
     }
@@ -2406,6 +2470,7 @@ export default function ImageStudioPro() {
         brushFlow={brushFlow} setBrushFlow={setBrushFlow}
         eraserSize={eraserSize} setEraserSize={setEraserSize}
         wandTol={wandTol} setWandTol={setWandTol}
+        selMode={selMode} setSelMode={setSelMode} onInvertSelection={invertSelection}
         fgColor={fgColor} setFgColor={setFgColor}
         bgColor={bgColor} setBgColor={setBgColor}
         textSettings={textSettings} setTextSettings={setTextSettings}
@@ -2936,6 +3001,8 @@ function ToolOptionsBar(props: {
   brushFlow: number; setBrushFlow: (n: number) => void;
   eraserSize: number; setEraserSize: (n: number) => void;
   wandTol: number; setWandTol: (n: number) => void;
+  selMode: SelMode; setSelMode: (m: SelMode) => void;
+  onInvertSelection: () => void;
   fgColor: string; setFgColor: (c: string) => void;
   bgColor: string; setBgColor: (c: string) => void;
   textSettings: any; setTextSettings: (t: any) => void;
@@ -2992,6 +3059,16 @@ function ToolOptionsBar(props: {
           <Label>Size</Label>
           <input type="range" min={1} max={400} value={props.eraserSize} onChange={e => props.setEraserSize(+e.target.value)} className={cn('w-32', rng)} />
           <NumBadge>{props.eraserSize}</NumBadge>
+        </>
+      )}
+      {(tool === 'marquee-rect' || tool === 'marquee-ellipse' || tool === 'lasso' || tool === 'wand') && (
+        <>
+          <div className="flex items-center gap-0.5 rounded bg-black/30 p-0.5">
+            {([['replace', '◻', 'Replace'], ['add', '+', 'Add (Shift)'], ['subtract', '−', 'Subtract (Alt)'], ['intersect', '∩', 'Intersect']] as const).map(([m, sym, title]) => (
+              <button key={m} title={title} onClick={() => props.setSelMode(m)} className={cn('grid h-6 w-6 place-items-center rounded text-xs', props.selMode === m ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/10')}>{sym}</button>
+            ))}
+          </div>
+          {props.hasSelection && <button onClick={props.onInvertSelection} title="Invert selection (Ctrl+Shift+I)" className="rounded bg-white/5 px-2 py-1 text-xs text-zinc-200 hover:bg-white/10">Invert</button>}
         </>
       )}
       {tool === 'wand' && (

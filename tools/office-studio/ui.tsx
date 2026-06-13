@@ -624,6 +624,65 @@ export default function OfficeStudioPro() {
     commit('style', next);
   };
 
+  // ── Insert / delete rows & columns ───────────────────────────────────────
+  // Shift every cell (and the per-row/col size maps) at or after the index. We
+  // do NOT rewrite formula references (a known limitation, like older mobile
+  // sheets) — a follow-up can re-base A1 refs.
+  const shiftSheet = (axis: 'row' | 'col', at: number, delta: number) => {
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    const cells: typeof sh.cells = {};
+    for (const [k, v] of Object.entries(sh.cells)) {
+      let [r, c] = k.split('_').map(Number);
+      if (axis === 'row') {
+        if (delta < 0 && r >= at && r < at - delta) continue; // deleted rows
+        if (r >= at) r += delta;
+      } else {
+        if (delta < 0 && c >= at && c < at - delta) continue; // deleted cols
+        if (c >= at) c += delta;
+      }
+      if (r < 0 || c < 0) continue;
+      cells[`${r}_${c}`] = v;
+    }
+    sh.cells = cells;
+    // Shift the size maps the same way.
+    const shiftMap = (m: Record<number, number>) => {
+      const out: Record<number, number> = {};
+      for (const [iStr, val] of Object.entries(m)) {
+        let i = Number(iStr);
+        if (delta < 0 && i >= at && i < at - delta) continue;
+        if (i >= at) i += delta;
+        if (i >= 0) out[i] = val;
+      }
+      return out;
+    };
+    if (axis === 'row') { sh.rowHeights = shiftMap(sh.rowHeights ?? {}); sh.rows = Math.max(1, sh.rows + delta); }
+    else { sh.colWidths = shiftMap(sh.colWidths ?? {}); sh.cols = Math.max(1, sh.cols + delta); }
+    commit(delta > 0 ? `insert ${axis}` : `delete ${axis}`, next);
+  };
+  const insertRows = (at: number, n = 1) => shiftSheet('row', at, n);
+  const deleteRows = (at: number, n = 1) => shiftSheet('row', at, -n);
+  const insertCols = (at: number, n = 1) => shiftSheet('col', at, n);
+  const deleteCols = (at: number, n = 1) => shiftSheet('col', at, -n);
+  const clearSelectionContents = () => {
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    const r0 = Math.min(sel.r, sel.r2), r1 = Math.max(sel.r, sel.r2);
+    const c0 = Math.min(sel.c, sel.c2), c1 = Math.max(sel.c, sel.c2);
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) delete sh.cells[cellKey(r, c)];
+    commit('clear', next);
+  };
+
+  // Right-click context menu state (screen position + anchor cell/row/col).
+  const [ctxMenu, setCtxMenu] = React.useState<{ x: number; y: number; r: number; c: number } | null>(null);
+  React.useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); };
+  }, [ctxMenu]);
+
   // ── Crash recovery: check for a snapshot once on mount ────────────────────
   React.useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1618,6 +1677,7 @@ export default function OfficeStudioPro() {
               return s;
             }, [comments, sheet.id])}
             onSelect={selectCell}
+            onCellContext={(r, c, x, y) => setCtxMenu({ r, c, x, y })}
             onBeginEdit={beginEdit}
             onEditChange={(v) => setEditor(e => e ? { ...e, value: v } : null)}
             onEditCommit={(dr, dc) => { if (commitEdit() && (dr || dc)) moveSelection(dr, dc); }}
@@ -1766,6 +1826,28 @@ export default function OfficeStudioPro() {
           onApply={applyCondFormat}
         />
       )}
+      {ctxMenu && (() => {
+        // How many rows/cols the current selection spans (insert/delete that many).
+        const nRows = Math.abs(sel.r2 - sel.r) + 1;
+        const nCols = Math.abs(sel.c2 - sel.c) + 1;
+        const r0 = Math.min(sel.r, sel.r2), c0 = Math.min(sel.c, sel.c2);
+        const Item = ({ label, onClick, danger }: { label: string; onClick: () => void; danger?: boolean }) => (
+          <button onClick={() => { onClick(); setCtxMenu(null); }} className={cn('flex w-full items-center px-3 py-1.5 text-left text-xs hover:bg-white/10', danger ? 'text-rose-300' : 'text-zinc-200')}>{label}</button>
+        );
+        return (
+          <div className="fixed z-[100] min-w-[180px] overflow-hidden rounded-lg border border-white/10 bg-[#16181d] py-1 shadow-2xl" style={{ left: Math.min(ctxMenu.x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 200), top: ctxMenu.y }} onClick={e => e.stopPropagation()}>
+            <Item label={`Insert ${nRows} row${nRows > 1 ? 's' : ''} above`} onClick={() => insertRows(r0, nRows)} />
+            <Item label={`Insert ${nRows} row${nRows > 1 ? 's' : ''} below`} onClick={() => insertRows(r0 + nRows, nRows)} />
+            <Item label={`Insert ${nCols} column${nCols > 1 ? 's' : ''} left`} onClick={() => insertCols(c0, nCols)} />
+            <Item label={`Insert ${nCols} column${nCols > 1 ? 's' : ''} right`} onClick={() => insertCols(c0 + nCols, nCols)} />
+            <div className="my-1 border-t border-white/5" />
+            <Item label={`Delete ${nRows} row${nRows > 1 ? 's' : ''}`} onClick={() => deleteRows(r0, nRows)} danger />
+            <Item label={`Delete ${nCols} column${nCols > 1 ? 's' : ''}`} onClick={() => deleteCols(c0, nCols)} danger />
+            <div className="my-1 border-t border-white/5" />
+            <Item label="Clear contents" onClick={() => clearSelectionContents()} />
+          </div>
+        );
+      })()}
       {exportDialog && (
         <Dialog title="Export" onCancel={() => setExportDialog(false)} onConfirm={exportNow} confirmLabel="Download">
           <div>
@@ -1887,7 +1969,7 @@ function CellEditorInput({ value, onChange, onCommit, onCancel }: {
   );
 }
 
-function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, onSelect, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
+function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, onSelect, onCellContext, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
   freeze: FreezePanes | null;
   evaluated: Record<string, any>;
@@ -1898,6 +1980,7 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
   currency: string;
   commentedCells: Set<string>;
   onSelect: (r: number, c: number, extend?: boolean) => void;
+  onCellContext: (r: number, c: number, x: number, y: number) => void;
   onBeginEdit: (r: number, c: number) => void;
   onEditChange: (v: string) => void;
   onEditCommit: (dr: number, dc: number) => void;
@@ -2071,6 +2154,7 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
               )}
               onPointerDown={(e) => { if (filling.current) return; dragging.current = true; onSelect(r, c, e.shiftKey); }}
               onPointerEnter={() => { if (filling.current) onFillDragMove(r, c); else if (dragging.current) onSelect(r, c, true); }}
+              onContextMenu={(e) => { e.preventDefault(); onSelect(r, c); onCellContext(r, c, e.clientX, e.clientY); }}
               onDoubleClick={() => onBeginEdit(r, c)}
             >
               {condFmt.bar && (

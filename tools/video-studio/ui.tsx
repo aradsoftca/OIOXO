@@ -92,6 +92,10 @@ interface VideoClip {
   srcEnd: number;
   speed: number;
   volume: number;
+  /** When muted, `volume` is forced to 0 so the existing mixer (which keys the
+   *  clip's audio level off `volume`) drops it; the pre-mute level is stashed
+   *  here so the Mute toggle can restore it. No compositor change needed. */
+  mutedVolume?: number;
   brightness: number;
   contrast: number;
   saturation: number;
@@ -3058,7 +3062,23 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, onAllT
                 >{f.label}</button>
               ))}
             </div>
-            <StudioSlider label="Volume" value={Math.round(c.volume * 100)} min={0} max={200} onChange={v => onChange(x => { (x as VideoClip).volume = v / 100; })} suffix="%" />
+            <StudioSlider label="Volume" value={Math.round(c.volume * 100)} min={0} max={200} onChange={v => onChange(x => { const vc = x as VideoClip; vc.volume = v / 100; if (v > 0) vc.mutedVolume = undefined; })} suffix="%" />
+            <div className="flex gap-1">
+              <button
+                onClick={() => onChange(x => {
+                  const vc = x as VideoClip;
+                  if (vc.volume === 0) { vc.volume = vc.mutedVolume ?? 1; vc.mutedVolume = undefined; }
+                  else { vc.mutedVolume = vc.volume; vc.volume = 0; }
+                })}
+                className={cn('flex items-center justify-center gap-1 rounded px-2 py-1 text-xs', c.volume === 0 ? 'bg-rose-500/20 text-rose-300' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}
+              >
+                {c.volume === 0 ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+                {c.volume === 0 ? 'Muted' : 'Mute'}
+              </button>
+              {([0, 0.5, 1] as const).map(lvl => (
+                <button key={lvl} onClick={() => onChange(x => { const vc = x as VideoClip; vc.volume = lvl; vc.mutedVolume = undefined; })} className={cn('flex-1 rounded px-2 py-1 text-xs', Math.abs(c.volume - lvl) < 0.001 ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{Math.round(lvl * 100)}%</button>
+              ))}
+            </div>
             <div className="text-xs text-zinc-500">Fit</div>
             <div className="flex gap-1">
               {(['contain', 'cover'] as const).map(f => (

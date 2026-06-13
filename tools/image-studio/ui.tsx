@@ -2284,6 +2284,60 @@ export default function ImageStudioPro() {
     commit(`crop canvas ${aspect}`, next);
   };
 
+  // RESIZE the whole document to a new pixel size (Photoshop Image > Image Size):
+  // scale every full-doc canvas (paint layer + masks + selection) to the new
+  // dimensions, and scale every positioned/vector layer's coordinates by the
+  // same per-axis factor so the composite looks identical, only larger/smaller.
+  // scaleCanvas is uniform-only (used for export), so we resample non-uniformly
+  // here with a direct drawImage. Mirrors cropDoc/transformDoc's per-kind switch.
+  const resizeDoc = (newW: number, newH: number) => {
+    if (pristine) { toastFor('Open or create an image first'); return; }
+    const tw = Math.max(1, Math.round(newW));
+    const th = Math.max(1, Math.round(newH));
+    const docW = doc.width, docH = doc.height;
+    if (tw === docW && th === docH) { toastFor('Already that size'); return; }
+    const sx = tw / docW, sy = th / docH;
+    const next = cloneDoc(doc);
+    // Resample a full-document canvas (paint layer / mask / selection) to tw×th.
+    const resampleDoc = (src: HTMLCanvasElement) => {
+      const out = blankCanvas(tw, th);
+      const ctx = out.getContext('2d')!;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(src, 0, 0, src.width, src.height, 0, 0, tw, th);
+      return out;
+    };
+    for (const l of next.layers) {
+      // Masks live in full-document space on every layer kind — resample like a
+      // doc-sized canvas so masking survives the resize.
+      if (l.mask) l.mask = resampleDoc(l.mask);
+      if (l.kind === 'paint') {
+        // Paint layers fill the whole doc at origin — resample the pixels.
+        l.canvas = resampleDoc(l.canvas);
+      } else if (l.kind === 'image') {
+        // Image layers carry their own pixels + position/scale. Keep the source
+        // pixels and absorb the doc rescale into position + per-axis scale so the
+        // placed image grows/shrinks with the document.
+        l.x *= sx; l.y *= sy;
+        l.scaleX *= sx; l.scaleY *= sy;
+      } else if (l.kind === 'text' || l.kind === 'shape') {
+        // Vector text/shape: scale the anchor and the free-transform scale fields
+        // (NOT the geometry w/h — render multiplies w/h by scaleX/scaleY, so
+        // scaling both would double-apply). This grows the glyphs/shape with the
+        // document just like the per-axis scale on an image layer.
+        l.x *= sx; l.y *= sy;
+        l.scaleX = (l.scaleX ?? 1) * sx; l.scaleY = (l.scaleY ?? 1) * sy;
+      }
+      // Adjustment layers have no pixels/position — nothing to resize.
+    }
+    next.width = tw; next.height = th;
+    if (next.selection) next.selection.mask = resampleDoc(next.selection.mask);
+    // The composite cache is keyed by props, NOT pixel content — every layer's
+    // pixels/position just changed, so clear it (same as undo/redo + crop).
+    cacheRef.current.clear();
+    commit(`resize canvas ${tw}×${th}`, next);
+  };
+
   const clearSelection = () => {
     if (!doc.selection) return;
     setDoc(d => ({ ...d, selection: null }));
@@ -3184,6 +3238,9 @@ export default function ImageStudioPro() {
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
+            {/* RESIZE the whole document to a new pixel size (Photoshop Image
+                Size) — scales every layer + the canvas to the chosen dimensions. */}
+            <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => setResizeDialog(true)} title={pristine ? 'Open an image first' : 'Resize image (change pixel dimensions)'}><Move className="h-3.5 w-3.5" /> Resize</StudioButton>
             <select
               onChange={e => { if (e.target.value) { applyColorGrade(e.target.value); e.target.value = ''; } }}
               defaultValue=""
@@ -3614,6 +3671,9 @@ export default function ImageStudioPro() {
 
       {newDialog && (
         <NewDocDialog onCancel={() => setNewDialog(false)} onCreate={(w, h, n, bg) => { startNew(w, h, n, bg); setNewDialog(false); }} />
+      )}
+      {resizeDialog && (
+        <ResizeDialog curW={doc.width} curH={doc.height} onCancel={() => setResizeDialog(false)} onResize={(w, h) => { resizeDoc(w, h); setResizeDialog(false); }} />
       )}
       {templatesOpen && (
         <TemplateGallery
@@ -4169,6 +4229,40 @@ function NewDocDialog({ onCancel, onCreate }: { onCancel: () => void; onCreate: 
             <button key={p.name} onClick={() => { setW(p.w); setH(p.h); }} className="rounded bg-white/5 px-2 py-1.5 text-xs text-zinc-300 hover:bg-white/10">{p.name}</button>
           ))}
         </div>
+      </div>
+    </DialogShell>
+  );
+}
+
+// Image Size dialog (Photoshop Image > Image Size): pick new pixel dimensions
+// for the whole document. Link-aspect keeps the ratio while typing; a few common
+// scale presets jump to half/double size.
+function ResizeDialog({ curW, curH, onCancel, onResize }: { curW: number; curH: number; onCancel: () => void; onResize: (w: number, h: number) => void }) {
+  const ratio = curW / curH;
+  const [w, setW] = React.useState(curW);
+  const [h, setH] = React.useState(curH);
+  const [link, setLink] = React.useState(true);
+  const setWidth = (v: number) => { setW(v); if (link && v > 0) setH(Math.max(1, Math.round(v / ratio))); };
+  const setHeight = (v: number) => { setH(v); if (link && v > 0) setW(Math.max(1, Math.round(v * ratio))); };
+  const scaleBy = (f: number) => { setW(Math.max(1, Math.round(curW * f))); setH(Math.max(1, Math.round(curH * f))); };
+  return (
+    <DialogShell title="Image Size" onCancel={onCancel} onConfirm={() => onResize(w, h)} confirmLabel="Resize">
+      <div className="space-y-3">
+        <div className="text-[11px] text-zinc-400">Current: <span className="font-mono tabular-nums text-zinc-200">{curW}×{curH}px</span></div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Width"><input type="number" min={1} value={w} onChange={e => setWidth(+e.target.value)} className={INPUT_CLS} /></Field>
+          <Field label="Height"><input type="number" min={1} value={h} onChange={e => setHeight(+e.target.value)} className={INPUT_CLS} /></Field>
+        </div>
+        <label className="flex items-center gap-2 text-xs text-zinc-300">
+          <input type="checkbox" checked={link} onChange={e => setLink(e.target.checked)} className="accent-cyan-400" />
+          Constrain aspect ratio
+        </label>
+        <div className="grid grid-cols-4 gap-1">
+          {[['25%', 0.25], ['50%', 0.5], ['200%', 2], ['400%', 4]].map(([lbl, f]) => (
+            <button key={lbl as string} onClick={() => scaleBy(f as number)} className="rounded bg-white/5 px-2 py-1.5 text-xs text-zinc-300 hover:bg-white/10">{lbl}</button>
+          ))}
+        </div>
+        <div className="text-[11px] text-zinc-400">New: <span className="font-mono tabular-nums text-zinc-200">{Math.max(1, Math.round(w))}×{Math.max(1, Math.round(h))}px</span></div>
       </div>
     </DialogShell>
   );

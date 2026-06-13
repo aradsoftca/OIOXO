@@ -393,6 +393,22 @@ export function callFormula(name: string, args: any[]): any {
     case 'NEGBINOMDIST': case 'NEGBINOM.DIST': { const f = Math.floor(getNum(args[0])), s = Math.floor(getNum(args[1])), p = getNum(args[2]), cum = args.length > 3 && getNum(args[3]) !== 0; if (f < 0 || s < 1 || p <= 0 || p > 1) return '#NUM!'; const pmf = (j: number) => Math.exp(factln(j + s - 1) - factln(j) - factln(s - 1) + s * Math.log(p) + j * Math.log(1 - p || 1e-300)); if (cum) { let acc = 0; for (let j = 0; j <= f; j++) acc += pmf(j); return acc; } return pmf(f); }
     case 'CRITBINOM': case 'BINOM.INV':   { const n = Math.floor(getNum(args[0])), p = getNum(args[1]), alpha = getNum(args[2]); if (n < 0 || p < 0 || p > 1 || alpha <= 0 || alpha > 1) return '#NUM!'; const pmf = (j: number) => Math.exp(factln(n) - factln(j) - factln(n - j) + j * Math.log(p || 1e-300) + (n - j) * Math.log(1 - p || 1e-300)); let acc = 0; for (let j = 0; j <= n; j++) { acc += pmf(j); if (acc >= alpha) return j; } return n; }
 
+    // --- More distributions: chi-square, gamma, beta, Student-t, F ---
+    // All built on the regularized incomplete gamma P(a,x) and incomplete beta
+    // I_x(a,b) helpers below; these are the "precise" / .RT variants Excel exposes
+    // and were genuinely absent (only the normal/binomial/poisson family existed).
+    case 'ERF.PRECISE':   return erf(getNum(args[0]));
+    case 'ERFC.PRECISE':  return 1 - erf(getNum(args[0]));
+    case 'CHISQ.DIST':    { const x = getNum(args[0]), df = Math.floor(getNum(args[1])), cum = getNum(args[2]) !== 0; if (x < 0 || df < 1) return '#NUM!'; if (cum) return gammap(df / 2, x / 2); return Math.exp((df / 2 - 1) * Math.log(x) - x / 2 - (df / 2) * Math.LN2 - gammaln(df / 2)); }
+    case 'CHISQ.DIST.RT': case 'CHIDIST': { const x = getNum(args[0]), df = Math.floor(getNum(args[1])); if (x < 0 || df < 1) return '#NUM!'; return 1 - gammap(df / 2, x / 2); }
+    case 'GAMMA.DIST': case 'GAMMADIST': { const x = getNum(args[0]), alpha = getNum(args[1]), beta = getNum(args[2]), cum = getNum(args[3]) !== 0; if (x < 0 || alpha <= 0 || beta <= 0) return '#NUM!'; if (cum) return gammap(alpha, x / beta); return Math.exp((alpha - 1) * Math.log(x) - x / beta - alpha * Math.log(beta) - gammaln(alpha)); }
+    case 'GAMMA.INV': case 'GAMMAINV': { const p = getNum(args[0]), alpha = getNum(args[1]), beta = getNum(args[2]); if (p < 0 || p >= 1 || alpha <= 0 || beta <= 0) return '#NUM!'; return gammapinv(p, alpha) * beta; }
+    case 'BETA.DIST': case 'BETADIST': { const x = getNum(args[0]), alpha = getNum(args[1]), beta = getNum(args[2]); const lo = args.length > 4 ? getNum(args[3]) : 0; const hi = args.length > 5 ? getNum(args[4]) : (args.length > 4 ? getNum(args[4]) : 1); if (alpha <= 0 || beta <= 0 || hi <= lo) return '#NUM!'; const z = (x - lo) / (hi - lo); if (z <= 0) return 0; if (z >= 1) return 1; return betai(z, alpha, beta); }
+    case 'T.DIST':        { const x = getNum(args[0]), df = Math.floor(getNum(args[1])), cum = getNum(args[2]) !== 0; if (df < 1) return '#NUM!'; if (cum) { const ib = betai(df / (df + x * x), df / 2, 0.5); return x >= 0 ? 1 - ib / 2 : ib / 2; } return Math.exp(gammaln((df + 1) / 2) - gammaln(df / 2) - 0.5 * Math.log(df * Math.PI) - ((df + 1) / 2) * Math.log(1 + x * x / df)); }
+    case 'T.DIST.RT':     { const x = getNum(args[0]), df = Math.floor(getNum(args[1])); if (df < 1) return '#NUM!'; const ib = betai(df / (df + x * x), df / 2, 0.5); return x >= 0 ? ib / 2 : 1 - ib / 2; }
+    case 'T.DIST.2T': case 'TDIST': { const x = getNum(args[0]), df = Math.floor(getNum(args[1])); if (x < 0 || df < 1) return '#NUM!'; return betai(df / (df + x * x), df / 2, 0.5); }
+    case 'F.DIST.RT': case 'FDIST': { const x = getNum(args[0]), d1 = Math.floor(getNum(args[1])), d2 = Math.floor(getNum(args[2])); if (x < 0 || d1 < 1 || d2 < 1) return '#NUM!'; return betai(d2 / (d2 + d1 * x), d2 / 2, d1 / 2); }
+
     // --- Engineering: base conversions ---
     case 'BIN2DEC':     { const s = String(args[0] ?? '').trim(); if (!/^[01]{1,10}$/.test(s)) return '#NUM!'; let v = parseInt(s, 2); if (s.length === 10 && s[0] === '1') v -= 1024; return v; }
     case 'DEC2BIN':     { const n = Math.trunc(getNum(args[0])); if (n < -512 || n > 511) return '#NUM!'; const b = (n < 0 ? (n + 1024) : n).toString(2); const places = args.length > 1 ? Math.floor(getNum(args[1])) : 0; return n < 0 ? b : b.padStart(places, '0'); }
@@ -522,6 +538,64 @@ function factln(n: number): number {
   return n <= 1 ? 0 : gammaln(n + 1);
 }
 
+// Regularized lower incomplete gamma P(a,x) = γ(a,x)/Γ(a) — series expansion for
+// x < a+1, continued fraction otherwise (Numerical Recipes gser/gcf). Underpins
+// the chi-square and gamma distributions.
+function gammap(a: number, x: number): number {
+  if (x <= 0 || a <= 0) return 0;
+  if (x < a + 1) {
+    let sum = 1 / a, term = 1 / a, ap = a;
+    for (let i = 0; i < 200; i++) { ap++; term *= x / ap; sum += term; if (Math.abs(term) < Math.abs(sum) * 1e-15) break; }
+    return sum * Math.exp(-x + a * Math.log(x) - gammaln(a));
+  }
+  // Continued fraction for the complement Q(a,x), then P = 1 - Q.
+  let b = x + 1 - a, c = 1e300, d = 1 / b, h = d;
+  for (let i = 1; i < 200; i++) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300;
+    c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300;
+    d = 1 / d; const del = d * c; h *= del;
+    if (Math.abs(del - 1) < 1e-15) break;
+  }
+  return 1 - Math.exp(-x + a * Math.log(x) - gammaln(a)) * h;
+}
+// Inverse of gammap in x for fixed a (bisection on [0, large]) — backs GAMMA.INV.
+function gammapinv(p: number, a: number): number {
+  if (p <= 0) return 0;
+  let lo = 0, hi = Math.max(20, a * 4);
+  while (gammap(a, hi) < p && hi < 1e8) hi *= 2;
+  for (let i = 0; i < 200; i++) { const mid = (lo + hi) / 2; if (gammap(a, mid) < p) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+// Regularized incomplete beta I_x(a,b) — Lentz continued fraction (Numerical
+// Recipes betacf), with the standard symmetry flip for fast convergence.
+// Underpins the beta, Student-t and F distributions.
+function betai(x: number, a: number, b: number): number {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const bt = Math.exp(gammaln(a + b) - gammaln(a) - gammaln(b) + a * Math.log(x) + b * Math.log(1 - x));
+  if (x < (a + 1) / (a + b + 2)) return bt * betacf(x, a, b) / a;
+  return 1 - bt * betacf(1 - x, b, a) / b;
+}
+function betacf(x: number, a: number, b: number): number {
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1, d = 1 - qab * x / qap; if (Math.abs(d) < 1e-300) d = 1e-300; d = 1 / d; let h = d;
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m;
+    let aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300;
+    c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300;
+    d = 1 / d; h *= d * c;
+    aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if (Math.abs(d) < 1e-300) d = 1e-300;
+    c = 1 + aa / c; if (Math.abs(c) < 1e-300) c = 1e-300;
+    d = 1 / d; const del = d * c; h *= del;
+    if (Math.abs(del - 1) < 1e-15) break;
+  }
+  return h;
+}
+
 function gcd(a: number, b: number): number {
   while (b) { [a, b] = [b, a % b]; }
   return a;
@@ -574,6 +648,9 @@ export const FORMULA_NAMES = [
   'NORMDIST', 'NORM.DIST', 'NORMINV', 'NORM.INV', 'WEIBULL', 'WEIBULL.DIST',
   'LOGNORMDIST', 'LOGNORM.DIST', 'LOGINV', 'LOGNORM.INV', 'HYPGEOMDIST', 'HYPGEOM.DIST',
   'NEGBINOMDIST', 'NEGBINOM.DIST', 'CRITBINOM', 'BINOM.INV',
+  'ERF.PRECISE', 'ERFC.PRECISE', 'CHISQ.DIST', 'CHISQ.DIST.RT', 'CHIDIST',
+  'GAMMA.DIST', 'GAMMADIST', 'GAMMA.INV', 'GAMMAINV', 'BETA.DIST', 'BETADIST',
+  'T.DIST', 'T.DIST.RT', 'T.DIST.2T', 'TDIST', 'F.DIST.RT', 'FDIST',
   'BIN2DEC', 'DEC2BIN', 'HEX2DEC', 'DEC2HEX', 'OCT2DEC', 'DEC2OCT',
   'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
   'GESTEP', 'DELTA', 'ERF', 'ERFC',

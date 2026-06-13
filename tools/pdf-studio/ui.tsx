@@ -402,6 +402,26 @@ export default function PdfStudioPro() {
     } finally { setBusy(''); }
   };
 
+  // Save the currently SELECTED page only (Acrobat right-click "Save page as…"):
+  // one-click export of a single-page PDF from doc.selectedId, distinct from the
+  // Extract-by-range dialog. Reuses the exact export path with a one-page
+  // doc.pages subset so that page's annotations/redactions/page-number carry
+  // through identically.
+  const saveCurrentPage = async () => {
+    const page = doc.pages.find(p => p.id === doc.selectedId);
+    if (!page) { toastFor('Select a page first'); return; }
+    if (!(await guard())) return;
+    setBusy('Saving this page…');
+    try {
+      const blob = await buildPdf({ sources, pages: [page], annotations: doc.annotations, pageNumbers: doc.pageNumbers, bates: doc.bates });
+      const pageNum = doc.pages.findIndex(p => p.id === page.id) + 1;
+      downloadBlob(blob, `${safeFilename(doc.name)}-page-${pageNum}.pdf`);
+      toastFor(`Saved page ${pageNum}`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Save page failed');
+    } finally { setBusy(''); }
+  };
+
   const exportAsDocx = async () => {
     if (!(await guard())) return;
     setBusy('Converting to Word…');
@@ -1355,6 +1375,7 @@ export default function PdfStudioPro() {
           <StudioButton size="sm" variant="soft" onClick={() => setWatermarkDialog(true)} title="Apply watermark to all pages"><Droplets className="h-3 w-3" /> Watermark</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setSplitDialog(true)} title="Split into multiple PDFs"><Scissors className="h-3 w-3" /> Split</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setExtractDialog(true)} title="Extract a page range as a new PDF"><FileText className="h-3 w-3" /> Extract</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void saveCurrentPage()} title="Save just the selected page as a one-page PDF"><FileText className="h-3 w-3" /> Save this page</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportAsDocx()} title="Export as Word"><FileType2 className="h-3 w-3" /> Word</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void extractText()} title="Export all page text as a .txt file"><FileText className="h-3 w-3" /> Extract text</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportSearchable()} title="OCR then build searchable PDF"><FileCheck2 className="h-3 w-3" /> Searchable</StudioButton>

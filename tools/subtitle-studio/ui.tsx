@@ -163,6 +163,16 @@ function cuesToSrt(cs: Cue[]): string {
 function cuesToVtt(cs: Cue[]): string {
   return 'WEBVTT\n\n' + cs.map((c) => `${formatVtt(c.start)} --> ${formatVtt(c.end)}\n${c.text}\n`).join('\n');
 }
+// Plain transcript — just the spoken lines, no timing/index (for scripts, captions copy).
+function cuesToTxt(cs: Cue[]): string {
+  return cs.map((c) => c.text).join('\n') + '\n';
+}
+// CSV: start,end,text (seconds + quoted text) — opens in any spreadsheet.
+function cuesToCsv(cs: Cue[]): string {
+  const esc = (s: string) => `"${s.replace(/"/g, '""')}"`;
+  const head = 'start,end,text\n';
+  return head + cs.map((c) => `${c.start.toFixed(3)},${c.end.toFixed(3)},${esc(c.text)}`).join('\n') + '\n';
+}
 function cuesToAss(cs: Cue[], style: CueStyle, w = 1920, h = 1080): string {
   const head = `[Script Info]\nScriptType: v4.00+\nPlayResX: ${w}\nPlayResY: ${h}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, OutlineColour, BackColour, Bold, Italic, Outline, Shadow, Alignment, MarginV\nStyle: Default,${style.font.split(',')[0]},${style.size},${assColor(style.color)},${assColor(style.outlineColor)},${assColor(style.bgColor)},${style.weight >= 700 ? -1 : 0},${style.italic ? -1 : 0},${style.outlineWidth},${style.shadow ? 1 : 0},${style.pos === 'top' ? 8 : style.pos === 'center' ? 5 : 2},40\n\n[Events]\nFormat: Layer, Start, End, Style, Text\n`;
   const events = cs.map(c => {
@@ -298,7 +308,7 @@ export default function SubtitleStudioPro() {
   const [templateCat, setTemplateCat] = React.useState<string>('all');
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [transcribeSize, setTranscribeSize] = React.useState<'tiny' | 'base' | 'small'>('tiny');
-  const [exportFmt, setExportFmt] = React.useState<'srt' | 'vtt' | 'ass' | 'json'>('srt');
+  const [exportFmt, setExportFmt] = React.useState<'srt' | 'vtt' | 'ass' | 'txt' | 'csv' | 'json'>('srt');
   // Crash-recovery banner: surfaced on mount if a fresh snapshot from a previous
   // session exists. Restoring re-hydrates the doc + resets the undo stack.
   const [recovery, setRecovery] = React.useState<RecoverySnapshot | null>(null);
@@ -891,6 +901,8 @@ export default function SubtitleStudioPro() {
     if (exportFmt === 'srt') blob = new Blob([cuesToSrt(doc.cues)], { type: 'application/x-subrip' });
     else if (exportFmt === 'vtt') blob = new Blob([cuesToVtt(doc.cues)], { type: 'text/vtt' });
     else if (exportFmt === 'ass') blob = new Blob([cuesToAss(doc.cues, doc.style)], { type: 'text/plain' });
+    else if (exportFmt === 'txt') blob = new Blob([cuesToTxt(doc.cues)], { type: 'text/plain' });
+    else if (exportFmt === 'csv') blob = new Blob([cuesToCsv(doc.cues)], { type: 'text/csv' });
     else { blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }); ext = 'json'; }
     downloadBlob(blob, `${safeFilename(doc.name)}.${ext}`);
     toastFor('Exported');
@@ -1434,7 +1446,7 @@ export default function SubtitleStudioPro() {
         <Dialog title="Export" onCancel={() => setExportDialog(false)} onConfirm={exportNow} confirmLabel="Download">
           <Field label="Format">
             <div className="flex gap-1">
-              {(['srt', 'vtt', 'ass', 'json'] as const).map(f => (
+              {(['srt', 'vtt', 'ass', 'txt', 'csv', 'json'] as const).map(f => (
                 <button key={f} onClick={() => setExportFmt(f)} className={cn('flex-1 rounded px-2 py-1.5 text-xs uppercase', exportFmt === f ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{f}</button>
               ))}
             </div>

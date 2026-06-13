@@ -8,7 +8,7 @@ import {
   Table as TableIcon, Image as ImageIcon, X, Type as TypeIcon, Palette, Highlighter,
   Indent, Outdent, Eraser, Eye, EyeOff, Sparkles, Wand2, Languages, Users, Share2,
   History, Check, X as XIcon, Volume2, MicVocal, Sigma, BookOpen,
-  Clock, Calendar, Minus, CornerDownLeft, RotateCcw, Pilcrow,
+  Clock, Calendar, Minus, CornerDownLeft, RotateCcw, Pilcrow, MessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -31,6 +31,7 @@ import {
   LOCALES, detectScript, directionForText, fontStackForText, langAttrFromLocale,
   CollabSession, makeHttpSignal, pickPeerColor, type CollabPeer,
   TrackChangesModel, htmlDiffMarkup, type DocChange,
+  CommentsModel, type Comment as DocComment,
   extractTocFromHtml, buildTocHtml, readAloud, stopReadAloud, makeVoiceTyping, type VoiceTypingHandler,
   preloadKatex, renderEquationToHtml, EQUATION_TEMPLATES,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly, isPhone,
@@ -48,6 +49,8 @@ interface DocState {
   locale: string;
   direction: 'auto' | 'ltr' | 'rtl';
   scriptFont: 'auto' | 'manual';
+  /** Comment threads anchored to <span data-comment> markers in the HTML. */
+  comments?: DocComment[];
 }
 
 const FONTS = [
@@ -113,6 +116,31 @@ export default function OfficeDocsPro() {
     return tcModel.current.onChange(s => setTcChanges([...s.changes]));
   }, []);
 
+  // ── Comments ──────────────────────────────────────────────────────────────
+  // A comment anchors to a span of text wrapped in <span data-comment="id"> in the
+  // HTML, so the anchor moves with the text and persists through save/reload. The
+  // sidebar lists threads; click to scroll to the anchored text. Reuses the shared
+  // CommentsModel (add/reply/resolve/remove). This makes the long-advertised
+  // "Comments" feature real (it was claimed in the welcome dialog but never wired).
+  const commentsModel = React.useRef<CommentsModel>(new CommentsModel());
+  const [comments, setComments] = React.useState<DocComment[]>([]);
+  const [showComments, setShowComments] = React.useState(false);
+  const [activeCommentId, setActiveCommentId] = React.useState<string | null>(null);
+  React.useEffect(() => {
+    return commentsModel.current.onChange(s => {
+      setComments([...s.comments]);
+      // Mirror into the doc so save/recovery persist comments with the document.
+      setDoc(d => ({ ...d, comments: s.comments }));
+    });
+  }, []);
+  // Highlight the active comment's anchor in the editor.
+  React.useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.querySelectorAll('[data-comment].cmt-active').forEach(n => n.classList.remove('cmt-active'));
+    if (activeCommentId) el.querySelector(`[data-comment="${activeCommentId}"]`)?.classList.add('cmt-active');
+  }, [activeCommentId, comments]);
+
   const recordChange = React.useCallback(() => {
     if (!trackMode) return;
     // Track the full HTML (not innerText) so an accepted/rejected change can
@@ -151,6 +179,68 @@ export default function OfficeDocsPro() {
     const first = tcChanges.find(c => c.status !== 'rejected');
     tcModel.current.rejectAll();
     if (first) applyRejectedHtml(first.before);
+  };
+
+  // Add a comment on the current selection: wrap the selected text in a marker
+  // span carrying the comment id (so the anchor lives in the HTML and survives
+  // edits/save), record the comment, and open the sidebar.
+  const addCommentOnSelection = () => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0 || sel.isCollapsed) { toastFor('Select some text to comment on'); return; }
+    const range = sel.getRangeAt(0);
+    if (!el.contains(range.commonAncestorContainer)) { toastFor('Select text inside the document'); return; }
+    const id = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    try {
+      const span = document.createElement('span');
+      span.setAttribute('data-comment', id);
+      span.className = 'doc-comment-anchor';
+      // surroundContents throws if the range crosses element boundaries; fall back
+      // to extract+insert which handles partial/multi-node selections.
+      try { range.surroundContents(span); }
+      catch { const frag = range.extractContents(); span.appendChild(frag); range.insertNode(span); }
+      sel.removeAllRanges();
+    } catch { toastFor('Could not anchor a comment there — try a simpler selection'); return; }
+    // The model assigns its own comment id; adopt it onto the marker span so the
+    // anchor and the comment share an id.
+    const justAdded = commentsModel.current.add({ kind: 'text-range', start: 0, end: 0 }, tcAuthor, tcColor, '', undefined);
+    const sp = el.querySelector(`[data-comment="${id}"]`);
+    if (sp && justAdded) sp.setAttribute('data-comment', justAdded.id);
+    setActiveCommentId(justAdded?.id ?? null);
+    setShowComments(true);
+    persistHtml();
+  };
+
+  const submitCommentText = (id: string, text: string) => {
+    if (!text.trim()) return;
+    commentsModel.current.editText(id, text.trim());
+    persistHtml();
+  };
+  const replyToComment = (parentId: string, text: string) => {
+    if (!text.trim()) return;
+    commentsModel.current.reply(parentId, tcAuthor, tcColor, text.trim());
+    persistHtml();
+  };
+  const resolveComment = (id: string) => {
+    commentsModel.current.resolve(id, true);
+    // Strip the anchor highlight from the HTML when resolved (keep the text).
+    const el = editorRef.current;
+    const sp = el?.querySelector(`[data-comment="${id}"]`);
+    if (sp) { const parent = sp.parentNode; while (sp.firstChild) parent?.insertBefore(sp.firstChild, sp); parent?.removeChild(sp); }
+    persistHtml();
+  };
+  const deleteComment = (id: string) => {
+    commentsModel.current.remove(id);
+    const el = editorRef.current;
+    const sp = el?.querySelector(`[data-comment="${id}"]`);
+    if (sp) { const parent = sp.parentNode; while (sp.firstChild) parent?.insertBefore(sp.firstChild, sp); parent?.removeChild(sp); }
+    if (activeCommentId === id) setActiveCommentId(null);
+    persistHtml();
+  };
+  const scrollToComment = (id: string) => {
+    setActiveCommentId(id);
+    const sp = editorRef.current?.querySelector(`[data-comment="${id}"]`);
+    sp?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const [reading, setReading] = React.useState(false);
@@ -466,6 +556,7 @@ export default function OfficeDocsPro() {
   const restoreRecovery = React.useCallback(() => {
     if (!recovery) return;
     setDoc(recovery.doc);
+    commentsModel.current.setAll(recovery.doc.comments ?? []);
     if (editorRef.current) editorRef.current.innerHTML = sanitizeHtml(recovery.doc.html);
     refreshDerived();
     setRecovery(null);
@@ -890,6 +981,7 @@ export default function OfficeDocsPro() {
       const p = await loadProject<DocState>(id);
       if (!p) return;
       setDoc(p.state);
+      commentsModel.current.setAll(p.state.comments ?? []);
       if (editorRef.current) editorRef.current.innerHTML = sanitizeHtml(p.state.html);
       refreshDerived();
       setOpenDialog(false);
@@ -1028,6 +1120,11 @@ export default function OfficeDocsPro() {
               {trackMode && <span className="rounded bg-amber-500 px-1 text-[9px] text-zinc-900">{tcChanges.filter(c => c.status === 'pending').length}</span>}
             </button>
             <StudioButton variant="ghost" size="sm" onClick={() => setShowTrackPanel(s => !s)} title="Review changes"><History className="h-3.5 w-3.5" /></StudioButton>
+            <button onClick={addCommentOnSelection} title="Comment on the selected text (anchored, resolvable)" className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5"><MessageSquare className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setShowComments(s => !s)} title="Comments" className={cn('inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium', showComments ? 'bg-cyan-500/20 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')}>
+              <MessageSquare className="h-3.5 w-3.5" />
+              {comments.filter(c => !c.parent && !c.resolved).length > 0 && <span className="rounded bg-cyan-500 px-1 text-[9px] text-zinc-900">{comments.filter(c => !c.parent && !c.resolved).length}</span>}
+            </button>
             <button
               onClick={() => { setMdAutoformat(v => !v); toastFor(mdAutoformat ? 'Markdown autoformat off' : 'Markdown autoformat on'); }}
               title={mdAutoformat ? "Markdown shortcuts ON — type '# ', '- ', '> ' to format" : 'Markdown shortcuts OFF'}
@@ -1167,13 +1264,19 @@ export default function OfficeDocsPro() {
                   { label: 'Start writing', description: 'Use the blank canvas', icon: <Wand2 className="h-4 w-4" />, onClick: dismissDocsWelcome },
                 ]}
                 hints={[
-                  { label: 'Track changes', description: 'Per-author colors, real accept/reject that edits the doc' },
+                  { label: 'Track changes + Comments', description: 'Accept/reject edits + anchored, resolvable comment threads' },
                   { label: 'Equations + TOC + Read aloud', description: 'LaTeX equations, auto TOC, Web Speech' },
                   { label: 'Live collab via P2P', description: 'Share button — rich text syncs peer-to-peer, encrypted in transit' },
                 ]}
               />
             </div>
           )}
+          {/* Comment-anchor highlight: a soft yellow underline on commented text,
+              brighter when its thread is active in the sidebar. */}
+          <style>{`
+            .prose-doc [data-comment]{ background: rgba(250,204,21,0.18); border-bottom: 2px solid rgba(250,204,21,0.5); border-radius:2px; cursor:pointer; }
+            .prose-doc [data-comment].cmt-active{ background: rgba(250,204,21,0.4); }
+          `}</style>
           <div
             className="relative w-full bg-white shadow-2xl"
             style={{ maxWidth: doc.pageWidth, minHeight: '60vh' }}
@@ -1187,6 +1290,7 @@ export default function OfficeDocsPro() {
               dir={doc.direction}
               onInput={onEditorInput}
               onKeyDown={onEditorKeyDown}
+              onClick={(e) => { const sp = (e.target as Element)?.closest?.('[data-comment]'); if (sp) { setActiveCommentId(sp.getAttribute('data-comment')); setShowComments(true); } }}
               onBlur={() => { persistHtml(); recordChange(); }}
               className="prose-doc focus:outline-none"
               style={{
@@ -1364,6 +1468,19 @@ export default function OfficeDocsPro() {
           </div>
         </div>
       )}
+      {showComments && (
+        <CommentsSidebar
+          comments={comments}
+          activeId={activeCommentId}
+          author={tcAuthor}
+          onClose={() => setShowComments(false)}
+          onFocus={scrollToComment}
+          onSubmit={submitCommentText}
+          onReply={replyToComment}
+          onResolve={resolveComment}
+          onDelete={deleteComment}
+        />
+      )}
       {collabDialog && (
         <CollabDialog onCancel={() => setCollabDialog(false)} onStart={startCollab} />
       )}
@@ -1483,6 +1600,80 @@ function EquationDialog({ onCancel, onInsert }: { onCancel: () => void; onInsert
         </div>
       </div>
     </Dialog>
+  );
+}
+
+function CommentsSidebar({ comments, activeId, author, onClose, onFocus, onSubmit, onReply, onResolve, onDelete }: {
+  comments: DocComment[];
+  activeId: string | null;
+  author: string;
+  onClose: () => void;
+  onFocus: (id: string) => void;
+  onSubmit: (id: string, text: string) => void;
+  onReply: (parentId: string, text: string) => void;
+  onResolve: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [showResolved, setShowResolved] = React.useState(false);
+  const roots = comments.filter(c => !c.parent);
+  const visible = roots.filter(c => showResolved || !c.resolved);
+  const repliesOf = (id: string) => comments.filter(c => c.parent === id).sort((a, b) => a.ts - b.ts);
+  const [drafts, setDrafts] = React.useState<Record<string, string>>({});
+  const setDraft = (k: string, v: string) => setDrafts(d => ({ ...d, [k]: v }));
+  const fmtTime = (ts: number) => { const m = Math.round((Date.now() - ts) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`; };
+  return (
+    <div className="fixed right-0 top-[88px] bottom-0 z-40 flex w-80 flex-col border-l border-white/10 bg-[#0f1115] shadow-2xl">
+      <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-100"><MessageSquare className="h-3 w-3" /> Comments</div>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setShowResolved(s => !s)} className={cn('rounded px-1.5 py-0.5 text-[10px]', showResolved ? 'bg-white/10 text-zinc-200' : 'text-zinc-500 hover:bg-white/5')}>{showResolved ? 'Hide resolved' : 'Show resolved'}</button>
+          <button onClick={onClose} className="rounded p-1 text-zinc-400 hover:bg-white/5"><XIcon className="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
+      <div className="flex-1 space-y-2 overflow-y-auto p-2">
+        {visible.length === 0 && <div className="rounded border border-white/5 bg-white/[.02] p-4 text-center text-[11px] text-zinc-500">No comments yet. Select text and click the comment button to add one.</div>}
+        {visible.slice().sort((a, b) => b.ts - a.ts).map(c => {
+          const replies = repliesOf(c.id);
+          const isActive = c.id === activeId;
+          return (
+            <div key={c.id} className={cn('rounded border p-2', c.resolved ? 'border-emerald-500/20 bg-emerald-500/5 opacity-70' : isActive ? 'border-cyan-400/40 bg-cyan-500/5' : 'border-white/10 bg-white/[.03]')}>
+              <div className="flex items-center justify-between text-[10px]">
+                <button onClick={() => onFocus(c.id)} className="flex items-center gap-1.5 hover:underline">
+                  <span className="h-2 w-2 rounded-full" style={{ background: c.authorColor }} />
+                  <span className="font-medium text-zinc-200">{c.author}</span>
+                  <span className="text-zinc-500">{fmtTime(c.ts)}</span>
+                </button>
+                <div className="flex items-center gap-0.5">
+                  {!c.resolved && <button onClick={() => onResolve(c.id)} title="Resolve" className="rounded p-0.5 text-emerald-300 hover:bg-emerald-500/20"><Check className="h-3 w-3" /></button>}
+                  <button onClick={() => onDelete(c.id)} title="Delete" className="rounded p-0.5 text-rose-300 hover:bg-rose-500/20"><XIcon className="h-3 w-3" /></button>
+                </div>
+              </div>
+              {/* Comment body: editable when empty (just created), else shown. */}
+              {c.text ? (
+                <div className="mt-1 whitespace-pre-wrap text-[12px] leading-snug text-zinc-200">{c.text}</div>
+              ) : (
+                <div className="mt-1 flex gap-1">
+                  <input autoFocus placeholder="Write a comment…" value={drafts[c.id] ?? ''} onChange={e => setDraft(c.id, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { onSubmit(c.id, drafts[c.id] ?? ''); setDraft(c.id, ''); } }} className="h-7 flex-1 rounded border border-white/10 bg-[#0a0b0e] px-2 text-[11px] text-zinc-100" />
+                  <button onClick={() => { onSubmit(c.id, drafts[c.id] ?? ''); setDraft(c.id, ''); }} className="rounded bg-cyan-500 px-2 text-[11px] font-medium text-zinc-900">Post</button>
+                </div>
+              )}
+              {replies.map(r => (
+                <div key={r.id} className="mt-1.5 border-l-2 border-white/10 pl-2">
+                  <div className="flex items-center gap-1.5 text-[10px]"><span className="h-1.5 w-1.5 rounded-full" style={{ background: r.authorColor }} /><span className="font-medium text-zinc-300">{r.author}</span><span className="text-zinc-500">{fmtTime(r.ts)}</span></div>
+                  <div className="whitespace-pre-wrap text-[11px] text-zinc-300">{r.text}</div>
+                </div>
+              ))}
+              {c.text && !c.resolved && (
+                <div className="mt-1.5 flex gap-1">
+                  <input placeholder="Reply…" value={drafts['r' + c.id] ?? ''} onChange={e => setDraft('r' + c.id, e.target.value)} onKeyDown={e => { if (e.key === 'Enter') { onReply(c.id, drafts['r' + c.id] ?? ''); setDraft('r' + c.id, ''); } }} className="h-6 flex-1 rounded border border-white/10 bg-[#0a0b0e] px-2 text-[11px] text-zinc-100" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="border-t border-white/5 px-3 py-2 text-[10px] text-zinc-500">Commenting as <span className="text-zinc-300">{author}</span></div>
+    </div>
   );
 }
 

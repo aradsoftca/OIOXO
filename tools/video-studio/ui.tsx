@@ -426,6 +426,10 @@ export default function VideoStudioPro() {
   const [openDialog, setOpenDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
   const [textDialogClip, setTextDialogClip] = React.useState<string | null>(null);
+  // Double-tap an element on the preview → focus its inspector (a titled, single-
+  // element settings view) and a "‹ Back" returns to the timeline. The product
+  // interaction model: click=select(+handles), double-click=edit-this-element.
+  const [focusedId, setFocusedId] = React.useState<string | null>(null);
   const [templatesDialog, setTemplatesDialog] = React.useState(false);
   const [templateCategory, setTemplateCategory] = React.useState<VideoTemplateCategory | 'all'>('all');
   const [showScopes, setShowScopes] = React.useState(false);
@@ -1110,6 +1114,26 @@ export default function VideoStudioPro() {
     // One undo step for the whole drag.
     commit('move text', docRef.current);
   };
+  // Double-click/tap an element on the preview → select it AND focus its
+  // inspector (the "edit this element" view with a Back to timeline).
+  const onPreviewDoubleClick = (e: React.MouseEvent) => {
+    const p = previewNorm(e as unknown as React.PointerEvent);
+    if (!p) return;
+    // image/video overlay under the point?
+    const t = doc.playhead;
+    const overlays = doc.clips.filter(c => c.kind === 'video' && t >= c.start && t < clipEnd(c) && (c as VideoClip).transform && ((c as VideoClip).transform!.scale !== 1 || (c as VideoClip).transform!.x !== 0 || (c as VideoClip).transform!.y !== 0)) as VideoClip[];
+    for (let i = overlays.length - 1; i >= 0; i--) {
+      const v = overlays[i]; const tf = v.transform!;
+      const cx = 0.5 + tf.x, cy = 0.5 + tf.y, hw = 0.5 * tf.scale, hh = 0.5 * tf.scale;
+      const a = (tf.rotation * Math.PI) / 180;
+      const dx = p.nx - cx, dy = p.ny - cy;
+      const lx = dx * Math.cos(a) + dy * Math.sin(a), ly = -dx * Math.sin(a) + dy * Math.cos(a);
+      if (Math.abs(lx) <= hw && Math.abs(ly) <= hh) { setDoc(d => ({ ...d, selectedId: v.id })); setFocusedId(v.id); return; }
+    }
+    // text under the point?
+    const hit = activeTextAt(p);
+    if (hit) { setDoc(d => ({ ...d, selectedId: hit.id })); setFocusedId(hit.id); }
+  };
 
   // ── Direct-manipulation GIZMO for image/video overlays on the preview ──────
   // The selected image or PiP-video overlay (a clip with a `transform`) gets a
@@ -1255,6 +1279,10 @@ export default function VideoStudioPro() {
   };
 
   const selectedClip = doc.clips.find(c => c.id === doc.selectedId) ?? null;
+  // Drop focus if the focused element was deleted (keeps the Back-flow honest).
+  React.useEffect(() => {
+    if (focusedId && !doc.clips.find(c => c.id === focusedId)) setFocusedId(null);
+  }, [focusedId, doc.clips]);
 
   const drawPreviewFrame = React.useCallback((t: number) => {
     const c = previewRef.current;
@@ -1966,6 +1994,7 @@ export default function VideoStudioPro() {
                 onPointerMove={onPreviewMove}
                 onPointerUp={onPreviewUp}
                 onPointerCancel={onPreviewUp}
+                onDoubleClick={onPreviewDoubleClick}
                 className="block max-h-full max-w-full rounded border border-white/10 shadow-2xl"
                 style={{ aspectRatio: `${doc.width}/${doc.height}`, height: '100%', width: '100%', objectFit: 'contain', cursor: 'default', touchAction: 'none' }}
               />
@@ -2116,6 +2145,46 @@ export default function VideoStudioPro() {
           </StudioPanel>
         </StudioSidebar>
       </StudioBody>
+
+      {/* FOCUSED ELEMENT inspector — opened by double-tapping an element on the
+          preview. Full sheet on mobile, right-docked panel on desktop, with a
+          "‹ Back" that returns to the timeline (selection preserved). This is the
+          "double-click element → its settings; Back → timeline" product flow. */}
+      {focusedId && (() => {
+        const fc = doc.clips.find(c => c.id === focusedId);
+        if (!fc) { return null; }
+        const title = fc.kind === 'text' ? 'Text element'
+          : (fc as VideoClip).transform && ((fc as VideoClip).transform!.scale !== 1 || (fc as VideoClip).transform!.x !== 0 || (fc as VideoClip).transform!.y !== 0) ? 'Logo / overlay'
+          : fc.kind === 'audio' ? 'Audio clip' : 'Video clip';
+        const subtitle = fc.kind === 'text' ? (fc as TextClip).text.slice(0, 40)
+          : (mediaMap.get((fc as VideoClip | AudioClip).mediaId)?.name ?? '');
+        return (
+          <div className="absolute inset-0 z-40 flex flex-col bg-[#0a0b0e]/98 backdrop-blur-sm sm:left-auto sm:right-0 sm:w-[340px] sm:border-l sm:border-white/10 sm:shadow-2xl">
+            <div className="flex shrink-0 items-center gap-2 border-b border-white/10 bg-[#0f1115] px-3 py-2.5">
+              <button onClick={() => setFocusedId(null)} className="flex items-center gap-1 rounded-lg bg-white/5 px-2.5 py-1.5 text-sm font-medium text-cyan-300 hover:bg-white/10" title="Back to timeline">
+                <ChevronLeft className="h-4 w-4" /> Back
+              </button>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-zinc-100">{title}</div>
+                {subtitle && <div className="truncate text-[11px] text-zinc-500">{subtitle}</div>}
+              </div>
+              {fc.kind === 'text' && (
+                <button onClick={() => setTextDialogClip(fc.id)} className="rounded-lg bg-cyan-500/15 px-2.5 py-1.5 text-xs font-medium text-cyan-200 hover:bg-cyan-500/25">Edit text…</button>
+              )}
+            </div>
+            <div className="flex-1 overflow-y-auto p-1">
+              <ClipInspector
+                clip={fc}
+                media={fc.kind !== 'text' ? mediaMap.get((fc as VideoClip | AudioClip).mediaId) ?? null : null}
+                onChange={(mut) => updateClip(fc.id, mut, 'props')}
+                onOpenText={() => fc.kind === 'text' && setTextDialogClip(fc.id)}
+                onApplyGrade={(g) => applyGradeToClip(fc.id, g)}
+                playhead={doc.playhead}
+              />
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="flex h-7 shrink-0 items-center gap-3 border-t border-white/5 bg-[#0f1115] px-3 text-[11px] text-zinc-400">
         <span>{doc.width}×{doc.height} · {doc.fps}fps</span>

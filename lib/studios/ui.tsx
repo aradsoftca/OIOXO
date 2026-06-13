@@ -52,7 +52,7 @@ export function StudioShell({ children, className }: { children: React.ReactNode
               data-studio-shell
               style={{ ['--studio-top-offset' as string]: `${topOffset}px` }}
               className={cn(
-                'flex h-full min-h-0 w-full flex-col bg-[#0c0d10] text-zinc-200 overflow-hidden select-none',
+                'relative flex h-full min-h-0 w-full flex-col bg-[#0c0d10] text-zinc-200 overflow-hidden select-none',
                 className,
               )}
             >

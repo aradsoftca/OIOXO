@@ -896,7 +896,10 @@ export default function ImageStudioPro() {
   const fitToScreen = React.useCallback(() => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const pad = 60;
+    // Tight padding on phones so the image fills the screen (a 60px frame on a
+    // ~340px canvas wasted ~18% and made photos open as a postage stamp); roomy
+    // on desktop where there's space to breathe.
+    const pad = isPhone() ? 16 : 60;
     const { w, h } = docDimsRef.current;
     const sx = (wrap.clientWidth - pad) / w;
     const sy = (wrap.clientHeight - pad) / h;

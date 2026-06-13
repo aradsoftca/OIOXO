@@ -85,6 +85,13 @@ export default function OfficeDocsPro() {
   const policyGate = usePolicyGate();
   const [doc, setDoc] = React.useState<DocState>(() => NEW_DOC());
   const editorRef = React.useRef<HTMLDivElement | null>(null);
+  const pageWrapRef = React.useRef<HTMLDivElement | null>(null);
+  // Inline-image resize: the currently-selected <img> + its overlay box (in
+  // page-wrapper coords). Google Docs lets you click an image and drag a corner;
+  // contentEditable gives no handles, so we draw our own and set img width %.
+  const [selImg, setSelImg] = React.useState<HTMLImageElement | null>(null);
+  const [imgBox, setImgBox] = React.useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const imgResize = React.useRef<{ startX: number; startW: number; natRatio: number } | null>(null);
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [findOpen, setFindOpen] = React.useState(false);
@@ -507,6 +514,52 @@ export default function OfficeDocsPro() {
       dirtyRef.current = false;
     }, 2000);
   }, [writeRecovery]);
+
+  // Position the resize overlay over the selected image (page-wrapper coords).
+  const syncImgBox = React.useCallback(() => {
+    const img = selImg, wrap = pageWrapRef.current;
+    if (!img || !wrap || !img.isConnected) { setImgBox(null); return; }
+    const ir = img.getBoundingClientRect();
+    const wr = wrap.getBoundingClientRect();
+    setImgBox({ left: ir.left - wr.left, top: ir.top - wr.top, width: ir.width, height: ir.height });
+  }, [selImg]);
+  React.useEffect(() => { syncImgBox(); }, [selImg, syncImgBox]);
+  // Keep the overlay glued to the image while the editor scrolls/relayouts.
+  React.useEffect(() => {
+    if (!selImg) return;
+    const onScroll = () => syncImgBox();
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onScroll);
+    return () => { window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', onScroll); };
+  }, [selImg, syncImgBox]);
+
+  const startImgResize = (e: React.PointerEvent) => {
+    if (!selImg) return;
+    e.preventDefault(); e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const r = selImg.getBoundingClientRect();
+    imgResize.current = { startX: e.clientX, startW: r.width, natRatio: r.height / Math.max(1, r.width) };
+    const onMove = (ev: PointerEvent) => {
+      if (!imgResize.current || !selImg) return;
+      const dw = ev.clientX - imgResize.current.startX;
+      const newW = Math.max(32, imgResize.current.startW + dw);
+      // Set an explicit pixel width but cap to the editor content width so it
+      // never overflows the page; height follows via aspect-ratio (auto).
+      const maxW = editorRef.current ? editorRef.current.clientWidth - 160 : newW;
+      const w = Math.min(newW, maxW);
+      selImg.style.width = `${Math.round(w)}px`;
+      selImg.style.height = 'auto';
+      syncImgBox();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      imgResize.current = null;
+      persistHtml(); recordChange();
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
 
   const persistHtml = React.useCallback(() => {
     const el = editorRef.current;
@@ -1278,6 +1331,7 @@ export default function OfficeDocsPro() {
             .prose-doc [data-comment].cmt-active{ background: rgba(250,204,21,0.4); }
           `}</style>
           <div
+            ref={pageWrapRef}
             className="relative w-full bg-white shadow-2xl"
             style={{ maxWidth: doc.pageWidth, minHeight: '60vh' }}
           >
@@ -1290,7 +1344,14 @@ export default function OfficeDocsPro() {
               dir={doc.direction}
               onInput={onEditorInput}
               onKeyDown={onEditorKeyDown}
-              onClick={(e) => { const sp = (e.target as Element)?.closest?.('[data-comment]'); if (sp) { setActiveCommentId(sp.getAttribute('data-comment')); setShowComments(true); } }}
+              onClick={(e) => {
+                const sp = (e.target as Element)?.closest?.('[data-comment]');
+                if (sp) { setActiveCommentId(sp.getAttribute('data-comment')); setShowComments(true); }
+                // Click an inline image → select it for resizing; click elsewhere clears.
+                const tgt = e.target as Element;
+                if (tgt?.tagName === 'IMG') setSelImg(tgt as HTMLImageElement);
+                else setSelImg(null);
+              }}
               onBlur={() => { persistHtml(); recordChange(); }}
               className="prose-doc focus:outline-none"
               style={{
@@ -1302,6 +1363,22 @@ export default function OfficeDocsPro() {
                 lineHeight: 1.6,
               }}
             />
+            {/* Inline-image resize overlay — outline + corner handles over the
+                selected image. Dragging a corner sets the img width (Google Docs
+                parity). pointer-events only on the handles so text stays editable. */}
+            {imgBox && selImg && (
+              <div className="pointer-events-none absolute z-20" style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}>
+                <div className="absolute inset-0 outline outline-2 outline-cyan-500" />
+                {([['nw', 0, 0], ['ne', 1, 0], ['sw', 0, 1], ['se', 1, 1]] as const).map(([c, fx, fy]) => (
+                  <div
+                    key={c}
+                    onPointerDown={startImgResize}
+                    className="pointer-events-auto absolute h-3 w-3 rounded-sm border-2 border-cyan-500 bg-white [@media(pointer:coarse)]:h-5 [@media(pointer:coarse)]:w-5"
+                    style={{ left: `${fx * 100}%`, top: `${fy * 100}%`, transform: 'translate(-50%,-50%)', cursor: c === 'nw' || c === 'se' ? 'nwse-resize' : 'nesw-resize' }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
           <style jsx global>{`
             .prose-doc h1 { font-size: 2em; font-weight: 800; margin: 0.4em 0 0.3em; }

@@ -179,22 +179,29 @@ interface SelectionPath {
   mask: HTMLCanvasElement;
 }
 
-const NEW_DOC = (w: number, h: number, name = 'Untitled'): DocState => ({
-  name, width: w, height: h, background: '#ffffff',
-  layers: [{
-    id: lid(),
-    kind: 'paint',
-    name: 'Background',
-    canvas: blankCanvas(w, h),
-    visible: true,
-    locked: false,
-    opacity: 1,
-    blend: 'source-over',
-    adjust: { ...ZERO_ADJUST },
-  } as PaintLayer],
-  activeId: null,
-  selection: null,
-});
+const NEW_DOC = (w: number, h: number, name = 'Untitled'): DocState => {
+  // The Background layer must be ACTIVE from the start, else activeLayer is null
+  // and every active-layer tool (brush, eraser, gradient, bucket, fill, mask…)
+  // silently no-ops on a fresh blank document until the user manually clicks the
+  // layer. Pin activeId to the created layer's id.
+  const bgId = lid();
+  return {
+    name, width: w, height: h, background: '#ffffff',
+    layers: [{
+      id: bgId,
+      kind: 'paint',
+      name: 'Background',
+      canvas: blankCanvas(w, h),
+      visible: true,
+      locked: false,
+      opacity: 1,
+      blend: 'source-over',
+      adjust: { ...ZERO_ADJUST },
+    } as PaintLayer],
+    activeId: bgId,
+    selection: null,
+  };
+};
 
 let _lid = 0;
 function lid() { return `L${++_lid}_${Math.random().toString(36).slice(2, 6)}`; }

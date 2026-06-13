@@ -366,7 +366,34 @@ export function callFormula(name: string, args: any[]): any {
     case 'POISSON': case 'POISSON.DIST':  { const k = Math.floor(getNum(args[0])), mean = getNum(args[1]), cum = getNum(args[2]) !== 0; if (k < 0 || mean < 0) return '#NUM!'; if (cum) { let s = 0; for (let i = 0; i <= k; i++) s += Math.exp(-mean + i * Math.log(mean) - factln(i)); return s; } return Math.exp(-mean + k * Math.log(mean) - factln(k)); }
     case 'BINOMDIST': case 'BINOM.DIST':  { const k = Math.floor(getNum(args[0])), n = Math.floor(getNum(args[1])), p = getNum(args[2]), cum = getNum(args[3]) !== 0; if (k < 0 || k > n || p < 0 || p > 1) return '#NUM!'; const pmf = (j: number) => Math.exp(factln(n) - factln(j) - factln(n - j) + j * Math.log(p || 1e-300) + (n - j) * Math.log(1 - p || 1e-300)); if (cum) { let s = 0; for (let j = 0; j <= k; j++) s += pmf(j); return s; } return pmf(k); }
 
+    // --- Engineering: base conversions ---
+    case 'BIN2DEC':     { const s = String(args[0] ?? '').trim(); if (!/^[01]{1,10}$/.test(s)) return '#NUM!'; let v = parseInt(s, 2); if (s.length === 10 && s[0] === '1') v -= 1024; return v; }
+    case 'DEC2BIN':     { const n = Math.trunc(getNum(args[0])); if (n < -512 || n > 511) return '#NUM!'; const b = (n < 0 ? (n + 1024) : n).toString(2); const places = args.length > 1 ? Math.floor(getNum(args[1])) : 0; return n < 0 ? b : b.padStart(places, '0'); }
+    case 'HEX2DEC':     { const s = String(args[0] ?? '').trim(); if (!/^[0-9A-Fa-f]{1,10}$/.test(s)) return '#NUM!'; let v = parseInt(s, 16); if (s.length === 10 && parseInt(s[0], 16) >= 8) v -= Math.pow(16, 10); return v; }
+    case 'DEC2HEX':     { const n = Math.trunc(getNum(args[0])); if (n < -549755813888 || n > 549755813887) return '#NUM!'; const h = (n < 0 ? (n + Math.pow(16, 10)) : n).toString(16).toUpperCase(); const places = args.length > 1 ? Math.floor(getNum(args[1])) : 0; return n < 0 ? h : h.padStart(places, '0'); }
+    case 'OCT2DEC':     { const s = String(args[0] ?? '').trim(); if (!/^[0-7]{1,10}$/.test(s)) return '#NUM!'; let v = parseInt(s, 8); if (s.length === 10 && parseInt(s[0], 8) >= 4) v -= Math.pow(8, 10); return v; }
+    case 'DEC2OCT':     { const n = Math.trunc(getNum(args[0])); if (n < -536870912 || n > 536870911) return '#NUM!'; const o = (n < 0 ? (n + Math.pow(8, 10)) : n).toString(8); const places = args.length > 1 ? Math.floor(getNum(args[1])) : 0; return n < 0 ? o : o.padStart(places, '0'); }
+    // --- Engineering: bitwise ---
+    case 'BITAND':      { const a = Math.trunc(getNum(args[0])), b = Math.trunc(getNum(args[1])); if (a < 0 || b < 0) return '#NUM!'; return (a & b) >>> 0; }
+    case 'BITOR':       { const a = Math.trunc(getNum(args[0])), b = Math.trunc(getNum(args[1])); if (a < 0 || b < 0) return '#NUM!'; return (a | b) >>> 0; }
+    case 'BITXOR':      { const a = Math.trunc(getNum(args[0])), b = Math.trunc(getNum(args[1])); if (a < 0 || b < 0) return '#NUM!'; return (a ^ b) >>> 0; }
+    case 'BITLSHIFT':   { const a = Math.trunc(getNum(args[0])), s = Math.trunc(getNum(args[1])); if (a < 0) return '#NUM!'; return s >= 0 ? a * Math.pow(2, s) : Math.floor(a / Math.pow(2, -s)); }
+    case 'BITRSHIFT':   { const a = Math.trunc(getNum(args[0])), s = Math.trunc(getNum(args[1])); if (a < 0) return '#NUM!'; return s >= 0 ? Math.floor(a / Math.pow(2, s)) : a * Math.pow(2, -s); }
+    // --- Engineering: step / delta / erf ---
+    case 'GESTEP':      return getNum(args[0]) >= (args.length > 1 ? getNum(args[1]) : 0) ? 1 : 0;
+    case 'DELTA':       return getNum(args[0]) === (args.length > 1 ? getNum(args[1]) : 0) ? 1 : 0;
+    case 'ERF':         { const a = getNum(args[0]); return args.length > 1 ? erf(getNum(args[1])) - erf(a) : erf(a); }
+    case 'ERFC':        return 1 - erf(getNum(args[0]));
+    // --- More trig: inverse hyperbolic + reciprocal hyperbolic ---
+    case 'ASINH':       return Math.asinh(getNum(args[0]));
+    case 'ACOSH':       return Math.acosh(getNum(args[0]));
+    case 'ATANH':       return Math.atanh(getNum(args[0]));
+    case 'CSCH':        return 1 / Math.sinh(getNum(args[0]));
+    case 'SECH':        return 1 / Math.cosh(getNum(args[0]));
+    case 'COTH':        return 1 / Math.tanh(getNum(args[0]));
     // --- Text ---
+    case 'VALUETOTEXT': return Array.isArray(args[0]) ? String(flatAll(args[0])[0] ?? '') : String(args[0] ?? '');
+    case 'ENCODEURL':   return encodeURIComponent(String(args[0] ?? ''));
     case 'T':           return typeof args[0] === 'string' ? args[0] : '';
   }
   return '#NAME?';
@@ -455,4 +482,9 @@ export const FORMULA_NAMES = [
   'FISHER', 'FISHERINV', 'GAUSS', 'PHI', 'STANDARDIZE',
   'NORMSDIST', 'NORM.S.DIST', 'NORMSINV', 'NORM.S.INV', 'CONFIDENCE', 'CONFIDENCE.NORM',
   'EXPONDIST', 'EXPON.DIST', 'POISSON', 'POISSON.DIST', 'BINOMDIST', 'BINOM.DIST', 'T',
+  'BIN2DEC', 'DEC2BIN', 'HEX2DEC', 'DEC2HEX', 'OCT2DEC', 'DEC2OCT',
+  'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
+  'GESTEP', 'DELTA', 'ERF', 'ERFC',
+  'ASINH', 'ACOSH', 'ATANH', 'CSCH', 'SECH', 'COTH',
+  'VALUETOTEXT', 'ENCODEURL',
 ];

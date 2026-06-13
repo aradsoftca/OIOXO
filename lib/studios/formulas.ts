@@ -257,6 +257,68 @@ export function callFormula(name: string, args: any[]): any {
     case 'NPV':         { const rate = getNum(args[0]); const flows = flatNums(args.slice(1)); return flows.reduce((s, n, i) => s + n / Math.pow(1 + rate, i + 1), 0); }
     case 'IRR':         { const flows = flatNums(args[0]); let r = args.length > 1 ? getNum(args[1]) : 0.1; for (let iter = 0; iter < 100; iter++) { let npv = 0, deriv = 0; for (let i = 0; i < flows.length; i++) { npv += flows[i] / Math.pow(1 + r, i); deriv -= i * flows[i] / Math.pow(1 + r, i + 1); } if (Math.abs(npv) < 1e-7) return r; r -= npv / (deriv || 1e-10); } return r; }
     case 'RATE':        { const nper = getNum(args[0]); const pmt = getNum(args[1]); const pv = getNum(args[2]); const fv = args.length > 3 ? getNum(args[3]) : 0; let r = args.length > 5 ? getNum(args[5]) : 0.1; for (let iter = 0; iter < 100; iter++) { const f = pv * Math.pow(1 + r, nper) + pmt * (Math.pow(1 + r, nper) - 1) / r + fv; if (Math.abs(f) < 1e-7) return r; r -= 0.01 * (f > 0 ? 1 : -1); } return r; }
+    // --- Advanced financial (XIRR/XNPV use actual dates; MIRR uses two rates) ---
+    case 'XNPV': {
+      // XNPV(rate, values, dates) — present value of cashflows on actual dates.
+      const rate = getNum(args[0]);
+      const values = flatNums(args[1]);
+      const dates = flatNums(args[2]);
+      if (!values.length || values.length !== dates.length) return '#NUM!';
+      const d0 = dates[0];
+      let pv = 0;
+      for (let i = 0; i < values.length; i++) pv += values[i] / Math.pow(1 + rate, (dates[i] - d0) / 365);
+      return pv;
+    }
+    case 'XIRR': {
+      // XIRR(values, dates, [guess]) — IRR for cashflows on actual dates.
+      const values = flatNums(args[0]);
+      const dates = flatNums(args[1]);
+      if (!values.length || values.length !== dates.length) return '#NUM!';
+      const d0 = dates[0];
+      const npvAt = (r: number) => { let s = 0; for (let i = 0; i < values.length; i++) s += values[i] / Math.pow(1 + r, (dates[i] - d0) / 365); return s; };
+      const dnpvAt = (r: number) => { let s = 0; for (let i = 0; i < values.length; i++) { const t = (dates[i] - d0) / 365; s -= t * values[i] / Math.pow(1 + r, t + 1); } return s; };
+      let r = args.length > 2 ? getNum(args[2]) : 0.1;
+      for (let iter = 0; iter < 100; iter++) { const f = npvAt(r); if (Math.abs(f) < 1e-7) return r; const d = dnpvAt(r); if (!d) break; const rn = r - f / d; if (!isFinite(rn) || rn <= -1) break; r = rn; }
+      return Math.abs(npvAt(r)) < 1e-4 ? r : '#NUM!';
+    }
+    case 'MIRR': {
+      // MIRR(values, finance_rate, reinvest_rate) — modified IRR.
+      const flows = flatNums(args[0]);
+      const fin = getNum(args[1]);
+      const rein = getNum(args[2]);
+      const n = flows.length;
+      if (n < 2) return '#NUM!';
+      let pvNeg = 0, fvPos = 0;
+      for (let i = 0; i < n; i++) {
+        if (flows[i] < 0) pvNeg += flows[i] / Math.pow(1 + fin, i);
+        else fvPos += flows[i] * Math.pow(1 + rein, n - 1 - i);
+      }
+      if (pvNeg === 0 || fvPos === 0) return '#DIV/0!';
+      return Math.pow(-fvPos / pvNeg, 1 / (n - 1)) - 1;
+    }
+    case 'AGGREGATE': {
+      // AGGREGATE(fn, options, range) — a subset: fn 1..19 over the range,
+      // option 6 ignores errors. We support the common stat/agg subset.
+      const fn = Math.round(getNum(args[0]));
+      const range = args.slice(2);
+      const ns = flatNums(range);
+      const sorted = [...ns].sort((a, b) => a - b);
+      const sum = ns.reduce((s, n) => s + n, 0);
+      const avg = ns.length ? sum / ns.length : 0;
+      switch (fn) {
+        case 1: return avg;                                   // AVERAGE
+        case 2: return ns.length;                             // COUNT
+        case 3: return flatAll(range).filter(v => v !== '' && v != null).length; // COUNTA
+        case 4: return ns.length ? maxOf(ns) : 0;             // MAX
+        case 5: return ns.length ? minOf(ns) : 0;             // MIN
+        case 6: return ns.reduce((s, n) => s * n, 1);         // PRODUCT
+        case 9: return sum;                                   // SUM
+        case 12: { const m = sorted.length; return m ? (m % 2 ? sorted[(m - 1) / 2] : (sorted[m / 2 - 1] + sorted[m / 2]) / 2) : 0; } // MEDIAN
+        case 14: { const k = Math.round(getNum(args[3] ?? 1)); return sorted[sorted.length - k] ?? '#NUM!'; } // LARGE
+        case 15: { const k = Math.round(getNum(args[3] ?? 1)); return sorted[k - 1] ?? '#NUM!'; }            // SMALL
+        default: return '#VALUE!';
+      }
+    }
   }
   return '#NAME?';
 }
@@ -299,5 +361,5 @@ export const FORMULA_NAMES = [
   'WEEKDAY', 'WEEKNUM', 'DAYS', 'EDATE', 'EOMONTH', 'NETWORKDAYS', 'WORKDAY', 'YEARFRAC',
   'VLOOKUP', 'HLOOKUP', 'XLOOKUP', 'INDEX', 'MATCH', 'CHOOSE', 'ROW', 'COLUMN',
   'ISBLANK', 'ISNUMBER', 'ISTEXT', 'ISLOGICAL', 'ISERROR', 'ISNA', 'ISEVEN', 'ISODD', 'N', 'TYPE',
-  'PMT', 'PV', 'FV', 'NPER', 'NPV', 'IRR', 'RATE',
+  'PMT', 'PV', 'FV', 'NPER', 'NPV', 'IRR', 'RATE', 'XNPV', 'XIRR', 'MIRR', 'AGGREGATE',
 ];

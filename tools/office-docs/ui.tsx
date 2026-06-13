@@ -33,7 +33,7 @@ import {
   TrackChangesModel, htmlDiffMarkup, type DocChange,
   extractTocFromHtml, buildTocHtml, readAloud, stopReadAloud, makeVoiceTyping, type VoiceTypingHandler,
   preloadKatex, renderEquationToHtml, EQUATION_TEMPLATES,
-  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
+  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly, isPhone,
   pushToast, SharedDialog, EmptyState,
 } from '@/lib/studios';
 import { sanitizeHtml } from '@/lib/safe-html';
@@ -67,7 +67,9 @@ const NEW_DOC = (): DocState => {
     font: 'Georgia, serif',
     fontSize: 16,
     pageWidth: 760,
-    showOutline: true,
+    // Outline panel covers the page on a phone — start hidden there (tap the
+    // Outline toggle to show it); docked open on desktop.
+    showOutline: !isPhone(),
     locale: fallback,
     direction: 'auto',
     scriptFont: 'auto',
@@ -987,8 +989,8 @@ export default function OfficeDocsPro() {
         </div>
       )}
 
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
-        <select value={doc.locale} onChange={e => setDoc(d => ({ ...d, locale: e.target.value }))} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs" title="Document language (spell-check, direction, fonts)">
+      <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:h-10 sm:overflow-visible">
+        <select value={doc.locale} onChange={e => setDoc(d => ({ ...d, locale: e.target.value }))} className="h-9 shrink-0 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs sm:h-7" title="Document language (spell-check, direction, fonts)">
           {LOCALES.map(l => <option key={l.code} value={l.code}>{l.nativeName}</option>)}
         </select>
         <select value={doc.direction} onChange={e => setDoc(d => ({ ...d, direction: e.target.value as DocState['direction'] }))} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs" title="Text direction">
@@ -1326,7 +1328,7 @@ export default function OfficeDocsPro() {
 }
 
 const Tb = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (
-  <button onClick={onClick} title={title} className="grid h-7 w-7 place-items-center rounded text-zinc-300 hover:bg-white/5 hover:text-white">{children}</button>
+  <button onClick={onClick} title={title} className="grid h-11 w-11 shrink-0 place-items-center rounded text-zinc-300 hover:bg-white/5 hover:text-white sm:h-7 sm:w-7">{children}</button>
 );
 
 const FloatBtn = ({ onClick, title, children }: { onClick: () => void; title: string; children: React.ReactNode }) => (

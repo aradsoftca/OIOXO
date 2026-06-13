@@ -1117,7 +1117,7 @@ export default function MusicStudioPro() {
         </div>
       )}
 
-      <div className="flex h-12 shrink-0 items-center gap-4 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
+      <div className="flex h-14 shrink-0 items-center gap-4 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:min-h-11 sm:h-12 sm:overflow-visible sm:[&_button]:min-h-0">
         <button onClick={togglePlay} className="rounded bg-cyan-500 p-2 text-zinc-900 hover:bg-cyan-400">{playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
         <div className="flex items-center gap-1.5">
           <span className="text-zinc-500">BPM</span>

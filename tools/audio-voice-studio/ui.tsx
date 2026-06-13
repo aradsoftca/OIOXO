@@ -1114,7 +1114,7 @@ export default function VoiceStudioPro() {
         }
       />
 
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
+      <div className="flex h-12 shrink-0 items-center gap-2 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:min-h-11 sm:h-10 sm:overflow-visible sm:[&_button]:min-h-0">
         <button onClick={() => seek(0)} className="rounded p-1 text-zinc-400 hover:bg-white/5"><SkipBack className="h-4 w-4" /></button>
         <button onClick={() => void startPlayback()} className="rounded bg-cyan-500 p-1.5 text-zinc-900 hover:bg-cyan-400">{playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
         <button onClick={() => seek(totalDuration - 5)} className="rounded p-1 text-zinc-400 hover:bg-white/5"><SkipForward className="h-4 w-4" /></button>

@@ -1263,7 +1263,7 @@ function SlidesToolbar({
   // flagged).
   if (!phone) {
     return (
-      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-white/5 bg-[#0f1115] px-3 text-xs">
+      <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:min-h-11 [&>button]:min-w-11 [&>button]:shrink-0 [&>button]:justify-center sm:h-10 sm:overflow-visible sm:[&>button]:min-h-0 sm:[&>button]:min-w-0">
         {([['select', MousePointer2, 'Select'], ['text', TypeIcon, 'Text (T)'], ['rect', Square, 'Rectangle (R)'], ['ellipse', CircleIcon, 'Ellipse (O)'], ['arrow', ArrowRight, 'Arrow'], ['image', ImageIcon, 'Image']] as const).map(([t, Icon, label]) => (
           <button key={t} onClick={() => { if (t === 'image') addImage(); else setTool(t); }} title={label} className={cn('grid h-7 w-7 place-items-center rounded', tool === t ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/5')}>
             <Icon className="h-3.5 w-3.5" />
@@ -1298,7 +1298,7 @@ function SlidesToolbar({
 
   // Phone: horizontally-scrolling row, finger-sized targets, no `ml-auto`.
   return (
-    <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-2 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="flex h-12 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-2 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&>button]:min-h-11 [&>button]:min-w-11 [&>button]:shrink-0 [&>button]:justify-center sm:[&>button]:min-h-0 sm:[&>button]:min-w-0">
       {([['select', MousePointer2, 'Select'], ['text', TypeIcon, 'Text (T)'], ['rect', Square, 'Rectangle (R)'], ['ellipse', CircleIcon, 'Ellipse (O)'], ['arrow', ArrowRight, 'Arrow'], ['image', ImageIcon, 'Image']] as const).map(([t, Icon, label]) => (
         <button key={t} onClick={() => { if (t === 'image') addImage(); else setTool(t); }} title={label} className={cn('grid h-10 w-10 shrink-0 place-items-center rounded', tool === t ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/5')}>
           <Icon className="h-3.5 w-3.5" />

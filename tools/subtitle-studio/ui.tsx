@@ -1082,7 +1082,7 @@ export default function SubtitleStudioPro() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 border-y border-white/5 bg-[#0f1115] px-3 py-1.5">
+          <div className="flex items-center gap-2 overflow-x-auto border-y border-white/5 bg-[#0f1115] px-3 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:min-h-11 [&_button]:min-w-11 [&_button]:shrink-0 [&_button]:justify-center sm:[&_button]:min-h-0 sm:[&_button]:min-w-0">
             <button onClick={() => seek(0)} className="rounded p-1 text-zinc-400 hover:bg-white/5 hover:text-white"><SkipBack className="h-4 w-4" /></button>
             <button onClick={togglePlay} className="rounded bg-cyan-500 p-1.5 text-zinc-900 hover:bg-cyan-400 disabled:opacity-40" disabled={!mediaFile}>
               {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}

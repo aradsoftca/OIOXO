@@ -73,6 +73,10 @@ interface Sheet {
   rowHeights: Record<number, number>;
   condFormats?: CondFormatRange[];
   charts?: SheetChart[];
+  /** Column filters: colIndex → the set of cell values (as display strings)
+   *  allowed to show. A row is hidden if ANY filtered column's value isn't in
+   *  its allowed list. Row 0 (header) is never hidden. Absent = no filter. */
+  filters?: Record<number, string[]>;
 }
 
 interface FreezePanes {
@@ -105,7 +109,7 @@ const NEW_DOC = (): DocState => {
 
 const cloneDoc = (d: DocState): DocState => ({
   ...d,
-  sheets: d.sheets.map(s => ({ ...s, cells: { ...s.cells }, colWidths: { ...s.colWidths }, rowHeights: { ...s.rowHeights } })),
+  sheets: d.sheets.map(s => ({ ...s, cells: { ...s.cells }, colWidths: { ...s.colWidths }, rowHeights: { ...s.rowHeights }, filters: s.filters ? { ...s.filters } : undefined })),
   selection: { ...d.selection },
 });
 
@@ -477,6 +481,27 @@ export default function OfficeStudioPro() {
     return out;
   }, [sheet.cells, sheet.id, doc.sheets]);
 
+  // Rows hidden by column filters. A row (>0) is hidden if any filtered column's
+  // display value isn't in that column's allowed set. Header row 0 always shows.
+  const filterValue = React.useCallback((r: number, c: number): string => {
+    const cell = sheet.cells[cellKey(r, c)];
+    const v = evaluated[cellKey(r, c)] ?? cell?.raw ?? '';
+    return formatValue(v, cell?.style, doc.locale, doc.currency);
+  }, [sheet.cells, evaluated, doc.locale, doc.currency]);
+
+  const hiddenRows = React.useMemo(() => {
+    const hidden = new Set<number>();
+    const filters = sheet.filters;
+    if (!filters || !Object.keys(filters).length) return hidden;
+    const entries = Object.entries(filters).map(([c, vals]) => [+c, new Set(vals)] as const);
+    for (let r = 1; r < sheet.rows; r++) {
+      for (const [c, allowed] of entries) {
+        if (!allowed.has(filterValue(r, c))) { hidden.add(r); break; }
+      }
+    }
+    return hidden;
+  }, [sheet.filters, sheet.rows, filterValue]);
+
   const [editor, setEditor] = React.useState<{ r: number; c: number; value: string } | null>(null);
   const [formulaBar, setFormulaBar] = React.useState('');
   const [busy, setBusy] = React.useState('');
@@ -757,6 +782,45 @@ export default function OfficeStudioPro() {
     window.addEventListener('scroll', close, true);
     return () => { window.removeEventListener('click', close); window.removeEventListener('scroll', close, true); };
   }, [ctxMenu]);
+
+  // ── Column filter dropdown (hide rows by value, like Sheets/Excel) ────────
+  const [filterMenu, setFilterMenu] = React.useState<{ c: number; x: number; y: number } | null>(null);
+  React.useEffect(() => {
+    if (!filterMenu) return;
+    const close = (e: Event) => { if (!(e.target as HTMLElement)?.closest?.('[data-filter-pop]')) setFilterMenu(null); };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [filterMenu]);
+
+  // Distinct display values in a column (skipping the header row 0), sorted, for
+  // the dropdown's checkbox list.
+  const distinctColValues = React.useCallback((c: number): string[] => {
+    const seen = new Set<string>();
+    for (let r = 1; r < sheet.rows; r++) seen.add(filterValue(r, c));
+    return [...seen].sort((a, b) => {
+      const na = parseFloat(a), nb = parseFloat(b);
+      if (!isNaN(na) && !isNaN(nb) && String(na) === a.trim() && String(nb) === b.trim()) return na - nb;
+      return a.localeCompare(b);
+    });
+  }, [sheet.rows, filterValue]);
+
+  const applyColFilter = (c: number, allowed: string[] | null) => {
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === next.activeSheetId)!;
+    const filters = { ...(sh.filters ?? {}) };
+    const all = distinctColValues(c);
+    if (allowed == null || allowed.length === all.length) delete filters[c]; // "all" = no filter
+    else filters[c] = allowed;
+    sh.filters = Object.keys(filters).length ? filters : undefined;
+    commit(allowed == null ? 'clear filter' : 'filter column', next);
+  };
+
+  const clearAllFilters = () => {
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === next.activeSheetId)!;
+    sh.filters = undefined;
+    commit('clear all filters', next);
+  };
 
   // ── Crash recovery: check for a snapshot once on mount ────────────────────
   React.useEffect(() => {
@@ -1672,6 +1736,10 @@ export default function OfficeStudioPro() {
         <input type="color" onChange={e => updateStyle(s => { s.bg = e.target.value; })} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Background" />
         <span className="h-4 w-px bg-white/10" />
         <button onClick={() => setCellRaw(sel.r, sel.c, `=SUM(${colToLetter(c0)}${r0 + 1}:${colToLetter(c1)}${r1 + 1})`)} title="Insert SUM" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Sigma className="h-3 w-3" /> SUM</button>
+        <button onClick={(e) => { const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setFilterMenu({ c: sel.c, x: rect.left, y: rect.bottom }); }} title="Filter rows by the selected column's values" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Filter className="h-3 w-3" /> Filter</button>
+        {sheet.filters && Object.keys(sheet.filters).length > 0 && (
+          <button onClick={clearAllFilters} title="Remove all column filters" className="flex items-center gap-1 rounded px-2 py-1 text-cyan-300 hover:bg-white/5">Clear filters ({Object.keys(sheet.filters).length})</button>
+        )}
         <button onClick={markOutliers} title="Highlight statistical outliers in selection" className="flex items-center gap-1 rounded px-2 py-1 text-amber-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Outliers</button>
         <button onClick={runSmartFill} title="Detect pattern from filled cells and fill rest" className="flex items-center gap-1 rounded px-2 py-1 text-cyan-300 hover:bg-white/5"><Wand2 className="h-3 w-3" /> Smart fill</button>
         <span className="mx-1 h-4 w-px bg-white/10" />
@@ -1753,7 +1821,10 @@ export default function OfficeStudioPro() {
               }
               return s;
             }, [comments, sheet.id])}
+            hiddenRows={hiddenRows}
+            filteredCols={React.useMemo(() => new Set(Object.keys(sheet.filters ?? {}).map(Number)), [sheet.filters])}
             onSelect={selectCell}
+            onColFilter={(c, x, y) => setFilterMenu({ c, x, y })}
             onCellContext={(r, c, x, y) => setCtxMenu({ r, c, x, y })}
             onBeginEdit={beginEdit}
             onEditChange={(v) => setEditor(e => e ? { ...e, value: v } : null)}
@@ -1943,6 +2014,18 @@ export default function OfficeStudioPro() {
           </div>
         );
       })()}
+      {filterMenu && (
+        <FilterPopup
+          x={filterMenu.x}
+          y={filterMenu.y}
+          colLabel={colToLetter(filterMenu.c)}
+          allValues={distinctColValues(filterMenu.c)}
+          current={sheet.filters?.[filterMenu.c] ?? null}
+          onApply={(allowed) => { applyColFilter(filterMenu.c, allowed); setFilterMenu(null); }}
+          onClear={() => { applyColFilter(filterMenu.c, null); setFilterMenu(null); }}
+          onClose={() => setFilterMenu(null)}
+        />
+      )}
       {exportDialog && (
         <Dialog title="Export" onCancel={() => setExportDialog(false)} onConfirm={exportNow} confirmLabel="Download">
           <div>
@@ -2064,7 +2147,7 @@ function CellEditorInput({ value, onChange, onCommit, onCancel }: {
   );
 }
 
-function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, onSelect, onCellContext, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
+function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, hiddenRows, filteredCols, onSelect, onColFilter, onCellContext, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
   freeze: FreezePanes | null;
   evaluated: Record<string, any>;
@@ -2074,7 +2157,10 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
   locale: string;
   currency: string;
   commentedCells: Set<string>;
+  hiddenRows: Set<number>;
+  filteredCols: Set<number>;
   onSelect: (r: number, c: number, extend?: boolean) => void;
+  onColFilter: (c: number, x: number, y: number) => void;
   onCellContext: (r: number, c: number, x: number, y: number) => void;
   onBeginEdit: (r: number, c: number) => void;
   onEditChange: (v: string) => void;
@@ -2156,19 +2242,35 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
     return () => { el.removeEventListener('scroll', onScroll); ro.disconnect(); };
   }, []);
 
-  const rowOffset = (r: number) => r * cellH;
-  const totalH = sheet.rows * cellH;
+  // Collapse filter-hidden rows: build the list of visible sheet-rows, then
+  // position each at its COLLAPSED index × cellH (no gaps) and size the spacer
+  // to the collapsed count. Selection/editor still address absolute rows; only
+  // vertical layout collapses. With no filters this is identity (visibleRows[i]=i).
+  const visibleRows = React.useMemo(() => {
+    if (!hiddenRows.size) return null; // identity fast-path: r maps to r
+    const out: number[] = [];
+    for (let r = 0; r < sheet.rows; r++) if (!hiddenRows.has(r)) out.push(r);
+    return out;
+  }, [hiddenRows, sheet.rows]);
+  const visCount = visibleRows ? visibleRows.length : sheet.rows;
+  // collapsed display index for an absolute row r (binary-search-free: prefix only
+  // needed for visible rows, which we render by index anyway)
+  const rowOffset = (visIdx: number) => visIdx * cellH;
+  const totalH = visCount * cellH;
   const overscan = 8;
   const firstVisible = Math.max(0, Math.floor(scrollTop / cellH) - overscan);
-  const lastVisible = Math.min(sheet.rows, Math.ceil((scrollTop + viewportH) / cellH) + overscan);
+  const lastVisible = Math.min(visCount, Math.ceil((scrollTop + viewportH) / cellH) + overscan);
 
   React.useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const target = selection.r * cellH;
+    // Use the collapsed display index so scroll-into-view is correct under filters.
+    const visIdx = visibleRows ? visibleRows.indexOf(selection.r) : selection.r;
+    if (visIdx < 0) return; // selected row is filtered out — don't scroll
+    const target = visIdx * cellH;
     if (target < el.scrollTop + 30) el.scrollTop = Math.max(0, target - 30);
     else if (target > el.scrollTop + el.clientHeight - cellH - 30) el.scrollTop = target - el.clientHeight + cellH + 30;
-  }, [selection.r]);
+  }, [selection.r, visibleRows]);
 
   // Ghost-preview range while dragging the fill handle (constrained to one axis,
   // matching the commit logic). A dashed band shows what will be extended.
@@ -2191,13 +2293,13 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
   // the scrolling list; mode='frozen' = sticky-pinned near the top so it stays
   // visible on vertical scroll (rows are absolute, so a frozen row can't just be
   // sticky in-place — it renders in a separate always-present band).
-  const renderRow = (r: number, mode: 'flow' | 'frozen') => {
+  const renderRow = (r: number, mode: 'flow' | 'frozen', visIdx: number) => {
     const frozen = mode === 'frozen';
     return (
       <div key={`${mode}-${r}`} style={
         frozen
-          ? { position: 'sticky', top: cellH + r * cellH, left: 0, height: rowH(r), display: 'flex', zIndex: 22, background: '#0c0d10' }
-          : { position: 'absolute', top: rowOffset(r), left: 0, height: rowH(r), display: 'flex' }
+          ? { position: 'sticky', top: cellH + visIdx * cellH, left: 0, height: rowH(r), display: 'flex', zIndex: 22, background: '#0c0d10' }
+          : { position: 'absolute', top: rowOffset(visIdx), left: 0, height: rowH(r), display: 'flex' }
       }>
         <div style={{ width: headerW, zIndex: frozen ? 33 : undefined }} className={cn(
           'sticky left-0 z-20 shrink-0 border-b border-r border-white/10 text-center text-[10px] font-medium leading-[24px]',
@@ -2318,6 +2420,18 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
             c >= c0 && c <= c1 ? 'bg-cyan-500/20 text-cyan-200' : 'bg-[#0f1115] text-zinc-500',
           )}>
             {colToLetter(c)}
+            {/* filter funnel — opens the value dropdown; lit cyan when active */}
+            <button
+              onMouseDown={(e) => { e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); onColFilter(c, rect.left, rect.bottom); }}
+              title="Filter this column"
+              className={cn(
+                'absolute left-0.5 top-1/2 z-10 -translate-y-1/2 rounded p-0.5 opacity-0 transition group-hover:opacity-100',
+                filteredCols.has(c) ? 'text-cyan-400 opacity-100' : 'text-zinc-500 hover:text-cyan-300',
+              )}
+            >
+              <Filter className="h-3 w-3" />
+            </button>
             {/* resize grip on the right border */}
             <div
               onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); setResize({ c, startX: e.clientX, startW: colW(c), w: colW(c) }); }}
@@ -2333,11 +2447,13 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
         {/* Frozen rows: an always-present sticky band pinned just under the
             column header. Rendered separately from the virtualized list (which
             skips them) because the list rows are absolute-positioned. */}
-        {frozenRows > 0 && Array.from({ length: frozenRows }, (_, r) => renderRow(r, 'frozen'))}
+        {frozenRows > 0 && Array.from({ length: frozenRows }, (_, r) => renderRow(r, 'frozen', r))}
         {Array.from({ length: Math.max(0, lastVisible - firstVisible) }, (_, i) => {
-          const r = firstVisible + i;
+          const visIdx = firstVisible + i;
+          const r = visibleRows ? visibleRows[visIdx] : visIdx;
+          if (r === undefined) return null;
           if (r < frozenRows) return null; // rendered in the frozen band above
-          return renderRow(r, 'flow');
+          return renderRow(r, 'flow', visIdx);
         })}
       </div>
       {resize && (
@@ -2345,6 +2461,60 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
           {colToLetter(resize.c)} · {Math.round(resize.w)}px
         </div>
       )}
+    </div>
+  );
+}
+
+/** Column-filter dropdown: a searchable checkbox list of the column's distinct
+ *  values (Sheets/Excel-style). Returns the chosen allowed values, or clears. */
+function FilterPopup({ x, y, colLabel, allValues, current, onApply, onClear, onClose }: {
+  x: number; y: number; colLabel: string;
+  allValues: string[];
+  current: string[] | null;
+  onApply: (allowed: string[]) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const [checked, setChecked] = React.useState<Set<string>>(() => new Set(current ?? allValues));
+  const [q, setQ] = React.useState('');
+  const shown = q ? allValues.filter(v => v.toLowerCase().includes(q.toLowerCase())) : allValues;
+  const toggle = (v: string) => setChecked(s => { const n = new Set(s); n.has(v) ? n.delete(v) : n.add(v); return n; });
+  const allShownChecked = shown.length > 0 && shown.every(v => checked.has(v));
+  const left = Math.min(x, (typeof window !== 'undefined' ? window.innerWidth : 9999) - 240);
+  const top = Math.min(y, (typeof window !== 'undefined' ? window.innerHeight : 9999) - 360);
+  return (
+    <div data-filter-pop className="fixed z-[110] flex w-[228px] flex-col rounded-lg border border-white/10 bg-[#16181d] shadow-2xl" style={{ left, top }} onMouseDown={e => e.stopPropagation()}>
+      <div className="flex items-center justify-between border-b border-white/5 px-3 py-2 text-[11px] font-semibold text-zinc-300">
+        <span>Filter · column {colLabel}</span>
+        <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200"><X className="h-3 w-3" /></button>
+      </div>
+      <div className="p-2">
+        <input
+          autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search values…"
+          className="mb-1 w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-[11px] text-zinc-200 outline-none focus:border-cyan-500/60"
+        />
+        <label className="flex items-center gap-2 border-b border-white/5 px-1 py-1 text-[11px] text-zinc-400">
+          <input type="checkbox" checked={allShownChecked} onChange={() => setChecked(s => { const n = new Set(s); allShownChecked ? shown.forEach(v => n.delete(v)) : shown.forEach(v => n.add(v)); return n; })} />
+          {allShownChecked ? 'Clear all' : 'Select all'}
+        </label>
+      </div>
+      <div className="max-h-[200px] overflow-y-auto px-2 pb-2">
+        {shown.length === 0 && <div className="px-1 py-2 text-[11px] text-zinc-500">No values</div>}
+        {shown.map(v => (
+          <label key={v} className="flex items-center gap-2 rounded px-1 py-0.5 text-[12px] text-zinc-200 hover:bg-white/5">
+            <input type="checkbox" checked={checked.has(v)} onChange={() => toggle(v)} />
+            <span className="truncate" title={v}>{v === '' ? '(blank)' : v}</span>
+          </label>
+        ))}
+      </div>
+      <div className="flex gap-1 border-t border-white/5 p-2">
+        <button onClick={onClear} className="flex-1 rounded bg-white/5 px-2 py-1 text-[11px] text-zinc-300 hover:bg-white/10">Clear filter</button>
+        <button
+          disabled={checked.size === 0}
+          onClick={() => onApply([...checked])}
+          className="flex-1 rounded bg-cyan-500 px-2 py-1 text-[11px] font-medium text-zinc-900 hover:bg-cyan-400 disabled:opacity-40"
+        >Apply</button>
+      </div>
     </div>
   );
 }

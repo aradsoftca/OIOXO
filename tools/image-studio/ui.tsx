@@ -8,7 +8,7 @@ import {
   Eye, EyeOff, Lock, Unlock, ChevronUp, ChevronDown, Trash2, Plus,
   Copy, FolderPlus, Download, Save, Upload, Undo2, Redo2,
   FlipHorizontal2, FlipVertical2, RotateCw, Sparkles, Image as ImageIcon,
-  X, Check, AlertTriangle, FileText, Loader2, LayoutTemplate,
+  X, Check, AlertTriangle, FileText, Loader2, LayoutTemplate, Blend,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -50,7 +50,7 @@ import {
 
 type ToolKind =
   | 'move' | 'marquee-rect' | 'marquee-ellipse' | 'lasso' | 'wand'
-  | 'crop' | 'eyedropper' | 'brush' | 'eraser' | 'bucket'
+  | 'crop' | 'eyedropper' | 'brush' | 'eraser' | 'bucket' | 'gradient'
   | 'clone' | 'heal'
   | 'text' | 'shape-rect' | 'shape-ellipse' | 'hand' | 'zoom';
 
@@ -637,6 +637,17 @@ function lassoMask(w: number, h: number, points: { x: number; y: number }[]): HT
   return c;
 }
 
+// Convert a #rrggbb (or #rgb) hex to an rgba() string with the given alpha —
+// used for the gradient tool's "to transparent" stop.
+function hexToRgba(hex: string, alpha: number): string {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map(c => c + c).join('');
+  const r = parseInt(h.slice(0, 2), 16) || 0;
+  const g = parseInt(h.slice(2, 4), 16) || 0;
+  const b = parseInt(h.slice(4, 6), 16) || 0;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function rectMask(w: number, h: number, x: number, y: number, rw: number, rh: number, ellipse = false): HTMLCanvasElement {
   const c = blankCanvas(w, h);
   const ctx = c.getContext('2d')!;
@@ -700,6 +711,7 @@ const TOOLS: { tool: ToolKind; label: string; key: string; icon: React.ReactNode
   { tool: 'clone', label: 'Clone Stamp (alt-click to set source)', key: 's', icon: <Copy className="h-4 w-4" /> },
   { tool: 'heal', label: 'Healing Brush (alt-click to set source)', key: 'j', icon: <Sparkles className="h-4 w-4" /> },
   { tool: 'bucket', label: 'Paint Bucket', key: 'g', icon: <PaintBucket className="h-4 w-4" /> },
+  { tool: 'gradient', label: 'Gradient (drag to draw)', key: 'shift+g', icon: <Blend className="h-4 w-4" /> },
   { tool: 'text', label: 'Text', key: 't', icon: <TypeIcon className="h-4 w-4" /> },
   { tool: 'shape-rect', label: 'Rectangle', key: 'u', icon: <Square className="h-4 w-4" /> },
   { tool: 'shape-ellipse', label: 'Ellipse', key: 'shift+u', icon: <CircleIcon className="h-4 w-4" /> },
@@ -850,6 +862,9 @@ export default function ImageStudioPro() {
   // Selection combine mode (replace/add/subtract/intersect) — pro selection
   // ergonomics so marquee/lasso/wand build up a selection instead of replacing.
   const [selMode, setSelMode] = React.useState<SelMode>('replace');
+  // Gradient tool options: linear vs radial, and fg→bg vs fg→transparent.
+  const [gradType, setGradType] = React.useState<'linear' | 'radial'>('linear');
+  const [gradStyle, setGradStyle] = React.useState<'fg-bg' | 'fg-transparent'>('fg-bg');
   const [textSettings, setTextSettings] = React.useState({
     font: FONTS[0], size: 64, color: '#111111', weight: 700, italic: false,
     align: 'left' as CanvasTextAlign, letterSpacing: 0, lineHeight: 1.2,
@@ -2393,6 +2408,42 @@ export default function ImageStudioPro() {
         requestAnimationFrame(fitToScreen);
       }
     }
+    if (t === 'gradient') {
+      const x1 = ptrState.current.startX, y1 = ptrState.current.startY, x2 = p.x, y2 = p.y;
+      if (Math.hypot(x2 - x1, y2 - y1) > 3) {
+        const al = activeLayer;
+        if (!al || al.kind !== 'paint') { toastFor('Pick a paint layer to draw a gradient'); }
+        else {
+          const next = cloneDoc(doc);
+          const l = next.layers.find(x => x.id === al.id) as PaintLayer | undefined;
+          if (l) {
+            // Render the gradient on a scratch canvas, intersect with the active
+            // selection (if any), then composite onto the paint layer.
+            const scratch = blankCanvas(doc.width, doc.height);
+            const sctx = scratch.getContext('2d')!;
+            const c0 = fgColor;
+            const c1 = gradStyle === 'fg-bg' ? bgColor : hexToRgba(fgColor, 0);
+            let grad: CanvasGradient;
+            if (gradType === 'radial') {
+              grad = sctx.createRadialGradient(x1, y1, 0, x1, y1, Math.hypot(x2 - x1, y2 - y1));
+            } else {
+              grad = sctx.createLinearGradient(x1, y1, x2, y2);
+            }
+            grad.addColorStop(0, c0);
+            grad.addColorStop(1, c1);
+            sctx.fillStyle = grad;
+            sctx.fillRect(0, 0, doc.width, doc.height);
+            if (doc.selection) {
+              sctx.globalCompositeOperation = 'destination-in';
+              sctx.drawImage(doc.selection.mask, 0, 0, doc.width, doc.height);
+            }
+            l.canvas.getContext('2d')!.drawImage(scratch, 0, 0);
+            commit('gradient', next);
+            bumpRevision(l.id);
+          }
+        }
+      }
+    }
     ptrState.current.tool = null;
     ptrState.current.points = [];
   };
@@ -2607,6 +2658,7 @@ export default function ImageStudioPro() {
         eraserSize={eraserSize} setEraserSize={setEraserSize}
         wandTol={wandTol} setWandTol={setWandTol}
         selMode={selMode} setSelMode={setSelMode} onInvertSelection={invertSelection}
+        gradType={gradType} setGradType={setGradType} gradStyle={gradStyle} setGradStyle={setGradStyle}
         fgColor={fgColor} setFgColor={setFgColor}
         bgColor={bgColor} setBgColor={setBgColor}
         textSettings={textSettings} setTextSettings={setTextSettings}
@@ -3146,6 +3198,8 @@ function ToolOptionsBar(props: {
   wandTol: number; setWandTol: (n: number) => void;
   selMode: SelMode; setSelMode: (m: SelMode) => void;
   onInvertSelection: () => void;
+  gradType: 'linear' | 'radial'; setGradType: (t: 'linear' | 'radial') => void;
+  gradStyle: 'fg-bg' | 'fg-transparent'; setGradStyle: (s: 'fg-bg' | 'fg-transparent') => void;
   fgColor: string; setFgColor: (c: string) => void;
   bgColor: string; setBgColor: (c: string) => void;
   textSettings: any; setTextSettings: (t: any) => void;
@@ -3166,7 +3220,7 @@ function ToolOptionsBar(props: {
   // pushing the canvas down. So on mobile: show ONLY the active tool's options,
   // and when the tool has none (move/select/crop/zoom/hand/eyedropper) collapse
   // the whole bar. Filters/transform move into the "Effects" sheet (top-bar FX).
-  const toolHasOptions = ['brush', 'eraser', 'wand', 'bucket', 'text', 'shape-rect', 'shape-ellipse',
+  const toolHasOptions = ['brush', 'eraser', 'wand', 'bucket', 'gradient', 'text', 'shape-rect', 'shape-ellipse',
     // Selection tools carry the Replace/Add/Subtract/Intersect mode toggle + Invert
     // on mobile too — without these the pro selection ergonomics were unreachable
     // on a phone (the bar collapsed for marquee/lasso).
@@ -3217,6 +3271,21 @@ function ToolOptionsBar(props: {
             ))}
           </div>
           {props.hasSelection && <button onClick={props.onInvertSelection} title="Invert selection (Ctrl+Shift+I)" className={cn('shrink-0 rounded bg-white/5 text-zinc-200 hover:bg-white/10', isMobile ? 'px-3 py-2 min-h-[44px]' : 'px-2 py-1 text-xs')}>Invert</button>}
+        </>
+      )}
+      {tool === 'gradient' && (
+        <>
+          <Label>Gradient</Label>
+          <div className="flex shrink-0 gap-0.5 rounded bg-black/30 p-0.5">
+            {(['linear', 'radial'] as const).map(g => (
+              <button key={g} onClick={() => props.setGradType(g)} className={cn('rounded capitalize', isMobile ? 'px-3 py-2 min-h-[44px] text-xs' : 'px-2 py-0.5 text-xs', props.gradType === g ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/10')}>{g}</button>
+            ))}
+          </div>
+          <div className="flex shrink-0 gap-0.5 rounded bg-black/30 p-0.5">
+            {([['fg-bg', 'Fg→Bg'], ['fg-transparent', 'Fg→Clear']] as const).map(([s, lbl]) => (
+              <button key={s} onClick={() => props.setGradStyle(s)} className={cn('rounded', isMobile ? 'px-3 py-2 min-h-[44px] text-xs' : 'px-2 py-0.5 text-xs', props.gradStyle === s ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-300 hover:bg-white/10')}>{lbl}</button>
+            ))}
+          </div>
         </>
       )}
       {tool === 'wand' && (

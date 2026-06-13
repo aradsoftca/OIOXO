@@ -257,6 +257,32 @@ export function callFormula(name: string, args: any[]): any {
     case 'NPV':         { const rate = getNum(args[0]); const flows = flatNums(args.slice(1)); return flows.reduce((s, n, i) => s + n / Math.pow(1 + rate, i + 1), 0); }
     case 'IRR':         { const flows = flatNums(args[0]); let r = args.length > 1 ? getNum(args[1]) : 0.1; for (let iter = 0; iter < 100; iter++) { let npv = 0, deriv = 0; for (let i = 0; i < flows.length; i++) { npv += flows[i] / Math.pow(1 + r, i); deriv -= i * flows[i] / Math.pow(1 + r, i + 1); } if (Math.abs(npv) < 1e-7) return r; r -= npv / (deriv || 1e-10); } return r; }
     case 'RATE':        { const nper = getNum(args[0]); const pmt = getNum(args[1]); const pv = getNum(args[2]); const fv = args.length > 3 ? getNum(args[3]) : 0; let r = args.length > 5 ? getNum(args[5]) : 0.1; for (let iter = 0; iter < 100; iter++) { const f = pv * Math.pow(1 + r, nper) + pmt * (Math.pow(1 + r, nper) - 1) / r + fv; if (Math.abs(f) < 1e-7) return r; r -= 0.01 * (f > 0 ? 1 : -1); } return r; }
+    // --- More math ---
+    case 'FACT':        { const n = Math.floor(getNum(args[0])); if (n < 0) return '#NUM!'; let f = 1; for (let i = 2; i <= n; i++) f *= i; return f; }
+    case 'FACTDOUBLE':  { const n = Math.floor(getNum(args[0])); if (n < 0) return '#NUM!'; let f = 1; for (let i = n; i > 1; i -= 2) f *= i; return f; }
+    case 'COMBIN':      { const n = Math.floor(getNum(args[0])), k = Math.floor(getNum(args[1])); if (k < 0 || k > n) return '#NUM!'; let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1); return Math.round(r); }
+    case 'PERMUT':      { const n = Math.floor(getNum(args[0])), k = Math.floor(getNum(args[1])); if (k < 0 || k > n) return '#NUM!'; let r = 1; for (let i = 0; i < k; i++) r *= (n - i); return r; }
+    case 'MROUND':      { const x = getNum(args[0]), m = getNum(args[1]); if (m === 0) return 0; return Math.round(x / m) * m; }
+    case 'QUOTIENT':    return Math.trunc(getNum(args[0]) / getNum(args[1]));
+    case 'SEC':         return 1 / Math.cos(getNum(args[0]));
+    case 'CSC':         return 1 / Math.sin(getNum(args[0]));
+    case 'COT':         return 1 / Math.tan(getNum(args[0]));
+    case 'BASE':        { const n = Math.floor(getNum(args[0])), radix = Math.floor(getNum(args[1])); const minLen = args.length > 2 ? Math.floor(getNum(args[2])) : 0; return n.toString(radix).toUpperCase().padStart(minLen, '0'); }
+    case 'DECIMAL':     { const s = String(args[0] ?? '').trim(); const radix = Math.floor(getNum(args[1])); const v = parseInt(s, radix); return isNaN(v) ? '#NUM!' : v; }
+    case 'ROMAN':       { let n = Math.floor(getNum(args[0])); if (n < 1 || n > 3999) return '#VALUE!'; const map: [number, string][] = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']]; let out = ''; for (const [v, sym] of map) while (n >= v) { out += sym; n -= v; } return out; }
+    case 'ARABIC':      { const s = String(args[0] ?? '').toUpperCase(); const val: Record<string, number> = { I:1,V:5,X:10,L:50,C:100,D:500,M:1000 }; let total = 0; for (let i = 0; i < s.length; i++) { const c = val[s[i]] ?? 0, nx = val[s[i+1]] ?? 0; total += c < nx ? -c : c; } return total; }
+    // --- More stats ---
+    case 'GEOMEAN':     { const ns = flatNums(args).filter(n => n > 0); return ns.length ? Math.pow(ns.reduce((p, n) => p * n, 1), 1 / ns.length) : '#NUM!'; }
+    case 'HARMEAN':     { const ns = flatNums(args).filter(n => n !== 0); return ns.length ? ns.length / ns.reduce((s, n) => s + 1 / n, 0) : '#NUM!'; }
+    case 'AVEDEV':      { const ns = flatNums(args); if (!ns.length) return '#NUM!'; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + Math.abs(n - m), 0) / ns.length; }
+    case 'DEVSQ':       { const ns = flatNums(args); if (!ns.length) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + (n - m) * (n - m), 0); }
+    case 'TRIMMEAN':    { const ns = flatNums(args[0]).sort((a, b) => a - b); const pct = getNum(args[1]); const cut = Math.floor(ns.length * pct / 2); const kept = ns.slice(cut, ns.length - cut); return kept.length ? kept.reduce((s, n) => s + n, 0) / kept.length : '#NUM!'; }
+    // --- Text ---
+    case 'TEXTBEFORE':  { const s = String(args[0] ?? ''); const delim = String(args[1] ?? ''); const i = s.indexOf(delim); return i < 0 ? '#N/A' : s.slice(0, i); }
+    case 'TEXTAFTER':   { const s = String(args[0] ?? ''); const delim = String(args[1] ?? ''); const i = s.indexOf(delim); return i < 0 ? '#N/A' : s.slice(i + delim.length); }
+    case 'NUMBERVALUE': { const s = String(args[0] ?? '').replace(/[^\d.\-]/g, ''); const v = parseFloat(s); return isNaN(v) ? '#VALUE!' : v; }
+    case 'FIXED':       { const n = getNum(args[0]); const dec = args.length > 1 ? Math.floor(getNum(args[1])) : 2; const noCommas = args.length > 2 && !!args[2]; const fixed = n.toFixed(Math.max(0, dec)); return noCommas ? fixed : fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+    case 'DOLLAR':      { const n = getNum(args[0]); const dec = args.length > 1 ? Math.floor(getNum(args[1])) : 2; return '$' + n.toFixed(Math.max(0, dec)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
     // --- Advanced financial (XIRR/XNPV use actual dates; MIRR uses two rates) ---
     case 'XNPV': {
       // XNPV(rate, values, dates) — present value of cashflows on actual dates.
@@ -362,4 +388,7 @@ export const FORMULA_NAMES = [
   'VLOOKUP', 'HLOOKUP', 'XLOOKUP', 'INDEX', 'MATCH', 'CHOOSE', 'ROW', 'COLUMN',
   'ISBLANK', 'ISNUMBER', 'ISTEXT', 'ISLOGICAL', 'ISERROR', 'ISNA', 'ISEVEN', 'ISODD', 'N', 'TYPE',
   'PMT', 'PV', 'FV', 'NPER', 'NPV', 'IRR', 'RATE', 'XNPV', 'XIRR', 'MIRR', 'AGGREGATE',
+  'FACT', 'FACTDOUBLE', 'COMBIN', 'PERMUT', 'MROUND', 'QUOTIENT', 'SEC', 'CSC', 'COT',
+  'BASE', 'DECIMAL', 'ROMAN', 'ARABIC', 'GEOMEAN', 'HARMEAN', 'AVEDEV', 'DEVSQ', 'TRIMMEAN',
+  'TEXTBEFORE', 'TEXTAFTER', 'NUMBERVALUE', 'FIXED', 'DOLLAR',
 ];

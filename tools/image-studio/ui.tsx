@@ -1187,6 +1187,46 @@ export default function ImageStudioPro() {
     commit('duplicate', next);
   };
 
+  // Merge Down (Photoshop Ctrl+E): flatten the active layer onto the layer
+  // directly below it, honoring the active layer's opacity + blend exactly as it
+  // composites on canvas (reuse compositeLayerInto so the result is pixel-
+  // identical to what the user sees). The merged pixels are baked into a new
+  // paint layer that takes the lower layer's slot; the lower layer keeps its
+  // name/position, and the active layer is removed. The merged layer becomes
+  // active. Layers are ordered bottom→top, so "below" is idx-1.
+  const mergeDown = (id: string) => {
+    const idx = doc.layers.findIndex(l => l.id === id);
+    if (idx <= 0) { toastFor('No layer below to merge into'); return; }
+    const upper = doc.layers[idx];
+    const lower = doc.layers[idx - 1];
+    if (lower.locked) { toastFor('Layer below is locked'); return; }
+    const w = doc.width, h = doc.height;
+    // Bake the lower layer (with its own adjust/fx/mask/opacity/blend) into a
+    // flat canvas, then composite the upper layer over it the same way the doc
+    // compositor would (clipBase = the lower layer's rendered alpha).
+    const flat = blankCanvas(w, h);
+    const fctx = flat.getContext('2d')!;
+    const lowerRendered = renderLayer(lower, w, h);
+    let lowerClipBase: HTMLCanvasElement | null = null;
+    if (lowerRendered) {
+      compositeLayerInto(fctx, null, lowerRendered, lower, w, h);
+      if (!lower.clip) lowerClipBase = lowerRendered;
+    }
+    const upperRendered = renderLayer(upper, w, h);
+    if (upperRendered) compositeLayerInto(fctx, lowerClipBase, upperRendered, upper, w, h);
+    const merged: PaintLayer = {
+      id: lid(), kind: 'paint', name: lower.name,
+      canvas: flat,
+      visible: true, locked: false,
+      opacity: 1, blend: 'source-over',
+      adjust: { ...ZERO_ADJUST },
+    };
+    const next = cloneDoc(doc);
+    next.layers.splice(idx - 1, 2, merged);
+    next.activeId = merged.id;
+    commit('merge down', next);
+  };
+
   const moveLayer = (id: string, dir: -1 | 1) => {
     const next = cloneDoc(doc);
     const idx = next.layers.findIndex(l => l.id === id);
@@ -3470,7 +3510,8 @@ export default function ImageStudioPro() {
               <div className="space-y-1">
                 <div className="flex gap-1 pb-2">
                   <StudioButton size="sm" variant="soft" onClick={() => addLayer(newPaintLayer())} title="New paint layer"><Plus className="h-3 w-3" /> Paint</StudioButton>
-                  <StudioButton size="sm" variant="soft" onClick={() => duplicateLayer(activeLayer?.id ?? '')} disabled={!activeLayer}><Copy className="h-3 w-3" /></StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => duplicateLayer(activeLayer?.id ?? '')} disabled={!activeLayer} title="Duplicate layer"><Copy className="h-3 w-3" /></StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => activeLayer && mergeDown(activeLayer.id)} disabled={!activeLayer || doc.layers.findIndex(l => l.id === activeLayer.id) <= 0} title="Merge down — flatten onto the layer below"><Blend className="h-3 w-3" /></StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => moveLayer(activeLayer?.id ?? '', 1)} disabled={!activeLayer}><ChevronUp className="h-3 w-3" /></StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => moveLayer(activeLayer?.id ?? '', -1)} disabled={!activeLayer}><ChevronDown className="h-3 w-3" /></StudioButton>
                   <StudioButton size="sm" variant="danger" onClick={() => activeLayer && removeLayer(activeLayer.id)} disabled={!activeLayer}><Trash2 className="h-3 w-3" /></StudioButton>

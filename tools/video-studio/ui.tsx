@@ -3001,6 +3001,38 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
               ))}
             </div>
             <AnimatableSlider label="Opacity" value={c.opacity} min={0} max={100} suffix="%" paramName="opacity" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).opacity = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), opacity: kf }; })} />
+            <div className="text-xs text-zinc-500">Fade (animates opacity)</div>
+            <div className="grid grid-cols-3 gap-1">
+              {([
+                { id: 'in', label: 'Fade in' },
+                { id: 'out', label: 'Fade out' },
+                { id: 'both', label: 'Fade both' },
+              ] as const).map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => onChange(x => {
+                    const v = x as VideoClip;
+                    // Keep the fade under half the clip so in+out don't overlap on
+                    // short clips. Keyframes are sampled in clip-local seconds, so a
+                    // re-trim just re-positions the existing curve via clipDuration.
+                    const dur = clipDuration(v);
+                    const fade = Math.min(0.7, dur / 2);
+                    let kf: AnimatedParam<number> = makeStatic(v.opacity);
+                    if (f.id === 'in' || f.id === 'both') {
+                      kf = addKeyframe(kf, 0, 0, 'ease-out');
+                      kf = addKeyframe(kf, fade, 100);
+                    }
+                    if (f.id === 'out' || f.id === 'both') {
+                      kf = addKeyframe(kf, Math.max(fade, dur - fade), 100, 'ease-in');
+                      kf = addKeyframe(kf, dur, 0);
+                    }
+                    v.opacity = 100;
+                    v.keyframes = { ...(v.keyframes ?? {}), opacity: kf };
+                  })}
+                  className="rounded bg-white/5 px-1.5 py-1 text-[10px] text-zinc-300 hover:bg-white/10"
+                >{f.label}</button>
+              ))}
+            </div>
             <StudioSlider label="Volume" value={Math.round(c.volume * 100)} min={0} max={200} onChange={v => onChange(x => { (x as VideoClip).volume = v / 100; })} suffix="%" />
             <div className="text-xs text-zinc-500">Fit</div>
             <div className="flex gap-1">

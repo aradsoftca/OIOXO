@@ -139,6 +139,23 @@ interface EvalContext {
    *  ROW()/COLUMN() return the real position instead of a hardcoded 1. */
   curRow?: number;
   curCol?: number;
+  /** Named ranges (UPPER-CASE name → A1-style ref) for the active sheet,
+   *  substituted into the formula text before tokenizing so `=SUM(SALES)`
+   *  evaluates as `=SUM(A1:A10)`. */
+  names?: Record<string, string>;
+}
+
+// Substitute named ranges into a raw formula. Mirrors NamedRangesModel.resolveInFormula:
+// names are word-boundary matched (so `TAX` doesn't hit `TAXES`) and the name is
+// regex-escaped before injection. Returns the formula unchanged when no names apply.
+function resolveNames(formula: string, names?: Record<string, string>): string {
+  if (!names) return formula;
+  let result = formula;
+  for (const name in names) {
+    const safe = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(`\\b${safe}\\b`, 'gi'), names[name]);
+  }
+  return result;
 }
 
 function parseSheetRef(s: string): { sheet: string; ref: string } | null {
@@ -173,7 +190,7 @@ function evalCell(r: number, c: number, ctx: EvalContext): any {
   const prevR = ctx.curRow, prevC = ctx.curCol;
   ctx.curRow = r + 1; ctx.curCol = c + 1; // stored 0-based, sheet refs are 1-based
   try {
-    return evalExpr(raw.slice(1), ctx);
+    return evalExpr(resolveNames(raw.slice(1), ctx.names), ctx);
   } catch {
     return '#ERR';
   } finally {
@@ -470,16 +487,23 @@ export default function OfficeStudioPro() {
 
   const sheet = doc.sheets.find(s => s.id === doc.activeSheetId) ?? doc.sheets[0];
 
+  const namedRangesModel = React.useRef<NamedRangesModel>(new NamedRangesModel());
+  const [namedRanges, setNamedRanges] = React.useState<NamedRange[]>([]);
+
   const evaluated = React.useMemo(() => {
     const out: Record<string, any> = {};
-    const ctx: EvalContext = { sheet, visiting: new Set(), allSheets: doc.sheets };
+    const names: Record<string, string> = {};
+    for (const nr of namedRanges) {
+      if (nr.sheetId === sheet.id) names[nr.name.toUpperCase()] = nr.ref;
+    }
+    const ctx: EvalContext = { sheet, visiting: new Set(), allSheets: doc.sheets, names: Object.keys(names).length ? names : undefined };
     for (const [k, cell] of Object.entries(sheet.cells)) {
       if (!cell.raw) continue;
       const [rs, cs] = k.split('_');
       out[k] = evalCell(+rs, +cs, ctx);
     }
     return out;
-  }, [sheet.cells, sheet.id, doc.sheets]);
+  }, [sheet.cells, sheet.id, doc.sheets, namedRanges]);
 
   // Rows hidden by column filters. A row (>0) is hidden if any filtered column's
   // display value isn't in that column's allowed set. Header row 0 always shows.
@@ -504,6 +528,9 @@ export default function OfficeStudioPro() {
 
   const [editor, setEditor] = React.useState<{ r: number; c: number; value: string } | null>(null);
   const [formulaBar, setFormulaBar] = React.useState('');
+  // Excel-style Name Box: empty = show the active address; typing a name + Enter
+  // defines that name for the current selection. null = not being edited.
+  const [nameBox, setNameBox] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [openDialog, setOpenDialog] = React.useState(false);
@@ -1485,8 +1512,6 @@ export default function OfficeStudioPro() {
   const [commentAuthor, setCommentAuthor] = React.useState('Me');
   const commentColor = React.useMemo(() => pickPeerColor(commentAuthor), [commentAuthor]);
 
-  const namedRangesModel = React.useRef<NamedRangesModel>(new NamedRangesModel());
-  const [namedRanges, setNamedRanges] = React.useState<NamedRange[]>([]);
   const [showNamedRangesDialog, setShowNamedRangesDialog] = React.useState(false);
   const dataValidationModel = React.useRef<DataValidationModel>(new DataValidationModel());
   const [dvRules, setDvRules] = React.useState<DataValidationRule[]>([]);
@@ -1756,7 +1781,31 @@ export default function OfficeStudioPro() {
           {LOCALES.map(l => <option key={l.code} value={l.code}>{l.nativeName} ({l.code})</option>)}
         </select>
         <div className="ml-2 flex flex-1 items-center gap-2">
-          <span className="rounded bg-white/5 px-2 py-1 font-mono text-[11px] text-zinc-300">{colToLetter(sel.c)}{sel.r + 1}</span>
+          <input
+            value={nameBox ?? (r0 === r1 && c0 === c1 ? `${colToLetter(c0)}${r0 + 1}` : `${colToLetter(c0)}${r0 + 1}:${colToLetter(c1)}${r1 + 1}`)}
+            onChange={e => setNameBox(e.target.value.replace(/[^A-Za-z0-9_:]/g, ''))}
+            onFocus={() => setNameBox('')}
+            onBlur={() => setNameBox(null)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                const name = (nameBox ?? '').trim();
+                if (name && /^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+                  const ref = r0 === r1 && c0 === c1
+                    ? `${colToLetter(c0)}${r0 + 1}`
+                    : `${colToLetter(c0)}${r0 + 1}:${colToLetter(c1)}${r1 + 1}`;
+                  const ok = namedRangesModel.current.add({ name, sheetId: sheet.id, ref });
+                  toastFor(ok ? `Named ${ref} as “${name}”` : `Name “${name}” already exists`);
+                } else if (name) {
+                  toastFor('Invalid name (use letters, digits, underscore)');
+                }
+                setNameBox(null);
+                (e.target as HTMLInputElement).blur();
+              }
+              if (e.key === 'Escape') { setNameBox(null); (e.target as HTMLInputElement).blur(); }
+            }}
+            title="Name Box — type a name and press Enter to name the current selection"
+            className="w-24 rounded bg-white/5 px-2 py-1 font-mono text-[11px] text-zinc-300 outline-none focus:bg-[#0a0b0e] focus:ring-1 focus:ring-cyan-400/50"
+          />
           <span className="text-zinc-500">fx</span>
           <input
             value={formulaBar}

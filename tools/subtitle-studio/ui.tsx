@@ -767,6 +767,34 @@ export default function SubtitleStudioPro() {
     toastFor(`Extended ${fixed} fast cue${fixed === 1 ? '' : 's'} to ≤${MAX_READ_CPS} chars/sec`);
   };
 
+  // Re-sort cues by start time and reset the per-block index numbering — the SRT
+  // index is always emitted as i+1 on export (cuesToSrt), but this makes the
+  // working order explicit + deterministic after lots of splits/merges/edits.
+  const reindexCues = () => {
+    if (!doc.cues.length) { toastFor('No cues to re-index'); return; }
+    const next = cloneDoc(doc);
+    next.cues.sort((a, b) => a.start - b.start);
+    commit('re-index', next);
+    toastFor(`Re-indexed ${next.cues.length} cue${next.cues.length === 1 ? '' : 's'} in timeline order`);
+  };
+
+  // Shift every cue so the first one starts at exactly 0:00 (kills the leading
+  // dead-air auto-transcribe often leaves; word timings stay coherent).
+  const zeroFirstCue = () => {
+    if (!doc.cues.length) { toastFor('No cues to align'); return; }
+    const first = Math.min(...doc.cues.map(c => c.start));
+    if (first <= 1e-4) { toastFor('First cue already starts at 0:00 ✓'); return; }
+    const next = cloneDoc(doc);
+    for (const c of next.cues) {
+      c.start = Math.max(0, c.start - first);
+      c.end = Math.max(c.start + 0.1, c.end - first);
+      if (c.words) c.words = c.words.map(w => ({ ...w, start: Math.max(0, w.start - first), end: Math.max(0, w.end - first) }));
+    }
+    next.cues.sort((a, b) => a.start - b.start);
+    commit('zero first cue', next);
+    toastFor(`Shifted everything back ${first.toFixed(2)}s — first cue now at 0:00`);
+  };
+
   const translateAll = async () => {
     const targetLang = window.prompt('Translate to language code (e.g. es, fr, de, ja):', 'es');
     if (!targetLang) return;
@@ -823,6 +851,16 @@ export default function SubtitleStudioPro() {
   const activeCue = doc.cues.find(c => c.start <= time && c.end > time) ?? null;
   const cuesHaveWords = doc.cues.some(c => c.words && c.words.length);
   const selectedCue = doc.cues.find(c => c.id === doc.selectedId) ?? null;
+  // Total program duration = the last cue's out-point (end of the timeline). Shown
+  // as the toolbar "Σ N cues · M:SS total" readout.
+  const totalDuration = doc.cues.length ? Math.max(...doc.cues.map(c => c.end)) : 0;
+  const fmtMSS = (s: number) => {
+    if (!Number.isFinite(s) || s < 0) s = 0;
+    return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  };
+  // Can we split the selected cue right here? Only when a cue is selected AND the
+  // playhead is strictly inside it (matches splitAtTime's own 0.1s guard).
+  const canSplitHere = !!selectedCue && time > selectedCue.start + 0.1 && time < selectedCue.end - 0.1;
 
   // Word-level retime: which word (index) of the selected cue is being tuned.
   // Rivals' auto-captioners give you a flat block; per-word timing is the
@@ -1207,11 +1245,17 @@ export default function SubtitleStudioPro() {
             <button onClick={fixTiming} title="Fix timing: clamp overlaps, enforce min duration + gap, fix negative durations across all cues" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Fix timing</button>
             <button onClick={fixReadingSpeed} title="Fix CPS: auto-extend cues that read too fast (>21 chars/sec) until they hit a comfortable reading speed, without overlapping the next cue" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Wand2 className="h-3 w-3" /> Fix CPS</button>
             <div className="mx-1 h-4 w-px bg-white/10" />
+            <button onClick={() => doc.selectedId && splitAtTime(doc.selectedId, time)} disabled={!canSplitHere} title={canSplitHere ? 'Split the selected cue into two at the playhead' : 'Select a cue and move the playhead inside it to split here'} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent"><Scissors className="h-3 w-3" /> Split here</button>
+            <button onClick={reindexCues} title="Re-sort cues by start time and renumber them 1…N in timeline order" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><FileText className="h-3 w-3" /> Re-index</button>
+            <button onClick={zeroFirstCue} title="Shift everything so the first cue starts at exactly 0:00 (removes leading dead-air)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><SkipBack className="h-3 w-3" /> First → 0</button>
+            <div className="mx-1 h-4 w-px bg-white/10" />
             <button onClick={() => shiftTiming(-0.5)} title="Shift all cues (or the selected cue) 0.5s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronLeft className="h-3 w-3" /> Shift −0.5s</button>
             <button onClick={() => shiftTiming(0.5)} title="Shift all cues (or the selected cue) 0.5s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronRight className="h-3 w-3" /> Shift +0.5s</button>
             <button onClick={() => scaleTiming(1.04)} title="Scale all cue times ×1.04 — stretch timing 4% slower (e.g. framerate conversion)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Rewind className="h-3 w-3" /> Slower 4%</button>
             <button onClick={() => scaleTiming(0.96)} title="Scale all cue times ×0.96 — compress timing 4% faster (e.g. framerate conversion)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><FastForward className="h-3 w-3" /> Faster 4%</button>
             <div className="ml-auto flex items-center gap-2">
+              <span className="text-[11px] tabular-nums text-zinc-400" title="Total cues · timeline length (end of the last cue)">Σ {doc.cues.length} cue{doc.cues.length === 1 ? '' : 's'} · {fmtMSS(totalDuration)} total</span>
+              <div className="mx-1 h-4 w-px bg-white/10" />
               <button onClick={() => setZoom(z => Math.max(10, z / 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomOut className="h-3.5 w-3.5" /></button>
               <span className="text-[10px] tabular-nums text-zinc-500">{Math.round(zoom)}px/s</span>
               <button onClick={() => setZoom(z => Math.min(400, z * 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomIn className="h-3.5 w-3.5" /></button>

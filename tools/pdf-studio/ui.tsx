@@ -198,6 +198,7 @@ export default function PdfStudioPro() {
   const dragRect = React.useRef<{ nx: number; ny: number } | null>(null);
   const pendingImgPos = React.useRef<{ nx: number; ny: number } | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const appendRef = React.useRef<HTMLInputElement | null>(null);
   const imgToPdfRef = React.useRef<HTMLInputElement | null>(null);
   const imgRef = React.useRef<HTMLInputElement | null>(null);
   const editorRef = React.useRef<HTMLDivElement | null>(null);
@@ -521,6 +522,20 @@ export default function PdfStudioPro() {
     } finally {
       setBusy(''); setProgress(0);
     }
+  };
+
+  // Append another PDF (Acrobat "Insert pages → from file"): load the picked
+  // file(s) through the EXACT same path as the initial open (addPdf), which
+  // already stacks onto docRef.current — so their pages land at the end of
+  // doc.pages with their source rasters wired up. Reuses the existing load +
+  // cloneDoc/commit machinery; the only difference from "Open" is intent +
+  // the after-toast. Encrypted appends fall through to the password prompt.
+  const appendPdf = async (files: File[]) => {
+    if (!files.length) return;
+    const before = docRef.current.pages.length;
+    for (const f of files) await addPdf(f);
+    const added = docRef.current.pages.length - before;
+    if (added > 0) toastFor(`Appended ${added} page${added === 1 ? '' : 's'}`);
   };
 
   // Unlock an encrypted PDF: decrypt the bytes with the password, then open the
@@ -1260,6 +1275,12 @@ export default function PdfStudioPro() {
             <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white">
               <Upload className="h-3.5 w-3.5" /> Add PDF
               <input type="file" accept="application/pdf" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) for (const f of Array.from(fs)) await addPdf(f); e.target.value = ''; }} />
+            </label>
+            {/* Append another PDF's pages to the END of this document — reuses the
+                same load path (appendPdf → addPdf), which stacks onto docRef. */}
+            <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white" title="Append another PDF to the end of this document">
+              <Plus className="h-3.5 w-3.5" /> Append PDF
+              <input ref={appendRef} type="file" accept="application/pdf" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) await appendPdf(Array.from(fs)); e.target.value = ''; }} />
             </label>
             <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
             <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>

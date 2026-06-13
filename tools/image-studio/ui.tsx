@@ -2951,6 +2951,14 @@ function ToolOptionsBar(props: {
   const { tool } = props;
   const { mode } = useResponsiveStudio();
   const isMobile = mode !== 'desktop';
+  // On a phone, screen height is precious. The always-on filters/flip/rotate row
+  // (10+ buttons you rarely touch) belongs in a menu, not a permanent 56px strip
+  // pushing the canvas down. So on mobile: show ONLY the active tool's options,
+  // and when the tool has none (move/select/crop/zoom/hand/eyedropper) collapse
+  // the whole bar. Filters/transform move into the "Effects" sheet (top-bar FX).
+  const toolHasOptions = ['brush', 'eraser', 'wand', 'bucket', 'text', 'shape-rect', 'shape-ellipse'].includes(tool);
+  const [fxOpen, setFxOpen] = React.useState(false);
+  if (isMobile && !toolHasOptions && !props.hasSelection) return null;
   // Phone: raw range inputs are ~6px tall with ungrabbable native thumbs and
   // would scroll the page on drag. Reuse the shell's .studio-range (taller,
   // 26px coarse-pointer thumb) + touch-action:none. Desktop keeps the original
@@ -3026,22 +3034,56 @@ function ToolOptionsBar(props: {
           </>}
         </>
       )}
-      <div className="mx-1 h-5 w-px bg-white/10" />
-      <button onClick={() => props.onFilter('blur')} className={btn}>Blur</button>
-      <button onClick={() => props.onFilter('sharpen')} className={btn}>Sharpen</button>
-      <button onClick={() => props.onFilter('noise')} className={btn}>Noise</button>
-      <button onClick={() => props.onFilter('pixelate')} className={btn}>Pixelate</button>
-      <button onClick={() => props.onFilter('posterize')} className={btn}>Posterize</button>
-      <button onClick={() => props.onFilter('emboss')} className={btn}>Emboss</button>
-      <button onClick={() => props.onFilter('edge')} className={btn}>Edges</button>
-      <div className="mx-1 h-5 w-px bg-white/10" />
-      <button onClick={() => props.onFlip('h')} className={iconBtn} title="Flip H"><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
-      <button onClick={() => props.onFlip('v')} className={iconBtn} title="Flip V"><FlipVertical2 className="h-3.5 w-3.5" /></button>
-      <button onClick={() => props.onRotate(90)} className={iconBtn} title="Rotate 90°"><RotateCw className="h-3.5 w-3.5" /></button>
-      <div className="mx-1 h-5 w-px bg-white/10" />
-      <button onClick={props.onFitScreen} className={btn}>Fit</button>
-      {props.hasSelection && (
-        <button onClick={props.onClearSelection} className={cn(btn, 'text-cyan-300')}>Deselect</button>
+      {/* Filters + transform. DESKTOP: the full inline row (unchanged). MOBILE:
+          collapsed into one "FX" button that opens a popover — keeps the bar to
+          just the active tool's options so the canvas gets the height back. */}
+      {isMobile ? (
+        <>
+          {(toolHasOptions) && <div className="mx-1 h-5 w-px bg-white/10" />}
+          <div className="relative shrink-0">
+            <button onClick={() => setFxOpen(o => !o)} className={cn(btn, 'flex items-center gap-1')}>
+              <Sparkles className="h-3.5 w-3.5" /> FX
+            </button>
+            {fxOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setFxOpen(false)} />
+                <div className="absolute left-0 top-full z-50 mt-1 grid w-56 grid-cols-2 gap-1 rounded-xl border border-white/10 bg-[#15171c] p-2 shadow-2xl">
+                  {(['blur','sharpen','noise','pixelate','posterize','emboss','edge'] as const).map(f => (
+                    <button key={f} onClick={() => { props.onFilter(f); setFxOpen(false); }} className="rounded-lg px-2 py-2.5 text-left text-xs capitalize hover:bg-white/5">{f === 'edge' ? 'Edges' : f}</button>
+                  ))}
+                  <div className="col-span-2 my-1 h-px bg-white/10" />
+                  <button onClick={() => { props.onFlip('h'); setFxOpen(false); }} className="flex items-center gap-2 rounded-lg px-2 py-2.5 text-xs hover:bg-white/5"><FlipHorizontal2 className="h-4 w-4" /> Flip H</button>
+                  <button onClick={() => { props.onFlip('v'); setFxOpen(false); }} className="flex items-center gap-2 rounded-lg px-2 py-2.5 text-xs hover:bg-white/5"><FlipVertical2 className="h-4 w-4" /> Flip V</button>
+                  <button onClick={() => { props.onRotate(90); setFxOpen(false); }} className="col-span-2 flex items-center gap-2 rounded-lg px-2 py-2.5 text-xs hover:bg-white/5"><RotateCw className="h-4 w-4" /> Rotate 90°</button>
+                </div>
+              </>
+            )}
+          </div>
+          <button onClick={props.onFitScreen} className={btn}>Fit</button>
+          {props.hasSelection && (
+            <button onClick={props.onClearSelection} className={cn(btn, 'text-cyan-300')}>Deselect</button>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="mx-1 h-5 w-px bg-white/10" />
+          <button onClick={() => props.onFilter('blur')} className={btn}>Blur</button>
+          <button onClick={() => props.onFilter('sharpen')} className={btn}>Sharpen</button>
+          <button onClick={() => props.onFilter('noise')} className={btn}>Noise</button>
+          <button onClick={() => props.onFilter('pixelate')} className={btn}>Pixelate</button>
+          <button onClick={() => props.onFilter('posterize')} className={btn}>Posterize</button>
+          <button onClick={() => props.onFilter('emboss')} className={btn}>Emboss</button>
+          <button onClick={() => props.onFilter('edge')} className={btn}>Edges</button>
+          <div className="mx-1 h-5 w-px bg-white/10" />
+          <button onClick={() => props.onFlip('h')} className={iconBtn} title="Flip H"><FlipHorizontal2 className="h-3.5 w-3.5" /></button>
+          <button onClick={() => props.onFlip('v')} className={iconBtn} title="Flip V"><FlipVertical2 className="h-3.5 w-3.5" /></button>
+          <button onClick={() => props.onRotate(90)} className={iconBtn} title="Rotate 90°"><RotateCw className="h-3.5 w-3.5" /></button>
+          <div className="mx-1 h-5 w-px bg-white/10" />
+          <button onClick={props.onFitScreen} className={btn}>Fit</button>
+          {props.hasSelection && (
+            <button onClick={props.onClearSelection} className={cn(btn, 'text-cyan-300')}>Deselect</button>
+          )}
+        </>
       )}
     </div>
   );

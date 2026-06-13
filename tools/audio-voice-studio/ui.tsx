@@ -175,6 +175,9 @@ const applyEffectChain = (buf: AudioBuffer, chain: AppliedEffect[]): AudioBuffer
       case 'treble-shelf': out = audio.trebleBoost(out, Number(p.gain ?? 0)); break;
       case '3band-eq':
         if (Number(p.bass ?? 0)) out = audio.bassBoost(out, Number(p.bass));
+        // MID band — was silently dropped (dead knob); now a real peaking EQ at
+        // the declared centre (~1 kHz).
+        if (Number(p.mid ?? 0)) out = audio.midBoost(out, Number(p.mid), 1000, 1);
         if (Number(p.treble ?? 0)) out = audio.trebleBoost(out, Number(p.treble));
         break;
       case 'compressor':
@@ -1442,6 +1445,9 @@ function Timeline({ doc, buffers, zoom, snap, onSeek, onSelect, onMoveClip, onTr
   const onPointerDownClip = (e: React.PointerEvent, c: Clip, mode: 'move' | 'trim-l' | 'trim-r') => {
     e.stopPropagation();
     onSelect(c.id);
+    // Honour the track lock — the lock button was cosmetic; clips on a locked
+    // track must not move or trim (select-only). Makes the affordance real.
+    if (doc.tracks.find(t => t.id === c.trackId)?.locked) return;
     (e.target as Element).setPointerCapture?.(e.pointerId);
     drag.current = {
       type: mode, id: c.id, ox: e.clientX,

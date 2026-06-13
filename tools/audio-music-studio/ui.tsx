@@ -81,6 +81,9 @@ interface DocState {
   bpm: number;
   swing: number;
   key: string;
+  /** Scale mode for chord/melody helpers. Optional → defaults to 'minor' for
+   *  back-compat (the chord fill used to be hardcoded minor). */
+  mode?: 'major' | 'minor';
   master: number;
   patterns: Pattern[];
   chain: string[];
@@ -669,8 +672,10 @@ export default function MusicStudioPro() {
             const chance = lane01(pattern.chance, inst.id, stepIdx, 1);
             if (chance < 1 && Math.random() > chance) continue;
             // Per-step velocity scales the hit's loudness (ghost notes, accents).
+            // Floor-protect so a low-velocity ghost note stays audible instead of
+            // collapsing below the noise floor when the track volume is also low.
             const vel = lane01(pattern.vel, inst.id, stepIdx, 1);
-            const stepInst = vel === 1 ? inst : { ...inst, volume: inst.volume * vel };
+            const stepInst = vel === 1 ? inst : { ...inst, volume: Math.max(inst.volume * 0.12, inst.volume * vel) };
             scheduleStep(c, trackGain, t, stepInst, n, live.key, stepDur);
           }
         }
@@ -719,7 +724,9 @@ export default function MusicStudioPro() {
   };
 
   const fillFromChords = () => {
-    const progs = suggestChordProgression(doc.key, 'minor');
+    // Honour the project's scale mode instead of always-minor (which gave major
+    // projects wrong-sounding minor progressions).
+    const progs = suggestChordProgression(doc.key, doc.mode ?? 'minor');
     if (!progs.length) return;
     const prog = progs[Math.floor(Math.random() * progs.length)];
     const next = cloneDoc(doc);
@@ -1128,6 +1135,10 @@ export default function MusicStudioPro() {
           <select value={doc.key} onChange={e => commit('key', { ...cloneDoc(doc), key: e.target.value })} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs">
             {KEYS.map(k => <option key={k} value={k}>{k}</option>)}
           </select>
+          <select value={doc.mode ?? 'minor'} onChange={e => commit('mode', { ...cloneDoc(doc), mode: e.target.value as 'major' | 'minor' })} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-2 text-xs" title="Scale mode — drives chord fill + suggestions">
+            <option value="major">major</option>
+            <option value="minor">minor</option>
+          </select>
         </div>
         <div className="flex items-center gap-1.5" title="Sound kit — re-voices every instrument. Picking one previews it.">
           <span className="text-zinc-500">Kit</span>
@@ -1239,7 +1250,14 @@ export default function MusicStudioPro() {
                   <button onClick={() => updateInstrument(inst.id, i => { i.muted = !i.muted; })} className={cn('rounded p-1', inst.muted ? 'bg-rose-500/20 text-rose-300' : 'text-zinc-500 hover:bg-white/5')}>{inst.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}</button>
                   <button onClick={() => updateInstrument(inst.id, i => { i.solo = !i.solo; })} className={cn('rounded px-1.5 text-[10px] font-bold', inst.solo ? 'bg-yellow-500 text-zinc-900' : 'text-zinc-500 hover:bg-white/5')}>S</button>
                 </div>
-                <input type="range" min={0} max={1} step={0.01} value={inst.volume} onChange={e => updateInstrument(inst.id, i => { i.volume = +e.target.value; })} className="mt-1 h-1 w-full" />
+                <input type="range" min={0} max={1} step={0.01} value={inst.volume} onChange={e => updateInstrument(inst.id, i => { i.volume = +e.target.value; })} className="mt-1 h-1 w-full" title="Volume" />
+                {/* Pan — routing to the StereoPanner already existed, but there was
+                    no control, so every track was stuck dead-centre. -1 L … +1 R. */}
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="text-[9px] text-zinc-500">L</span>
+                  <input type="range" min={-1} max={1} step={0.02} value={inst.pan ?? 0} onChange={e => updateInstrument(inst.id, i => { i.pan = +e.target.value; })} className="h-1 flex-1" title={`Pan ${Math.round((inst.pan ?? 0) * 100)}`} onDoubleClick={() => updateInstrument(inst.id, i => { i.pan = 0; })} />
+                  <span className="text-[9px] text-zinc-500">R</span>
+                </div>
               </div>
             ))}
           </StudioPanel>

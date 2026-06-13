@@ -49,6 +49,34 @@ export function shelf(x: Float32Array, sampleRate: number, type: 'low' | 'high',
   return out;
 }
 
+/**
+ * RBJ peaking (bell) EQ biquad — boosts/cuts a band around `freq` with bandwidth
+ * set by `q`. Used for the 3-band EQ's MID band (the shelves cover bass/treble).
+ * At 0 dB it is identity. Returns a new array; input untouched.
+ */
+export function peaking(x: Float32Array, sampleRate: number, freq: number, gainDb: number, q = 1): Float32Array {
+  const A = Math.pow(10, gainDb / 40);
+  const w0 = (2 * Math.PI * freq) / sampleRate;
+  const cos = Math.cos(w0), sin = Math.sin(w0);
+  const alpha = sin / (2 * q);
+  const b0 = 1 + alpha * A;
+  const b1 = -2 * cos;
+  const b2 = 1 - alpha * A;
+  const a0 = 1 + alpha / A;
+  const a1 = -2 * cos;
+  const a2 = 1 - alpha / A;
+  const cb0 = b0 / a0, cb1 = b1 / a0, cb2 = b2 / a0, ca1 = a1 / a0, ca2 = a2 / a0;
+  const out = new Float32Array(x.length);
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < x.length; i++) {
+    const xn = x[i];
+    const yn = cb0 * xn + cb1 * x1 + cb2 * x2 - ca1 * y1 - ca2 * y2;
+    x2 = x1; x1 = xn; y2 = y1; y1 = yn;
+    out[i] = yn;
+  }
+  return out;
+}
+
 /** Feedback echo: each repeat is `decay` of the previous, `delaySec` apart. */
 export function echo(x: Float32Array, sampleRate: number, delaySec: number, decay: number): Float32Array {
   const d = Math.max(1, Math.round(delaySec * sampleRate));

@@ -119,6 +119,11 @@ export function bassBoost(ab: AudioBuffer, gainDb = 6): AudioBuffer {
 export function trebleBoost(ab: AudioBuffer, gainDb = 6): AudioBuffer {
   return applyDsp(ab, (x, sr) => dsp.shelf(x, sr, 'high', 3500, gainDb));
 }
+/** Mid (peaking/bell) EQ band — completes the 3-band EQ (bass shelf + mid bell +
+ *  treble shelf). Default 1 kHz centre, moderate Q. */
+export function midBoost(ab: AudioBuffer, gainDb = 6, freq = 1000, q = 1): AudioBuffer {
+  return applyDsp(ab, (x, sr) => dsp.peaking(x, sr, freq, gainDb, q));
+}
 export function echo(ab: AudioBuffer, delaySec = 0.3, decay = 0.4): AudioBuffer {
   return applyDsp(ab, (x, sr) => dsp.echo(x, sr, delaySec, decay), delaySec * 4);
 }

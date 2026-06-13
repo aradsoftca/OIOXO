@@ -673,6 +673,49 @@ export default function OfficeStudioPro() {
     commit('clear', next);
   };
 
+  // Sort the selected range (rows) by a column. If the selection is a single
+  // cell, sort the contiguous data block it sits in. `byCol` defaults to the
+  // selection's left column. Numbers sort numerically, else lexicographically.
+  const sortSelection = (dir: 'asc' | 'desc', byCol?: number) => {
+    let r0 = Math.min(sel.r, sel.r2), r1 = Math.max(sel.r, sel.r2);
+    let c0 = Math.min(sel.c, sel.c2), c1 = Math.max(sel.c, sel.c2);
+    // Single cell → expand to the surrounding non-empty block.
+    if (r0 === r1 && c0 === c1) {
+      const occ = (r: number, c: number) => !!sheet.cells[cellKey(r, c)]?.raw;
+      while (r0 > 0 && occ(r0 - 1, c0)) r0--;
+      while (r1 < sheet.rows - 1 && occ(r1 + 1, c0)) r1++;
+      while (c0 > 0 && occ(r0, c0 - 1)) c0--;
+      while (c1 < sheet.cols - 1 && occ(r0, c1 + 1)) c1++;
+    }
+    if (r1 <= r0) { toastFor('Select at least two rows to sort'); return; }
+    const sortCol = byCol ?? c0;
+    const next = cloneDoc(doc);
+    const sh = next.sheets.find(s => s.id === sheet.id)!;
+    // Snapshot the rows in the block (full cell objects per column).
+    const rows: { key: any; cells: Record<number, any> }[] = [];
+    for (let r = r0; r <= r1; r++) {
+      const cells: Record<number, any> = {};
+      for (let c = c0; c <= c1; c++) { const cell = sh.cells[cellKey(r, c)]; if (cell) cells[c] = cell; }
+      const keyRaw = sh.cells[cellKey(r, sortCol)]?.raw ?? '';
+      const num = parseFloat(String(keyRaw));
+      rows.push({ key: keyRaw === '' ? null : (isNaN(num) ? String(keyRaw).toLowerCase() : num), cells });
+    }
+    rows.sort((a, b) => {
+      if (a.key === null) return 1; if (b.key === null) return -1; // blanks last
+      const cmp = typeof a.key === 'number' && typeof b.key === 'number' ? a.key - b.key : String(a.key) < String(b.key) ? -1 : String(a.key) > String(b.key) ? 1 : 0;
+      return dir === 'asc' ? cmp : -cmp;
+    });
+    // Write back the sorted rows into the block.
+    for (let i = 0; i < rows.length; i++) {
+      const r = r0 + i;
+      for (let c = c0; c <= c1; c++) {
+        const cell = rows[i].cells[c];
+        if (cell) sh.cells[cellKey(r, c)] = cell; else delete sh.cells[cellKey(r, c)];
+      }
+    }
+    commit(`sort ${dir}`, next);
+  };
+
   // ── Find & Replace (Ctrl+H) ───────────────────────────────────────────────
   const [findReplace, setFindReplace] = React.useState<{ find: string; replace: string; matchCase: boolean } | null>(null);
   // Find next cell (after the current selection) whose raw value contains `find`.
@@ -1892,6 +1935,9 @@ export default function OfficeStudioPro() {
             <div className="my-1 border-t border-white/5" />
             <Item label={`Delete ${nRows} row${nRows > 1 ? 's' : ''}`} onClick={() => deleteRows(r0, nRows)} danger />
             <Item label={`Delete ${nCols} column${nCols > 1 ? 's' : ''}`} onClick={() => deleteCols(c0, nCols)} danger />
+            <div className="my-1 border-t border-white/5" />
+            <Item label="Sort A→Z (by this column)" onClick={() => sortSelection('asc', ctxMenu.c)} />
+            <Item label="Sort Z→A (by this column)" onClick={() => sortSelection('desc', ctxMenu.c)} />
             <div className="my-1 border-t border-white/5" />
             <Item label="Clear contents" onClick={() => clearSelectionContents()} />
           </div>

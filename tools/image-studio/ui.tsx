@@ -3563,6 +3563,7 @@ export default function ImageStudioPro() {
                     onLock={() => updateLayer(l.id, x => { x.locked = !x.locked; }, 'lock')}
                     onRename={n => renameLayer(l.id, n)}
                     onDoubleClick={() => l.kind === 'text' && !l.locked && setTextEditOpen(l.id)}
+                    onChange={mut => updateLayer(l.id, mut, 'layer opacity')}
                   />
                 ))}
               </div>
@@ -3970,8 +3971,8 @@ const Swatch = ({ color, onChange }: { color: string; onChange: (c: string) => v
   </label>
 );
 
-function LayerRow({ layer, active, onSelect, onToggle, onLock, onRename, onDoubleClick }: {
-  layer: Layer; active: boolean; onSelect: () => void; onToggle: () => void; onLock: () => void; onRename: (n: string) => void; onDoubleClick?: () => void;
+function LayerRow({ layer, active, onSelect, onToggle, onLock, onRename, onDoubleClick, onChange }: {
+  layer: Layer; active: boolean; onSelect: () => void; onToggle: () => void; onLock: () => void; onRename: (n: string) => void; onDoubleClick?: () => void; onChange?: (mut: (l: Layer) => void) => void;
 }) {
   const [editing, setEditing] = React.useState(false);
   const [name, setName] = React.useState(layer.name);
@@ -4004,6 +4005,18 @@ function LayerRow({ layer, active, onSelect, onToggle, onLock, onRename, onDoubl
         />
       ) : (
         <div className="flex-1 truncate text-xs text-zinc-200">{layer.name}</div>
+      )}
+      {/* Inline opacity quick-slider — shown only on the active row so the list
+          stays compact; mirrors the inspector's Opacity but saves a trip there. */}
+      {active && onChange && (
+        <input
+          type="range" min={0} max={100}
+          value={Math.round(layer.opacity * 100)}
+          onClick={e => e.stopPropagation()}
+          onChange={e => { e.stopPropagation(); const v = Number(e.target.value); onChange(l => { l.opacity = v / 100; }); }}
+          title={`Opacity ${Math.round(layer.opacity * 100)}%`}
+          className="h-1 w-12 cursor-pointer accent-cyan-400"
+        />
       )}
       <button onClick={e => { e.stopPropagation(); onLock(); }} className="text-zinc-500 opacity-0 hover:text-white group-hover:opacity-100">
         {layer.locked ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}

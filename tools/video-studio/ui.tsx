@@ -849,6 +849,30 @@ export default function VideoStudioPro() {
     toastFor(`Applied ${grade.name} to all clips`);
   };
 
+  // Set a transition on EVERY cut at once — the "transitions to all cuts" move
+  // every editor has. A clip's `transition` is its INCOMING blend (drawn over the
+  // previous clip on the same track), so we apply it to every video clip that has
+  // an earlier clip before it on its own track, skipping the first clip per track
+  // (nothing to blend from). Passing 'none' clears them all. Length defaults to
+  // the clip's current transDur (or 0.5s).
+  const applyTransitionsToAllCuts = (id: TransitionId) => {
+    const next = cloneDoc(doc);
+    const videos = next.clips.filter(c => c.kind === 'video') as VideoClip[];
+    let changed = 0;
+    for (const c of videos) {
+      // Is there an earlier clip on the same track? → this is a cut, not the lead-in.
+      const hasPrev = videos.some(o => o.trackId === c.trackId && o.id !== c.id && o.start < c.start);
+      if (!hasPrev) { if (id === 'none') { c.transition = 'none'; } continue; }
+      c.transition = id;
+      if (id !== 'none' && !c.transDur) c.transDur = 0.5;
+      changed++;
+    }
+    if (!changed && id !== 'none') { toastFor('Need at least two clips on a track to add a transition'); return; }
+    const label = TRANSITION_LIST.find(t => t.id === id)?.label ?? id;
+    commit(`transitions: ${id}`, next);
+    toastFor(id === 'none' ? 'Cleared all transitions' : `${label} added to ${changed} cut${changed > 1 ? 's' : ''}`);
+  };
+
   // Auto-reframe: find the subject in the current preview frame (on-device
   // segmentation) and set the first video clip's PiP transform so the subject
   // stays centered + filled — the "make my 16:9 into 9:16 keeping the person"
@@ -2288,7 +2312,7 @@ export default function VideoStudioPro() {
         </div>
 
         <StudioSidebar width={280} label="Inspector" autoOpen={false}>
-          {selectedClip ? <ClipInspector clip={selectedClip} media={selectedClip.kind !== 'text' ? mediaMap.get(selectedClip.mediaId) ?? null : null} onChange={(mut) => updateClip(selectedClip.id, mut, 'props')} onOpenText={() => selectedClip.kind === 'text' && setTextDialogClip(selectedClip.id)} onApplyGrade={(g) => applyGradeToClip(selectedClip.id, g)} playhead={doc.playhead} /> : (
+          {selectedClip ? <ClipInspector clip={selectedClip} media={selectedClip.kind !== 'text' ? mediaMap.get(selectedClip.mediaId) ?? null : null} onChange={(mut) => updateClip(selectedClip.id, mut, 'props')} onOpenText={() => selectedClip.kind === 'text' && setTextDialogClip(selectedClip.id)} onApplyGrade={(g) => applyGradeToClip(selectedClip.id, g)} onAllTransitions={applyTransitionsToAllCuts} playhead={doc.playhead} /> : (
             <StudioPanel title="Inspector">
               <div className="text-xs text-zinc-500">Select a clip on the timeline to edit its properties.</div>
             </StudioPanel>
@@ -2338,6 +2362,7 @@ export default function VideoStudioPro() {
                 onChange={(mut) => updateClip(fc.id, mut, 'props')}
                 onOpenText={() => fc.kind === 'text' && setTextDialogClip(fc.id)}
                 onApplyGrade={(g) => applyGradeToClip(fc.id, g)}
+                onAllTransitions={applyTransitionsToAllCuts}
                 playhead={doc.playhead}
               />
             </div>
@@ -2984,7 +3009,7 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
   );
 }
 
-function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhead }: { clip: TimelineClip; media: MediaItem | null; onChange: (mut: (c: TimelineClip) => void) => void; onOpenText: () => void; onApplyGrade?: (gradeId: string) => void; playhead?: number }) {
+function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, onAllTransitions, playhead }: { clip: TimelineClip; media: MediaItem | null; onChange: (mut: (c: TimelineClip) => void) => void; onOpenText: () => void; onApplyGrade?: (gradeId: string) => void; onAllTransitions?: (id: TransitionId) => void; playhead?: number }) {
   if (clip.kind === 'video') {
     const c = clip;
     const matchedGrade = COLOR_GRADES.find(g => Math.abs(g.brightness - c.brightness) < 2 && Math.abs(g.contrast - c.contrast) < 2 && Math.abs(g.saturation - c.saturation) < 2 && Math.abs(g.hue - c.hue) < 3);
@@ -3048,6 +3073,12 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
             </div>
             {(c.transition && c.transition !== 'none') && (
               <StudioSlider label="Transition length" value={Math.round((c.transDur ?? 0.5) * 100)} min={20} max={200} onChange={v => onChange(x => { (x as VideoClip).transDur = v / 100; })} suffix=" cs" />
+            )}
+            {onAllTransitions && (
+              <div className="flex gap-1">
+                <button onClick={() => onAllTransitions((c.transition && c.transition !== 'none') ? c.transition : 'fade')} className="flex-1 rounded bg-cyan-500/15 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/25" title="Apply this transition to every cut on the timeline">Apply to all cuts</button>
+                <button onClick={() => onAllTransitions('none')} className="rounded bg-white/5 px-2 py-1 text-[10px] text-zinc-300 hover:bg-white/10" title="Remove every clip transition">Clear all</button>
+              </div>
             )}
           </div>
         </StudioPanel>

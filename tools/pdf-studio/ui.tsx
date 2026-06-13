@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import {
-  Loader2, Download, Plus, Trash2, RotateCw, Copy, ChevronLeft, ChevronRight,
+  Loader2, Download, Plus, Trash2, RotateCw, RotateCcw, Copy, ChevronLeft, ChevronRight,
   Type as TypeIcon, SquareDashed, Image as ImageIcon, Hash, FileText, Highlighter,
   PenTool, Eraser, Minus, Circle as CircleIcon, Save, Upload, Undo2, Redo2, X,
   MousePointer2, Signature, FileSignature, Sparkles, Shield, ScanText, MessageSquare,
@@ -584,6 +584,12 @@ export default function PdfStudioPro() {
     const next = cloneDoc(doc);
     const p = next.pages.find(x => x.id === id);
     if (p) p.rotation = (p.rotation + 90) % 360;
+    commit('rotate', next);
+  };
+  const rotatePageLeft = (id: string) => {
+    const next = cloneDoc(doc);
+    const p = next.pages.find(x => x.id === id);
+    if (p) p.rotation = (p.rotation + 270) % 360;
     commit('rotate', next);
   };
   const deletePage = (id: string) => {
@@ -1402,7 +1408,8 @@ export default function PdfStudioPro() {
                     <div className="absolute left-1 top-1 rounded bg-black/60 px-1.5 text-[9px] font-bold text-white">{i + 1}</div>
                     <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-0.5 bg-black/70 p-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                       <IconBtn title="Move left" onClick={() => movePage(p.id, -1)}><ChevronLeft className="h-3 w-3" /></IconBtn>
-                      <IconBtn title="Rotate" onClick={() => rotatePage(p.id)}><RotateCw className="h-3 w-3" /></IconBtn>
+                      <IconBtn title="Rotate left" onClick={() => rotatePageLeft(p.id)}><RotateCcw className="h-3 w-3" /></IconBtn>
+                      <IconBtn title="Rotate right" onClick={() => rotatePage(p.id)}><RotateCw className="h-3 w-3" /></IconBtn>
                       <IconBtn title="Duplicate" onClick={() => duplicatePage(p.id)}><Copy className="h-3 w-3" /></IconBtn>
                       <IconBtn title="Delete" onClick={() => deletePage(p.id)}><Trash2 className="h-3 w-3" /></IconBtn>
                       <IconBtn title="Move right" onClick={() => movePage(p.id, 1)}><ChevronRight className="h-3 w-3" /></IconBtn>

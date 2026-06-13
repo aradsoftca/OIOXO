@@ -278,6 +278,8 @@ export default function OfficeDocsPro() {
   const [slashIndex, setSlashIndex] = React.useState(0);
   const slashRange = React.useRef<Range | null>(null);
   const [floatBar, setFloatBar] = React.useState<{ x: number; y: number } | null>(null);
+  // True when the caret sits inside a <td>/<th> — gates the table-edit buttons.
+  const [inTable, setInTable] = React.useState(false);
   const [mdAutoformat, setMdAutoformat] = React.useState(true);
   const [autoformatUndo, setAutoformatUndo] = React.useState<{ label: string } | null>(null);
   const autoformatUndoTimer = React.useRef<number | null>(null);
@@ -869,6 +871,11 @@ export default function OfficeDocsPro() {
 
   React.useEffect(() => {
     const onSelChange = () => {
+      // Track whether the caret is inside a table cell (gates table-edit buttons).
+      const a = window.getSelection()?.anchorNode ?? null;
+      const node = a && a.nodeType === 1 ? (a as Element) : a?.parentElement ?? null;
+      const cell = node?.closest('td,th') ?? null;
+      setInTable(!!cell && !!editorRef.current?.contains(cell));
       // Slash menu and float bar are mutually exclusive surfaces.
       if (slashRange.current) return;
       updateFloatBar();
@@ -931,6 +938,73 @@ export default function OfficeDocsPro() {
     }
     html += '</tbody></table>';
     exec('insertHTML', html);
+  };
+
+  // ── Table editing (Word/Docs parity) ──────────────────────────────────────
+  // Resolve the <td>/<th> the caret currently sits in (null when not in a table).
+  const caretCell = (): HTMLTableCellElement | null => {
+    const a = window.getSelection()?.anchorNode ?? null;
+    const node = a && a.nodeType === 1 ? (a as Element) : a?.parentElement ?? null;
+    const cell = node?.closest('td,th') as HTMLTableCellElement | null;
+    if (!cell || !editorRef.current?.contains(cell)) return null;
+    return cell;
+  };
+
+  // Re-style a freshly created cell to match insertTable's look.
+  const styleNewCell = (cell: HTMLTableCellElement) => {
+    cell.style.border = '1px solid #aaa';
+    cell.style.padding = '6px 10px';
+    cell.style.minWidth = '60px';
+  };
+
+  const tableInsertRowBelow = () => {
+    const cell = caretCell();
+    const row = cell?.parentElement as HTMLTableRowElement | undefined;
+    const table = cell?.closest('table') as HTMLTableElement | null;
+    if (!cell || !row || !table) return;
+    const newRow = table.insertRow(row.rowIndex + 1);
+    for (let c = 0; c < row.cells.length; c++) styleNewCell(newRow.insertCell(c));
+    persistHtml();
+    recordChange();
+  };
+
+  const tableInsertColRight = () => {
+    const cell = caretCell();
+    const table = cell?.closest('table') as HTMLTableElement | null;
+    if (!cell || !table) return;
+    const at = cell.cellIndex + 1;
+    for (let r = 0; r < table.rows.length; r++) {
+      const tr = table.rows[r];
+      styleNewCell(tr.insertCell(Math.min(at, tr.cells.length)));
+    }
+    persistHtml();
+    recordChange();
+  };
+
+  const tableDeleteRow = () => {
+    const cell = caretCell();
+    const row = cell?.parentElement as HTMLTableRowElement | undefined;
+    const table = cell?.closest('table') as HTMLTableElement | null;
+    if (!cell || !row || !table) return;
+    if (table.rows.length <= 1) table.remove(); // deleting the last row drops the table
+    else table.deleteRow(row.rowIndex);
+    setInTable(false);
+    persistHtml();
+    recordChange();
+  };
+
+  const tableDeleteCol = () => {
+    const cell = caretCell();
+    const table = cell?.closest('table') as HTMLTableElement | null;
+    if (!cell || !table) return;
+    const at = cell.cellIndex;
+    if (table.rows[0]?.cells.length <= 1) { table.remove(); setInTable(false); }
+    else for (let r = 0; r < table.rows.length; r++) {
+      const tr = table.rows[r];
+      if (at < tr.cells.length) tr.deleteCell(at);
+    }
+    persistHtml();
+    recordChange();
   };
 
   const insertImage = async (file: File) => {
@@ -1327,6 +1401,16 @@ export default function OfficeDocsPro() {
         <Tb onClick={insertLink} title="Link (Ctrl+K)"><LinkIcon className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={insertImageBtn} title="Image"><ImageIcon className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => insertTable(3, 3)} title="Insert 3×3 table"><TableIcon className="h-3.5 w-3.5" /></Tb>
+        {inTable && (
+          <>
+            <span className="mx-1 h-4 w-px bg-white/10" />
+            <Tb onClick={tableInsertRowBelow} title="Insert row below"><span className="text-[11px] font-semibold leading-none">+R</span></Tb>
+            <Tb onClick={tableInsertColRight} title="Insert column right"><span className="text-[11px] font-semibold leading-none">+C</span></Tb>
+            <Tb onClick={tableDeleteRow} title="Delete row"><span className="text-[11px] font-semibold leading-none">−R</span></Tb>
+            <Tb onClick={tableDeleteCol} title="Delete column"><span className="text-[11px] font-semibold leading-none">−C</span></Tb>
+            <span className="mx-1 h-4 w-px bg-white/10" />
+          </>
+        )}
         <Tb onClick={() => exec('removeFormat')} title="Clear formatting"><Eraser className="h-3.5 w-3.5" /></Tb>
         <div className="ml-auto flex items-center gap-1">
           <Tb onClick={() => setSymbolDialog(true)} title="Insert special character / symbol"><span className="text-[13px] font-semibold leading-none">Ω</span></Tb>

@@ -119,7 +119,7 @@ whose frames match the preview.
 
 ## 4. SUBTITLE STUDIO — Whisper editor bar
 - ✅ Import SRT/VTT, edit, timing, export, CJK burn‑in wrap.
-- [ ] **Waveform‑synced editor**: cue list beside a waveform; drag cue edges on the waveform to retime.
+- [x] **Waveform‑synced editor** (ALREADY BUILT — WaveformTimeline with draggable cue edges, snap, Q/W set-edge): cue list beside a waveform; drag cue edges on the waveform to retime.
 - [ ] Inline transcription correction with playback‑follow (shared with §1 caption correction — build ONCE
       as `lib/studios/captions-editor`).
 - [ ] Styling presets identical to §1 so video + subtitle share the look.
@@ -132,7 +132,7 @@ whose frames match the preview.
         direct‑manipulation (move/resize chart on sheet), filter‑views (saved filters).
   - [ ] Frozen‑header scroll polish + row/col resize affordances everywhere.
 - Docs: ✅ rich text, anchored comments, track‑changes, find‑replace, collab.
-  - [ ] **0.1 Stage** for inline images/shapes (drag/resize/wrap‑text).
+  - [x] **inline image resize** by corner drag DONE (ae1e35b, device-verified 200→280px). Shapes/wrap-text TODO.
   - [ ] Styles/headings outline pane; export DOCX fidelity.
 - Slides:
   - [ ] **0.1 Stage** is the core — slide objects (text/image/shape) must move/resize/rotate on the slide
@@ -147,7 +147,7 @@ whose frames match the preview.
   - [ ] Multitrack with per‑clip gain envelopes drawn on the clip (direct‑manipulation on the waveform).
   - [ ] One‑click "Studio Sound" that chains denoise→EQ→deReverb→loudness with an A/B toggle.
 - Music: ✅ procedural patterns, audio→MIDI, MIDI export, swing, modes, pan.
-  - [ ] Piano‑roll with **direct‑manipulation notes** (drag to move/resize/velocity), grid snap.
+  - [x] Piano‑roll with **direct‑manipulation notes** (ALREADY BUILT — variable-length notes, velocity, chance, chromatic) (drag to move/resize/velocity), grid snap.
   - [ ] Song arrangement view (intro/verse/chorus blocks) drag‑arranged.
   - [ ] Per‑instrument mixer with meters.
 

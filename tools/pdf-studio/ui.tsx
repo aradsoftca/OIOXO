@@ -180,6 +180,10 @@ export default function PdfStudioPro() {
   const [tool, setTool] = React.useState<Tool>('text');
   const [textColor, setTextColor] = React.useState('#000000');
   const [textSize, setTextSize] = React.useState(16);
+  // Which kind of fillable form field the Field tool drops. The export
+  // (applyInteractiveFormFields) already supports all three as real AcroForm
+  // widgets; the UI previously only ever created text fields.
+  const [fieldKind, setFieldKind] = React.useState<'text' | 'checkbox' | 'signature'>('text');
   const [penWidth, setPenWidth] = React.useState(3);
   const [livePts, setLivePts] = React.useState<number[]>([]);
   const moving = React.useRef<{ pageId: string; idx: number; offX: number; offY: number } | null>(null);
@@ -626,9 +630,11 @@ export default function PdfStudioPro() {
           else if (tool === 'ellipse') addAnno(selPage.id, { kind: 'ellipse', nx, ny, nw, nh, color: textColor, width: 2 });
           else if (tool === 'rect') addAnno(selPage.id, { kind: 'rect', nx, ny, nw, nh, color: '#000000', opacity: 1, redact: true });
           else if (tool === 'field') {
-            // Real fillable form field, bound to this page (1-based pageId).
+            // Real fillable form field, bound to this page (1-based pageId). The
+            // kind (text/checkbox/signature) is chosen in the toolbar.
             const pageNum = doc.pages.findIndex(p => p.id === selPage.id) + 1;
-            setFormFields(fs => [...fs, { id: `f${Date.now().toString(36)}`, pageId: `p${pageNum}`, kind: 'text', nx, ny, nw, nh, label: 'Field' }]);
+            const label = fieldKind === 'checkbox' ? 'Check' : fieldKind === 'signature' ? 'Sign here' : 'Field';
+            setFormFields(fs => [...fs, { id: `f${Date.now().toString(36)}`, pageId: `p${pageNum}`, kind: fieldKind, nx, ny, nw, nh, label }]);
           }
         }
       }
@@ -1101,6 +1107,14 @@ export default function PdfStudioPro() {
         )}
         {tool === 'sign' && (
           <StudioButton size="sm" variant="soft" onClick={() => setSignDialog(true)}>{signaturePng ? 'Change signature' : 'Create signature…'}</StudioButton>
+        )}
+        {tool === 'field' && (
+          <div className="flex items-center gap-1">
+            <span className="text-[11px] text-zinc-500">Field</span>
+            {(['text', 'checkbox', 'signature'] as const).map(k => (
+              <button key={k} onClick={() => setFieldKind(k)} className={cn('rounded px-2 py-1 text-xs capitalize', fieldKind === k ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}>{k}</button>
+            ))}
+          </div>
         )}
         <div className={cn('ml-auto flex items-center gap-1 transition-opacity', doc.pages.length === 0 && 'pointer-events-none opacity-40')}>
           <StudioButton size="sm" variant="soft" onClick={() => setWatermarkDialog(true)} title="Apply watermark to all pages"><Droplets className="h-3 w-3" /> Watermark</StudioButton>

@@ -198,13 +198,22 @@ function tokenQuotaExceeded(token: string): boolean {
  * those rather than break legitimate use. A cross-origin browser fetch, by
  * contrast, always carries an Origin, which is exactly the case we block.
  */
+// The native Xtudio apps (Capacitor) run the WebView at these origins; their
+// requests to our API are first-party (authenticated by bearer/credentials),
+// not a cross-site browser attack — so the origin lock must allow them.
+const APP_ORIGIN_HOSTS = new Set(['localhost', 'capacitor:', '']);
+
 function isSameOrigin(req: NextRequest): boolean {
   const host = req.headers.get('host');
   if (!host) return true;
   const src = req.headers.get('origin') ?? req.headers.get('referer');
   if (!src) return true;
   try {
-    return new URL(src).host === host;
+    const u = new URL(src);
+    if (u.host === host) return true;
+    // Capacitor WebView: https://localhost / capacitor://localhost / ionic://localhost
+    if (APP_ORIGIN_HOSTS.has(u.host) || u.protocol === 'capacitor:' || u.protocol === 'ionic:') return true;
+    return false;
   } catch {
     return false;
   }

@@ -34,6 +34,8 @@ export * from './animation-presets';
 export * from './animation-timeline';
 export * from './effect-presets';
 export * from './effects-rack';
+export * from './presets';
+export * from './presets-ui';
 export * from './audio-master-chain';
 export * from './loudness';
 export * from './resume-pdf';

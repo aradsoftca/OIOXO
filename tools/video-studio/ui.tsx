@@ -43,7 +43,15 @@ import {
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
+  PresetBar,
 } from '@/lib/studios';
+
+/** Styleable subset of a caption TextClip — the value saved as a C4 preset. */
+interface CaptionStyleValue {
+  font: string; size: number; color: string; weight: number; italic: boolean;
+  outline: boolean; outlineColor: string; outlineWidth: number;
+  pos: 'top' | 'center' | 'bottom'; anim: TextAnimId; align: CanvasTextAlign;
+}
 
 type Tool = 'select' | 'razor' | 'hand' | 'text';
 type TrackKind = 'video' | 'audio' | 'text';
@@ -994,6 +1002,24 @@ export default function VideoStudioPro() {
     toastFor(`Styled ${n} captions — ${st.name}`);
   };
   const captionClips = React.useMemo(() => (doc.clips.filter(c => c.kind === 'text' && (c as TextClip).caption) as TextClip[]).sort((a, b) => a.start - b.start), [doc.clips]);
+
+  // C4 preset system: save the current caption look as a reusable preset and
+  // apply a saved one to ALL captions. The value is the styleable subset of a
+  // caption TextClip — capture from the first caption, apply to every caption.
+  const captureCaptionStyle = (): CaptionStyleValue => {
+    const c = captionClips[0];
+    return c
+      ? { font: c.font, size: c.size, color: c.color, weight: c.weight, italic: c.italic, outline: c.outline, outlineColor: c.outlineColor, outlineWidth: c.outlineWidth, pos: c.pos, anim: c.anim, align: c.align }
+      : { font: FONTS[0], size: 60, color: '#ffffff', weight: 700, italic: false, outline: true, outlineColor: '#000', outlineWidth: 4, pos: 'bottom', anim: 'fade', align: 'center' };
+  };
+  const applyCaptionStyleValue = (v: CaptionStyleValue) => {
+    const next = cloneDoc(doc);
+    let n = 0;
+    for (const c of next.clips) if (c.kind === 'text' && (c as TextClip).caption) { Object.assign(c as TextClip, v); n++; }
+    if (!n) { toastFor('No captions to style'); return; }
+    commit('apply caption preset', next);
+    toastFor(`Applied preset to ${n} captions`);
+  };
 
   const updateClip = (id: string, mut: (c: TimelineClip) => void, label = 'edit clip') => {
     const next = cloneDoc(doc);
@@ -2230,7 +2256,16 @@ export default function VideoStudioPro() {
             </div>
           </div>
           <div className="shrink-0 border-b border-white/10 px-3 py-2">
-            <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">Style all captions</div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-wide text-zinc-500">Style all captions</span>
+              {/* C4 preset system: save the current caption look + apply saved ones. */}
+              <PresetBar<CaptionStyleValue>
+                kind="video.captionStyle"
+                label="My styles"
+                capture={captureCaptionStyle}
+                onApply={applyCaptionStyleValue}
+              />
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {CAPTION_STYLES.map(s => (
                 <button key={s.id} onClick={() => applyCaptionStyle(s.id)} className="rounded-md bg-white/5 px-2.5 py-1 text-xs text-zinc-200 hover:bg-cyan-500/20 hover:text-cyan-100">{s.name}</button>

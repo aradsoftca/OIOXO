@@ -5,6 +5,11 @@ import { prisma } from '@/lib/db';
 import { signEntitlement, type Tier } from '@/lib/oioxo/entitlement';
 import { preCheckRequest } from '@/lib/oioxo/gate';
 import { userIdFromBearer } from '@/lib/oioxo/app-token';
+import { appCorsHeaders, appCorsPreflight } from '@/lib/oioxo/app-cors';
+
+export async function OPTIONS(req: Request) {
+  return appCorsPreflight(req);
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,6 +43,9 @@ export async function POST(req: Request) {
   const pre = preCheckRequest(req, { allowBearer: true });
   if (pre) return pre;
 
+  // CORS for the Capacitor WebView origin (app reads this cross-origin).
+  const cors = appCorsHeaders(req);
+
   let body: { device?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad request' }, { status: 400 }); }
   const device = (body.device || '').trim();
@@ -55,7 +63,7 @@ export async function POST(req: Request) {
   if (!userId) {
     // No login → a free, device-bound entitlement (no content key; free brain is open).
     const entitlement = await signEntitlement({ sub: 'anon', device, tier: 'free', features: [] }, secret);
-    return NextResponse.json({ tier: 'free', entitlement, contentKey: null }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ tier: 'free', entitlement, contentKey: null }, { headers: { 'Cache-Control': 'no-store', ...cors } });
   }
 
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true, subscriptionEndsAt: true } });
@@ -78,5 +86,5 @@ export async function POST(req: Request) {
     console.log(`[entitlement] issued tier=${tier} user=${userId} device=${device.slice(0, 12)}…`);
   }
 
-  return NextResponse.json({ tier, entitlement, contentKey }, { headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.json({ tier, entitlement, contentKey }, { headers: { 'Cache-Control': 'no-store', ...cors } });
 }

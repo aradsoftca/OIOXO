@@ -3,9 +3,14 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db';
 import { preCheckRequest } from '@/lib/oioxo/gate';
 import { signAppToken, appTokenSecret } from '@/lib/oioxo/app-token';
+import { appCorsHeaders, appCorsPreflight } from '@/lib/oioxo/app-cors';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+export async function OPTIONS(req: Request) {
+  return appCorsPreflight(req);
+}
 
 /**
  * Email+password login for the native Xtudio apps (Capacitor), which can't use
@@ -32,24 +37,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'unconfigured' }, { status: 503 });
   }
 
+  // CORS headers for the Capacitor WebView origin (the app reads these responses
+  // cross-origin). Empty for non-app origins.
+  const cors = appCorsHeaders(req);
+
   let body: { email?: string; password?: string };
-  try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad request' }, { status: 400 }); }
+  try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad request' }, { status: 400, headers: cors }); }
   const email = (body.email || '').trim().toLowerCase();
   const password = body.password || '';
   if (!email || !password) {
-    return NextResponse.json({ error: 'email and password required' }, { status: 400 });
+    return NextResponse.json({ error: 'email and password required' }, { status: 400, headers: cors });
   }
 
   const user = await prisma.user.findUnique({ where: { email } });
   const hash = user?.password || DUMMY_HASH;
   const ok = await bcrypt.compare(password, hash);
   if (!user?.password || !ok) {
-    return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
+    return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401, headers: cors });
   }
 
   const token = await signAppToken(user.id, user.email ?? undefined, appTokenSecret()!);
   return NextResponse.json(
     { token, email: user.email },
-    { headers: { 'Cache-Control': 'no-store' } },
+    { headers: { 'Cache-Control': 'no-store', ...cors } },
   );
 }

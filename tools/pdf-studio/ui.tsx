@@ -228,6 +228,7 @@ export default function PdfStudioPro() {
 
   const [watermarkDialog, setWatermarkDialog] = React.useState(false);
   const [splitDialog, setSplitDialog] = React.useState(false);
+  const [extractDialog, setExtractDialog] = React.useState(false);
   const [formFields, setFormFields] = React.useState<PdfFormField[]>([]);
 
   // Crash-recovery: amber banner if a fresh unsaved snapshot exists on mount.
@@ -376,6 +377,26 @@ export default function PdfStudioPro() {
       setSplitDialog(false);
     } catch (e) {
       toastFor((e as Error).message || 'Split failed');
+    } finally { setBusy(''); }
+  };
+
+  // Extract pages (Acrobat "Extract"): build a NEW PDF containing only the
+  // chosen 1-based page indices, in the order given. Reuses the normal export
+  // path with a filtered doc.pages subset so annotations/redactions/page-numbers
+  // carry through exactly as on export.
+  const runExtract = async (indices: number[]) => {
+    if (!doc.pages.length) return;
+    const subset = indices.map(n => doc.pages[n - 1]).filter(Boolean);
+    if (!subset.length) { toastFor('No valid pages in that range'); return; }
+    if (!(await guard())) return;
+    setBusy('Extracting pages…');
+    try {
+      const blob = await buildPdf({ sources, pages: subset, annotations: doc.annotations, pageNumbers: doc.pageNumbers, bates: doc.bates });
+      downloadBlob(blob, `${safeFilename(doc.name)}-extracted.pdf`);
+      toastFor(`Extracted ${subset.length} page${subset.length === 1 ? '' : 's'}`);
+      setExtractDialog(false);
+    } catch (e) {
+      toastFor((e as Error).message || 'Extract failed');
     } finally { setBusy(''); }
   };
 
@@ -1237,6 +1258,7 @@ export default function PdfStudioPro() {
         <div className={cn('ml-auto flex items-center gap-1 transition-opacity', doc.pages.length === 0 && 'pointer-events-none opacity-40')}>
           <StudioButton size="sm" variant="soft" onClick={() => setWatermarkDialog(true)} title="Apply watermark to all pages"><Droplets className="h-3 w-3" /> Watermark</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setSplitDialog(true)} title="Split into multiple PDFs"><Scissors className="h-3 w-3" /> Split</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => setExtractDialog(true)} title="Extract a page range as a new PDF"><FileText className="h-3 w-3" /> Extract</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportAsDocx()} title="Export as Word"><FileType2 className="h-3 w-3" /> Word</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportSearchable()} title="OCR then build searchable PDF"><FileCheck2 className="h-3 w-3" /> Searchable</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void runOcr()} title="Read text from this scanned page"><ScanText className="h-3 w-3" /> OCR</StudioButton>
@@ -1502,6 +1524,9 @@ export default function PdfStudioPro() {
       {splitDialog && (
         <SplitDialog totalPages={doc.pages.length} onCancel={() => setSplitDialog(false)} onSplit={(r) => void runSplit(r)} />
       )}
+      {extractDialog && (
+        <ExtractDialog totalPages={doc.pages.length} onCancel={() => setExtractDialog(false)} onExtract={(idx) => void runExtract(idx)} />
+      )}
       {ocrDialog && (
         <Dialog title={`Extracted text · ${ocrDialog.words.length} words`} wide onCancel={() => setOcrDialog(null)} onConfirm={() => {
           navigator.clipboard?.writeText(ocrDialog.text);
@@ -1614,6 +1639,46 @@ function SplitDialog({ totalPages, onCancel, onSplit }: { totalPages: number; on
           </label>
         )}
         <div className="rounded bg-amber-500/10 p-2 text-amber-200">Total pages: {totalPages}</div>
+      </div>
+    </Dialog>
+  );
+}
+
+// Acrobat-style "Extract pages": pick a 1-based page range / list ("2-4, 7")
+// and download a NEW PDF containing only those pages (in the order typed).
+function ExtractDialog({ totalPages, onCancel, onExtract }: { totalPages: number; onCancel: () => void; onExtract: (indices: number[]) => void }) {
+  const [rangeText, setRangeText] = React.useState(`1-${totalPages}`);
+
+  // Parse "2-4, 7" → [2,3,4,7], clamped to 1..totalPages, de-duped, order preserved.
+  const parse = (txt: string): number[] => {
+    const out: number[] = [];
+    const seen = new Set<number>();
+    for (const part of txt.split(',').map(s => s.trim()).filter(Boolean)) {
+      const m = /^(\d+)\s*-\s*(\d+)$/.exec(part);
+      if (m) {
+        let a = parseInt(m[1]), b = parseInt(m[2]);
+        if (a > b) [a, b] = [b, a];
+        for (let n = a; n <= b; n++) if (n >= 1 && n <= totalPages && !seen.has(n)) { seen.add(n); out.push(n); }
+      } else {
+        const n = parseInt(part);
+        if (!isNaN(n) && n >= 1 && n <= totalPages && !seen.has(n)) { seen.add(n); out.push(n); }
+      }
+    }
+    return out;
+  };
+
+  const indices = parse(rangeText);
+
+  return (
+    <Dialog title="Extract pages" onCancel={onCancel} onConfirm={() => onExtract(indices)} confirmLabel="Extract & download">
+      <div className="space-y-3 text-xs">
+        <label className="block">
+          <div className="mb-1 text-zinc-400">Pages to extract (e.g. "2-4" or "1, 3, 5-8")</div>
+          <input value={rangeText} onChange={e => setRangeText(e.target.value)} className="w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 font-mono text-zinc-100" />
+        </label>
+        <div className="rounded bg-amber-500/10 p-2 text-amber-200">
+          {indices.length ? `Will extract ${indices.length} page${indices.length === 1 ? '' : 's'} of ${totalPages}` : `Enter a valid range (1–${totalPages})`}
+        </div>
       </div>
     </Dialog>
   );

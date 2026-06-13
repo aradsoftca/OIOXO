@@ -5,7 +5,7 @@ import {
   Loader2, Download, Upload, Play, Pause, Plus, Trash2, Copy, Scissors,
   Wand2, ChevronLeft, ChevronRight, Type as TypeIcon, FileText, Save,
   Undo2, Redo2, ZoomIn, ZoomOut, Magnet, X, AlertTriangle, SkipBack, SkipForward,
-  Clipboard, RotateCcw, LayoutTemplate,
+  Clipboard, RotateCcw, LayoutTemplate, FastForward, Rewind,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -618,6 +618,32 @@ export default function SubtitleStudioPro() {
     toastFor(`Fixed ${res.fixed}: ${parts.join(', ')}`);
   };
 
+  // Pro batch timing (Aegisub "Shift Times" / "Resample"): apply a time transform to
+  // every cue — or just the selected cue when one is picked — clamp end>start, re-sort.
+  // `xform` maps each timestamp through the same function so word-timings stay coherent.
+  const batchTiming = (label: string, xform: (t: number) => number) => {
+    if (!doc.cues.length) { toastFor('No cues to adjust'); return; }
+    const next = cloneDoc(doc);
+    const sel = doc.selectedId;
+    const targets = sel && next.cues.some(c => c.id === sel) ? next.cues.filter(c => c.id === sel) : next.cues;
+    let touched = 0;
+    for (const c of targets) {
+      const ns = Math.max(0, xform(c.start));
+      const ne = Math.max(ns + 0.1, xform(c.end)); // clamp end > start
+      c.start = ns;
+      c.end = ne;
+      if (c.words) c.words = c.words.map(w => ({ ...w, start: Math.max(0, xform(w.start)), end: Math.max(0, xform(w.end)) }));
+      touched++;
+    }
+    next.cues.sort((a, b) => a.start - b.start);
+    commit(label, next);
+    toastFor(`${label} · ${touched} cue${touched === 1 ? '' : 's'}${sel && targets.length === 1 ? ' (selected)' : ''}`);
+  };
+  // Shift all/selected cues forward or back by a fixed delta.
+  const shiftTiming = (delta: number) => batchTiming(delta >= 0 ? `shift +${delta.toFixed(1)}s` : `shift ${delta.toFixed(1)}s`, t => t + delta);
+  // Scale all/selected cue times by a factor (framerate conversion / tempo match).
+  const scaleTiming = (factor: number) => batchTiming(factor > 1 ? 'slower' : 'faster', t => t * factor);
+
   // Play just the active cue's region, then auto-pause at its out-point — the
   // "tap to play it back to confirm timing" half of the loop.
   const regionStop = React.useRef<number | null>(null);
@@ -1119,6 +1145,11 @@ export default function SubtitleStudioPro() {
             <div className="mx-2 h-4 w-px bg-white/10" />
             <button onClick={() => setSnap(s => !s)} title="Snap cue edges to neighbours · hold Alt while dragging for free placement" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
             <button onClick={fixTiming} title="Fix timing: clamp overlaps, enforce min duration + gap, fix negative durations across all cues" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Fix timing</button>
+            <div className="mx-1 h-4 w-px bg-white/10" />
+            <button onClick={() => shiftTiming(-0.5)} title="Shift all cues (or the selected cue) 0.5s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronLeft className="h-3 w-3" /> Shift −0.5s</button>
+            <button onClick={() => shiftTiming(0.5)} title="Shift all cues (or the selected cue) 0.5s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronRight className="h-3 w-3" /> Shift +0.5s</button>
+            <button onClick={() => scaleTiming(1.04)} title="Scale all cue times ×1.04 — stretch timing 4% slower (e.g. framerate conversion)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Rewind className="h-3 w-3" /> Slower 4%</button>
+            <button onClick={() => scaleTiming(0.96)} title="Scale all cue times ×0.96 — compress timing 4% faster (e.g. framerate conversion)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><FastForward className="h-3 w-3" /> Faster 4%</button>
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => setZoom(z => Math.max(10, z / 1.25))} className="rounded p-1 text-zinc-400 hover:bg-white/5"><ZoomOut className="h-3.5 w-3.5" /></button>
               <span className="text-[10px] tabular-nums text-zinc-500">{Math.round(zoom)}px/s</span>

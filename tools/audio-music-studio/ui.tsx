@@ -4,7 +4,7 @@ import * as React from 'react';
 import {
   Loader2, Download, Play, Pause, Music, Shuffle, Save, Undo2, Redo2,
   Volume2, VolumeX, Plus, Trash2, Copy, X, FileText, Wand2,
-  SkipBack, ChevronUp, ChevronDown, Sparkles,
+  SkipBack, ChevronUp, ChevronDown, Sparkles, Timer,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -267,6 +267,24 @@ function scheduleStep(ctx: BaseAudioContext, dest: AudioNode, t: number, inst: I
 }
 
 /**
+ * Metronome click: a short (~30ms) oscillator beep with a fast gain envelope.
+ * `accent` (the downbeat) is higher-pitched + a touch louder so the bar start
+ * is easy to hear. Cheap enough to schedule on every beat during playback.
+ */
+function scheduleClick(ctx: BaseAudioContext, dest: AudioNode, t: number, accent: boolean) {
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'square';
+  osc.frequency.setValueAtTime(accent ? 2000 : 1500, t);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(accent ? 0.4 : 0.28, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+  osc.connect(g).connect(dest);
+  osc.start(t);
+  osc.stop(t + 0.05);
+}
+
+/**
  * Downward noise gate: samples below the threshold are smoothly attenuated.
  * Applied at export (it needs whole-signal level inspection, so it's an
  * offline-only effect — see OFFLINE_ONLY_EFFECTS). `thresholdDb` 0..-60.
@@ -315,6 +333,12 @@ export default function MusicStudioPro() {
 
   const [playing, setPlaying] = React.useState(false);
   const [currentStep, setCurrentStep] = React.useState(-1);
+  // Metronome: an audible click on each beat during playback, higher pitch on
+  // the downbeat (step 0). Mirror the live state into a ref so the play-loop
+  // reads it without restarting playback when toggled mid-loop.
+  const [metronome, setMetronome] = React.useState(false);
+  const metronomeRef = React.useRef(false);
+  React.useEffect(() => { metronomeRef.current = metronome; }, [metronome]);
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [progress, setProgress] = React.useState(0);
@@ -678,6 +702,12 @@ export default function MusicStudioPro() {
             const stepInst = vel === 1 ? inst : { ...inst, volume: Math.max(inst.volume * 0.12, inst.volume * vel) };
             scheduleStep(c, trackGain, t, stepInst, n, live.key, stepDur);
           }
+        }
+        // Metronome: click once per beat (a beat = pattern.steps/4 steps, i.e.
+        // every 4 steps in a 16-step bar), accenting the bar's downbeat.
+        if (metronomeRef.current) {
+          const beatLen = Math.max(1, Math.round(pattern.steps / 4));
+          if (stepIdx % beatLen === 0) scheduleClick(c, master, t, stepIdx === 0);
         }
         setCurrentStep(stepIdx);
         state.step = (state.step + 1) % pattern.steps;
@@ -1126,6 +1156,7 @@ export default function MusicStudioPro() {
 
       <div className="flex h-14 shrink-0 items-center gap-4 overflow-x-auto border-b border-white/5 bg-[#0f1115] px-3 text-xs [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:min-h-11 sm:h-12 sm:overflow-visible sm:[&_button]:min-h-0">
         <button onClick={togglePlay} className="rounded bg-cyan-500 p-2 text-zinc-900 hover:bg-cyan-400">{playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}</button>
+        <button onClick={() => setMetronome(m => !m)} title={metronome ? 'Metronome on — click on each beat' : 'Metronome off'} className={cn('rounded p-2', metronome ? 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400/50' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200')}><Timer className="h-4 w-4" /></button>
         <div className="flex items-center gap-1.5">
           <span className="text-zinc-500">BPM</span>
           <input type="number" min={40} max={240} value={doc.bpm} onChange={e => commit('bpm', { ...cloneDoc(doc), bpm: Math.max(40, Math.min(240, +e.target.value)) })} className="h-7 w-16 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-right" />

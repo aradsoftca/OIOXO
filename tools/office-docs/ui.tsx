@@ -1460,7 +1460,7 @@ export default function OfficeDocsPro() {
             {readability.level}
           </span>
         )}
-        <span className="ml-auto">~{Math.ceil(wordCount.words / 230)} min read</span>
+        <span className="ml-auto">~{Math.max(1, Math.ceil(wordCount.words / 200))} min read</span>
       </StudioStatusBar>
 
       {busy && (

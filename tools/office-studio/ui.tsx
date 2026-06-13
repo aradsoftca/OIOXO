@@ -1823,6 +1823,16 @@ export default function OfficeStudioPro() {
             }, [comments, sheet.id])}
             hiddenRows={hiddenRows}
             filteredCols={React.useMemo(() => new Set(Object.keys(sheet.filters ?? {}).map(Number)), [sheet.filters])}
+            // Data-validation dropdown lists: a list-kind rule's allowed values
+            // for a cell (else null) → the Grid paints a chevron + a native
+            // <select> overlay on the cursor cell so the user picks from the list.
+            // `dvRules` in the dep list re-derives the lookup when rules change.
+            listValuesFor={React.useCallback((r: number, c: number): string[] | null => {
+              const rule = dataValidationModel.current.forCell(r, c);
+              return rule && rule.kind === 'list' && rule.list && rule.list.length ? rule.list : null;
+              // eslint-disable-next-line react-hooks/exhaustive-deps
+            }, [dvRules])}
+            onPickValue={(r, c, value) => setCellRaw(r, c, value)}
             onSelect={selectCell}
             onColFilter={(c, x, y) => setFilterMenu({ c, x, y })}
             onCellContext={(r, c, x, y) => setCtxMenu({ r, c, x, y })}
@@ -2147,7 +2157,7 @@ function CellEditorInput({ value, onChange, onCommit, onCancel }: {
   );
 }
 
-function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, hiddenRows, filteredCols, onSelect, onColFilter, onCellContext, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
+function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, currency, commentedCells, hiddenRows, filteredCols, listValuesFor, onPickValue, onSelect, onColFilter, onCellContext, onBeginEdit, onEditChange, onEditCommit, onEditCancel, fillDrag, onFillDragMove, onFillDragEnd, onFillDragCancel, onFillDoubleClick, onResizeCol, onAutofitCol }: {
   sheet: Sheet;
   freeze: FreezePanes | null;
   evaluated: Record<string, any>;
@@ -2159,6 +2169,10 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
   commentedCells: Set<string>;
   hiddenRows: Set<number>;
   filteredCols: Set<number>;
+  /** Allowed values for a list-kind data-validation cell, else null. */
+  listValuesFor: (r: number, c: number) => string[] | null;
+  /** Write a chosen list value into a cell (via the normal setCell path). */
+  onPickValue: (r: number, c: number, value: string) => void;
   onSelect: (r: number, c: number, extend?: boolean) => void;
   onColFilter: (c: number, x: number, y: number) => void;
   onCellContext: (r: number, c: number, x: number, y: number) => void;
@@ -2324,6 +2338,10 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
             condFmt = evalCondFormat(v, condRange, all);
           }
           const ghosted = inGhost(r, c);
+          // Data-validation dropdown list: allowed values for this cell (or null).
+          // A chevron marks validated cells; the cursor cell gets a real <select>
+          // overlay so the value is picked from the list, never free-typed.
+          const listVals = listValuesFor(r, c);
           const peer = peerAt.get(`${r}_${c}`);
           const isFillAnchor = r === r1 && c === c1; // bottom-right of selection
           const colFrozen = c < frozenCols;
@@ -2383,6 +2401,33 @@ function Grid({ sheet, freeze, evaluated, selection, editor, peers, locale, curr
                   {condFmt.icon && <span className="mr-1">{condFmt.icon}</span>}
                   {display}
                 </span>
+              )}
+              {listVals && !isEditing && (
+                <>
+                  {/* Chevron indicator on every list-validated cell. */}
+                  <span
+                    className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-zinc-400"
+                    style={{ zIndex: 6 }}
+                    aria-hidden
+                  >
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}><path d="m6 9 6 6 6-6" /></svg>
+                  </span>
+                  {/* On the cursor cell, an actual native dropdown to pick a value.
+                      Transparent overlay so the formatted display still shows; the
+                      browser renders its own option list. Writes via onPickValue. */}
+                  {isCursor && (
+                    <select
+                      value={listVals.includes(String(cell?.raw ?? '')) ? String(cell?.raw) : ''}
+                      onChange={(e) => { if (e.target.value) onPickValue(r, c, e.target.value); }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      title="Pick a value"
+                      className="absolute inset-0 z-[7] cursor-pointer appearance-none bg-transparent text-transparent opacity-0"
+                    >
+                      <option value="" disabled>Select…</option>
+                      {listVals.map(opt => <option key={opt} value={opt} className="bg-[#0a0b0e] text-zinc-100">{opt}</option>)}
+                    </select>
+                  )}
+                </>
               )}
               {peer && (
                 <span

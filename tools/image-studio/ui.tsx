@@ -1805,6 +1805,74 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runLook = async (look: 'vintage' | 'cinematic' | 'noir' | 'faded') => {
+    // One-click photographic LOOK presets. Each destructively bakes a tasteful
+    // tone+color curve into the active paint/image layer (per-pixel, clamped to
+    // 0..255, alpha preserved) so it composites/exports identically — same
+    // structure as runSepia/runWhiteBalance.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    const meta = {
+      vintage: { busy: 'Applying Vintage…', done: 'Vintage applied ✓' },
+      cinematic: { busy: 'Applying Cinematic…', done: 'Cinematic applied ✓' },
+      noir: { busy: 'Applying Noir…', done: 'Noir applied ✓' },
+      faded: { busy: 'Applying Faded…', done: 'Faded applied ✓' },
+    }[look];
+    setBusy(meta.busy);
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const clamp = (v: number) => v < 0 ? 0 : v > 255 ? 255 : v | 0;
+      for (let i = 0; i < d.length; i += 4) {
+        let r = d[i], g = d[i + 1], b = d[i + 2];
+        if (look === 'vintage') {
+          // Lifted blacks + warm + slightly desaturated.
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          const desat = 0.78;
+          r = lum + (r - lum) * desat;
+          g = lum + (g - lum) * desat;
+          b = lum + (b - lum) * desat;
+          r = 22 + r * 0.93 + 14;   // lifted blacks + warm push
+          g = 18 + g * 0.94 + 6;
+          b = 14 + b * 0.92 - 8;    // pull blue for warmth
+        } else if (look === 'cinematic') {
+          // Teal shadows / orange highlights (classic teal-orange grade).
+          const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255; // 0..1 weight
+          const sh = 1 - lum, hi = lum;
+          r = r + sh * -14 + hi * 22;  // warm highlights
+          g = g + sh * 6 + hi * 4;
+          b = b + sh * 24 + hi * -18;  // teal shadows, cool down highlights
+        } else if (look === 'noir') {
+          // High-contrast black & white.
+          let lum = 0.299 * r + 0.587 * g + 0.114 * b;
+          lum = (lum - 128) * 1.45 + 128; // punchy S-ish contrast
+          r = g = b = lum;
+        } else {
+          // Faded: low contrast, lifted blacks, cool.
+          r = 26 + r * 0.80 - 4;   // cool tint
+          g = 28 + g * 0.80;
+          b = 32 + b * 0.80 + 6;
+        }
+        d[i] = clamp(r);
+        d[i + 1] = clamp(g);
+        d[i + 2] = clamp(b);
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit(look, next);
+      toastFor(meta.done);
+    } finally { setBusy(''); }
+  };
+
   const runUpscale = async () => {
     // Edge-aware 2x super-resolution of the whole picture. Flatten the current
     // composite, upscale it, and replace the doc with a single 2x image layer —
@@ -2997,6 +3065,12 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSepia()} title={pristine ? 'Open an image first' : 'Apply classic sepia tone'}><Sparkles className="h-3.5 w-3.5" /> Sepia</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm')} title={pristine ? 'Open an image first' : 'Warm white balance (+red / -blue)'}><Sparkles className="h-3.5 w-3.5" /> Warm</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool')} title={pristine ? 'Open an image first' : 'Cool white balance (-red / +blue)'}><Sparkles className="h-3.5 w-3.5" /> Cool</StudioButton>
+            <span className="ml-1 h-5 w-px bg-white/10" />
+            {/* Looks — one-click photographic tone+color grades on the active layer. */}
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('vintage')} title={pristine ? 'Open an image first' : 'Vintage look — lifted blacks, warm, softly desaturated'}><Sparkles className="h-3.5 w-3.5" /> Vintage</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('cinematic')} title={pristine ? 'Open an image first' : 'Cinematic look — teal shadows / orange highlights'}><Sparkles className="h-3.5 w-3.5" /> Cinematic</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('noir')} title={pristine ? 'Open an image first' : 'Noir look — high-contrast black & white'}><Sparkles className="h-3.5 w-3.5" /> Noir</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('faded')} title={pristine ? 'Open an image first' : 'Faded look — low contrast, lifted blacks, cool'}><Sparkles className="h-3.5 w-3.5" /> Faded</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />

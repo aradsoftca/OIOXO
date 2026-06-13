@@ -3212,6 +3212,20 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, playhe
           <StudioSlider label="Speed" value={Math.round(c.speed * 100)} min={50} max={200} onChange={v => onChange(x => { (x as AudioClip).speed = v / 100; })} suffix="%" />
           <StudioSlider label="Fade in" value={c.fadeIn} min={0} max={5} step={0.1} onChange={v => onChange(x => { (x as AudioClip).fadeIn = v; })} suffix="s" />
           <StudioSlider label="Fade out" value={c.fadeOut} min={0} max={5} step={0.1} onChange={v => onChange(x => { (x as AudioClip).fadeOut = v; })} suffix="s" />
+          <div className="grid grid-cols-3 gap-1">
+            <button onClick={() => onChange(x => { (x as AudioClip).fadeIn = Math.min(1, dur); })} title="Quick 1s fade-in" className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">Fade in 1s</button>
+            <button onClick={() => onChange(x => { (x as AudioClip).fadeOut = Math.min(1, dur); })} title="Quick 1s fade-out" className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">Fade out 1s</button>
+            <button onClick={() => onChange(x => { const a = x as AudioClip; const f = Math.min(1, dur / 2); a.fadeIn = f; a.fadeOut = f; })} title="Quick fade in + out" className="rounded bg-cyan-500/10 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/20">Fade both</button>
+          </div>
+          {(() => {
+            const normalized = fx.some(e => e.type === 'compressor');
+            return (
+              <label className="flex items-center justify-between text-[10px] text-zinc-300">
+                <span>Normalize <span className="text-zinc-500">(level out loudness)</span></span>
+                <input type="checkbox" checked={normalized} onChange={e => { if (e.target.checked) setEffects([...fx, { type: 'compressor', enabled: true, ...AUDIO_EFFECT_DEFAULTS['compressor'] }]); else setEffects(fx.filter(o => o.type !== 'compressor')); }} />
+              </label>
+            );
+          })()}
         </div>
       </StudioPanel>
       <StudioPanel title="Audio effects" defaultOpen={fx.length > 0}>

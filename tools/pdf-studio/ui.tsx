@@ -415,6 +415,50 @@ export default function PdfStudioPro() {
     } finally { setBusy(''); }
   };
 
+  // Extract text (Acrobat "Export to text"): pull every page's text content via
+  // pdf.js and offer it as a .txt download, in the current page order — so a
+  // reordered / multi-source project exports the text as you see it. Reuses the
+  // bytes the studio already holds (sources[]) — no re-upload.
+  const extractText = async () => {
+    if (!doc.pages.length) return;
+    if (!(await guard())) return;
+    setBusy('Extracting text…');
+    setProgress(0);
+    try {
+      const pdfjsLib: any = await import('pdfjs-dist'); // eslint-disable-line @typescript-eslint/no-explicit-any
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'; } catch {}
+      // Cache one pdf.js doc per source so a multi-source project isn't re-parsed
+      // for every page (same pattern as Smart Redact).
+      const docCache = new Map<string, any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const getDoc = async (srcId: string) => {
+        if (docCache.has(srcId)) return docCache.get(srcId);
+        const d = await pdfjsLib.getDocument({ data: sources[srcId].slice(0) }).promise;
+        docCache.set(srcId, d); return d;
+      };
+      const parts: string[] = [];
+      for (let pi = 0; pi < doc.pages.length; pi++) {
+        const pg = doc.pages[pi];
+        if (!sources[pg.srcId]) continue;
+        setProgress(Math.round(((pi + 1) / doc.pages.length) * 100));
+        const pdfDoc = await getDoc(pg.srcId);
+        const page = await pdfDoc.getPage(pg.srcIndex + 1);
+        const content = await page.getTextContent();
+        let text = '';
+        for (const it of content.items as any[]) { // eslint-disable-line @typescript-eslint/no-explicit-any
+          text += it.str ?? '';
+          if (it.hasEOL) text += '\n';
+        }
+        parts.push(text.trim());
+      }
+      const out = parts.join('\n\n');
+      if (!out.trim()) { toastFor('No extractable text — this PDF may be scanned (try OCR)'); return; }
+      downloadBlob(new Blob([out], { type: 'text/plain' }), `${safeFilename(doc.name)}.txt`);
+      toastFor('Text extracted');
+    } catch (e) {
+      toastFor((e as Error).message || 'Text extraction failed');
+    } finally { setBusy(''); setProgress(0); }
+  };
+
   const exportSearchable = async () => {
     if (!(await guard())) return;
     setBusy('Running OCR + building searchable PDF…');
@@ -1285,6 +1329,7 @@ export default function PdfStudioPro() {
           <StudioButton size="sm" variant="soft" onClick={() => setSplitDialog(true)} title="Split into multiple PDFs"><Scissors className="h-3 w-3" /> Split</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setExtractDialog(true)} title="Extract a page range as a new PDF"><FileText className="h-3 w-3" /> Extract</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportAsDocx()} title="Export as Word"><FileType2 className="h-3 w-3" /> Word</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void extractText()} title="Export all page text as a .txt file"><FileText className="h-3 w-3" /> Extract text</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportSearchable()} title="OCR then build searchable PDF"><FileCheck2 className="h-3 w-3" /> Searchable</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void runOcr()} title="Read text from this scanned page"><ScanText className="h-3 w-3" /> OCR</StudioButton>
           <select value={ocrLang} onChange={e => setOcrLang(e.target.value)} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs text-zinc-100" title="OCR language">

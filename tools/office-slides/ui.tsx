@@ -9,6 +9,7 @@ import {
   MousePointer2, Triangle, ArrowRight, MessageSquare, Presentation, Sparkles,
   AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
   AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
+  AlignHorizontalSpaceAround, AlignVerticalSpaceAround,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -555,6 +556,31 @@ export default function OfficeSlidesPro() {
     }, `align ${which} to slide`);
   };
 
+  // Distribute ALL elements of the current slide so the GAPS between them are
+  // equal — PowerPoint "Distribute Horizontally/Vertically". Multi-select isn't
+  // a thing here yet, so we operate on every element on the slide. The two outer
+  // elements (by edge) stay put; the inner ones are repositioned so every gap
+  // between adjacent edges is identical. Needs 3+ elements to be meaningful.
+  const distribute = (axis: 'h' | 'v') => {
+    const s = doc.slides.find(x => x.id === doc.selectedSlideId);
+    if (!s || s.elements.length < 3) return;
+    const next = cloneDoc(doc);
+    const slide = next.slides.find(x => x.id === doc.selectedSlideId)!;
+    const pos = (e: Element) => axis === 'h' ? e.x : e.y;
+    const size = (e: Element) => axis === 'h' ? e.w : e.h;
+    const sorted = [...slide.elements].sort((a, b) => pos(a) - pos(b));
+    const first = sorted[0], last = sorted[sorted.length - 1];
+    const span = (pos(last) + size(last)) - pos(first);            // outer edge-to-edge
+    const used = sorted.reduce((sum, e) => sum + size(e), 0);      // total element extent
+    const gap = (span - used) / (sorted.length - 1);              // equal gap between each
+    let cursor = pos(first);
+    for (const e of sorted) {
+      if (axis === 'h') e.x = cursor; else e.y = cursor;
+      cursor += size(e) + gap;
+    }
+    commit(`distribute ${axis === 'h' ? 'horizontally' : 'vertically'}`, next);
+  };
+
   const removeElement = () => {
     if (!doc.selectedElementId) return;
     const next = cloneDoc(doc);
@@ -1063,6 +1089,7 @@ export default function OfficeSlidesPro() {
         doc={doc}
         updateElement={updateElement}
         alignToSlide={alignToSlide}
+        distribute={distribute}
         duplicateElement={duplicateElement}
         removeElement={removeElement}
         themeFromCurrentImage={themeFromCurrentImage}
@@ -1347,7 +1374,7 @@ export default function OfficeSlidesPro() {
 // scroll horizontally inside the bounded shell (no page overflow).
 function SlidesToolbar({
   tool, setTool, addImage, elem, slide, doc,
-  updateElement, alignToSlide, duplicateElement, removeElement, themeFromCurrentImage, applyTheme,
+  updateElement, alignToSlide, distribute, duplicateElement, removeElement, themeFromCurrentImage, applyTheme,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -1357,6 +1384,7 @@ function SlidesToolbar({
   doc: DocState;
   updateElement: (sid: string, eid: string, mut: (e: Element) => void, label?: string) => void;
   alignToSlide: (which: 'left' | 'center-h' | 'right' | 'top' | 'middle' | 'bottom') => void;
+  distribute: (axis: 'h' | 'v') => void;
   duplicateElement: () => void;
   removeElement: () => void;
   themeFromCurrentImage: () => void;
@@ -1397,6 +1425,14 @@ function SlidesToolbar({
             <span className="mx-1 h-4 w-px bg-white/10" />
             <button onClick={duplicateElement} title="Duplicate" className="grid h-7 w-7 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
             <button onClick={removeElement} title="Delete" className="grid h-7 w-7 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
+          </>
+        )}
+        {/* Distribute ALL slide elements with equal gaps (PowerPoint parity). */}
+        {slide.elements.length >= 3 && (
+          <>
+            <span className="mx-1 h-4 w-px bg-white/10" />
+            <Tb onClick={() => distribute('h')} title="Distribute horizontally (equal gaps)"><AlignHorizontalSpaceAround className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => distribute('v')} title="Distribute vertically (equal gaps)"><AlignVerticalSpaceAround className="h-3.5 w-3.5" /></Tb>
           </>
         )}
         <div className="ml-auto flex items-center gap-1">
@@ -1440,6 +1476,14 @@ function SlidesToolbar({
           <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
           <button onClick={duplicateElement} title="Duplicate" className="grid h-10 w-10 shrink-0 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
           <button onClick={removeElement} title="Delete" className="grid h-10 w-10 shrink-0 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
+        </>
+      )}
+      {/* Distribute ALL slide elements with equal gaps (PowerPoint parity). */}
+      {slide.elements.length >= 3 && (
+        <>
+          <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+          <Tb phone onClick={() => distribute('h')} title="Distribute horizontally (equal gaps)"><AlignHorizontalSpaceAround className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => distribute('v')} title="Distribute vertically (equal gaps)"><AlignVerticalSpaceAround className="h-3.5 w-3.5" /></Tb>
         </>
       )}
       <div className="flex shrink-0 items-center gap-1">

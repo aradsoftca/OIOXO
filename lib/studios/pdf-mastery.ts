@@ -298,6 +298,92 @@ export async function applyInteractiveFormFields(srcBytes: ArrayBuffer, fields: 
   return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
 }
 
+export interface ImageToPdfInput { bytes: ArrayBuffer; type: string; name?: string }
+export interface ImagesToPdfOptions {
+  /** 'fit' = each page matches its image's pixel size; 'a4'/'letter' = fixed page
+   *  with the image centred + scaled to fit inside the margins. */
+  pageSize?: 'fit' | 'a4' | 'letter';
+  orientation?: 'auto' | 'portrait' | 'landscape';
+  /** Margin in points when using a fixed page size. */
+  margin?: number;
+  onProgress?: (done: number, total: number) => void;
+}
+
+// Standard page sizes in PDF points (1pt = 1/72").
+const PAGE_SIZES: Record<string, [number, number]> = { a4: [595.28, 841.89], letter: [612, 792] };
+
+/**
+ * Combine images (JPEG/PNG, and other raster types via a canvas re-encode) into a
+ * single PDF — one image per page. The reverse of "PDF → images". Common need
+ * (scan a stack of photos/receipts into one document) that rivals all have.
+ * Fully on-device.
+ */
+export async function imagesToPdf(images: ImageToPdfInput[], opts: ImagesToPdfOptions = {}): Promise<Blob> {
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = await PDFDocument.create();
+  const margin = opts.margin ?? 0;
+  for (let i = 0; i < images.length; i++) {
+    opts.onProgress?.(i + 1, images.length);
+    const im = images[i];
+    let bytes = im.bytes;
+    let kind: 'png' | 'jpg' = /png/i.test(im.type) ? 'png' : 'jpg';
+    // pdf-lib only embeds PNG + JPEG. Re-encode anything else (webp/gif/bmp/heic
+    // that the browser can decode) to PNG via a canvas.
+    if (!/png|jpe?g/i.test(im.type)) {
+      const reenc = await reencodeToPng(bytes, im.type);
+      if (!reenc) continue;
+      bytes = reenc; kind = 'png';
+    }
+    let embedded;
+    try { embedded = kind === 'png' ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes); }
+    catch {
+      // Mislabelled type — try the other embedder, then a PNG re-encode.
+      try { embedded = kind === 'png' ? await pdf.embedJpg(bytes) : await pdf.embedPng(bytes); }
+      catch { const re = await reencodeToPng(bytes, im.type); if (!re) continue; embedded = await pdf.embedPng(re); }
+    }
+    const iw = embedded.width, ih = embedded.height;
+    if (opts.pageSize && opts.pageSize !== 'fit') {
+      let [pw, ph] = PAGE_SIZES[opts.pageSize] ?? PAGE_SIZES.a4;
+      const landscape = opts.orientation === 'landscape' || (opts.orientation === 'auto' && iw > ih);
+      if (landscape) [pw, ph] = [ph, pw];
+      const page = pdf.addPage([pw, ph]);
+      const availW = pw - margin * 2, availH = ph - margin * 2;
+      const scale = Math.min(availW / iw, availH / ih);
+      const dw = iw * scale, dh = ih * scale;
+      page.drawImage(embedded, { x: (pw - dw) / 2, y: (ph - dh) / 2, width: dw, height: dh });
+    } else {
+      // Fit: page = image size (in points = pixels at 72dpi).
+      const page = pdf.addPage([iw, ih]);
+      page.drawImage(embedded, { x: 0, y: 0, width: iw, height: ih });
+    }
+  }
+  if (pdf.getPageCount() === 0) throw new Error('No images could be added');
+  const out = await pdf.save();
+  return new Blob([new Uint8Array(out)], { type: 'application/pdf' });
+}
+
+// Decode any browser-supported image and re-encode as PNG bytes (for formats
+// pdf-lib can't embed natively). Returns null if the image can't be decoded.
+async function reencodeToPng(bytes: ArrayBuffer, type: string): Promise<ArrayBuffer | null> {
+  try {
+    const blob = new Blob([bytes], { type: type || 'image/*' });
+    const url = URL.createObjectURL(blob);
+    try {
+      const img = await new Promise<HTMLImageElement>((res, rej) => {
+        const im = new Image();
+        im.onload = () => res(im); im.onerror = () => rej(new Error('decode'));
+        im.src = url;
+      });
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth || 1; c.height = img.naturalHeight || 1;
+      c.getContext('2d')!.drawImage(img, 0, 0);
+      const pngBlob = await new Promise<Blob | null>(r => c.toBlob(r, 'image/png'));
+      if (!pngBlob) return null;
+      return await pngBlob.arrayBuffer();
+    } finally { URL.revokeObjectURL(url); }
+  } catch { return null; }
+}
+
 /**
  * REAL AES password protection (verified: produces an /Encrypt dict, content is
  * not stored in plaintext, and the file can't be opened without the password).

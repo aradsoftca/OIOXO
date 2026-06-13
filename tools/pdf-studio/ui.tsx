@@ -191,6 +191,7 @@ export default function PdfStudioPro() {
   const dragRect = React.useRef<{ nx: number; ny: number } | null>(null);
   const pendingImgPos = React.useRef<{ nx: number; ny: number } | null>(null);
   const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const imgToPdfRef = React.useRef<HTMLInputElement | null>(null);
   const imgRef = React.useRef<HTMLInputElement | null>(null);
   const editorRef = React.useRef<HTMLDivElement | null>(null);
   const editorWrapRef = React.useRef<HTMLDivElement | null>(null);
@@ -434,6 +435,27 @@ export default function PdfStudioPro() {
       commit('add pdf', next);
     } catch (e) {
       toastFor('Could not open PDF — may be password-protected');
+    } finally {
+      setBusy(''); setProgress(0);
+    }
+  };
+
+  // Images → PDF: combine the picked images into one PDF (one image per page),
+  // then load it into the studio so the user can reorder/annotate/export it.
+  const buildPdfFromImages = async (files: File[]) => {
+    if (!files.length) return;
+    setBusy('Building PDF from images…'); setProgress(0);
+    try {
+      const inputs = [];
+      for (const f of files) inputs.push({ bytes: await f.arrayBuffer(), type: f.type, name: f.name });
+      const { imagesToPdf } = await import('@/lib/studios');
+      const blob = await imagesToPdf(inputs, { pageSize: 'fit', orientation: 'auto', onProgress: (d, total) => setProgress(Math.round((d / total) * 100)) });
+      // Load the freshly built PDF into the editor (reuse the PDF open path).
+      const file = new File([blob], 'images.pdf', { type: 'application/pdf' });
+      await addPdf(file);
+      toastFor(`Made a ${files.length}-page PDF from your images`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Could not build PDF from those images');
     } finally {
       setBusy(''); setProgress(0);
     }
@@ -998,6 +1020,8 @@ export default function PdfStudioPro() {
       <StudioShell>
         <StudioTopBar title="PDF Studio Pro" left={
           <>
+            {/* Hidden image picker for the Images → PDF action (start screen + here). */}
+            <input ref={imgToPdfRef} type="file" accept="image/*" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) await buildPdfFromImages(Array.from(fs)); e.target.value = ''; }} />
             <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white">
               <Upload className="h-3.5 w-3.5" /> Open
               <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden" onChange={async (e) => { const fs = e.target.files; if (fs) for (const f of Array.from(fs)) await addPdf(f); e.target.value = ''; }} />
@@ -1027,6 +1051,7 @@ export default function PdfStudioPro() {
             description="Drop a PDF anywhere on this screen, or pick one below. Everything happens on your device — nothing uploads."
             actions={[
               { label: 'Open PDF', description: 'Pick one or more files', icon: <Upload className="h-4 w-4" />, onClick: () => fileRef.current?.click(), primary: true },
+              { label: 'Images → PDF', description: 'Combine photos/scans into one PDF', icon: <ImageIcon className="h-4 w-4" />, onClick: () => imgToPdfRef.current?.click() },
               { label: 'Open from Library', description: 'Continue a saved project', icon: <FileText className="h-4 w-4" />, onClick: openSaved },
             ]}
             hints={[

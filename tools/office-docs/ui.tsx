@@ -97,6 +97,10 @@ export default function OfficeDocsPro() {
   const [findOpen, setFindOpen] = React.useState(false);
   const [findText, setFindText] = React.useState('');
   const [replaceText, setReplaceText] = React.useState('');
+  const [matchCount, setMatchCount] = React.useState(0);
+  // Linear offset (into the editor's concatenated text) where the LAST match
+  // ended — lets "Next" resume past the current hit and wrap around.
+  const findCursor = React.useRef(0);
   const [openDialog, setOpenDialog] = React.useState(false);
   const [exportDialog, setExportDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
@@ -1199,25 +1203,67 @@ export default function OfficeDocsPro() {
       }
       persistHtml();
       recordChange();
+      setMatchCount(0);
+      findCursor.current = 0;
       toastFor(count ? `Replaced ${count}` : 'Not found');
     } else {
+      // "Find next" — walk text nodes building a linear offset, find the first
+      // match starting at/after findCursor; wrap to the top if none remain.
+      const needle = findText.toLowerCase();
+      const nodes: Text[] = [];
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let n: Node | null;
+      while ((n = walker.nextNode())) nodes.push(n as Text);
+
+      const locate = (from: number): { node: Text; idx: number; end: number } | null => {
+        let base = 0;
+        for (const tn of nodes) {
+          const val = tn.nodeValue ?? '';
+          const lower = val.toLowerCase();
+          // search within this node from the appropriate local start
+          const localStart = Math.max(0, from - base);
+          if (localStart <= val.length) {
+            const idx = lower.indexOf(needle, localStart);
+            if (idx >= 0) return { node: tn, idx, end: base + idx + needle.length };
+          }
+          base += val.length;
+        }
+        return null;
+      };
+
+      let hit = locate(findCursor.current);
+      if (!hit) hit = locate(0); // wrap around to the top
+      if (!hit) { setMatchCount(0); toastFor('Not found'); return; }
+
       const sel = window.getSelection();
       if (sel) sel.removeAllRanges();
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-      let node: Node | null;
-      while ((node = walker.nextNode())) {
-        const idx = node.nodeValue?.toLowerCase().indexOf(findText.toLowerCase()) ?? -1;
-        if (idx >= 0) {
-          const r = document.createRange();
-          r.setStart(node, idx);
-          r.setEnd(node, idx + findText.length);
-          sel?.addRange(r);
-          (node.parentElement as HTMLElement | null)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          return;
-        }
-      }
-      toastFor('Not found');
+      const r = document.createRange();
+      r.setStart(hit.node, hit.idx);
+      r.setEnd(hit.node, hit.idx + findText.length);
+      sel?.addRange(r);
+      (hit.node.parentElement as HTMLElement | null)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      findCursor.current = hit.end;
     }
+  };
+
+  // Count case-insensitive occurrences of the find term across the editor's
+  // text (used to show "N matches" live as the user types).
+  const countMatches = (term: string): number => {
+    const el = editorRef.current;
+    if (!el || !term) return 0;
+    const text = (el.innerText || '').toLowerCase();
+    const needle = term.toLowerCase();
+    let count = 0, i = text.indexOf(needle);
+    while (i >= 0) { count++; i = text.indexOf(needle, i + needle.length); }
+    return count;
+  };
+
+  // As the user edits the find box, recompute the match count and reset the
+  // "next" cursor so the next search starts from the top.
+  const onFindChange = (v: string) => {
+    setFindText(v);
+    findCursor.current = 0;
+    setMatchCount(countMatches(v));
   };
 
   useRegisterShortcuts([
@@ -1431,9 +1477,11 @@ export default function OfficeDocsPro() {
       {findOpen && (
         <div className="flex items-center gap-2 border-b border-white/5 bg-[#111317] px-3 py-2 text-xs">
           <Search className="h-3.5 w-3.5 text-zinc-400" />
-          <input autoFocus value={findText} onChange={e => setFindText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') findAndReplace(false); }} placeholder="Find" className="h-7 w-48 rounded border border-white/10 bg-[#0a0b0e] px-2" />
+          <input autoFocus value={findText} onChange={e => onFindChange(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') findAndReplace(false); }} placeholder="Find" className="h-7 w-48 rounded border border-white/10 bg-[#0a0b0e] px-2" />
+          {findText && <span className="tabular-nums text-zinc-400">{matchCount} {matchCount === 1 ? 'match' : 'matches'}</span>}
           <input value={replaceText} onChange={e => setReplaceText(e.target.value)} placeholder="Replace" className="h-7 w-48 rounded border border-white/10 bg-[#0a0b0e] px-2" />
           <button onClick={() => findAndReplace(false)} className="rounded bg-white/10 px-3 py-1 hover:bg-white/15">Find</button>
+          <button onClick={() => findAndReplace(false)} disabled={matchCount === 0} className="rounded bg-white/10 px-3 py-1 hover:bg-white/15 disabled:opacity-40">Next</button>
           <button onClick={() => findAndReplace(true)} className="rounded bg-cyan-500 px-3 py-1 text-zinc-900 hover:bg-cyan-400">Replace all</button>
           <button onClick={() => setFindOpen(false)} className="ml-auto rounded p-1 text-zinc-400 hover:bg-white/5"><X className="h-3.5 w-3.5" /></button>
         </div>

@@ -214,6 +214,7 @@ export default function PdfStudioPro() {
   const [toast, setToast] = React.useState('');
   const [exportDialog, setExportDialog] = React.useState(false);
   const [batesDialog, setBatesDialog] = React.useState(false);
+  const [headerFooterDialog, setHeaderFooterDialog] = React.useState(false);
   const [openDialog, setOpenDialog] = React.useState(false);
   const [signDialog, setSignDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
@@ -668,6 +669,35 @@ export default function PdfStudioPro() {
     const next = cloneDoc(doc);
     next.annotations[pageId] = (next.annotations[pageId] ?? []).filter((_, i) => i !== idx);
     commit('remove anno', next);
+  };
+
+  // Header/Footer text (Acrobat "Add Header & Footer"): stamp a text annotation
+  // at the top and/or bottom of EVERY page, in one undo step. Reuses the same
+  // {kind:'text'} annotation the Text tool produces, so it flattens on export
+  // exactly like manually-placed text. Tokens {{page}}/{{pages}}/{{date}} are
+  // substituted per page. Position is normalized (ny 0=top, 1=bottom) and the
+  // text is centered (the renderer left-anchors at nx, so 0.5 ≈ centered enough
+  // for a short header/footer; users can drag any stamp afterwards).
+  const applyHeaderFooter = (cfg: { header: string; footer: string; size: number; color: string }) => {
+    if (!doc.pages.length) return;
+    const total = doc.pages.length;
+    const today = new Date().toLocaleDateString();
+    const fill = (t: string, i: number) => t
+      .replace(/\{\{\s*page\s*\}\}/gi, String(i + 1))
+      .replace(/\{\{\s*pages\s*\}\}/gi, String(total))
+      .replace(/\{\{\s*date\s*\}\}/gi, today);
+    const next = cloneDoc(doc);
+    doc.pages.forEach((p, i) => {
+      const list = [...(next.annotations[p.id] ?? [])];
+      const h = fill(cfg.header, i).trim();
+      const f = fill(cfg.footer, i).trim();
+      if (h) list.push({ kind: 'text', nx: 0.5, ny: 0.04, text: h, size: cfg.size, color: cfg.color });
+      if (f) list.push({ kind: 'text', nx: 0.5, ny: 0.96, text: f, size: cfg.size, color: cfg.color });
+      next.annotations[p.id] = list;
+    });
+    commit('header/footer', next);
+    setHeaderFooterDialog(false);
+    toastFor(`Header/footer added to ${total} page${total === 1 ? '' : 's'}`);
   };
 
   const commitTextEdit = () => {
@@ -1391,6 +1421,7 @@ export default function PdfStudioPro() {
             <Hash className="h-3 w-3" /> Page numbers
           </label>
           <StudioButton size="sm" variant={doc.bates ? 'primary' : 'soft'} onClick={() => setBatesDialog(true)} title="Bates numbering — sequential legal-discovery stamp (PREFIX000042SUFFIX) on every page"><Hash className="h-3 w-3" /> Bates{doc.bates ? ' ✓' : ''}</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => setHeaderFooterDialog(true)} title="Add header &amp; footer text to every page"><TypeIcon className="h-3 w-3" /> Header/Footer</StudioButton>
         </div>
       </div>
 
@@ -1567,6 +1598,9 @@ export default function PdfStudioPro() {
           onCancel={() => setBatesDialog(false)}
           onApply={(b) => { commit('bates', { ...cloneDoc(doc), bates: b }); setBatesDialog(false); toastFor(b ? 'Bates numbering on — stamped on export' : 'Bates numbering off'); }}
         />
+      )}
+      {headerFooterDialog && (
+        <HeaderFooterDialog onCancel={() => setHeaderFooterDialog(false)} onApply={applyHeaderFooter} />
       )}
       {exportDialog && (
         <Dialog title="Export PDF" onCancel={() => setExportDialog(false)} onConfirm={exportPdf} confirmLabel="Download">
@@ -1869,6 +1903,30 @@ function AnnoResizeHandles({ onStart }: { onStart: (corner: string, e: React.Poi
 
 function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {
   return <button title={title} onClick={(e) => { e.stopPropagation(); onClick(); }} className="grid h-5 w-5 place-items-center rounded text-zinc-300 hover:bg-white/10 hover:text-white">{children}</button>;
+}
+
+type HeaderFooterCfg = { header: string; footer: string; size: number; color: string };
+function HeaderFooterDialog({ onCancel, onApply }: { onCancel: () => void; onApply: (c: HeaderFooterCfg) => void }) {
+  const [cfg, setCfg] = React.useState<HeaderFooterCfg>({ header: '', footer: 'Page {{page}} of {{pages}}', size: 11, color: '#000000' });
+  const set = (p: Partial<HeaderFooterCfg>) => setCfg(c => ({ ...c, ...p }));
+  const canApply = !!(cfg.header.trim() || cfg.footer.trim());
+  return (
+    <Dialog title="Header & Footer" onCancel={onCancel} onConfirm={() => canApply && onApply(cfg)} confirmLabel="Add to all pages">
+      <div className="space-y-3 text-xs">
+        <label className="space-y-1 block"><span className="text-zinc-400">Header text (top of every page)</span>
+          <input value={cfg.header} onChange={e => set({ header: e.target.value })} placeholder="e.g. Confidential — {{date}}" className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+        <label className="space-y-1 block"><span className="text-zinc-400">Footer text (bottom of every page)</span>
+          <input value={cfg.footer} onChange={e => set({ footer: e.target.value })} placeholder="e.g. Page {{page}} of {{pages}}" className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="space-y-1"><span className="text-zinc-400">Font size</span>
+            <input type="number" min={6} max={48} value={cfg.size} onChange={e => set({ size: Math.max(6, Math.min(48, parseInt(e.target.value) || 11)) })} className="w-full rounded border border-white/10 bg-black/30 px-2 py-1 text-zinc-100 outline-none focus:border-cyan-500/60" /></label>
+          <label className="space-y-1"><span className="text-zinc-400">Color</span>
+            <input type="color" value={cfg.color} onChange={e => set({ color: e.target.value })} className="h-7 w-full rounded border border-white/10 bg-black/30 px-1 outline-none" /></label>
+        </div>
+        <p className="text-[10px] text-zinc-500">Stamped on every page on export. Use <span className="font-mono text-zinc-400">{'{{page}}'}</span>, <span className="font-mono text-zinc-400">{'{{pages}}'}</span> and <span className="font-mono text-zinc-400">{'{{date}}'}</span> for the page number, total pages and today’s date. Each stamp can be dragged afterward.</p>
+      </div>
+    </Dialog>
+  );
 }
 
 type BatesCfg = { prefix: string; suffix: string; start: number; digits: number; position: 'bl' | 'br' | 'tl' | 'tr' };

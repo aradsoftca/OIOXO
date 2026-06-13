@@ -1413,6 +1413,17 @@ export default function VideoStudioPro() {
     commit('slip', next);
   };
 
+  // Nudge: slide the whole clip along the timeline by `dt` seconds (start moves,
+  // source window stays). The fine ±0.1s adjust power users reach for to close a
+  // hairline gap the drag-snap overshot. Clamped at the timeline origin.
+  const nudgeClip = (id: string, dt: number) => {
+    const next = cloneDoc(doc);
+    const c = next.clips.find(x => x.id === id);
+    if (!c) return;
+    c.start = Math.max(0, c.start + dt);
+    commit(dt < 0 ? 'nudge left' : 'nudge right', next);
+  };
+
   // Trim around the playhead — CapCut's Q ("delete left of cursor") and W
   // ("delete right of cursor"), the fast-trim verbs power users live on. We trim
   // the SELECTED clip if the playhead sits inside it; otherwise we trim every
@@ -1999,6 +2010,8 @@ export default function VideoStudioPro() {
     { combo: 'r', handler: () => setRipple(r => !r) },
     { combo: 'alt+,', handler: () => doc.selectedId && slipClip(doc.selectedId, -0.2) },
     { combo: 'alt+.', handler: () => doc.selectedId && slipClip(doc.selectedId, 0.2) },
+    { combo: 'shift+,', handler: () => doc.selectedId && nudgeClip(doc.selectedId, -0.1) },
+    { combo: 'shift+.', handler: () => doc.selectedId && nudgeClip(doc.selectedId, 0.1) },
     { combo: 'mod+d', handler: () => doc.selectedId && duplicateClip(doc.selectedId) },
     { combo: 's', handler: () => doc.selectedId && splitAt(doc.selectedId, doc.playhead) },
     // CapCut's core gesture — split at the playhead. We split the selected clip,
@@ -2259,6 +2272,9 @@ export default function VideoStudioPro() {
             <button onClick={() => doc.selectedId && splitAt(doc.selectedId, doc.playhead)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><Scissors className="h-3 w-3" /> Split</button>
             <button onClick={() => doc.selectedId && duplicateClip(doc.selectedId)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><Copy className="h-3 w-3" /> Duplicate</button>
             <button onClick={() => doc.selectedId && rippleDelete(doc.selectedId)} disabled={!doc.selectedId} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-40"><Trash2 className="h-3 w-3" /> Ripple</button>
+            <div className="mx-2 h-4 w-px bg-white/10" />
+            <button onClick={() => doc.selectedId && nudgeClip(doc.selectedId, -0.1)} disabled={!doc.selectedId} title="Nudge selected clip 0.1s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><ChevronLeft className="h-3 w-3" /> Nudge</button>
+            <button onClick={() => doc.selectedId && nudgeClip(doc.selectedId, 0.1)} disabled={!doc.selectedId} title="Nudge selected clip 0.1s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40">Nudge <ChevronRight className="h-3 w-3" /></button>
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => setSnap(s => !s)} className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
               <button onClick={() => setRipple(r => !r)} title="Ripple trim — trimming a clip edge shifts later clips to close/open the gap" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', ripple ? 'bg-amber-500/20 text-amber-200' : 'text-zinc-400 hover:bg-white/5')}><Scissors className="h-3 w-3" /> Ripple trim</button>

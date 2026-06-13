@@ -882,6 +882,27 @@ export default function MusicStudioPro() {
     commit('dup pattern', next);
   };
 
+  // Pattern length (Bars): change how many steps the active pattern is. Grows
+  // by padding every note/vel/chance lane with empties and shrinks by slicing
+  // them, so all the depth lanes stay length-consistent with `steps`. Piano-roll
+  // notes that fall past the new end are dropped. 16 steps = 1 bar.
+  const setPatternLength = (steps: number) => {
+    const next = cloneDoc(doc);
+    const p = next.patterns.find(x => x.id === doc.activePatternId);
+    if (!p || steps === p.steps || steps < 4) return;
+    const resize = (arr: (number | null)[]) =>
+      Array.from({ length: steps }, (_, i) => (i < arr.length ? arr[i] : null));
+    for (const inst of INSTRUMENTS) p.notes[inst.id] = resize(p.notes[inst.id]);
+    if (p.vel) for (const k of Object.keys(p.vel) as InstId[]) if (p.vel[k]) p.vel[k] = resize(p.vel[k]!);
+    if (p.chance) for (const k of Object.keys(p.chance) as InstId[]) if (p.chance[k]) p.chance[k] = resize(p.chance[k]!);
+    if (p.roll) for (const k of Object.keys(p.roll) as InstId[]) {
+      p.roll[k] = (p.roll[k] ?? []).filter(n => n.start < steps).map(n => ({ ...n, length: Math.min(n.length, steps - n.start) }));
+    }
+    p.steps = steps;
+    commit('pattern length', next);
+    toastFor(`Pattern is now ${steps / 16} bar${steps === 16 ? '' : 's'} (${steps} steps)`);
+  };
+
   const updateInstrument = (id: InstId, mut: (i: Instrument) => void) => {
     const next = cloneDoc(doc);
     const inst = next.instruments.find(x => x.id === id);
@@ -1234,6 +1255,19 @@ export default function MusicStudioPro() {
               className={cn('rounded px-2 py-1 text-[11px] capitalize transition-colors', stepMode === m ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}
             >{m}</button>
           ))}
+        </div>
+        <div className="flex items-center gap-1" title="Pattern length in bars (16 steps = 1 bar)">
+          <span className="text-zinc-500">Bars</span>
+          {[1, 2, 4].map(b => {
+            const s = b * 16;
+            return (
+              <button
+                key={b}
+                onClick={() => setPatternLength(s)}
+                className={cn('rounded px-2 py-1 text-[11px] transition-colors', activePattern.steps === s ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}
+              >{b}</button>
+            );
+          })}
         </div>
         <div className="ml-auto flex items-center gap-1">
           <span className="text-zinc-500">Pattern</span>

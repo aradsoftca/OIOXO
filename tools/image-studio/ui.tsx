@@ -1845,6 +1845,71 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runLiftShadows = async () => {
+    // Shadow/highlight recovery. Brightens dark pixels more than bright ones via a
+    // luminance-weighted gain (stronger for low L) so crushed shadows open up while
+    // highlights stay put. Destructive on the active paint/image layer, alpha kept.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Lifting shadows…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i], g = d[i + 1], b = d[i + 2];
+        const L = 0.299 * r + 0.587 * g + 0.114 * b;
+        const gain = 1 + 0.5 * (1 - L / 255);
+        d[i] = Math.min(255, r * gain) | 0;
+        d[i + 1] = Math.min(255, g * gain) | 0;
+        d[i + 2] = Math.min(255, b * gain) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('lift-shadows', next);
+      toastFor('Shadows lifted ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runClarity = async () => {
+    // Clarity / local contrast pop. Unsharp-mask-lite: a modest S-curve around the
+    // 128 midpoint pushes midtones apart (v = 128 + (v-128)*1.25, clamped) to crisp
+    // up detail without a costly blur. Destructive on the active layer, alpha kept.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Adding clarity…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = Math.min(255, Math.max(0, 128 + (d[i] - 128) * 1.25)) | 0;
+        d[i + 1] = Math.min(255, Math.max(0, 128 + (d[i + 1] - 128) * 1.25)) | 0;
+        d[i + 2] = Math.min(255, Math.max(0, 128 + (d[i + 2] - 128) * 1.25)) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('clarity', next);
+      toastFor('Clarity applied ✓');
+    } finally { setBusy(''); }
+  };
+
   const runLook = async (look: 'vintage' | 'cinematic' | 'noir' | 'faded') => {
     // One-click photographic LOOK presets. Each destructively bakes a tasteful
     // tone+color curve into the active paint/image layer (per-pixel, clamped to
@@ -3208,6 +3273,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSepia()} title={pristine ? 'Open an image first' : 'Apply classic sepia tone'}><Sparkles className="h-3.5 w-3.5" /> Sepia</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm')} title={pristine ? 'Open an image first' : 'Warm white balance (+red / -blue)'}><Sparkles className="h-3.5 w-3.5" /> Warm</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool')} title={pristine ? 'Open an image first' : 'Cool white balance (-red / +blue)'}><Sparkles className="h-3.5 w-3.5" /> Cool</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLiftShadows()} title={pristine ? 'Open an image first' : 'Lift shadows — recover dark detail (luminance-weighted gain)'}><Sparkles className="h-3.5 w-3.5" /> Lift Shadows</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runClarity()} title={pristine ? 'Open an image first' : 'Clarity — punch up midtone local contrast'}><Sparkles className="h-3.5 w-3.5" /> Clarity</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />
             {/* Looks — one-click photographic tone+color grades on the active layer. */}
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('vintage')} title={pristine ? 'Open an image first' : 'Vintage look — lifted blacks, warm, softly desaturated'}><Sparkles className="h-3.5 w-3.5" /> Vintage</StudioButton>

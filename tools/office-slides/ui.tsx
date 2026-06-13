@@ -973,7 +973,7 @@ export default function OfficeSlidesPro() {
       />
 
       <StudioBody>
-        <StudioSidebar side="left" width={180}>
+        <StudioSidebar side="left" width={180} label="Slides" autoOpen={false}>
           {sections.length > 1 && (
             <StudioPanel title="Sections" defaultOpen>
               <div className="space-y-1">
@@ -1093,7 +1093,7 @@ export default function OfficeSlidesPro() {
           )}
         </div>
 
-        <StudioSidebar width={260}>
+        <StudioSidebar width={260} label="Design" autoOpen={false}>
           {elem ? (
             <>
               <ElementInspector

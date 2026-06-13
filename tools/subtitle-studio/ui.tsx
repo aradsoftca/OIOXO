@@ -952,7 +952,7 @@ export default function SubtitleStudioPro() {
       />
 
       <StudioBody>
-        <StudioSidebar side="left" width={300}>
+        <StudioSidebar side="left" width={300} label="Cues" autoOpen={false}>
           <StudioPanel title="Cues">
             <div className="flex gap-1 pb-2">
               <StudioButton size="sm" variant="soft" onClick={addCue}><Plus className="h-3 w-3" /> Add</StudioButton>
@@ -1167,7 +1167,7 @@ export default function SubtitleStudioPro() {
           </div>
         </div>
 
-        <StudioSidebar width={272}>
+        <StudioSidebar width={272} label="Style" autoOpen={false}>
           <StudioPanel title="Style presets">
             <div className="space-y-3">
               {STYLE_CATEGORIES.map(cat => {

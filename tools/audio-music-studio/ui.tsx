@@ -1224,7 +1224,7 @@ export default function MusicStudioPro() {
           )}
         </div>
 
-        <StudioSidebar width={260}>
+        <StudioSidebar width={260} label="Mixer" autoOpen={false}>
           <EffectsRack
             value={doc.masterEffects ?? []}
             onChange={(next) => commit('master fx', { ...cloneDoc(doc), masterEffects: next })}

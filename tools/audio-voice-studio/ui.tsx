@@ -1201,7 +1201,7 @@ export default function VoiceStudioPro() {
         />
         )}
 
-        <StudioSidebar width={280}>
+        <StudioSidebar width={280} label="Inspector" autoOpen={false}>
           {selectedClip ? (
             <>
               <StudioPanel title="Smart actions">

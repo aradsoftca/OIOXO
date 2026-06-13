@@ -61,11 +61,29 @@ function looksLikeBrowser(ua: string | null): boolean {
 }
 
 /** Run the four cheap pre-checks. Returns null on pass, or a NextResponse to
- *  short-circuit with on fail. Call this at the top of any key endpoint. */
-export function preCheckRequest(req: Request): NextResponse | null {
+ *  short-circuit with on fail. Call this at the top of any key endpoint.
+ *
+ *  `allowBearer` (opt-in per endpoint): the native Xtudio apps (Capacitor) have
+ *  no browser Origin/Referer and a non-browser UA, so the UA + origin checks
+ *  would always reject them. When the request carries an `Authorization: Bearer`
+ *  header AND the endpoint opts in, skip those two checks — the signed app token
+ *  is a STRONGER auth than origin, and the route still validates it (an invalid
+ *  bearer just yields no userId → free entitlement, never Pro). The rate limit
+ *  always applies. */
+export function preCheckRequest(
+  req: Request,
+  opts: { allowBearer?: boolean; skipBrowserCheck?: boolean } = {},
+): NextResponse | null {
   const ip = clientIp(req);
   if (!rateLimit(ip)) {
     return NextResponse.json({ denied: true, reason: 'rate-limited' }, { status: 429, headers: { 'Retry-After': '60' } });
+  }
+  // app-login bootstrap: no bearer yet, but it's a native-app endpoint guarded
+  // by bcrypt credentials — skip UA/origin, keep the rate limit.
+  if (opts.skipBrowserCheck) return null;
+  const hasBearer = /^Bearer\s+\S/i.test(req.headers.get('authorization') || '');
+  if (opts.allowBearer && hasBearer) {
+    return null; // app path — token auth replaces UA/origin filtering
   }
   if (!looksLikeBrowser(req.headers.get('user-agent'))) {
     return NextResponse.json({ denied: true, reason: 'forbidden-client' }, { status: 403 });

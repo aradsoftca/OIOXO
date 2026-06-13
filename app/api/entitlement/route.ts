@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { signEntitlement, type Tier } from '@/lib/oioxo/entitlement';
 import { preCheckRequest } from '@/lib/oioxo/gate';
+import { userIdFromBearer } from '@/lib/oioxo/app-token';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,7 +33,9 @@ function entitlementFor(plan: string | null | undefined): { tier: Tier; features
 
 export async function POST(req: Request) {
   // Shared rate-limit + UA + origin/referer pre-check (lib/oioxo/gate).
-  const pre = preCheckRequest(req);
+  // allowBearer: native Xtudio apps authenticate with an app bearer token
+  // instead of a browser origin (validated below via userIdFromBearer).
+  const pre = preCheckRequest(req, { allowBearer: true });
   if (pre) return pre;
 
   let body: { device?: string };
@@ -43,8 +46,12 @@ export async function POST(req: Request) {
   const secret = process.env.OIOXO_ENTITLEMENT_SECRET;
   if (!secret) return NextResponse.json({ error: 'unconfigured' }, { status: 503 });
 
+  // Web clients authenticate with the NextAuth cookie; the native Xtudio apps
+  // (Capacitor) have no cookie and instead present an app bearer token (signed
+  // by /api/auth/app-login). Accept either — same device-bound entitlement out.
   const session = await getServerSession(authOptions);
-  const userId = (session?.user as { id?: string } | undefined)?.id;
+  const userId =
+    (session?.user as { id?: string } | undefined)?.id ?? (await userIdFromBearer(req));
   if (!userId) {
     // No login → a free, device-bound entitlement (no content key; free brain is open).
     const entitlement = await signEntitlement({ sub: 'anon', device, tier: 'free', features: [] }, secret);

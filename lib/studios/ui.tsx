@@ -68,22 +68,28 @@ export function StudioShell({ children, className }: { children: React.ReactNode
 export function StudioTopBar({ title, left, right }: { title: React.ReactNode; left?: React.ReactNode; right?: React.ReactNode }) {
   const { mode } = useResponsiveStudio();
   if (mode !== 'desktop') {
-    // Mobile: the StudioFrame slim bar already shows the tool name, so we DROP
-    // the redundant inner title (it was eating a whole row and "… Pro" read as
-    // nagware — same reasoning as desktop). The scrollable tool row and the
-    // fixed right-controls share ONE row: tools scroll under the finger, the
-    // right cluster (undo/redo/scopes/help) stays pinned and never clips.
+    // Mobile: TWO rows, not one. Cramming a scrollable tool strip AND the full
+    // pinned right-cluster into one 44px row choked the tools into a ~100px
+    // sliver (everything off-screen, undiscoverable). Instead:
+    //   • Row 1 — the right cluster (undo/redo/panels/export), the actions a
+    //     touch user reaches for most, at full 44px targets, never clipped.
+    //   • Row 2 — the scrollable tool/menu strip gets the WHOLE width with a
+    //     swipe-fade affordance, so New/Templates/AI tools/etc. are reachable.
+    // This is the frontier-mobile pattern (Procreate/CapCut): primary actions
+    // pinned, secondary tools in a full-width scroller.
     return (
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-white/5 bg-[#111317] px-2">
+      <div className="flex flex-col shrink-0 border-b border-white/5 bg-[#111317]">
+        {right ? (
+          <div className="flex h-12 items-center justify-end gap-1 px-2">{right}</div>
+        ) : null}
         {left ? (
-          <div className="relative min-w-0 flex-1">
-            <div className="flex items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{left}</div>
+          <div className="relative min-w-0">
+            <div className="flex items-center gap-1.5 overflow-x-auto px-2 pb-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{left}</div>
             {/* Right-edge fade = "there's more, swipe" — without it the strip
                 reads as complete and everything off-screen is undiscoverable. */}
-            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-l from-[#111317] to-transparent" />
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[#111317] to-transparent" />
           </div>
-        ) : <div className="flex-1" />}
-        <div className="flex shrink-0 items-center gap-1 border-l border-white/10 pl-1">{right}</div>
+        ) : null}
       </div>
     );
   }
@@ -205,31 +211,45 @@ export function StudioSidebar({ side = 'right', width = 280, children }: { side?
 
 const SidebarCountCtx = React.createContext<{ register: () => number; unregister: (i: number) => void } | null>(null);
 
-function MobileFloatingPanel({ side, children }: { side: 'left' | 'right'; children: React.ReactNode }) {
-  const [open, setOpen] = React.useState(false);
-  const labelChar = side === 'left' ? '◀' : '▶';
+function MobileFloatingPanel({ children }: { side: 'left' | 'right'; children: React.ReactNode }) {
+  // A real bottom SHEET, open the moment it mounts. The studio only renders the
+  // <StudioSidebar> when the user taps its top-bar panel button, so the panel
+  // must appear immediately — the old design mounted a 260px side drawer
+  // COLLAPSED behind a 7px "▶" tab, so tapping Layers looked like nothing
+  // happened (you had to find a second tiny tab). Sheet slides up from the
+  // bottom, ~70vh, scrollable, with a grab handle + tap-scrim to dismiss.
+  // Dismiss only hides the sheet locally; the studio's own toggle re-mounts it.
+  const [dismissed, setDismissed] = React.useState(false);
+  React.useEffect(() => { setDismissed(false); }, []);
+  if (dismissed) {
+    // Leave a small reopen pill so the user can bring the panel back without
+    // round-tripping to the top bar.
+    return (
+      <button
+        onClick={() => setDismissed(false)}
+        aria-label="Show panel"
+        className="fixed bottom-16 right-3 z-30 grid h-11 w-11 place-items-center rounded-full border border-white/10 bg-[#111317] text-zinc-300 shadow-lg"
+      >
+        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
+    );
+  }
   return (
     <>
-      <button
-        onClick={() => setOpen(o => !o)}
-        className={cn(
-          'fixed z-30 grid h-10 w-7 place-items-center rounded-md border border-white/10 bg-[#111317] text-xs text-zinc-300 shadow-lg',
-          side === 'right' ? (open ? 'right-[260px] top-1/2 -translate-y-1/2' : 'right-1 top-1/2 -translate-y-1/2') : (open ? 'left-[260px] top-1/2 -translate-y-1/2' : 'left-1 top-1/2 -translate-y-1/2'),
-        )}
-        aria-label="Toggle panel"
-      >
-        {open ? (side === 'right' ? '▶' : '◀') : labelChar}
-      </button>
-      {open && (
-        <div
-          className={cn(
-            'fixed top-[var(--studio-top-offset,108px)] bottom-[60px] z-20 w-[260px] overflow-y-auto bg-[#0f1115] shadow-2xl',
-            side === 'right' ? 'right-0 border-l border-white/10' : 'left-0 border-r border-white/10',
-          )}
-        >
-          {children}
+      <div className="fixed inset-0 z-20 bg-black/40" onClick={() => setDismissed(true)} aria-hidden />
+      <div className="fixed inset-x-0 bottom-12 z-30 max-h-[70vh] overflow-y-auto rounded-t-2xl border-t border-white/10 bg-[#0f1115] shadow-2xl animate-in slide-in-from-bottom duration-200 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="sticky top-0 z-10 flex items-center justify-center bg-[#0f1115] pt-2 pb-1">
+          <div className="h-1 w-10 rounded-full bg-white/20" />
+          <button
+            onClick={() => setDismissed(true)}
+            aria-label="Close panel"
+            className="absolute right-2 top-1 grid h-9 w-9 place-items-center rounded-lg text-zinc-400 hover:bg-white/5"
+          >
+            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><path d="M18 6 6 18M6 6l12 12" /></svg>
+          </button>
         </div>
-      )}
+        {children}
+      </div>
     </>
   );
 }
@@ -270,8 +290,10 @@ export function StudioButton({
       className={cn(
         'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors',
         // M4 (mobile): finger-sized on phones, compact on >=sm. Was a flat
-        // h-7/h-8 everywhere — below the 44px touch-target floor.
-        size === 'sm' ? 'h-9 px-2.5 text-xs sm:h-7 sm:px-2' : 'h-10 px-3.5 text-sm sm:h-8 sm:px-3',
+        // h-7/h-8 everywhere — below the 44px touch-target floor. `min-w-11`
+        // (44px) guarantees icon-only buttons (undo/redo/panels) are a full
+        // touch target wide, not a ~34px sliver, while text buttons grow past it.
+        size === 'sm' ? 'h-11 min-w-11 px-2.5 text-xs sm:h-7 sm:min-w-0 sm:px-2' : 'h-11 min-w-11 px-3.5 text-sm sm:h-8 sm:min-w-0 sm:px-3',
         variant === 'ghost'   && 'text-zinc-300 hover:bg-white/5 hover:text-white',
         variant === 'primary' && 'bg-cyan-500 text-zinc-900 hover:bg-cyan-400',
         variant === 'danger'  && 'text-rose-300 hover:bg-rose-500/10',

@@ -41,7 +41,7 @@ import {
   HelpButton, useRegisterShortcuts,
   EmptyState, pushToast,
   SharedDialog,
-  DesktopOnly, MobileOnly,
+  DesktopOnly, MobileOnly, isPhone,
   TemplateGallery, type GalleryItem,
   IMAGE_TEMPLATES, IMAGE_TEMPLATE_CATEGORIES,
   materializeImageTemplate, renderImageThumb,
@@ -710,7 +710,10 @@ export default function ImageStudioPro() {
   const [pan, setPan] = React.useState({ x: 0, y: 0 });
   const [showRulers, setShowRulers] = React.useState(true);
   const [showGrid, setShowGrid] = React.useState(false);
-  const [showLayersPanel, setShowLayersPanel] = React.useState(true);
+  // Docked by default on desktop; on a phone it's a bottom SHEET, so starting
+  // it open would cover the welcome/empty state on launch — start closed there
+  // and let the user (or loading content) open it.
+  const [showLayersPanel, setShowLayersPanel] = React.useState(() => !isPhone());
   const [showHistoryPanel, setShowHistoryPanel] = React.useState(false);
   const [showAdjustPanel, setShowAdjustPanel] = React.useState(false);
 
@@ -2322,11 +2325,14 @@ export default function ImageStudioPro() {
     <StudioShell>
       {policyGate.element}
       {recovery && (
-        <div className="flex shrink-0 items-center gap-3 border-b border-amber-400/30 bg-amber-400/10 px-4 py-2 text-xs text-amber-100">
+        // Floating toast — does NOT push the editor down (a layout-shifting bar
+        // at the top is hostile on a phone). Pinned bottom on mobile (above the
+        // tool dock), top-right on desktop. Full 44px touch buttons.
+        <div className="fixed inset-x-3 bottom-16 z-50 flex items-center gap-3 rounded-xl border border-amber-400/30 bg-[#1a1710]/95 px-4 py-3 text-xs text-amber-100 shadow-2xl backdrop-blur-sm sm:inset-x-auto sm:right-4 sm:top-16 sm:bottom-auto sm:max-w-sm">
           <History className="h-4 w-4 shrink-0" />
           <span className="flex-1">Recovered an unsaved session{recovery.name && recovery.name !== 'Untitled' ? ` — "${recovery.name}"` : ''}. Restore it?</span>
-          <button onClick={doRecover} className="rounded bg-amber-400 px-3 py-1 font-semibold text-zinc-900 hover:bg-amber-300">Restore</button>
-          <button onClick={dismissRecovery} className="rounded px-2 py-1 text-amber-200/80 hover:bg-white/5">Dismiss</button>
+          <button onClick={doRecover} className="h-9 rounded-lg bg-amber-400 px-3 font-semibold text-zinc-900 hover:bg-amber-300">Restore</button>
+          <button onClick={dismissRecovery} className="grid h-9 w-9 place-items-center rounded-lg text-amber-200/80 hover:bg-white/5"><X className="h-4 w-4" /></button>
         </div>
       )}
       <StudioTopBar
@@ -2425,18 +2431,23 @@ export default function ImageStudioPro() {
             </StudioToolButton>
           ))}
           <StudioDivider />
-          <div className="relative h-9 w-9">
+          {/* FG/BG swatches — the tap area is the full 44px cell on mobile (was a
+              24px sliver pair); the classic overlapping-swatch look is kept but
+              each half is a real touch target. */}
+          <div className="relative h-11 w-11 shrink-0 sm:h-9 sm:w-9">
             <button
               title="Foreground color"
+              aria-label="Foreground color"
               onClick={() => document.getElementById('fg-color')?.click()}
-              className="absolute left-0 top-0 h-6 w-6 rounded border border-white/20 shadow"
+              className="absolute left-0 top-0 h-7 w-7 rounded border border-white/20 shadow sm:h-6 sm:w-6"
               style={{ background: fgColor }}
             />
             <input id="fg-color" type="color" value={fgColor} onChange={e => setFgColor(e.target.value)} className="absolute opacity-0 pointer-events-none" />
             <button
               title="Background color"
+              aria-label="Background color"
               onClick={() => document.getElementById('bg-color')?.click()}
-              className="absolute right-0 bottom-0 h-6 w-6 rounded border border-white/20 shadow"
+              className="absolute right-0 bottom-0 h-7 w-7 rounded border border-white/20 shadow sm:h-6 sm:w-6"
               style={{ background: bgColor }}
             />
             <input id="bg-color" type="color" value={bgColor} onChange={e => setBgColor(e.target.value)} className="absolute opacity-0 pointer-events-none" />

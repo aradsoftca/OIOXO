@@ -1789,6 +1789,35 @@ export default function ImageStudioPro() {
     commit('invert selection', next);
   };
 
+  // Selection > Modify: feather (soften edges), grow/shrink (expand/contract the
+  // boundary). The selection mask is grayscale; feather = gaussian blur; grow =
+  // blur+threshold-low (dilate); shrink = blur+threshold-high (erode).
+  const modifySelection = (op: 'feather' | 'grow' | 'shrink', px = 4) => {
+    if (!doc.selection) { toastFor('Make a selection first'); return; }
+    const w = doc.width, h = doc.height;
+    const src = doc.selection.mask;
+    const out = blankCanvas(w, h);
+    const ctx = out.getContext('2d')!;
+    ctx.filter = `blur(${px}px)`;
+    ctx.drawImage(src, 0, 0, w, h);
+    ctx.filter = 'none';
+    if (op !== 'feather') {
+      // Threshold the blurred mask: a LOW cutoff keeps more (grows), a HIGH cutoff
+      // keeps less (shrinks) — classic morphological dilate/erode via blur+threshold.
+      const img = ctx.getImageData(0, 0, w, h);
+      const d = img.data;
+      const cut = op === 'grow' ? 40 : 215; // low cut keeps more (dilate); high cut keeps less (erode)
+      for (let i = 0; i < d.length; i += 4) {
+        const on = d[i] >= cut ? 255 : 0; // threshold the blurred white mask
+        d[i] = d[i + 1] = d[i + 2] = on; d[i + 3] = 255;
+      }
+      ctx.putImageData(img, 0, 0);
+    }
+    const next = cloneDoc(doc);
+    if (next.selection) next.selection = { kind: next.selection.kind, mask: out };
+    commit('modify selection', next);
+  };
+
   // ---- Layer masks (non-destructive) --------------------------------------
   // A mask is a grayscale canvas: white reveals the layer, black hides it.
   // New masks start fully white (layer unchanged) unless seeded from the
@@ -2657,7 +2686,7 @@ export default function ImageStudioPro() {
         brushFlow={brushFlow} setBrushFlow={setBrushFlow}
         eraserSize={eraserSize} setEraserSize={setEraserSize}
         wandTol={wandTol} setWandTol={setWandTol}
-        selMode={selMode} setSelMode={setSelMode} onInvertSelection={invertSelection}
+        selMode={selMode} setSelMode={setSelMode} onInvertSelection={invertSelection} onModifySelection={modifySelection}
         gradType={gradType} setGradType={setGradType} gradStyle={gradStyle} setGradStyle={setGradStyle}
         fgColor={fgColor} setFgColor={setFgColor}
         bgColor={bgColor} setBgColor={setBgColor}
@@ -3198,6 +3227,7 @@ function ToolOptionsBar(props: {
   wandTol: number; setWandTol: (n: number) => void;
   selMode: SelMode; setSelMode: (m: SelMode) => void;
   onInvertSelection: () => void;
+  onModifySelection: (op: 'feather' | 'grow' | 'shrink') => void;
   gradType: 'linear' | 'radial'; setGradType: (t: 'linear' | 'radial') => void;
   gradStyle: 'fg-bg' | 'fg-transparent'; setGradStyle: (s: 'fg-bg' | 'fg-transparent') => void;
   fgColor: string; setFgColor: (c: string) => void;
@@ -3271,6 +3301,9 @@ function ToolOptionsBar(props: {
             ))}
           </div>
           {props.hasSelection && <button onClick={props.onInvertSelection} title="Invert selection (Ctrl+Shift+I)" className={cn('shrink-0 rounded bg-white/5 text-zinc-200 hover:bg-white/10', isMobile ? 'px-3 py-2 min-h-[44px]' : 'px-2 py-1 text-xs')}>Invert</button>}
+          {props.hasSelection && (['feather', 'grow', 'shrink'] as const).map(op => (
+            <button key={op} onClick={() => props.onModifySelection(op)} title={`${op[0].toUpperCase() + op.slice(1)} the selection edge`} className={cn('shrink-0 rounded bg-white/5 capitalize text-zinc-200 hover:bg-white/10', isMobile ? 'px-3 py-2 min-h-[44px]' : 'px-2 py-1 text-xs')}>{op}</button>
+          ))}
         </>
       )}
       {tool === 'gradient' && (

@@ -44,7 +44,7 @@ import {
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
-  PresetBar,
+  PresetBar, KeyframeSlider,
 } from '@/lib/studios';
 
 /** Styleable subset of a caption TextClip — the value saved as a C4 preset. */
@@ -3392,61 +3392,22 @@ function AnimatableSlider({ label, value, min, max, suffix, step, format, paramN
   onChange: (v: number) => void;
   onAnimate: (kf: AnimatedParam<number>) => void;
 }) {
+  // Delegates to the shared C1 KeyframeSlider (lib/studios/keyframe-slider).
+  // Maps its single onChange(nextParam, sampled) back to this call site's
+  // static onChange(v) + keyframed onAnimate(kf): if the param has ≥1 KF it's
+  // an animation update; a 1-KF "static" result writes the plain value.
   const kf = clip.keyframes?.[paramName];
-  const animated = !!kf && kf.keyframes.length > 0;
-  const sampledVal = animated ? sampleAnimated(kf, localT) : value;
-  // Easing applied to keyframes added/edited on this param. CapCut-free only
-  // does linear; offering ease-in/out/hold is a real motion-quality edge.
-  const [easing, setEasing] = React.useState<NonNullable<Parameters<typeof addKeyframe>[3]>>('ease-in-out');
-  const addKf = () => {
-    const base: AnimatedParam<number> = kf ?? makeStatic(value);
-    const next = addKeyframe(base, localT, sampledVal, easing);
-    onAnimate(next);
-  };
-  const clearKf = () => {
-    onAnimate(makeStatic(value));
-  };
   return (
-    <div className="space-y-0.5">
-      <div className="flex items-center justify-between text-[10px] text-zinc-400">
-        <span className="flex items-center gap-1.5">
-          {label}
-          {animated && <span className="rounded bg-cyan-500/20 px-1 text-[9px] font-semibold text-cyan-300">{kf!.keyframes.length}KF</span>}
-        </span>
-        <span className="flex items-center gap-1">
-          {animated && (
-            <select
-              value={easing}
-              onChange={e => setEasing(e.target.value as typeof easing)}
-              title="Easing for keyframes you add on this parameter"
-              className="h-4 rounded bg-white/5 text-[9px] text-zinc-300 outline-none hover:bg-white/10"
-            >
-              <option value="linear">Linear</option>
-              <option value="ease-in">Ease in</option>
-              <option value="ease-out">Ease out</option>
-              <option value="ease-in-out">Ease in-out</option>
-              <option value="step">Hold</option>
-            </select>
-          )}
-          <button onClick={addKf} title="Add keyframe at playhead" className="grid h-4 w-4 place-items-center rounded bg-white/5 text-[9px] hover:bg-cyan-500/20 hover:text-cyan-300">◆</button>
-          {animated && <button onClick={clearKf} title="Clear keyframes" className="grid h-4 w-4 place-items-center rounded bg-white/5 text-[9px] hover:bg-rose-500/20 hover:text-rose-300">×</button>}
-          <span className="ml-1 tabular-nums text-zinc-300">{format ? format(animated ? sampledVal : value) : `${Math.round(animated ? sampledVal : value)}${suffix ?? ''}`}</span>
-        </span>
-      </div>
-      <input
-        type="range" min={min} max={max} step={step ?? 1} value={animated ? sampledVal : value}
-        onChange={e => {
-          const v = parseFloat(e.target.value);
-          if (animated) {
-            const next = addKeyframe(kf!, localT, v, easing);
-            onAnimate(next);
-          } else {
-            onChange(v);
-          }
-        }}
-        className="h-1 w-full"
-      />
-    </div>
+    <KeyframeSlider
+      label={label} min={min} max={max} step={step} suffix={suffix} format={format}
+      param={kf} staticValue={value} time={localT}
+      onChange={(next, sampled) => {
+        // ≥1 keyframe → it's an animation (store on the clip's keyframe map).
+        // 0 keyframes → a pure static value drag (no animation).
+        if (next.keyframes.length >= 1) onAnimate(next);
+        else onChange(sampled);
+      }}
+    />
   );
 }
 

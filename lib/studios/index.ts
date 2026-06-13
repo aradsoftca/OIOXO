@@ -37,6 +37,7 @@ export * from './effects-rack';
 export * from './presets';
 export * from './presets-ui';
 export * from './lut';
+export * from './keyframe-slider';
 export * from './audio-master-chain';
 export * from './loudness';
 export * from './resume-pdf';

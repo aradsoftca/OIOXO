@@ -156,7 +156,7 @@ whose frames match the preview.
 ## 7. CROSS‑CUTTING PRODUCT POLISH (applies to ALL)
 - [ ] **Undo/redo everywhere** with labeled history; Ctrl+Z/Ctrl+Shift+Z; visible history panel.
 - [ ] **Autosave + crash recovery** on every studio (image already has it — propagate).
-- [ ] **Keyboard shortcuts** + a "?" cheat‑sheet overlay per studio.
+- [x] **Keyboard shortcuts** + a "?" cheat‑sheet overlay per studio. DONE (6d965b4) — all 9 register shortcuts; added always-present "?" FAB in StudioShell so it's reachable on touch, device-verified. Web now; 8 non-image apps on next rebuild.
 - [ ] **Loading/empty/error states** are designed, never a blank or a raw error.
 - [ ] **Mobile parity**: every action reachable by touch; inspectors are bottom‑sheets; no hover‑only UI.
       (Memory `project_studio_mobile` — shared shell + bottom‑sheet coordinator already started.)

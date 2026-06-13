@@ -514,7 +514,12 @@ function scaleCanvas(src: HTMLCanvasElement, factor: number): HTMLCanvasElement 
 // BELOW this layer; for a clipping mask we intersect the layer's alpha with the
 // alpha already in `out` so it only shows over the layer(s) below. Shared by the
 // export compositor and the live preview so they stay pixel-identical.
-function compositeLayerInto(ctx: CanvasRenderingContext2D, out: HTMLCanvasElement, rendered: HTMLCanvasElement, layer: Layer, w: number, h: number): void {
+// `clipBase` is the rendered canvas of the layer DIRECTLY BELOW (the clipping
+// base) — NOT the full accumulated `out`, which includes the opaque document
+// background and would defeat the clip (destination-in vs an opaque full frame =
+// no clipping). Photoshop clips a layer to the base layer's alpha; we pass that
+// base's rendered alpha here.
+function compositeLayerInto(ctx: CanvasRenderingContext2D, clipBase: HTMLCanvasElement | null, rendered: HTMLCanvasElement, layer: Layer, w: number, h: number): void {
   let layerCanvas = rendered;
   const mask = layer.maskDisabled ? undefined : layer.mask;
   if (mask) {
@@ -525,13 +530,13 @@ function compositeLayerInto(ctx: CanvasRenderingContext2D, out: HTMLCanvasElemen
     tctx.drawImage(mask, 0, 0, w, h);
     layerCanvas = tmp;
   }
-  if (layer.clip) {
-    // Clip to the opaque pixels already in `out` (the layer below).
+  if (layer.clip && clipBase) {
+    // Clip to the base layer's opaque pixels (the content layer below).
     const tmp = blankCanvas(w, h);
     const tctx = tmp.getContext('2d')!;
     tctx.drawImage(layerCanvas, 0, 0);
     tctx.globalCompositeOperation = 'destination-in';
-    tctx.drawImage(out, 0, 0);
+    tctx.drawImage(clipBase, 0, 0);
     layerCanvas = tmp;
   }
   ctx.globalAlpha = layer.opacity;
@@ -548,6 +553,9 @@ function compositeDoc(doc: DocState): HTMLCanvasElement {
     ctx.fillStyle = doc.background;
     ctx.fillRect(0, 0, doc.width, doc.height);
   }
+  // The clipping base = the rendered canvas of the last NON-clipped content
+  // layer. A run of clipped layers all clip to that same base (Photoshop rule).
+  let clipBase: HTMLCanvasElement | null = null;
   for (const layer of doc.layers) {
     if (layer.kind === 'adjust') {
       if (!layer.visible || layer.opacity <= 0) continue;
@@ -570,13 +578,13 @@ function compositeDoc(doc: DocState): HTMLCanvasElement {
         tctx.drawImage(aMask, 0, 0, doc.width, doc.height);
         adjusted = tmp;
       }
-      if (layer.clip) {
-        // Scope the adjustment to the layer directly below (clipping mask).
+      if (layer.clip && clipBase) {
+        // Scope the adjustment to the base content layer below (clipping mask).
         const tmp = blankCanvas(doc.width, doc.height);
         const tctx = tmp.getContext('2d')!;
         tctx.drawImage(adjusted, 0, 0);
         tctx.globalCompositeOperation = 'destination-in';
-        tctx.drawImage(out, 0, 0);
+        tctx.drawImage(clipBase, 0, 0);
         adjusted = tmp;
       }
       ctx.globalAlpha = layer.opacity;       // opacity = adjusted/original mix
@@ -588,7 +596,9 @@ function compositeDoc(doc: DocState): HTMLCanvasElement {
     }
     const rendered = renderLayer(layer, doc.width, doc.height);
     if (!rendered) continue;
-    compositeLayerInto(ctx, out, rendered, layer, doc.width, doc.height);
+    compositeLayerInto(ctx, clipBase, rendered, layer, doc.width, doc.height);
+    // A non-clipped content layer becomes the clip base for the layers above it.
+    if (!layer.clip) clipBase = rendered;
   }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
@@ -955,6 +965,7 @@ export default function ImageStudioPro() {
     const out = blankCanvas(doc.width, doc.height);
     const ctx = out.getContext('2d')!;
     if (doc.background !== 'transparent') { ctx.fillStyle = doc.background; ctx.fillRect(0, 0, doc.width, doc.height); }
+    let clipBase: HTMLCanvasElement | null = null;
     for (const layer of doc.layers) {
       // While inline-editing a text layer, hide its raster so the live <textarea>
       // overlay (drawn on top at the same spot) isn't doubled under it.
@@ -976,12 +987,12 @@ export default function ImageStudioPro() {
           tctx.drawImage(aMask, 0, 0, doc.width, doc.height);
           adjusted = tmp;
         }
-        if (layer.clip) {
+        if (layer.clip && clipBase) {
           const tmp = blankCanvas(doc.width, doc.height);
           const tctx = tmp.getContext('2d')!;
           tctx.drawImage(adjusted, 0, 0);
           tctx.globalCompositeOperation = 'destination-in';
-          tctx.drawImage(out, 0, 0);
+          tctx.drawImage(clipBase, 0, 0);
           adjusted = tmp;
         }
         ctx.globalAlpha = layer.opacity;
@@ -1010,7 +1021,8 @@ export default function ImageStudioPro() {
       }
       if (!rendered) continue;
       if (!layer.visible || layer.opacity <= 0) continue;
-      compositeLayerInto(ctx, out, rendered, layer, doc.width, doc.height);
+      compositeLayerInto(ctx, clipBase, rendered, layer, doc.width, doc.height);
+      if (!layer.clip) clipBase = rendered;
     }
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';

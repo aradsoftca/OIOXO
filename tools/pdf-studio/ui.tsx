@@ -6,7 +6,7 @@ import {
   Type as TypeIcon, SquareDashed, Image as ImageIcon, Hash, FileText, Highlighter,
   PenTool, Eraser, Minus, Circle as CircleIcon, Save, Upload, Undo2, Redo2, X,
   MousePointer2, Signature, FileSignature, Sparkles, Shield, ScanText, MessageSquare,
-  Droplets, Scissors, FileCheck2, FileType2,
+  Droplets, Scissors, FileCheck2, FileType2, ArrowUpDown,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { BRAND_DOMAIN } from '@/lib/brand';
@@ -548,6 +548,16 @@ export default function PdfStudioPro() {
     if (i < 0 || j < 0 || j >= next.pages.length) return;
     [next.pages[i], next.pages[j]] = [next.pages[j], next.pages[i]];
     commit('reorder', next);
+  };
+  const rotateAllPages = () => {
+    const next = cloneDoc(doc);
+    next.pages.forEach(p => { p.rotation = (p.rotation + 90) % 360; });
+    commit('rotate all', next);
+  };
+  const reversePageOrder = () => {
+    const next = cloneDoc(doc);
+    next.pages.reverse();
+    commit('reverse order', next);
   };
 
   const addAnno = (pageId: string, a: Annotation) => {
@@ -1287,6 +1297,10 @@ export default function PdfStudioPro() {
 
         <StudioSidebar side="left" width={200} label="Pages" autoOpen={false}>
           <StudioPanel title={`Pages · ${doc.pages.length}`}>
+            <div className="mb-2 flex gap-1.5">
+              <StudioButton size="sm" variant="soft" onClick={rotateAllPages} disabled={!doc.pages.length} title="Rotate every page 90° clockwise"><RotateCw className="h-3 w-3" /> Rotate all ↻</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={reversePageOrder} disabled={doc.pages.length < 2} title="Reverse the order of all pages"><ArrowUpDown className="h-3 w-3" /> Reverse order</StudioButton>
+            </div>
             <div className="grid max-h-[70vh] grid-cols-2 gap-1.5 overflow-y-auto">
               {doc.pages.map((p, i) => {
                 const rp = raster[p.srcId]?.[p.srcIndex];

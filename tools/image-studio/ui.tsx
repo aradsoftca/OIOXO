@@ -7,7 +7,7 @@ import {
   Lasso, Wand2, Move, Layers as LayersIcon, History, Sliders,
   Eye, EyeOff, Lock, Unlock, ChevronUp, ChevronDown, Trash2, Plus,
   Copy, FolderPlus, Download, Save, Upload, Undo2, Redo2,
-  FlipHorizontal2, FlipVertical2, RotateCw, Sparkles, Image as ImageIcon,
+  FlipHorizontal2, FlipVertical2, RotateCw, RotateCcw, Sparkles, Image as ImageIcon,
   X, Check, AlertTriangle, FileText, Loader2, LayoutTemplate, Blend,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -234,6 +234,41 @@ function cloneDoc(d: DocState): DocState {
     layers: d.layers.map(cloneLayer),
     selection: d.selection ? { kind: d.selection.kind, mask: cloneCanvas(d.selection.mask) } : null,
   };
+}
+
+/** Whole-document orientation operations (Photoshop Image > Image Rotation):
+ *  transform the WHOLE canvas — every layer's pixels AND its dimensions/position
+ *  — not just the active layer. */
+type DocXform = 'cw' | 'ccw' | 'flip-h' | 'flip-v';
+
+/** Rotate/flip a single canvas, returning a NEW canvas. For 'cw'/'ccw' the
+ *  output is rotated 90° (width/height swapped); for the flips the size is kept
+ *  and the pixels are mirrored. */
+function transformCanvas(src: HTMLCanvasElement, op: DocXform): HTMLCanvasElement {
+  if (op === 'cw' || op === 'ccw') {
+    const out = blankCanvas(src.height, src.width);
+    const ctx = out.getContext('2d')!;
+    ctx.translate(out.width / 2, out.height / 2);
+    ctx.rotate(((op === 'cw' ? 90 : -90) * Math.PI) / 180);
+    ctx.drawImage(src, -src.width / 2, -src.height / 2);
+    return out;
+  }
+  const out = blankCanvas(src.width, src.height);
+  const ctx = out.getContext('2d')!;
+  ctx.translate(op === 'flip-h' ? src.width : 0, op === 'flip-v' ? src.height : 0);
+  ctx.scale(op === 'flip-h' ? -1 : 1, op === 'flip-v' ? -1 : 1);
+  ctx.drawImage(src, 0, 0);
+  return out;
+}
+
+/** Map a layer's top-left (x,y) plus its on-canvas box (bw×bh) into the
+ *  transformed document space (old docW×docH → new dims). Axis-aligned, so it's
+ *  exact for un-rotated layers and a sane approximation for rotated vector ones. */
+function mapBoxTopLeft(x: number, y: number, bw: number, bh: number, docW: number, docH: number, op: DocXform): { x: number; y: number } {
+  if (op === 'cw') return { x: docH - (y + bh), y: x };           // new dims: docH × docW
+  if (op === 'ccw') return { x: y, y: docW - (x + bw) };          // new dims: docH × docW
+  if (op === 'flip-h') return { x: docW - (x + bw), y };
+  return { x, y: docH - (y + bh) };                                // flip-v
 }
 
 /** Apply a layer's non-destructive effect stack to its source canvas (in order,
@@ -1829,6 +1864,70 @@ export default function ImageStudioPro() {
     }
   };
 
+  // CANVAS-LEVEL orientation (Photoshop Image > Image Rotation): transform the
+  // WHOLE document — swap the canvas dimensions for ±90° and rotate/flip every
+  // layer's pixels and position so the composite looks identically rotated. The
+  // active-layer flip/rotate above only touch one layer; this touches all.
+  const transformDoc = (op: DocXform) => {
+    if (pristine) { toastFor('Open or create an image first'); return; }
+    const next = cloneDoc(doc);
+    const docW = next.width, docH = next.height;
+    const swap = op === 'cw' || op === 'ccw';
+    // Scratch context for measuring text-layer bounds during the position remap.
+    const meas = blankCanvas(1, 1).getContext('2d')!;
+    for (const l of next.layers) {
+      // Masks live in full-document space on every layer kind — transform them
+      // exactly like a doc-sized canvas so masking survives the rotation/flip.
+      if (l.mask) l.mask = transformCanvas(l.mask, op);
+      if (l.kind === 'paint') {
+        // Paint layers fill the whole doc at origin — rotate/flip the pixels.
+        l.canvas = transformCanvas(l.canvas, op);
+      } else if (l.kind === 'image') {
+        // Image layers carry their own pixels + position/scale. Bake the 90°/
+        // mirror into the pixels, then remap the top-left and swap the scale
+        // axes (for ±90°) so the placed image lands in the right spot.
+        const bw = l.canvas.width * Math.abs(l.scaleX);
+        const bh = l.canvas.height * Math.abs(l.scaleY);
+        l.canvas = transformCanvas(l.canvas, op);
+        const p = mapBoxTopLeft(l.x, l.y, bw, bh, docW, docH, op);
+        l.x = p.x; l.y = p.y;
+        if (swap) { const sx = l.scaleX; l.scaleX = l.scaleY; l.scaleY = sx; }
+        else if (op === 'flip-h') l.scaleX = -l.scaleX;
+        else l.scaleY = -l.scaleY;
+      } else if (l.kind === 'text') {
+        // Vector text: remap the anchor by its measured box, then carry the
+        // orientation in the free-transform rotation/scale fields (no raster).
+        const tb = textLayerBounds(l, meas);
+        const p = mapBoxTopLeft(tb.x, tb.y, tb.w, tb.h, docW, docH, op);
+        l.x += p.x - tb.x; l.y += p.y - tb.y;
+        if (swap) l.rotation = ((l.rotation ?? 0) + (op === 'cw' ? 90 : -90)) % 360;
+        else if (op === 'flip-h') l.scaleX = -(l.scaleX ?? 1);
+        else l.scaleY = -(l.scaleY ?? 1);
+      } else if (l.kind === 'shape') {
+        // Vector shape: remap its box top-left and swap w/h for ±90°; carry the
+        // orientation in the free-transform fields.
+        const p = mapBoxTopLeft(l.x, l.y, l.w, l.h, docW, docH, op);
+        l.x = p.x; l.y = p.y;
+        if (swap) { const w = l.w; l.w = l.h; l.h = w; l.rotation = ((l.rotation ?? 0) + (op === 'cw' ? 90 : -90)) % 360; }
+        else if (op === 'flip-h') l.scaleX = -(l.scaleX ?? 1);
+        else l.scaleY = -(l.scaleY ?? 1);
+      }
+      // Adjustment layers have no pixels/position — nothing to transform.
+    }
+    if (swap) { next.width = docH; next.height = docW; }
+    if (next.selection) next.selection.mask = transformCanvas(next.selection.mask, op);
+    // The composite cache is keyed by props, NOT pixel content — every layer's
+    // pixels just changed, so clear it (same reason undo/redo clears it).
+    cacheRef.current.clear();
+    commit(
+      op === 'cw' ? 'rotate canvas 90° CW'
+        : op === 'ccw' ? 'rotate canvas 90° CCW'
+        : op === 'flip-h' ? 'flip canvas horizontal'
+        : 'flip canvas vertical',
+      next,
+    );
+  };
+
   const clearSelection = () => {
     if (!doc.selection) return;
     setDoc(d => ({ ...d, selection: null }));
@@ -2694,6 +2793,14 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runUpscale()} title={pristine ? 'Open an image first' : 'Upscale 2× — edge-aware super-resolution (on-device)'}><Sparkles className="h-3.5 w-3.5" /> Upscale 2×</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
+            <span className="ml-1 h-5 w-px bg-white/10" />
+            {/* CANVAS-level orientation (Photoshop Image > Image Rotation) — rotates
+                / flips the WHOLE document (every layer + canvas size), distinct from
+                the per-layer flip/rotate in the tool-options bar. */}
+            <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('cw')} title={pristine ? 'Open an image first' : 'Rotate canvas 90° clockwise'}><RotateCw className="h-3.5 w-3.5" /></StudioButton>
+            <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('ccw')} title={pristine ? 'Open an image first' : 'Rotate canvas 90° counter-clockwise'}><RotateCcw className="h-3.5 w-3.5" /></StudioButton>
+            <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('flip-h')} title={pristine ? 'Open an image first' : 'Flip canvas horizontal'}><FlipHorizontal2 className="h-3.5 w-3.5" /></StudioButton>
+            <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => transformDoc('flip-v')} title={pristine ? 'Open an image first' : 'Flip canvas vertical'}><FlipVertical2 className="h-3.5 w-3.5" /></StudioButton>
             <select
               onChange={e => { if (e.target.value) { applyColorGrade(e.target.value); e.target.value = ''; } }}
               defaultValue=""

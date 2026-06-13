@@ -7,6 +7,8 @@ import {
   Circle as CircleIcon, Palette, ChevronUp, ChevronDown,
   Eye, EyeOff, Bold, Italic, AlignLeft, AlignCenter, AlignRight,
   MousePointer2, Triangle, ArrowRight, MessageSquare, Presentation, Sparkles,
+  AlignHorizontalJustifyStart, AlignHorizontalJustifyCenter, AlignHorizontalJustifyEnd,
+  AlignVerticalJustifyStart, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -526,6 +528,22 @@ export default function OfficeSlidesPro() {
     commit(`align ${which}`, next);
   };
 
+  // Align the SINGLE selected element to the slide bounds (doc.width/height) —
+  // PowerPoint/Keynote "Align to Slide" parity. Operates on the selection only
+  // (multi-select isn't a thing here yet), via the same updateElement pattern.
+  const alignToSlide = (which: 'left' | 'center-h' | 'right' | 'top' | 'middle' | 'bottom') => {
+    if (!doc.selectedElementId) return;
+    const W = doc.width, H = doc.height;
+    updateElement(doc.selectedSlideId, doc.selectedElementId, e => {
+      if (which === 'left') e.x = 0;
+      else if (which === 'center-h') e.x = (W - e.w) / 2;
+      else if (which === 'right') e.x = W - e.w;
+      else if (which === 'top') e.y = 0;
+      else if (which === 'middle') e.y = (H - e.h) / 2;
+      else if (which === 'bottom') e.y = H - e.h;
+    }, `align ${which} to slide`);
+  };
+
   const removeElement = () => {
     if (!doc.selectedElementId) return;
     const next = cloneDoc(doc);
@@ -1033,6 +1051,7 @@ export default function OfficeSlidesPro() {
         slide={slide}
         doc={doc}
         updateElement={updateElement}
+        alignToSlide={alignToSlide}
         duplicateElement={duplicateElement}
         removeElement={removeElement}
         themeFromCurrentImage={themeFromCurrentImage}
@@ -1316,7 +1335,7 @@ export default function OfficeSlidesPro() {
 // scroll horizontally inside the bounded shell (no page overflow).
 function SlidesToolbar({
   tool, setTool, addImage, elem, slide, doc,
-  updateElement, duplicateElement, removeElement, themeFromCurrentImage, applyTheme,
+  updateElement, alignToSlide, duplicateElement, removeElement, themeFromCurrentImage, applyTheme,
 }: {
   tool: Tool;
   setTool: (t: Tool) => void;
@@ -1325,6 +1344,7 @@ function SlidesToolbar({
   slide: Slide;
   doc: DocState;
   updateElement: (sid: string, eid: string, mut: (e: Element) => void, label?: string) => void;
+  alignToSlide: (which: 'left' | 'center-h' | 'right' | 'top' | 'middle' | 'bottom') => void;
   duplicateElement: () => void;
   removeElement: () => void;
   themeFromCurrentImage: () => void;
@@ -1354,6 +1374,14 @@ function SlidesToolbar({
             <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'left'; })} title="Left" active={elem.align === 'left'}><AlignLeft className="h-3.5 w-3.5" /></Tb>
             <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'center'; })} title="Center" active={elem.align === 'center'}><AlignCenter className="h-3.5 w-3.5" /></Tb>
             <Tb onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'right'; })} title="Right" active={elem.align === 'right'}><AlignRight className="h-3.5 w-3.5" /></Tb>
+            <span className="mx-1 h-4 w-px bg-white/10" />
+            {/* Align selected element TO THE SLIDE (PowerPoint/Keynote parity). */}
+            <Tb onClick={() => alignToSlide('left')} title="Align left to slide"><AlignHorizontalJustifyStart className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => alignToSlide('center-h')} title="Center horizontally on slide"><AlignHorizontalJustifyCenter className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => alignToSlide('right')} title="Align right to slide"><AlignHorizontalJustifyEnd className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => alignToSlide('top')} title="Align top to slide"><AlignVerticalJustifyStart className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => alignToSlide('middle')} title="Center vertically on slide"><AlignVerticalJustifyCenter className="h-3.5 w-3.5" /></Tb>
+            <Tb onClick={() => alignToSlide('bottom')} title="Align bottom to slide"><AlignVerticalJustifyEnd className="h-3.5 w-3.5" /></Tb>
             <span className="mx-1 h-4 w-px bg-white/10" />
             <button onClick={duplicateElement} title="Duplicate" className="grid h-7 w-7 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
             <button onClick={removeElement} title="Delete" className="grid h-7 w-7 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -1389,6 +1417,14 @@ function SlidesToolbar({
           <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'left'; })} title="Left" active={elem.align === 'left'}><AlignLeft className="h-3.5 w-3.5" /></Tb>
           <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'center'; })} title="Center" active={elem.align === 'center'}><AlignCenter className="h-3.5 w-3.5" /></Tb>
           <Tb phone onClick={() => updateElement(slide.id, elem.id, e => { e.align = 'right'; })} title="Right" active={elem.align === 'right'}><AlignRight className="h-3.5 w-3.5" /></Tb>
+          <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
+          {/* Align selected element TO THE SLIDE (PowerPoint/Keynote parity). */}
+          <Tb phone onClick={() => alignToSlide('left')} title="Align left to slide"><AlignHorizontalJustifyStart className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => alignToSlide('center-h')} title="Center horizontally on slide"><AlignHorizontalJustifyCenter className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => alignToSlide('right')} title="Align right to slide"><AlignHorizontalJustifyEnd className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => alignToSlide('top')} title="Align top to slide"><AlignVerticalJustifyStart className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => alignToSlide('middle')} title="Center vertically on slide"><AlignVerticalJustifyCenter className="h-3.5 w-3.5" /></Tb>
+          <Tb phone onClick={() => alignToSlide('bottom')} title="Align bottom to slide"><AlignVerticalJustifyEnd className="h-3.5 w-3.5" /></Tb>
           <span className="mx-1 h-4 w-px shrink-0 bg-white/10" />
           <button onClick={duplicateElement} title="Duplicate" className="grid h-10 w-10 shrink-0 place-items-center rounded text-zinc-300 hover:bg-white/5"><Copy className="h-3.5 w-3.5" /></button>
           <button onClick={removeElement} title="Delete" className="grid h-10 w-10 shrink-0 place-items-center rounded text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" /></button>

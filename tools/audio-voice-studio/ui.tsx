@@ -1216,6 +1216,14 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => void splitVocalsFromClip(selectedClip.id)}><Sparkles className="h-3 w-3" /> Split vocals / music</StudioButton>
                 </div>
               </StudioPanel>
+              <StudioPanel title="Fade & gain">
+                <div className="space-y-1.5">
+                  <StudioButton size="sm" variant="soft" onClick={() => updateClip(selectedClip.id, c => { c.fadeIn = 1; }, 'fade in')} title="Ease the clip in over 1 second"><Sparkles className="h-3 w-3" /> Fade in 1s</StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => updateClip(selectedClip.id, c => { c.fadeOut = 1; }, 'fade out')} title="Ease the clip out over 1 second"><Sparkles className="h-3 w-3" /> Fade out 1s</StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => updateClip(selectedClip.id, c => { c.fadeIn = 1; c.fadeOut = 1; }, 'fade both')} title="Fade in and out, 1 second each"><Sparkles className="h-3 w-3" /> Fade both</StudioButton>
+                  <StudioButton size="sm" variant={selectedClip.normalized ? 'primary' : 'soft'} onClick={() => updateClip(selectedClip.id, c => { c.normalized = !c.normalized; }, 'normalize')} title="Normalize the clip peak to -3 dB"><Sparkles className="h-3 w-3" /> Normalize to -3dB{selectedClip.normalized ? ' ✓' : ''}</StudioButton>
+                </div>
+              </StudioPanel>
               <StudioPanel title="Transcript">
                 <div className="space-y-2">
                   <StudioButton size="sm" variant="soft" onClick={() => void transcribeClip(selectedClip.id)}><FileText className="h-3 w-3" /> Transcribe (lines)</StudioButton>

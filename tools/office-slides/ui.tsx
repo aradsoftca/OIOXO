@@ -60,6 +60,33 @@ interface Slide {
   notes: string;
   layout?: string;
   section?: string;
+  /** Slide-entry transition played in present mode (PowerPoint/Keynote parity). */
+  transition?: { type: SlideTransition; duration: number };
+}
+
+type SlideTransition = 'none' | 'fade' | 'slide-left' | 'slide-right' | 'slide-up' | 'slide-down' | 'zoom' | 'flip' | 'cube' | 'dissolve';
+const SLIDE_TRANSITIONS: { id: SlideTransition; name: string }[] = [
+  { id: 'none', name: 'None' }, { id: 'fade', name: 'Fade' },
+  { id: 'slide-left', name: 'Slide ←' }, { id: 'slide-right', name: 'Slide →' },
+  { id: 'slide-up', name: 'Slide ↑' }, { id: 'slide-down', name: 'Slide ↓' },
+  { id: 'zoom', name: 'Zoom' }, { id: 'flip', name: 'Flip' },
+  { id: 'cube', name: 'Cube' }, { id: 'dissolve', name: 'Dissolve' },
+];
+// CSS keyframes per transition (injected once). The container replays on slide change.
+const SLIDE_TRANSITION_CSS = `
+@keyframes slx-fade { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slx-slide-left { from { transform: translateX(60%); opacity:.3 } to { transform: translateX(0); opacity:1 } }
+@keyframes slx-slide-right { from { transform: translateX(-60%); opacity:.3 } to { transform: translateX(0); opacity:1 } }
+@keyframes slx-slide-up { from { transform: translateY(60%); opacity:.3 } to { transform: translateY(0); opacity:1 } }
+@keyframes slx-slide-down { from { transform: translateY(-60%); opacity:.3 } to { transform: translateY(0); opacity:1 } }
+@keyframes slx-zoom { from { transform: scale(.7); opacity:0 } to { transform: scale(1); opacity:1 } }
+@keyframes slx-flip { from { transform: perspective(1200px) rotateY(90deg); opacity:0 } to { transform: perspective(1200px) rotateY(0); opacity:1 } }
+@keyframes slx-cube { from { transform: perspective(1200px) rotateY(-90deg) translateZ(40px); opacity:.2 } to { transform: perspective(1200px) rotateY(0) translateZ(0); opacity:1 } }
+@keyframes slx-dissolve { from { opacity:0; filter: blur(8px) } to { opacity:1; filter: blur(0) } }
+`;
+function transitionAnim(t: SlideTransition | undefined, dur: number): string {
+  if (!t || t === 'none') return 'none';
+  return `slx-${t} ${dur}s cubic-bezier(.22,.61,.36,1) both`;
 }
 
 interface Theme {
@@ -963,6 +990,21 @@ export default function OfficeSlidesPro() {
             <button onClick={() => { setPresentIdx(doc.slides.findIndex(s => s.id === doc.selectedSlideId)); setPresentMode(true); }} className="inline-flex h-7 items-center gap-1.5 rounded-md bg-emerald-500/90 px-2.5 text-xs font-medium text-zinc-900 hover:bg-emerald-400">
               <Play className="h-3 w-3" /> Present
             </button>
+            {/* Per-slide entry transition (PowerPoint/Keynote). Alt-select applies to all. */}
+            <select
+              value={slide?.transition?.type ?? 'none'}
+              onChange={e => {
+                const type = e.target.value as SlideTransition;
+                const applyAll = (e.nativeEvent as any)?.altKey;
+                const next = cloneDoc(doc);
+                for (const s of next.slides) { if (applyAll || s.id === doc.selectedSlideId) s.transition = type === 'none' ? undefined : { type, duration: s.transition?.duration ?? 0.5 }; }
+                commit(applyAll ? 'transition (all)' : 'transition', next);
+              }}
+              title="Slide transition (hold Alt while choosing to apply to all slides)"
+              className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs text-zinc-200"
+            >
+              {SLIDE_TRANSITIONS.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
             <span className="ml-2 h-5 w-px bg-white/10" />
             <input value={doc.name} onChange={e => setDoc(d => ({ ...d, name: e.target.value }))} className="h-7 w-40 rounded border border-transparent bg-transparent px-2 text-sm text-zinc-200 outline-none hover:border-white/10 focus:border-cyan-400/50" />
           </>
@@ -1570,7 +1612,13 @@ function PresentMode({ slide, doc, idx, total, onExit }: { slide: Slide; doc: Do
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black" onClick={onExit}>
-      <div className="relative" style={{ aspectRatio: `${doc.width}/${doc.height}`, width: '90vw', maxHeight: '90vh' }}>
+      <style>{SLIDE_TRANSITION_CSS}</style>
+      {/* key on slide.id so the entry transition replays on every slide change */}
+      <div
+        key={slide.id}
+        className="relative"
+        style={{ aspectRatio: `${doc.width}/${doc.height}`, width: '90vw', maxHeight: '90vh', animation: transitionAnim(slide.transition?.type, slide.transition?.duration ?? 0.5) }}
+      >
         <AnimatedSlideCanvas slide={slide} doc={doc} slideTime={slideTime} slideDur={slideDur} />
       </div>
       <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-xs text-white">

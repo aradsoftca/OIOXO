@@ -311,7 +311,7 @@ export default function OfficeSlidesPro() {
   };
   const stageRef = React.useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = React.useState(false);
-  const dragState = React.useRef<null | { mode: 'move' | 'resize'; corner?: string; id: string; ox: number; oy: number; ex: number; ey: number; ew: number; eh: number; aspect: number; duped?: boolean; moved?: boolean }>(null);
+  const dragState = React.useRef<null | { mode: 'move' | 'resize' | 'rotate'; corner?: string; id: string; ox: number; oy: number; ex: number; ey: number; ew: number; eh: number; aspect: number; duped?: boolean; moved?: boolean; cx?: number; cy?: number; startAngle?: number; startRot?: number }>(null);
   // Live smart-guides (pink alignment lines) shown during a drag/resize. In doc coordinates.
   const [guides, setGuides] = React.useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
   // Live modifier state so the canvas can show "axis-locked / snap-off" affordances.
@@ -578,6 +578,23 @@ export default function OfficeSlidesPro() {
       aspect: el.w / Math.max(1, el.h),
     };
   };
+  const startRotate = (e: React.PointerEvent, el: Element) => {
+    e.stopPropagation();
+    setDoc(d => ({ ...d, selectedElementId: el.id }));
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    setDragging(true);
+    modKeys.current = { shift: e.shiftKey, alt: e.altKey, meta: e.metaKey || e.ctrlKey };
+    // Pivot = element center in SCREEN px; startAngle = pointer angle about it.
+    const rect = stageRef.current!.getBoundingClientRect();
+    const sx = rect.width / doc.width, sy = rect.height / doc.height;
+    const cx = rect.left + (el.x + el.w / 2) * sx;
+    const cy = rect.top + (el.y + el.h / 2) * sy;
+    dragState.current = {
+      mode: 'rotate', id: el.id,
+      ox: e.clientX, oy: e.clientY, ex: el.x, ey: el.y, ew: el.w, eh: el.h, aspect: 1,
+      cx, cy, startAngle: Math.atan2(e.clientY - cy, e.clientX - cx), startRot: el.rotation ?? 0,
+    };
+  };
   const onMoveDrag = (e: React.PointerEvent) => {
     const d = dragState.current;
     if (!d) return;
@@ -612,6 +629,15 @@ export default function OfficeSlidesPro() {
       const el = s.elements.find(x => x.id === d.id);
       if (!el) return prev;
       d.moved = true;
+      if (d.mode === 'rotate') {
+        const ang = Math.atan2(e.clientY - (d.cy ?? 0), e.clientX - (d.cx ?? 0));
+        let deg = (d.startRot ?? 0) + ((ang - (d.startAngle ?? 0)) * 180) / Math.PI;
+        if (e.shiftKey) deg = Math.round(deg / 15) * 15; // 15° snap with Shift
+        // normalize to (-180, 180]
+        deg = ((deg % 360) + 540) % 360 - 180;
+        el.rotation = Math.round(deg);
+        return next;
+      }
       if (d.mode === 'move') {
         // Shift constrains motion to the dominant axis.
         if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
@@ -1077,6 +1103,7 @@ export default function OfficeSlidesPro() {
                 onSelectElement={(id) => setDoc(d => ({ ...d, selectedElementId: id }))}
                 onStartMove={startMove}
                 onStartResize={startResize}
+                onStartRotate={startRotate}
                 onEditText={(id, text) => updateElement(slide.id, id, e => { e.text = text; }, 'text edit')}
               />
               {(guides.v.length > 0 || guides.h.length > 0) && (
@@ -1375,12 +1402,13 @@ function MobileSlideStrip({ doc, onSelect, onAdd }: {
   );
 }
 
-function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onStartMove, onStartResize, onEditText }: {
+function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onStartMove, onStartResize, onStartRotate, onEditText }: {
   slide: Slide; doc: DocState; interactive: boolean;
   selectedId?: string | null;
   onSelectElement?: (id: string) => void;
   onStartMove?: (e: React.PointerEvent, el: Element) => void;
   onStartResize?: (e: React.PointerEvent, el: Element, corner: string) => void;
+  onStartRotate?: (e: React.PointerEvent, el: Element) => void;
   onEditText?: (id: string, text: string) => void;
 }) {
   const [editing, setEditing] = React.useState<string | null>(null);
@@ -1443,6 +1471,10 @@ function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onS
               left: `${(el.x / doc.width) * 100}%`, top: `${(el.y / doc.height) * 100}%`,
               width: `${(el.w / doc.width) * 100}%`, height: `${(el.h / doc.height) * 100}%`,
               cursor: 'move',
+              // Rotate the interaction box with the element so handles + the rotate
+              // grip track the rotated object (matches the rendered SVG transform).
+              transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+              transformOrigin: 'center center',
             }}
           >
             {editing === el.id && el.kind === 'text' && (
@@ -1466,6 +1498,19 @@ function SlideCanvas({ slide, doc, interactive, selectedId, onSelectElement, onS
                 style={getHandleStyle(c)}
               />
             ))}
+            {sel && onStartRotate && (
+              <>
+                {/* stem from the top edge up to the rotate grip */}
+                <div className="pointer-events-none absolute left-1/2 top-0 h-5 w-px -translate-x-1/2 -translate-y-full bg-cyan-400" />
+                <div
+                  data-rotate-handle={el.id}
+                  onPointerDown={(e) => onStartRotate(e, el)}
+                  title="Drag to rotate (Shift = 15°)"
+                  className="absolute left-1/2 top-0 h-3 w-3 -translate-x-1/2 cursor-grab rounded-full border-2 border-cyan-400 bg-white [touch-action:none] [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-6"
+                  style={{ transform: 'translate(-50%, calc(-100% - 18px))' }}
+                />
+              </>
+            )}
           </div>
         );
       })}

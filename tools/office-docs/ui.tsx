@@ -4,7 +4,7 @@ import * as React from 'react';
 import {
   Loader2, Download, Save, Upload, Undo2, Redo2, FileText, Search,
   Bold, Italic, Underline, Strikethrough, Code, Quote, Link as LinkIcon,
-  List, ListOrdered, Heading1, Heading2, Heading3, AlignLeft, AlignCenter, AlignRight,
+  List, ListOrdered, Heading1, Heading2, Heading3, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Table as TableIcon, Image as ImageIcon, X, Type as TypeIcon, Palette, Highlighter,
   Indent, Outdent, Eraser, Eye, EyeOff, Sparkles, Wand2, Languages, Users, Share2,
   History, Check, X as XIcon, Volume2, MicVocal, Sigma, BookOpen,
@@ -631,6 +631,39 @@ export default function OfficeDocsPro() {
 
   const formatBlock = (tag: string) => exec('formatBlock', `<${tag}>`);
 
+  // Set line spacing on the paragraph(s) in the current selection (Google Docs
+  // "Line spacing"). Walks from the selection up to the nearest block element
+  // and sets its line-height; spans across multiple selected blocks.
+  const setLineSpacing = (mult: number) => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || sel.rangeCount === 0) return;
+    el.focus();
+    const range = sel.getRangeAt(0);
+    const blockOf = (node: Node | null): HTMLElement | null => {
+      let n: Node | null = node;
+      while (n && n !== el) {
+        if (n.nodeType === 1 && /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE)$/.test((n as HTMLElement).tagName)) return n as HTMLElement;
+        n = n.parentNode;
+      }
+      return null;
+    };
+    const blocks = new Set<HTMLElement>();
+    const start = blockOf(range.startContainer);
+    const end = blockOf(range.endContainer);
+    if (start) blocks.add(start);
+    if (end) blocks.add(end);
+    // include blocks between start and end
+    if (start && end && start !== end) {
+      let cur: Element | null = start;
+      while (cur && cur !== end) { cur = cur.nextElementSibling; if (cur && /^(P|DIV|H[1-6]|LI|BLOCKQUOTE|PRE)$/.test(cur.tagName)) blocks.add(cur as HTMLElement); }
+    }
+    // If selection is collapsed and no block found, wrap the whole editor.
+    if (blocks.size === 0) { el.style.lineHeight = String(mult); }
+    else blocks.forEach(b => { b.style.lineHeight = String(mult); });
+    persistHtml(); recordChange();
+  };
+
   // ── Clipboard smart paste ──────────────────────────────────────────────
   // Google Docs pastes images inline; we go further — paste an image from
   // anywhere (screenshot, browser, file manager) straight into the caret,
@@ -1240,6 +1273,23 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => exec('justifyLeft')} title="Left"><AlignLeft className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('justifyCenter')} title="Center"><AlignCenter className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('justifyRight')} title="Right"><AlignRight className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => exec('justifyFull')} title="Justify"><AlignJustify className="h-3.5 w-3.5" /></Tb>
+        <span className="mx-1 h-4 w-px bg-white/10" />
+        {/* Line spacing (Google Docs parity) */}
+        <select
+          onChange={e => { const v = parseFloat(e.target.value); if (v) setLineSpacing(v); e.currentTarget.selectedIndex = 0; }}
+          title="Line spacing"
+          className="h-6 rounded border border-white/10 bg-[#0a0b0e] px-1 text-[11px] text-zinc-200"
+        >
+          <option value="">↕ Spacing</option>
+          <option value="1">Single</option>
+          <option value="1.15">1.15</option>
+          <option value="1.5">1.5</option>
+          <option value="2">Double</option>
+          <option value="2.5">2.5</option>
+        </select>
+        <Tb onClick={() => exec('outdent')} title="Decrease indent"><Outdent className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => exec('indent')} title="Increase indent"><Indent className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <input type="color" onChange={e => exec('foreColor', e.target.value)} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Text color" />
         <input type="color" onChange={e => exec('hiliteColor', e.target.value)} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Highlight" />

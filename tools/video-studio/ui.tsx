@@ -2160,6 +2160,10 @@ export default function VideoStudioPro() {
       transitionsAll: (t: any) => applyTransitionsToAllCuts(t),
       addText: () => addTextClip(),
       update: (id: string, mut: (c: any) => void) => updateClip(id, mut as any, 'edit'),
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies inside the page).
+      addEffect: (id: string, kind: string, param: number) => updateClip(id, (c: any) => { c.effects = (c.effects || []).concat([{ kind, param, enabled: true }]); }, 'effect'),
+      setText: (id: string, props: any) => updateClip(id, (c: any) => { Object.assign(c, props); }, 'text'),
       split: (id: string, t: number) => splitAt(id, t),
       seek: (t: number) => seek(t),
     };

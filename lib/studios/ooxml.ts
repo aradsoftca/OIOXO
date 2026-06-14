@@ -67,7 +67,10 @@ export async function exportXlsx(wb: XlsxWorkbookData): Promise<Blob> {
       if (r > maxR) maxR = r; if (c > maxC) maxC = c;
       const raw = cell.raw;
       if (raw.startsWith('=')) {
-        ws[addr] = { t: 'n', f: raw.slice(1) };
+        // SheetJS drops formula cells that have no cached value `v`. Excel and
+        // re-import recompute from `f`, so a placeholder 0 keeps the formula
+        // intact through the .xlsx round-trip (was being lost entirely).
+        ws[addr] = { t: 'n', f: raw.slice(1), v: 0 };
       } else if (/^-?\d+(\.\d+)?$/.test(raw)) {
         ws[addr] = { t: 'n', v: parseFloat(raw) };
       } else if (/^(true|false)$/i.test(raw)) {

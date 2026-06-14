@@ -2153,6 +2153,7 @@ export default function VideoStudioPro() {
   React.useEffect(() => {
     (window as any).__video = {
       doc: () => ({ clips: docRef.current.clips, tracks: docRef.current.tracks, duration: docRef.current.duration, selectedId: docRef.current.selectedId, master: docRef.current.master }),
+      media: () => mediaRef.current.map(m => ({ id: m.id, kind: m.kind, name: m.name })),
       addClip: (mediaId: string) => addClipFromMedia(mediaId),
       select: (id: string) => setDoc(d => ({ ...d, selectedId: id })),
       grade: (id: string, gradeId: string) => applyGradeToClip(id, gradeId),

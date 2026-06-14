@@ -2849,6 +2849,63 @@ export default function ImageStudioPro() {
     commit(`crop canvas ${aspect}`, next);
   };
 
+  // TRIM transparent edges (Photoshop Image > Trim): scan the flattened
+  // composite's alpha channel for the bounding box of all non-transparent
+  // pixels, then crop the document to that box. Reuses cropDoc's per-layer crop
+  // logic (mask/paint pixels drawn from the box offset; positioned/vector layers
+  // shifted into the new origin) but with an arbitrary (non-centered) rect.
+  const trimDoc = () => {
+    if (pristine) { toastFor('Open or create an image first'); return; }
+    const docW = doc.width, docH = doc.height;
+    // Scan the composite alpha channel for min/max x/y where alpha > 0.
+    const data = composite.getContext('2d')!.getImageData(0, 0, docW, docH).data;
+    let minX = docW, minY = docH, maxX = -1, maxY = -1;
+    for (let y = 0; y < docH; y++) {
+      for (let x = 0; x < docW; x++) {
+        if (data[(y * docW + x) * 4 + 3] > 0) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) { toastFor('Nothing to trim — image is fully transparent'); return; }
+    const offX = minX, offY = minY;
+    const cw = maxX - minX + 1, ch = maxY - minY + 1;
+    if (offX === 0 && offY === 0 && cw === docW && ch === docH) { toastFor('No transparent edges to trim'); return; }
+    const next = cloneDoc(doc);
+    // Crop a doc-space canvas (paint layer or mask) to the trim rect.
+    const cropCanvas = (src: HTMLCanvasElement) => {
+      const out = blankCanvas(cw, ch);
+      out.getContext('2d')!.drawImage(src, offX, offY, cw, ch, 0, 0, cw, ch);
+      return out;
+    };
+    for (const l of next.layers) {
+      // Masks live in full-document space on every layer kind — crop them like
+      // a doc-sized canvas so masking survives the trim.
+      if (l.mask) l.mask = cropCanvas(l.mask);
+      if (l.kind === 'paint') {
+        // Paint layers fill the whole doc at origin — crop the pixels.
+        l.canvas = cropCanvas(l.canvas);
+      } else if (l.kind === 'image') {
+        // Image layers keep their own pixels; just shift the top-left so they
+        // stay put relative to the new (translated) origin.
+        l.x -= offX; l.y -= offY;
+      } else if (l.kind === 'text' || l.kind === 'shape') {
+        // Vector text/shape: shift the anchor into the cropped coordinate space.
+        l.x -= offX; l.y -= offY;
+      }
+      // Adjustment layers have no pixels/position — nothing to crop.
+    }
+    next.width = cw; next.height = ch;
+    if (next.selection) next.selection.mask = cropCanvas(next.selection.mask);
+    // The composite cache is keyed by props, NOT pixel content — every layer's
+    // pixels/position just changed, so clear it (same as undo/redo + crop).
+    cacheRef.current.clear();
+    commit('trim transparent edges', next);
+  };
+
   // RESIZE the whole document to a new pixel size (Photoshop Image > Image Size):
   // scale every full-doc canvas (paint layer + masks + selection) to the new
   // dimensions, and scale every positioned/vector layer's coordinates by the
@@ -3854,6 +3911,9 @@ export default function ImageStudioPro() {
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
+            {/* TRIM transparent edges — auto-crop the doc to the bounding box of
+                all non-transparent pixels in the composite. */}
+            <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={trimDoc} title={pristine ? 'Open an image first' : 'Trim transparent edges (auto-crop to content)'}>Trim</StudioButton>
             {/* RESIZE the whole document to a new pixel size (Photoshop Image
                 Size) — scales every layer + the canvas to the chosen dimensions. */}
             <StudioButton variant="ghost" size="sm" disabled={pristine} onClick={() => setResizeDialog(true)} title={pristine ? 'Open an image first' : 'Resize image (change pixel dimensions)'}><Move className="h-3.5 w-3.5" /> Resize</StudioButton>

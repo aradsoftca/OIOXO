@@ -504,6 +504,20 @@ export function callFormula(name: string, args: any[]): any {
     case 'IMSUB':       { const a = parseComplex(args[0]); const b = parseComplex(args[1]); if (!a || !b) return '#NUM!'; const suf = a.suf === 'j' || b.suf === 'j' ? 'j' : 'i'; return imToText(a.re - b.re, a.im - b.im, suf); }
     case 'IMPRODUCT':   { let re = 1, im = 0, suf = 'i'; for (const a of flatAll(args)) { const c = parseComplex(a); if (!c) return '#NUM!'; const nr = re * c.re - im * c.im; const ni = re * c.im + im * c.re; re = nr; im = ni; if (c.suf === 'j') suf = 'j'; } return imToText(re, im, suf); }
     case 'IMDIV':       { const a = parseComplex(args[0]); const b = parseComplex(args[1]); if (!a || !b) return '#NUM!'; const den = b.re * b.re + b.im * b.im; if (den === 0) return '#NUM!'; const suf = a.suf === 'j' || b.suf === 'j' ? 'j' : 'i'; return imToText((a.re * b.re + a.im * b.im) / den, (a.im * b.re - a.re * b.im) / den, suf); }
+    // --- Complex transcendental functions (reuse parseComplex/imToText) ---
+    case 'IMEXP':       { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const ex = Math.exp(c.re); return imToText(ex * Math.cos(c.im), ex * Math.sin(c.im), c.suf); }
+    case 'IMLN':        { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const r = Math.hypot(c.re, c.im); if (r === 0) return '#NUM!'; return imToText(Math.log(r), Math.atan2(c.im, c.re), c.suf); }
+    case 'IMLOG10':     { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const r = Math.hypot(c.re, c.im); if (r === 0) return '#NUM!'; const ln10 = Math.LN10; return imToText(Math.log(r) / ln10, Math.atan2(c.im, c.re) / ln10, c.suf); }
+    case 'IMLOG2':      { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const r = Math.hypot(c.re, c.im); if (r === 0) return '#NUM!'; const ln2 = Math.LN2; return imToText(Math.log(r) / ln2, Math.atan2(c.im, c.re) / ln2, c.suf); }
+    case 'IMSQRT':      { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const r = Math.hypot(c.re, c.im); const sr = Math.sqrt(r); const th = Math.atan2(c.im, c.re) / 2; return imToText(sr * Math.cos(th), sr * Math.sin(th), c.suf); }
+    case 'IMPOWER':     { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const n = getNum(args[1]); const r = Math.hypot(c.re, c.im); if (r === 0) return n === 0 ? imToText(1, 0, c.suf) : imToText(0, 0, c.suf); const rn = Math.pow(r, n); const th = Math.atan2(c.im, c.re) * n; return imToText(rn * Math.cos(th), rn * Math.sin(th), c.suf); }
+    case 'IMSIN':       { const c = parseComplex(args[0]); if (!c) return '#NUM!'; return imToText(Math.sin(c.re) * Math.cosh(c.im), Math.cos(c.re) * Math.sinh(c.im), c.suf); }
+    case 'IMCOS':       { const c = parseComplex(args[0]); if (!c) return '#NUM!'; return imToText(Math.cos(c.re) * Math.cosh(c.im), -Math.sin(c.re) * Math.sinh(c.im), c.suf); }
+    case 'IMTAN':       { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const sr = Math.sin(c.re) * Math.cosh(c.im); const si = Math.cos(c.re) * Math.sinh(c.im); const cr = Math.cos(c.re) * Math.cosh(c.im); const ci = -Math.sin(c.re) * Math.sinh(c.im); const den = cr * cr + ci * ci; if (den === 0) return '#NUM!'; return imToText((sr * cr + si * ci) / den, (si * cr - sr * ci) / den, c.suf); }
+    case 'IMSINH':      { const c = parseComplex(args[0]); if (!c) return '#NUM!'; return imToText(Math.sinh(c.re) * Math.cos(c.im), Math.cosh(c.re) * Math.sin(c.im), c.suf); }
+    case 'IMCOSH':      { const c = parseComplex(args[0]); if (!c) return '#NUM!'; return imToText(Math.cosh(c.re) * Math.cos(c.im), Math.sinh(c.re) * Math.sin(c.im), c.suf); }
+    case 'IMSEC':       { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const cr = Math.cos(c.re) * Math.cosh(c.im); const ci = -Math.sin(c.re) * Math.sinh(c.im); const den = cr * cr + ci * ci; if (den === 0) return '#NUM!'; return imToText(cr / den, -ci / den, c.suf); }
+    case 'IMCSC':       { const c = parseComplex(args[0]); if (!c) return '#NUM!'; const sr = Math.sin(c.re) * Math.cosh(c.im); const si = Math.cos(c.re) * Math.sinh(c.im); const den = sr * sr + si * si; if (den === 0) return '#NUM!'; return imToText(sr / den, -si / den, c.suf); }
     // --- More trig: inverse hyperbolic + reciprocal hyperbolic ---
     case 'ASINH':       return Math.asinh(getNum(args[0]));
     case 'ACOSH':       return Math.acosh(getNum(args[0]));
@@ -729,8 +743,15 @@ function parseComplex(v: any): { re: number; im: number; suf: string } | null {
 }
 
 function imToText(re: number, im: number, suf: string): string {
-  const r = Math.abs(re) < 1e-15 ? 0 : re;
-  const i = Math.abs(im) < 1e-15 ? 0 : im;
+  // Snap tiny values to 0, and round away floating-point noise (e.g.
+  // -46.000000000000014 → -46) to ~10 significant digits, like Excel.
+  const clean = (v: number): number => {
+    if (Math.abs(v) < 1e-15) return 0;
+    const rounded = parseFloat(v.toPrecision(10));
+    return Object.is(rounded, -0) ? 0 : rounded;
+  };
+  const r = clean(re);
+  const i = clean(im);
   if (i === 0) return String(r);
   const imPart = (i === 1 ? '' : i === -1 ? '-' : String(i)) + suf;
   if (r === 0) return imPart;
@@ -795,6 +816,7 @@ export const FORMULA_NAMES = [
   'BITAND', 'BITOR', 'BITXOR', 'BITLSHIFT', 'BITRSHIFT',
   'GESTEP', 'DELTA', 'ERF', 'ERFC',
   'COMPLEX', 'IMREAL', 'IMAGINARY', 'IMABS', 'IMARGUMENT', 'IMCONJUGATE', 'IMSUM', 'IMSUB', 'IMPRODUCT', 'IMDIV',
+  'IMEXP', 'IMLN', 'IMLOG10', 'IMLOG2', 'IMSQRT', 'IMPOWER', 'IMSIN', 'IMCOS', 'IMTAN', 'IMSINH', 'IMCOSH', 'IMSEC', 'IMCSC',
   'ASINH', 'ACOSH', 'ATANH', 'CSCH', 'SECH', 'COTH',
   'ACOT', 'ACOTH', 'ACSC', 'ASEC',
   'VALUETOTEXT', 'ENCODEURL', 'DECODEURL',

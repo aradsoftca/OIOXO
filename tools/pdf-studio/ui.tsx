@@ -441,6 +441,23 @@ export default function PdfStudioPro() {
     } finally { setBusy(''); }
   };
 
+  // Save the selected page's already-rendered canvas straight to a PNG — no
+  // rebuild needed, so it's instant. (All pages → zip lives in exportImages.)
+  const savePagePng = async () => {
+    const page = doc.pages.find(p => p.id === doc.selectedId);
+    const rp = page ? raster[page.srcId]?.[page.srcIndex] : null;
+    if (!page || !rp) { toastFor('Open a page first'); return; }
+    setBusy('Saving page image…');
+    try {
+      const png: Blob = await new Promise((res, rej) => rp.canvas.toBlob(b => b ? res(b) : rej(new Error('encode failed')), 'image/png'));
+      const pageNum = doc.pages.findIndex(p => p.id === page.id) + 1;
+      downloadBlob(png, `${safeFilename(doc.name)}-page-${pageNum}.png`);
+      toastFor(`Saved page ${pageNum} as PNG`);
+    } catch (e) {
+      toastFor((e as Error).message || 'Save image failed');
+    } finally { setBusy(''); }
+  };
+
   const exportAsDocx = async () => {
     if (!(await guard())) return;
     setBusy('Converting to Word…');
@@ -1625,6 +1642,7 @@ export default function PdfStudioPro() {
           <StudioButton size="sm" variant="soft" onClick={() => setSplitDialog(true)} title="Split into multiple PDFs"><Scissors className="h-3 w-3" /> Split</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setExtractDialog(true)} title="Extract a page range as a new PDF"><FileText className="h-3 w-3" /> Extract</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void saveCurrentPage()} title="Save just the selected page as a one-page PDF"><FileText className="h-3 w-3" /> Save this page</StudioButton>
+          <StudioButton size="sm" variant="soft" onClick={() => void savePagePng()} title="Save the selected page as a PNG image"><ImageIcon className="h-3 w-3" /> Page as PNG</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportAsDocx()} title="Export as Word"><FileType2 className="h-3 w-3" /> Word</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void extractText()} title="Export all page text as a .txt file"><FileText className="h-3 w-3" /> Extract text</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => void exportSearchable()} title="OCR then build searchable PDF"><FileCheck2 className="h-3 w-3" /> Searchable</StudioButton>

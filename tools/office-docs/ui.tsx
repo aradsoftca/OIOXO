@@ -1569,6 +1569,8 @@ export default function OfficeDocsPro() {
           </>
         )}
         <Tb onClick={() => exec('removeFormat')} title="Clear formatting"><Eraser className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => exec('insertText', new Date().toLocaleDateString())} title="Insert date"><Calendar className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={() => exec('insertText', new Date().toLocaleTimeString())} title="Insert time"><Clock className="h-3.5 w-3.5" /></Tb>
         <div className="ml-auto flex items-center gap-1">
           <Tb onClick={() => setSymbolDialog(true)} title="Insert special character / symbol"><span className="text-[13px] font-semibold leading-none">Ω</span></Tb>
           <Tb onClick={() => setEquationDialog(true)} title="Insert equation (LaTeX)"><Sigma className="h-3.5 w-3.5" /></Tb>

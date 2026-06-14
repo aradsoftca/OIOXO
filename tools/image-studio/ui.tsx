@@ -974,6 +974,10 @@ export default function ImageStudioPro() {
   const [showLayersPanel, setShowLayersPanel] = React.useState(() => !isPhone());
   const [showHistoryPanel, setShowHistoryPanel] = React.useState(false);
   const [showAdjustPanel, setShowAdjustPanel] = React.useState(false);
+  // Filters/Looks live in a single dropdown menu instead of a 33-button
+  // horizontal-scroll strip that's unusable on a narrow phone (the tools were
+  // reachable but un-findable). Grouped by category, every tool is one tap.
+  const [filterMenu, setFilterMenu] = React.useState(false);
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const inlineTextRef = React.useRef<HTMLTextAreaElement | null>(null);
@@ -3853,40 +3857,39 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveObject()} title={pristine ? 'Open an image first' : 'Select an object, then remove it (content-aware, on-device)'}><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoEnhance()} title={pristine ? 'Open an image first' : 'Auto-enhance (white balance + levels)'}><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runUpscale()} title={pristine ? 'Open an image first' : 'Upscale 2× — edge-aware super-resolution (on-device)'}><Sparkles className="h-3.5 w-3.5" /> Upscale 2×</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runBlackAndWhite()} title={pristine ? 'Open an image first' : 'Convert to B&W (luminosity)'}><Sparkles className="h-3.5 w-3.5" /> B&W</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runInvert()} title={pristine ? 'Open an image first' : 'Invert colors (negative)'}><Sparkles className="h-3.5 w-3.5" /> Invert</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runThreshold()} title={pristine ? 'Open an image first' : 'Threshold to pure black/white (at 128)'}><Sparkles className="h-3.5 w-3.5" /> Threshold</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoContrast()} title={pristine ? 'Open an image first' : 'Auto contrast (linear levels stretch)'}><Sparkles className="h-3.5 w-3.5" /> Auto Contrast</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSepia()} title={pristine ? 'Open an image first' : 'Apply classic sepia tone'}><Sparkles className="h-3.5 w-3.5" /> Sepia</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm')} title={pristine ? 'Open an image first' : 'Warm white balance (+red / -blue)'}><Sparkles className="h-3.5 w-3.5" /> Warm</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool')} title={pristine ? 'Open an image first' : 'Cool white balance (-red / +blue)'}><Sparkles className="h-3.5 w-3.5" /> Cool</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('warm', true)} title={pristine ? 'Open an image first' : 'Warmer — stronger warm tilt (r×1.08 / b×0.92)'}><Sparkles className="h-3.5 w-3.5" /> Warmer</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runWhiteBalance('cool', true)} title={pristine ? 'Open an image first' : 'Cooler — stronger cool tilt (r×0.92 / b×1.08)'}><Sparkles className="h-3.5 w-3.5" /> Cooler</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runDehaze()} title={pristine ? 'Open an image first' : 'Dehaze — cut atmospheric haze (contrast + saturation)'}><Sparkles className="h-3.5 w-3.5" /> Dehaze</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLiftShadows()} title={pristine ? 'Open an image first' : 'Lift shadows — recover dark detail (luminance-weighted gain)'}><Sparkles className="h-3.5 w-3.5" /> Lift Shadows</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runClarity()} title={pristine ? 'Open an image first' : 'Clarity — punch up midtone local contrast'}><Sparkles className="h-3.5 w-3.5" /> Clarity</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runHueShift(30)} title={pristine ? 'Open an image first' : 'Hue +30° — rotate all colours forward around the wheel'}><Sparkles className="h-3.5 w-3.5" /> Hue +30°</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runHueShift(-30)} title={pristine ? 'Open an image first' : 'Hue −30° — rotate all colours back around the wheel'}><Sparkles className="h-3.5 w-3.5" /> Hue −30°</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSaturation(1.2)} title={pristine ? 'Open an image first' : 'Saturate — boost colour intensity (S ×1.2)'}><Sparkles className="h-3.5 w-3.5" /> Saturate</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSaturation(0.8)} title={pristine ? 'Open an image first' : 'Desaturate — mute colour intensity (S ×0.8)'}><Sparkles className="h-3.5 w-3.5" /> Desaturate</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runDuotone()} title={pristine ? 'Open an image first' : 'Duotone — map luminance to a deep-blue→warm gradient'}><Sparkles className="h-3.5 w-3.5" /> Duotone</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSolarize()} title={pristine ? 'Open an image first' : 'Solarize — invert channel values above mid-grey'}><Sparkles className="h-3.5 w-3.5" /> Solarize</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runGaussianBlur()} title={pristine ? 'Open an image first' : 'Gaussian Blur — soften the active layer'}><Sparkles className="h-3.5 w-3.5" /> Blur</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSharpen()} title={pristine ? 'Open an image first' : 'Sharpen — crisp edges on the active layer'}><Sparkles className="h-3.5 w-3.5" /> Sharpen</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runEmboss()} title={pristine ? 'Open an image first' : 'Emboss — raised relief from a 3×3 directional kernel'}><Sparkles className="h-3.5 w-3.5" /> Emboss</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFindEdges()} title={pristine ? 'Open an image first' : 'Find Edges — highlight edges with a 3×3 Laplacian kernel'}><Sparkles className="h-3.5 w-3.5" /> Find Edges</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runReduceNoise()} title={pristine ? 'Open an image first' : 'Reduce noise — light denoise, edges partly preserved'}><Sparkles className="h-3.5 w-3.5" /> Reduce noise</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runMedian()} title={pristine ? 'Open an image first' : 'Median — 3×3 despeckle (salt-and-pepper removal)'}><Sparkles className="h-3.5 w-3.5" /> Median</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFilmGrain()} title={pristine ? 'Open an image first' : 'Film grain — add subtle analog noise'}><Sparkles className="h-3.5 w-3.5" /> Film Grain</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runPosterize()} title={pristine ? 'Open an image first' : 'Posterize — quantize each channel to 4 levels'}><Sparkles className="h-3.5 w-3.5" /> Posterize</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runPixelate()} title={pristine ? 'Open an image first' : 'Pixelate — mosaic into 8px blocks'}><Sparkles className="h-3.5 w-3.5" /> Pixelate</StudioButton>
-            <span className="ml-1 h-5 w-px bg-white/10" />
-            {/* Looks — one-click photographic tone+color grades on the active layer. */}
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('vintage')} title={pristine ? 'Open an image first' : 'Vintage look — lifted blacks, warm, softly desaturated'}><Sparkles className="h-3.5 w-3.5" /> Vintage</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('cinematic')} title={pristine ? 'Open an image first' : 'Cinematic look — teal shadows / orange highlights'}><Sparkles className="h-3.5 w-3.5" /> Cinematic</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('noir')} title={pristine ? 'Open an image first' : 'Noir look — high-contrast black & white'}><Sparkles className="h-3.5 w-3.5" /> Noir</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('faded')} title={pristine ? 'Open an image first' : 'Faded look — low contrast, lifted blacks, cool'}><Sparkles className="h-3.5 w-3.5" /> Faded</StudioButton>
+            {/* Filters & Looks — collapsed into ONE category menu (was a 33-button
+                horizontal-scroll strip, un-findable on a phone). Every tool one tap. */}
+            <div className="relative">
+              <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setFilterMenu(v => !v)} title={pristine ? 'Open an image first' : 'Filters, adjustments & looks'}><Sparkles className="h-3.5 w-3.5" /> Filters ▾</StudioButton>
+              {filterMenu && !pristine && (
+                <ImageFilterMenu
+                  onClose={() => setFilterMenu(false)}
+                  groups={[
+                    { label: 'Adjust', items: [
+                      ['B&W', () => runBlackAndWhite()], ['Invert', () => runInvert()], ['Threshold', () => runThreshold()],
+                      ['Auto Contrast', () => runAutoContrast()], ['Lift Shadows', () => runLiftShadows()], ['Clarity', () => runClarity()],
+                      ['Dehaze', () => runDehaze()], ['Saturate', () => runSaturation(1.2)], ['Desaturate', () => runSaturation(0.8)],
+                      ['Hue +30°', () => runHueShift(30)], ['Hue −30°', () => runHueShift(-30)],
+                    ] },
+                    { label: 'Color', items: [
+                      ['Sepia', () => runSepia()], ['Warm', () => runWhiteBalance('warm')], ['Cool', () => runWhiteBalance('cool')],
+                      ['Warmer', () => runWhiteBalance('warm', true)], ['Cooler', () => runWhiteBalance('cool', true)],
+                      ['Duotone', () => runDuotone()],
+                    ] },
+                    { label: 'Effects', items: [
+                      ['Vignette', () => runVignette()], ['Solarize', () => runSolarize()], ['Blur', () => runGaussianBlur()],
+                      ['Sharpen', () => runSharpen()], ['Emboss', () => runEmboss()], ['Find Edges', () => runFindEdges()],
+                      ['Reduce noise', () => runReduceNoise()], ['Median', () => runMedian()], ['Film Grain', () => runFilmGrain()],
+                      ['Posterize', () => runPosterize()], ['Pixelate', () => runPixelate()],
+                    ] },
+                    { label: 'Looks', items: [
+                      ['Vintage', () => runLook('vintage')], ['Cinematic', () => runLook('cinematic')],
+                      ['Noir', () => runLook('noir')], ['Faded', () => runLook('faded')],
+                    ] },
+                  ]}
+                />
+              )}
+            </div>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />
@@ -4915,6 +4918,38 @@ function NewDocDialog({ onCancel, onCreate }: { onCancel: () => void; onCreate: 
 // Image Size dialog (Photoshop Image > Image Size): pick new pixel dimensions
 // for the whole document. Link-aspect keeps the ratio while typing; a few common
 // scale presets jump to half/double size.
+/** Categorized filter/look menu — replaces the 33-button horizontal strip so
+ *  every tool is reachable in one tap on a narrow phone. Closes on pick / outside. */
+function ImageFilterMenu({ groups, onClose }: { groups: { label: string; items: [string, () => void][] }[]; onClose: () => void }) {
+  React.useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (!(e.target as HTMLElement)?.closest?.('[data-filter-menu]')) onClose(); };
+    document.addEventListener('pointerdown', onDoc);
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('pointerdown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [onClose]);
+  return (
+    <div data-filter-menu className="absolute left-0 top-full z-50 mt-1 max-h-[60vh] w-60 overflow-y-auto rounded-lg border border-white/10 bg-[#15171c] p-2 shadow-2xl">
+      {groups.map(g => (
+        <div key={g.label} className="mb-1.5 last:mb-0">
+          <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{g.label}</div>
+          <div className="grid grid-cols-2 gap-1">
+            {g.items.map(([label, run]) => (
+              <button
+                key={label}
+                onClick={() => { void run(); onClose(); }}
+                className="rounded bg-white/5 px-2 py-1.5 text-left text-[11px] text-zinc-200 hover:bg-cyan-500/20 hover:text-cyan-100"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ResizeDialog({ curW, curH, onCancel, onResize }: { curW: number; curH: number; onCancel: () => void; onResize: (w: number, h: number) => void }) {
   const ratio = curW / curH;
   const [w, setW] = React.useState(curW);

@@ -468,3 +468,60 @@ export function StudioSelect<T extends string>({ value, options, onChange, class
     </select>
   );
 }
+
+export interface ToolMenuItem { label: string; run: () => void; disabled?: boolean }
+export interface ToolMenuGroup { label?: string; items: ToolMenuItem[] }
+
+/**
+ * A toolbar "▾ menu" button that collapses many actions into a categorized
+ * dropdown — the fix for long tool strips that overflow a narrow phone. Drop one
+ * in place of a run of buttons; closes on pick / outside-click / Esc. Used to
+ * make every studio's tools reachable in one tap instead of an endless scroll.
+ */
+export function ToolMenu({ label, icon, groups, disabled, title, cols = 2, width = 'w-60' }: {
+  label: string;
+  icon?: React.ReactNode;
+  groups: ToolMenuGroup[];
+  disabled?: boolean;
+  title?: string;
+  cols?: 1 | 2;
+  width?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: Event) => { if (!(e.target as HTMLElement)?.closest?.('[data-tool-menu]')) setOpen(false); };
+    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => { document.removeEventListener('pointerdown', onDoc); document.removeEventListener('keydown', onEsc); };
+  }, [open]);
+  return (
+    <div className="relative" data-tool-menu>
+      <StudioButton variant="soft" size="sm" disabled={disabled} onClick={() => setOpen(v => !v)} title={title ?? label}>
+        {icon} {label} ▾
+      </StudioButton>
+      {open && !disabled && (
+        <div className={cn('absolute left-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-white/10 bg-[#15171c] p-2 shadow-2xl', width)}>
+          {groups.map((g, gi) => (
+            <div key={g.label ?? gi} className="mb-1.5 last:mb-0">
+              {g.label && <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{g.label}</div>}
+              <div className={cn('grid gap-1', cols === 2 ? 'grid-cols-2' : 'grid-cols-1')}>
+                {g.items.map(it => (
+                  <button
+                    key={it.label}
+                    disabled={it.disabled}
+                    onClick={() => { it.run(); setOpen(false); }}
+                    className="rounded bg-white/5 px-2 py-1.5 text-left text-[11px] text-zinc-200 hover:bg-cyan-500/20 hover:text-cyan-100 disabled:opacity-40"
+                  >
+                    {it.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

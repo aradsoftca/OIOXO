@@ -41,7 +41,7 @@ import {
   HelpButton, useRegisterShortcuts,
   EmptyState, pushToast,
   SharedDialog,
-  DesktopOnly, MobileOnly, isPhone,
+  DesktopOnly, MobileOnly, isPhone, ToolMenu,
   TemplateGallery, type GalleryItem,
   IMAGE_TEMPLATES, IMAGE_TEMPLATE_CATEGORIES,
   materializeImageTemplate, renderImageThumb,
@@ -974,10 +974,6 @@ export default function ImageStudioPro() {
   const [showLayersPanel, setShowLayersPanel] = React.useState(() => !isPhone());
   const [showHistoryPanel, setShowHistoryPanel] = React.useState(false);
   const [showAdjustPanel, setShowAdjustPanel] = React.useState(false);
-  // Filters/Looks live in a single dropdown menu instead of a 33-button
-  // horizontal-scroll strip that's unusable on a narrow phone (the tools were
-  // reachable but un-findable). Grouped by category, every tool is one tap.
-  const [filterMenu, setFilterMenu] = React.useState(false);
 
   const canvasRef = React.useRef<HTMLCanvasElement | null>(null);
   const inlineTextRef = React.useRef<HTMLTextAreaElement | null>(null);
@@ -3852,46 +3848,41 @@ export default function ImageStudioPro() {
             {/* On mobile Export lives PINNED in the right cluster — buried in this
                 scrollable strip it was effectively unreachable (no scroll affordance). */}
             <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)} title="Export (Ctrl+E)"><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSelectSubject()} title={pristine ? 'Open an image first' : 'Select Subject — one click selects the person/object (on-device AI)'}><Sparkles className="h-3.5 w-3.5" /> Select Subject</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveBg()} title={pristine ? 'Open an image first' : 'Remove Background (AI)'}><Sparkles className="h-3.5 w-3.5" /> Remove BG</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runRemoveObject()} title={pristine ? 'Open an image first' : 'Select an object, then remove it (content-aware, on-device)'}><Sparkles className="h-3.5 w-3.5" /> Remove Object</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runAutoEnhance()} title={pristine ? 'Open an image first' : 'Auto-enhance (white balance + levels)'}><Sparkles className="h-3.5 w-3.5" /> Enhance</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runUpscale()} title={pristine ? 'Open an image first' : 'Upscale 2× — edge-aware super-resolution (on-device)'}><Sparkles className="h-3.5 w-3.5" /> Upscale 2×</StudioButton>
-            {/* Filters & Looks — collapsed into ONE category menu (was a 33-button
+            {/* AI + Filters collapsed into category menus (were ~35 buttons in a
                 horizontal-scroll strip, un-findable on a phone). Every tool one tap. */}
-            <div className="relative">
-              <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setFilterMenu(v => !v)} title={pristine ? 'Open an image first' : 'Filters, adjustments & looks'}><Sparkles className="h-3.5 w-3.5" /> Filters ▾</StudioButton>
-              {filterMenu && !pristine && (
-                <ImageFilterMenu
-                  onClose={() => setFilterMenu(false)}
-                  groups={[
-                    { label: 'Adjust', items: [
-                      ['B&W', () => runBlackAndWhite()], ['Invert', () => runInvert()], ['Threshold', () => runThreshold()],
-                      ['Auto Contrast', () => runAutoContrast()], ['Lift Shadows', () => runLiftShadows()], ['Clarity', () => runClarity()],
-                      ['Dehaze', () => runDehaze()], ['Saturate', () => runSaturation(1.2)], ['Desaturate', () => runSaturation(0.8)],
-                      ['Hue +30°', () => runHueShift(30)], ['Hue −30°', () => runHueShift(-30)],
-                    ] },
-                    { label: 'Color', items: [
-                      ['Sepia', () => runSepia()], ['Warm', () => runWhiteBalance('warm')], ['Cool', () => runWhiteBalance('cool')],
-                      ['Warmer', () => runWhiteBalance('warm', true)], ['Cooler', () => runWhiteBalance('cool', true)],
-                      ['Duotone', () => runDuotone()],
-                    ] },
-                    { label: 'Effects', items: [
-                      ['Vignette', () => runVignette()], ['Solarize', () => runSolarize()], ['Blur', () => runGaussianBlur()],
-                      ['Sharpen', () => runSharpen()], ['Emboss', () => runEmboss()], ['Find Edges', () => runFindEdges()],
-                      ['Reduce noise', () => runReduceNoise()], ['Median', () => runMedian()], ['Film Grain', () => runFilmGrain()],
-                      ['Posterize', () => runPosterize()], ['Pixelate', () => runPixelate()],
-                    ] },
-                    { label: 'Looks', items: [
-                      ['Vintage', () => runLook('vintage')], ['Cinematic', () => runLook('cinematic')],
-                      ['Noir', () => runLook('noir')], ['Faded', () => runLook('faded')],
-                    ] },
-                  ]}
-                />
-              )}
-            </div>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runExtractPalette()} title={pristine ? 'Open an image first' : 'Extract color palette'}><Sparkles className="h-3.5 w-3.5" /> Palette</StudioButton>
-            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => setSmartCropDialog(true)} title={pristine ? 'Open an image first' : 'Smart crop for social'}><Sparkles className="h-3.5 w-3.5" /> Smart Crop</StudioButton>
+            <ToolMenu label="AI" icon={<Sparkles className="h-3.5 w-3.5" />} disabled={pristine} title="AI tools" groups={[
+              { items: [
+                { label: 'Select Subject', run: () => void runSelectSubject() },
+                { label: 'Remove BG', run: () => void runRemoveBg() },
+                { label: 'Remove Object', run: () => void runRemoveObject() },
+                { label: 'Enhance', run: () => void runAutoEnhance() },
+                { label: 'Upscale 2×', run: () => void runUpscale() },
+                { label: 'Smart Crop', run: () => setSmartCropDialog(true) },
+                { label: 'Palette', run: () => void runExtractPalette() },
+              ] },
+            ]} />
+            <ToolMenu label="Filters" icon={<Sparkles className="h-3.5 w-3.5" />} disabled={pristine} title="Filters, adjustments & looks" groups={[
+              { label: 'Adjust', items: [
+                { label: 'B&W', run: () => void runBlackAndWhite() }, { label: 'Invert', run: () => void runInvert() }, { label: 'Threshold', run: () => void runThreshold() },
+                { label: 'Auto Contrast', run: () => void runAutoContrast() }, { label: 'Lift Shadows', run: () => void runLiftShadows() }, { label: 'Clarity', run: () => void runClarity() },
+                { label: 'Dehaze', run: () => void runDehaze() }, { label: 'Saturate', run: () => void runSaturation(1.2) }, { label: 'Desaturate', run: () => void runSaturation(0.8) },
+                { label: 'Hue +30°', run: () => void runHueShift(30) }, { label: 'Hue −30°', run: () => void runHueShift(-30) },
+              ] },
+              { label: 'Color', items: [
+                { label: 'Sepia', run: () => void runSepia() }, { label: 'Warm', run: () => void runWhiteBalance('warm') }, { label: 'Cool', run: () => void runWhiteBalance('cool') },
+                { label: 'Warmer', run: () => void runWhiteBalance('warm', true) }, { label: 'Cooler', run: () => void runWhiteBalance('cool', true) }, { label: 'Duotone', run: () => void runDuotone() },
+              ] },
+              { label: 'Effects', items: [
+                { label: 'Vignette', run: () => void runVignette() }, { label: 'Solarize', run: () => void runSolarize() }, { label: 'Blur', run: () => void runGaussianBlur() },
+                { label: 'Sharpen', run: () => void runSharpen() }, { label: 'Emboss', run: () => void runEmboss() }, { label: 'Find Edges', run: () => void runFindEdges() },
+                { label: 'Reduce noise', run: () => void runReduceNoise() }, { label: 'Median', run: () => void runMedian() }, { label: 'Film Grain', run: () => void runFilmGrain() },
+                { label: 'Posterize', run: () => void runPosterize() }, { label: 'Pixelate', run: () => void runPixelate() },
+              ] },
+              { label: 'Looks', items: [
+                { label: 'Vintage', run: () => void runLook('vintage') }, { label: 'Cinematic', run: () => void runLook('cinematic') },
+                { label: 'Noir', run: () => void runLook('noir') }, { label: 'Faded', run: () => void runLook('faded') },
+              ] },
+            ]} />
             <span className="ml-1 h-5 w-px bg-white/10" />
             {/* CANVAS-level orientation (Photoshop Image > Image Rotation) — rotates
                 / flips the WHOLE document (every layer + canvas size), distinct from
@@ -4918,38 +4909,6 @@ function NewDocDialog({ onCancel, onCreate }: { onCancel: () => void; onCreate: 
 // Image Size dialog (Photoshop Image > Image Size): pick new pixel dimensions
 // for the whole document. Link-aspect keeps the ratio while typing; a few common
 // scale presets jump to half/double size.
-/** Categorized filter/look menu — replaces the 33-button horizontal strip so
- *  every tool is reachable in one tap on a narrow phone. Closes on pick / outside. */
-function ImageFilterMenu({ groups, onClose }: { groups: { label: string; items: [string, () => void][] }[]; onClose: () => void }) {
-  React.useEffect(() => {
-    const onDoc = (e: MouseEvent) => { if (!(e.target as HTMLElement)?.closest?.('[data-filter-menu]')) onClose(); };
-    document.addEventListener('pointerdown', onDoc);
-    const onEsc = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onEsc);
-    return () => { document.removeEventListener('pointerdown', onDoc); document.removeEventListener('keydown', onEsc); };
-  }, [onClose]);
-  return (
-    <div data-filter-menu className="absolute left-0 top-full z-50 mt-1 max-h-[60vh] w-60 overflow-y-auto rounded-lg border border-white/10 bg-[#15171c] p-2 shadow-2xl">
-      {groups.map(g => (
-        <div key={g.label} className="mb-1.5 last:mb-0">
-          <div className="px-1.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{g.label}</div>
-          <div className="grid grid-cols-2 gap-1">
-            {g.items.map(([label, run]) => (
-              <button
-                key={label}
-                onClick={() => { void run(); onClose(); }}
-                className="rounded bg-white/5 px-2 py-1.5 text-left text-[11px] text-zinc-200 hover:bg-cyan-500/20 hover:text-cyan-100"
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function ResizeDialog({ curW, curH, onCancel, onResize }: { curW: number; curH: number; onCancel: () => void; onResize: (w: number, h: number) => void }) {
   const ratio = curW / curH;
   const [w, setW] = React.useState(curW);

@@ -1157,7 +1157,15 @@ export default function SubtitleStudioPro() {
               {doc.cues.length === 0 && <div className="rounded bg-white/5 p-3 text-center text-xs text-zinc-500">No cues yet — auto-transcribe or click Add</div>}
               {doc.cues.map((c, i) => {
                 const cps = readingSpeedCps(c);
+                // Reading-speed tiers: ≤21 comfortable (green), 21–28 borderline (amber), >28 too fast (red)
                 const tooFast = cps > 21;
+                const tier = cps > 28 ? 'fast' : tooFast ? 'borderline' : 'ok';
+                const cpsTitle =
+                  tier === 'fast' ? `Too fast to read — ${cps.toFixed(1)} cps (target ≤21)`
+                  : tier === 'borderline' ? `A bit fast — ${cps.toFixed(1)} cps (target ≤21)`
+                  : `Comfortable reading speed — ${cps.toFixed(1)} cps`;
+                const dotColor = tier === 'fast' ? 'bg-red-500' : tier === 'borderline' ? 'bg-amber-400' : 'bg-emerald-500';
+                const cpsTextColor = tier === 'fast' ? 'text-red-400' : tier === 'borderline' ? 'text-amber-400' : 'text-emerald-400/70';
                 return (
                 <div
                   key={c.id}
@@ -1167,12 +1175,16 @@ export default function SubtitleStudioPro() {
                     'cursor-pointer rounded border px-2 py-1.5',
                     doc.selectedId === c.id ? 'border-cyan-400/40 bg-cyan-500/10' : 'border-white/5 bg-white/[.02] hover:bg-white/5',
                     activeCue?.id === c.id && 'ring-1 ring-cyan-300/40',
-                    tooFast && 'border-l-2 border-l-amber-400',
+                    tier === 'fast' && 'border-l-2 border-l-red-500',
+                    tier === 'borderline' && 'border-l-2 border-l-amber-400',
                   )}
                 >
                   <div className="flex items-center justify-between text-[10px] tabular-nums text-zinc-500">
-                    <span>#{i + 1}{tooFast && <span title="Too fast to read" className="ml-1 text-amber-400">⚡</span>}</span>
-                    <span>{fmtT(c.start)} → {fmtT(c.end)} · {(c.end - c.start).toFixed(2)}s · {cps.toFixed(0)}cps</span>
+                    <span className="flex items-center gap-1">
+                      <span title={cpsTitle} className={cn('inline-block h-1.5 w-1.5 shrink-0 rounded-full', dotColor)} />
+                      #{i + 1}{tooFast && <span title={cpsTitle} className={cpsTextColor}>⚡</span>}
+                    </span>
+                    <span>{fmtT(c.start)} → {fmtT(c.end)} · {(c.end - c.start).toFixed(2)}s · <span title={cpsTitle} className={cpsTextColor}>{cps.toFixed(0)}cps</span></span>
                   </div>
                   <div className="mt-0.5 line-clamp-2 text-xs text-zinc-200">{c.text || <span className="text-zinc-500">(empty)</span>}</div>
                 </div>

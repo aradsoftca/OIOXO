@@ -1482,7 +1482,9 @@ export default function OfficeStudioPro() {
     }
     if (!vals.length) return `Count: ${count} · Type: ${selectionType}`;
     const sum = vals.reduce((s, n) => s + n, 0);
-    return `Sum: ${sum.toFixed(2)} · Avg: ${(sum / vals.length).toFixed(2)} · Count: ${count} · ${selectionType}`;
+    const min = vals.reduce((m, n) => (n < m ? n : m), vals[0]);
+    const max = vals.reduce((m, n) => (n > m ? n : m), vals[0]);
+    return `Sum: ${sum.toFixed(2)} · Avg: ${(sum / vals.length).toFixed(2)} · Min: ${min.toFixed(2)} · Max: ${max.toFixed(2)} · Count: ${count} · ${selectionType}`;
   }, [selectionValues, selectionType, r0, c0, r1, c1]);
 
   const markOutliers = () => {

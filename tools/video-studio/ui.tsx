@@ -8,7 +8,7 @@ import {
   ChevronLeft, ChevronRight, Save, Upload, FileText, Undo2, Redo2,
   Eye, EyeOff, Lock, Unlock, SkipBack, SkipForward, Magnet,
   ImageIcon, AudioLines, X, Sparkles, LayoutTemplate, Palette,
-  Activity, BarChart3, History, Maximize2,
+  Activity, BarChart3, History, Maximize2, Flag,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -299,6 +299,9 @@ interface DocState {
    *  to media as it lands in a slot (deferred because a fresh template has no
    *  clips yet). Cleared once there are no slots left to fill. */
   pendingGrade?: string;
+  /** Timeline markers (seconds) for noting beats/cuts. Dropped at the playhead,
+   *  drawn as little flags on the ruler; clicking one seeks to it. */
+  markers?: number[];
 }
 
 /** A template slot materialized onto the live doc. Mirrors VideoTemplateSlot
@@ -356,6 +359,7 @@ const cloneDoc = (d: DocState): DocState => ({
   clips: d.clips.map(c => ({ ...c })),
   master: { ...d.master },
   slots: d.slots ? d.slots.map(s => ({ ...s })) : undefined,
+  markers: d.markers ? [...d.markers] : undefined,
 });
 
 const clipDuration = (c: TimelineClip): number => {
@@ -1408,6 +1412,32 @@ export default function VideoStudioPro() {
     commit(cuts > 1 ? `split ${cuts} clips` : 'split', next);
   };
 
+  // Timeline markers — drop a colored flag at the playhead to note a beat/cut.
+  // De-duped within 0.04s (one frame at 25fps) so a double-tap doesn't stack
+  // markers, and kept sorted so the ruler draws them left-to-right.
+  const addMarker = () => {
+    const t = doc.playhead;
+    const next = cloneDoc(doc);
+    const cur = next.markers ?? [];
+    if (cur.some(m => Math.abs(m - t) < 0.04)) { toastFor('A marker is already here'); return; }
+    next.markers = [...cur, t].sort((a, b) => a - b);
+    commit('add marker', next);
+  };
+
+  const clearMarkers = () => {
+    if (!doc.markers?.length) return;
+    const next = cloneDoc(doc);
+    next.markers = undefined;
+    commit('clear markers', next);
+  };
+
+  const removeMarker = (t: number) => {
+    const next = cloneDoc(doc);
+    const left = (next.markers ?? []).filter(m => Math.abs(m - t) >= 0.001);
+    next.markers = left.length ? left : undefined;
+    commit('remove marker', next);
+  };
+
   const deleteClip = (id: string) => {
     const next = cloneDoc(doc);
     next.clips = next.clips.filter(c => c.id !== id);
@@ -2371,6 +2401,9 @@ export default function VideoStudioPro() {
             <div className="mx-2 h-4 w-px bg-white/10" />
             <button onClick={() => doc.selectedId && nudgeClip(doc.selectedId, -0.1)} disabled={!doc.selectedId} title="Nudge selected clip 0.1s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><ChevronLeft className="h-3 w-3" /> Nudge</button>
             <button onClick={() => doc.selectedId && nudgeClip(doc.selectedId, 0.1)} disabled={!doc.selectedId} title="Nudge selected clip 0.1s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40">Nudge <ChevronRight className="h-3 w-3" /></button>
+            <div className="mx-2 h-4 w-px bg-white/10" />
+            <button onClick={addMarker} title="Drop a marker at the playhead (note a beat/cut)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-fuchsia-300 hover:bg-fuchsia-500/10"><Flag className="h-3 w-3" /> Marker</button>
+            <button onClick={clearMarkers} disabled={!doc.markers?.length} title="Remove all markers" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40"><Trash2 className="h-3 w-3" /> Clear marks</button>
             <div className="ml-auto flex items-center gap-2">
               <button onClick={() => setSnap(s => !s)} className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
               <button onClick={() => setRipple(r => !r)} title="Ripple trim — trimming a clip edge shifts later clips to close/open the gap" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', ripple ? 'bg-amber-500/20 text-amber-200' : 'text-zinc-400 hover:bg-white/5')}><Scissors className="h-3 w-3" /> Ripple trim</button>
@@ -2388,6 +2421,7 @@ export default function VideoStudioPro() {
             snap={snap}
             mediaMap={mediaMap}
             onSeek={seek}
+            onRemoveMarker={removeMarker}
             onSelect={(id) => setDoc(d => ({ ...d, selectedId: id }))}
             onMoveClip={(id, start, trackId) => updateClip(id, c => { c.start = start; if (trackId) c.trackId = trackId; }, 'move')}
             onTrimClip={(id, edge, t) => trimClip(id, edge, t)}
@@ -2789,10 +2823,11 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
   ctx.restore();
 }
 
-function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveClip, onTrimClip, onSplit, onTrackToggle, onTextEdit, onAddTrack, onRemoveTrack }: {
+function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onRemoveMarker, onSelect, onMoveClip, onTrimClip, onSplit, onTrackToggle, onTextEdit, onAddTrack, onRemoveTrack }: {
   doc: DocState; zoom: number; tool: Tool; snap: boolean;
   mediaMap: Map<string, MediaItem>;
   onSeek: (t: number) => void;
+  onRemoveMarker: (t: number) => void;
   onSelect: (id: string | null) => void;
   onMoveClip: (id: string, start: number, trackId?: string) => void;
   onTrimClip: (id: string, edge: 'l' | 'r', t: number) => void;
@@ -2989,6 +3024,24 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
                 <div className={cn('w-px', tk.major ? 'h-full bg-white/20' : 'h-1/2 bg-white/10')} />
                 {tk.major && <div className="absolute left-1 top-0 text-[9px] tabular-nums text-zinc-500">{fmtT(tk.t)}</div>}
               </div>
+            ))}
+            {/* Beat/cut markers — little fuchsia flags on the ruler. Click to seek;
+                Alt/right-click to remove just that one. Stop the scrub handler so
+                clicking a flag doesn't also re-scrub the ruler underneath it. */}
+            {(doc.markers ?? []).map((m, i) => (
+              <button
+                key={`mk-${i}`}
+                type="button"
+                title={`Marker @ ${fmtT(m)} — click to seek, Alt+click to remove`}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); if (e.altKey) onRemoveMarker(m); else onSeek(m); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onRemoveMarker(m); }}
+                style={{ position: 'absolute', top: 0, left: tToX(m) }}
+                className="z-20 h-full -translate-x-px"
+              >
+                <div className="h-full w-px bg-fuchsia-400/80" />
+                <Flag className="absolute -top-px left-px h-2.5 w-2.5 fill-fuchsia-400 text-fuchsia-300" />
+              </button>
             ))}
           </div>
           <div className="relative" style={{ marginTop: 0 }}>

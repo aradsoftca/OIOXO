@@ -737,6 +737,14 @@ export default function PdfStudioPro() {
     next.pages.forEach(p => { p.rotation = (p.rotation + 90) % 360; });
     commit('rotate all', next);
   };
+  // Clear every page's rotation back to its upright (0°) orientation in one
+  // step — undoes accumulated "Rotate all"/per-page spins or a stale Deskew
+  // without click-walking each page.
+  const resetAllRotations = () => {
+    const next = cloneDoc(doc);
+    next.pages.forEach(p => { p.rotation = 0; });
+    commit('reset rotations', next);
+  };
   const reversePageOrder = () => {
     const next = cloneDoc(doc);
     next.pages.reverse();
@@ -1656,6 +1664,7 @@ export default function PdfStudioPro() {
           <StudioPanel title={`Pages · ${doc.pages.length}`}>
             <div className="mb-2 flex gap-1.5">
               <StudioButton size="sm" variant="soft" onClick={rotateAllPages} disabled={!doc.pages.length} title="Rotate every page 90° clockwise"><RotateCw className="h-3 w-3" /> Rotate all ↻</StudioButton>
+              <StudioButton size="sm" variant="soft" onClick={resetAllRotations} disabled={!doc.pages.some(p => p.rotation)} title="Set every page back to upright (0°)"><RotateCcw className="h-3 w-3" /> Reset rotations</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={reversePageOrder} disabled={doc.pages.length < 2} title="Reverse the order of all pages"><ArrowUpDown className="h-3 w-3" /> Reverse order</StudioButton>
             </div>
             {/* Quick navigation for large PDFs: First / Last + "go to page N". */}

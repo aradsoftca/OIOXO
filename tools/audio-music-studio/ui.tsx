@@ -1547,14 +1547,14 @@ function SequencerGrid({ pattern, instruments, currentStep, stepMode, onSetNote,
 
   return (
     <div className="space-y-1.5" style={{ touchAction: noteEditable ? 'none' : undefined }}>
-      <div className="flex items-center gap-2 pl-32 pr-4 text-[10px] text-zinc-500">
+      <div className="flex items-center gap-1 pl-20 pr-2 text-[10px] text-zinc-500 sm:gap-2 sm:pl-32 sm:pr-4">
         {Array.from({ length: pattern.steps }, (_, i) => (
           <div key={i} className={cn('flex-1 text-center', i === currentStep && 'text-cyan-300 font-bold', i % 4 === 0 && 'text-zinc-300')}>{i + 1}</div>
         ))}
       </div>
       {instruments.map(inst => (
-        <div key={inst.id} className="flex items-center gap-2">
-          <div className="flex w-32 items-center gap-1.5">
+        <div key={inst.id} className="flex items-center gap-1 sm:gap-2">
+          <div className="flex w-20 shrink-0 items-center gap-1 sm:w-32 sm:gap-1.5">
             <button onClick={() => onUpdateInst(inst.id, i => { i.muted = !i.muted; })} className={cn('rounded p-1', inst.muted ? 'bg-rose-500/20 text-rose-300' : 'text-zinc-500 hover:bg-white/5')}>{inst.muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}</button>
             <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: inst.color }} />
             <span className="flex-1 text-xs font-medium text-zinc-200 truncate">{inst.label}</span>

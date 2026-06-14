@@ -875,6 +875,8 @@ export default function OfficeSlidesPro() {
       label: 'Edit',
       items: [
         { combo: 'mod+d', description: 'Duplicate element (or slide)' },
+        { combo: 'mod+shift+up', description: 'Move slide up' },
+        { combo: 'mod+shift+down', description: 'Move slide down' },
         { combo: 'delete', description: 'Delete element' },
         { combo: 'arrows', description: 'Nudge element 1px' },
         { combo: 'shift+arrows', description: 'Nudge element 10px' },
@@ -929,6 +931,10 @@ export default function OfficeSlidesPro() {
     { combo: 'shift+arrowdown', handler: () => nudge(0, 1, true) },
     { combo: 'shift+arrowleft', handler: () => nudge(-1, 0, true) },
     { combo: 'shift+arrowright', handler: () => nudge(1, 0, true) },
+    // Reorder the selected slide (PowerPoint/Keynote "Move slide up/down" parity).
+    // mod+shift avoids the plain-arrow element-nudge bindings above.
+    { combo: 'mod+shift+arrowup', handler: () => moveSlide(doc.selectedSlideId, -1) },
+    { combo: 'mod+shift+arrowdown', handler: () => moveSlide(doc.selectedSlideId, 1) },
     { combo: 'escape', handler: () => { if (doc.selectedElementId) setDoc(d => ({ ...d, selectedElementId: null })); } },
     { combo: 'f5', handler: () => { setPresentIdx(doc.slides.findIndex(s => s.id === doc.selectedSlideId)); setPresentMode(true); } },
     { combo: 't', handler: () => setTool('text') },

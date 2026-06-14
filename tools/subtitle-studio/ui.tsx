@@ -6,6 +6,7 @@ import {
   Wand2, ChevronLeft, ChevronRight, Type as TypeIcon, FileText, Save,
   Undo2, Redo2, ZoomIn, ZoomOut, Magnet, X, AlertTriangle, SkipBack, SkipForward,
   Clipboard, RotateCcw, LayoutTemplate, FastForward, Rewind, ArrowDown,
+  Search,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
@@ -312,6 +313,12 @@ export default function SubtitleStudioPro() {
   // Crash-recovery banner: surfaced on mount if a fresh snapshot from a previous
   // session exists. Restoring re-hydrates the doc + resets the undo stack.
   const [recovery, setRecovery] = React.useState<RecoverySnapshot | null>(null);
+  // Find & Replace across every cue's text — fixes recurring transcription
+  // errors (e.g. a mis-heard name) in one pass. Case-insensitive by default.
+  const [findReplaceOpen, setFindReplaceOpen] = React.useState(false);
+  const [findTerm, setFindTerm] = React.useState('');
+  const [replaceTerm, setReplaceTerm] = React.useState('');
+  const [findCaseSensitive, setFindCaseSensitive] = React.useState(false);
 
   const videoRef = React.useRef<HTMLVideoElement | null>(null);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
@@ -805,6 +812,29 @@ export default function SubtitleStudioPro() {
     toastFor(`Shifted everything back ${first.toFixed(2)}s — first cue now at 0:00`);
   };
 
+  // Replace every occurrence of `findTerm` with `replaceTerm` across all cue
+  // text in one undoable pass — the fastest fix for a recurring transcription
+  // error (a mis-heard name, a wrong term) that would otherwise need editing
+  // dozens of cues by hand. Case-insensitive unless the toggle is on.
+  const runFindReplace = () => {
+    const find = findTerm;
+    if (!find) { toastFor('Enter text to find'); return; }
+    // Escape the user's term so it's matched literally (not as a regex).
+    const escaped = find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp(escaped, findCaseSensitive ? 'g' : 'gi');
+    const next = cloneDoc(doc);
+    let occurrences = 0, cuesTouched = 0;
+    for (const c of next.cues) {
+      let n = 0;
+      const replaced = c.text.replace(re, () => { n++; return replaceTerm; });
+      if (n > 0) { c.text = replaced; occurrences += n; cuesTouched++; }
+    }
+    if (!occurrences) { toastFor(`No matches for “${find}”`); return; }
+    commit('find & replace', next);
+    setFindReplaceOpen(false);
+    toastFor(`Replaced ${occurrences} occurrence${occurrences === 1 ? '' : 's'} in ${cuesTouched} cue${cuesTouched === 1 ? '' : 's'}`);
+  };
+
   const translateAll = async () => {
     const targetLang = window.prompt('Translate to language code (e.g. es, fr, de, ja):', 'es');
     if (!targetLang) return;
@@ -1260,6 +1290,7 @@ export default function SubtitleStudioPro() {
             <button onClick={() => doc.selectedId && splitAtTime(doc.selectedId, time)} disabled={!canSplitHere} title={canSplitHere ? 'Split the selected cue into two at the playhead' : 'Select a cue and move the playhead inside it to split here'} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent"><Scissors className="h-3 w-3" /> Split here</button>
             <button onClick={reindexCues} title="Re-sort cues by start time and renumber them 1…N in timeline order" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><FileText className="h-3 w-3" /> Re-index</button>
             <button onClick={zeroFirstCue} title="Shift everything so the first cue starts at exactly 0:00 (removes leading dead-air)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><SkipBack className="h-3 w-3" /> First → 0</button>
+            <button onClick={() => setFindReplaceOpen(true)} disabled={!doc.cues.length} title="Find & replace text across every cue — fix recurring transcription errors in one pass" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent"><Search className="h-3 w-3" /> Find &amp; replace</button>
             <div className="mx-1 h-4 w-px bg-white/10" />
             <button onClick={() => shiftTiming(-0.5)} title="Shift all cues (or the selected cue) 0.5s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronLeft className="h-3 w-3" /> Shift −0.5s</button>
             <button onClick={() => shiftTiming(0.5)} title="Shift all cues (or the selected cue) 0.5s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronRight className="h-3 w-3" /> Shift +0.5s</button>
@@ -1474,6 +1505,36 @@ export default function SubtitleStudioPro() {
               Burn into video (MP4)
             </button>
           </div>
+        </Dialog>
+      )}
+      {findReplaceOpen && (
+        <Dialog title="Find & replace" onCancel={() => setFindReplaceOpen(false)} onConfirm={runFindReplace} confirmLabel="Replace all">
+          <Field label="Find">
+            <input
+              autoFocus
+              value={findTerm}
+              onChange={e => setFindTerm(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runFindReplace(); } }}
+              placeholder="Text to find in every cue"
+              className={INPUT_CLS}
+            />
+          </Field>
+          <div className="mt-2">
+            <Field label="Replace with">
+              <input
+                value={replaceTerm}
+                onChange={e => setReplaceTerm(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); runFindReplace(); } }}
+                placeholder="Replacement text (leave empty to delete)"
+                className={INPUT_CLS}
+              />
+            </Field>
+          </div>
+          <label className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+            <input type="checkbox" checked={findCaseSensitive} onChange={e => setFindCaseSensitive(e.target.checked)} className="accent-cyan-500" />
+            Match case
+          </label>
+          <div className="mt-2 text-[11px] text-zinc-500">Replaces every occurrence across all {doc.cues.length} cue{doc.cues.length === 1 ? '' : 's'}. Undoable.</div>
         </Dialog>
       )}
       {templatesOpen && (

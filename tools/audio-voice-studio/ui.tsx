@@ -1222,6 +1222,7 @@ export default function VoiceStudioPro() {
                   <StudioButton size="sm" variant="soft" onClick={() => updateClip(selectedClip.id, c => { c.fadeOut = 1; }, 'fade out')} title="Ease the clip out over 1 second"><Sparkles className="h-3 w-3" /> Fade out 1s</StudioButton>
                   <StudioButton size="sm" variant="soft" onClick={() => updateClip(selectedClip.id, c => { c.fadeIn = 1; c.fadeOut = 1; }, 'fade both')} title="Fade in and out, 1 second each"><Sparkles className="h-3 w-3" /> Fade both</StudioButton>
                   <StudioButton size="sm" variant={selectedClip.normalized ? 'primary' : 'soft'} onClick={() => updateClip(selectedClip.id, c => { c.normalized = !c.normalized; }, 'normalize')} title="Normalize the clip peak to -3 dB"><Sparkles className="h-3 w-3" /> Normalize to -3dB{selectedClip.normalized ? ' ✓' : ''}</StudioButton>
+                  <StudioButton size="sm" variant="soft" onClick={() => updateClip(selectedClip.id, c => { c.start += 0.5; }, 'lead-in')} title="Push the clip 0.5 s later, leaving a silent lead-in before it"><Sparkles className="h-3 w-3" /> Add 0.5s lead-in</StudioButton>
                 </div>
               </StudioPanel>
               <StudioPanel title="Transcript">

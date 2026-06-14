@@ -2044,6 +2044,87 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runReduceNoise = async () => {
+    // Light denoise: a radius-1 Gaussian blur blended back over the original at 50%
+    // so flat areas smooth out while edges/detail are partly preserved. Destructive on
+    // the active layer, alpha preserved. Same structure as runGaussianBlur/runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Reducing noise…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const blurred = gaussianBlur(src, 1);
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const orig = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const soft = blurred.getContext('2d')!.getImageData(0, 0, w, h);
+      const a = orig.data, b = soft.data;
+      for (let i = 0; i < a.length; i += 4) {
+        a[i] = ((a[i] + b[i]) * 0.5) | 0;
+        a[i + 1] = ((a[i + 1] + b[i + 1]) * 0.5) | 0;
+        a[i + 2] = ((a[i + 2] + b[i + 2]) * 0.5) | 0;
+      }
+      octx.putImageData(orig, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('reduce-noise', next);
+      toastFor('Noise reduced ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runMedian = async () => {
+    // Despeckle: replace each pixel with the per-channel median of its 3×3 neighbourhood
+    // (classic salt-and-pepper removal). Edges are clamped. Destructive on the active
+    // layer, alpha preserved. Same structure as runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Despeckling…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const s = img.data;
+      const dst = octx.createImageData(w, h);
+      const o = dst.data;
+      const rs = new Array<number>(9), gs = new Array<number>(9), bs = new Array<number>(9);
+      const med = (arr: number[]) => { arr.sort((p, q) => p - q); return arr[4]; };
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          let n = 0;
+          for (let dy = -1; dy <= 1; dy++) {
+            const yy = Math.min(h - 1, Math.max(0, y + dy));
+            for (let dx = -1; dx <= 1; dx++) {
+              const xx = Math.min(w - 1, Math.max(0, x + dx));
+              const j = (yy * w + xx) * 4;
+              rs[n] = s[j]; gs[n] = s[j + 1]; bs[n] = s[j + 2]; n++;
+            }
+          }
+          const i = (y * w + x) * 4;
+          o[i] = med(rs.slice());
+          o[i + 1] = med(gs.slice());
+          o[i + 2] = med(bs.slice());
+          o[i + 3] = s[i + 3];
+        }
+      }
+      octx.putImageData(dst, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('median', next);
+      toastFor('Despeckled ✓');
+    } finally { setBusy(''); }
+  };
+
   const runFilmGrain = async () => {
     // Per-pixel random noise (±20 on each channel) for an analog film-grain texture.
     // Clamped to 0..255, alpha untouched. Same structure as runClarity/runVignette.
@@ -3476,6 +3557,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runGaussianBlur()} title={pristine ? 'Open an image first' : 'Gaussian Blur — soften the active layer'}><Sparkles className="h-3.5 w-3.5" /> Blur</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSharpen()} title={pristine ? 'Open an image first' : 'Sharpen — crisp edges on the active layer'}><Sparkles className="h-3.5 w-3.5" /> Sharpen</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runReduceNoise()} title={pristine ? 'Open an image first' : 'Reduce noise — light denoise, edges partly preserved'}><Sparkles className="h-3.5 w-3.5" /> Reduce noise</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runMedian()} title={pristine ? 'Open an image first' : 'Median — 3×3 despeckle (salt-and-pepper removal)'}><Sparkles className="h-3.5 w-3.5" /> Median</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFilmGrain()} title={pristine ? 'Open an image first' : 'Film grain — add subtle analog noise'}><Sparkles className="h-3.5 w-3.5" /> Film Grain</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />
             {/* Looks — one-click photographic tone+color grades on the active layer. */}

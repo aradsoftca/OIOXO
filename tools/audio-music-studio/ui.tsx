@@ -599,6 +599,29 @@ export default function MusicStudioPro() {
     commit('piano roll', next);
   };
 
+  // Transpose every note of one synth instrument by `semis` semitones (±1) or
+  // a whole octave (±12). Piano-roll notes carry a true chromatic pitch, so we
+  // shift each note's `pitch` (clamped to the roll's chromatic range). The
+  // step grid is diatonic-row based (no per-note chromatic field) and the
+  // instrument's `octave` is its base pitch, so a whole-octave move also shifts
+  // `octave` (clamped 0..7) — that keeps a grid-only instrument transposable
+  // and keeps roll + grid in agreement on octave moves.
+  const transposeInstrument = (instId: InstId, semis: number) => {
+    const next = cloneDoc(doc);
+    const p = next.patterns.find(x => x.id === doc.activePatternId);
+    if (!p) return;
+    const rollNotes = p.roll?.[instId];
+    if (rollNotes && rollNotes.length) {
+      for (const n of rollNotes) n.pitch = Math.max(0, Math.min(ROLL_RANGE, n.pitch + semis));
+    }
+    if (semis % 12 === 0 && semis !== 0) {
+      const inst = next.instruments.find(i => i.id === instId);
+      if (inst) inst.octave = Math.max(0, Math.min(7, inst.octave + semis / 12));
+    }
+    commit('transpose', next);
+    toastFor(`${INSTRUMENTS.find(i => i.id === instId)?.label ?? instId} ${semis > 0 ? '+' : ''}${semis} semitone${Math.abs(semis) === 1 ? '' : 's'}`);
+  };
+
   // Keep the module-level active kit in sync with the doc (covers load/undo).
   React.useEffect(() => { setActiveKit(doc.kitId ?? 'classic'); }, [doc.kitId]);
 
@@ -1293,6 +1316,7 @@ export default function MusicStudioPro() {
               onSetVel={setVel}
               onSetChance={setChance}
               onUpdateInst={updateInstrument}
+              onTranspose={transposeInstrument}
               rollInst={rollInst}
               onToggleRoll={(id) => setRollInst(r => r === id ? null : id)}
             />
@@ -1470,7 +1494,7 @@ function patternIsEmpty(pattern: Pattern): boolean {
 
 type StepMode = 'notes' | 'velocity' | 'chance';
 
-function SequencerGrid({ pattern, instruments, currentStep, stepMode, onSetNote, onPaintNote, onSetVel, onSetChance, onUpdateInst, rollInst, onToggleRoll }: {
+function SequencerGrid({ pattern, instruments, currentStep, stepMode, onSetNote, onPaintNote, onSetVel, onSetChance, onUpdateInst, onTranspose, rollInst, onToggleRoll }: {
   pattern: Pattern;
   instruments: Instrument[];
   currentStep: number;
@@ -1480,6 +1504,7 @@ function SequencerGrid({ pattern, instruments, currentStep, stepMode, onSetNote,
   onSetVel: (instId: InstId, step: number, vel: number) => void;
   onSetChance: (instId: InstId, step: number, chance: number) => void;
   onUpdateInst: (id: InstId, mut: (i: Instrument) => void) => void;
+  onTranspose?: (id: InstId, semis: number) => void;
   rollInst?: InstId | null;
   onToggleRoll?: (id: InstId) => void;
 }) {
@@ -1516,6 +1541,14 @@ function SequencerGrid({ pattern, instruments, currentStep, stepMode, onSetNote,
               </div>
             )}
             {inst.kind === 'synth' && <span className="text-[9px] text-zinc-500">O{inst.octave}</span>}
+            {inst.kind === 'synth' && onTranspose && (
+              <div className="flex items-center">
+                <button onClick={() => onTranspose(inst.id, -1)} title="Transpose −1 semitone" className="rounded px-0.5 text-[10px] text-zinc-500 hover:bg-white/5 hover:text-zinc-200">−</button>
+                <button onClick={() => onTranspose(inst.id, 1)} title="Transpose +1 semitone" className="rounded px-0.5 text-[10px] text-zinc-500 hover:bg-white/5 hover:text-zinc-200">+</button>
+                <button onClick={() => onTranspose(inst.id, -12)} title="Octave down" className="rounded px-0.5 text-[9px] text-zinc-500 hover:bg-white/5 hover:text-zinc-200">8vb</button>
+                <button onClick={() => onTranspose(inst.id, 12)} title="Octave up" className="rounded px-0.5 text-[9px] text-zinc-500 hover:bg-white/5 hover:text-zinc-200">8va</button>
+              </div>
+            )}
             {inst.kind === 'synth' && onToggleRoll && (
               <button onClick={() => onToggleRoll(inst.id)} title="Piano roll (melodic notes)" className={cn('rounded px-1 text-[11px]', rollInst === inst.id ? 'bg-cyan-500 text-zinc-900' : 'text-zinc-500 hover:bg-white/5')}>🎹</button>
             )}

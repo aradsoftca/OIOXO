@@ -26,7 +26,7 @@ import {
   audioBufferToMidi, notesToMidiFile, midiToNoteName, type MidiNote,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
-  SharedDialog,
+  SharedDialog, ToolMenu,
 } from '@/lib/studios';
 
 type InstId = 'kick' | 'snare' | 'hihat' | 'clap' | 'bass' | 'lead' | 'pad' | 'pluck';
@@ -373,6 +373,7 @@ export default function MusicStudioPro() {
   const [exportFmt, setExportFmt] = React.useState<'wav' | 'mp3'>('wav');
   const [exportBars, setExportBars] = React.useState(8);
   const [genDialog, setGenDialog] = React.useState(false);
+  const audioMidiInputRef = React.useRef<HTMLInputElement>(null);
   const [genGenre, setGenGenre] = React.useState(GENRES[0].id);
   const [openDialog, setOpenDialog] = React.useState(false);
   const [savedList, setSavedList] = React.useState<StudioProject[]>([]);
@@ -1205,15 +1206,24 @@ export default function MusicStudioPro() {
         left={
           <>
             <StudioButton variant="ghost" size="sm" onClick={() => setGenDialog(true)}><Wand2 className="h-3.5 w-3.5" /> Generate</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={randomPattern}><Shuffle className="h-3.5 w-3.5" /> Random</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={humanizePattern} title="Add subtle variation"><Sparkles className="h-3.5 w-3.5" /> Humanize</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={fillFromChords} title="Fill pad+bass from a chord progression in this key"><Sparkles className="h-3.5 w-3.5" /> Chord fill</StudioButton>
-            <label className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-xs font-medium text-zinc-300 hover:bg-white/5 hover:text-white">
-              <Sparkles className="h-3.5 w-3.5" /> Audio→MIDI
-              <input type="file" accept="audio/*" className="hidden" onChange={e => e.target.files?.[0] && void importAudioFile(e.target.files[0])} />
-            </label>
-            <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
+            {/* Hidden input for Audio→MIDI, triggered from the More menu so it survives on a narrow phone toolbar. */}
+            <input ref={audioMidiInputRef} type="file" accept="audio/*" className="hidden" onChange={e => { if (e.target.files?.[0]) void importAudioFile(e.target.files[0]); e.target.value = ''; }} />
+            <ToolMenu
+              label="More"
+              icon={<Sparkles className="h-3.5 w-3.5" />}
+              groups={[
+                { label: 'Pattern', items: [
+                  { label: 'Random fill', run: randomPattern },
+                  { label: 'Humanize', run: humanizePattern },
+                  { label: 'Chord fill', run: fillFromChords },
+                  { label: 'Audio → MIDI', run: () => audioMidiInputRef.current?.click() },
+                ] },
+                { label: 'File', items: [
+                  { label: 'Library', run: openSaved },
+                  { label: 'Save', run: saveCurrent },
+                ] },
+              ]}
+            />
             {/* On mobile Export is pinned in the always-visible right cluster instead. */}
             <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <span className="ml-2 h-5 w-px bg-white/10" />

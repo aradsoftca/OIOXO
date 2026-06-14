@@ -39,6 +39,7 @@ import {
   OFFICE_TEMPLATES, OFFICE_TEMPLATE_CATEGORIES,
   materializeOfficeTemplate, renderOfficeThumb,
   CollabSession, makeHttpSignal, type CollabPeer,
+  ToolMenu,
 } from '@/lib/studios';
 import { cycleAnchorAtCaret, functionSuggestions, acceptSuggestion } from '@/lib/studios/formula-edit';
 
@@ -1766,21 +1767,39 @@ export default function OfficeStudioPro() {
         <input type="color" onChange={e => updateStyle(s => { s.bg = e.target.value; })} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Background" />
         <span className="h-4 w-px bg-white/10" />
         <button onClick={() => setCellRaw(sel.r, sel.c, `=SUM(${colToLetter(c0)}${r0 + 1}:${colToLetter(c1)}${r1 + 1})`)} title="Insert SUM" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Sigma className="h-3 w-3" /> SUM</button>
-        <button onClick={(e) => { const rect = (e.currentTarget as HTMLElement).getBoundingClientRect(); setFilterMenu({ c: sel.c, x: rect.left, y: rect.bottom }); }} title="Filter rows by the selected column's values" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Filter className="h-3 w-3" /> Filter</button>
         {sheet.filters && Object.keys(sheet.filters).length > 0 && (
           <button onClick={clearAllFilters} title="Remove all column filters" className="flex items-center gap-1 rounded px-2 py-1 text-cyan-300 hover:bg-white/5">Clear filters ({Object.keys(sheet.filters).length})</button>
         )}
-        <button onClick={markOutliers} title="Highlight statistical outliers in selection" className="flex items-center gap-1 rounded px-2 py-1 text-amber-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Outliers</button>
-        <button onClick={runSmartFill} title="Detect pattern from filled cells and fill rest" className="flex items-center gap-1 rounded px-2 py-1 text-cyan-300 hover:bg-white/5"><Wand2 className="h-3 w-3" /> Smart fill</button>
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        <button onClick={() => setShowNamedRangesDialog(true)} title="Named ranges" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Tag className="h-3 w-3" /> Names</button>
-        <button onClick={() => setShowDvDialog(true)} title="Data validation" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><ShieldCheck className="h-3 w-3" /> Validate</button>
-        <button onClick={() => freezePanes(sel.r, sel.c)} title="Freeze panes at selection" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><LockIcon className="h-3 w-3" /> Freeze</button>
-        <button onClick={() => insertSparkline()} title="Insert sparkline from selected range" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><TrendingUp className="h-3 w-3" /> Spark</button>
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        <button onClick={() => setPivotDialog(true)} title="Create pivot table" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Table2 className="h-3 w-3" /> Pivot</button>
-        <button onClick={() => setChartDialog(true)} title="Insert chart" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><BarChart3 className="h-3 w-3" /> Chart</button>
-        <button onClick={() => setCondDialog(true)} title="Conditional formatting" className="flex items-center gap-1 rounded px-2 py-1 text-zinc-300 hover:bg-white/5"><Palette className="h-3 w-3" /> Format</button>
+        <ToolMenu
+          label="Data"
+          icon={<Filter className="h-3 w-3" />}
+          title="Data tools"
+          groups={[
+            { items: [
+              { label: 'Filter rows…', run: () => setFilterMenu({ c: sel.c, x: 16, y: 96 }) },
+              { label: 'Highlight outliers', run: markOutliers },
+              { label: 'Smart fill', run: runSmartFill },
+            ] },
+            { items: [
+              { label: 'Named ranges…', run: () => setShowNamedRangesDialog(true) },
+              { label: 'Data validation…', run: () => setShowDvDialog(true) },
+              { label: 'Freeze panes', run: () => freezePanes(sel.r, sel.c) },
+            ] },
+          ]}
+        />
+        <ToolMenu
+          label="Insert"
+          icon={<BarChart3 className="h-3 w-3" />}
+          title="Insert"
+          groups={[
+            { items: [
+              { label: 'Sparkline', run: () => insertSparkline() },
+              { label: 'Pivot table…', run: () => setPivotDialog(true) },
+              { label: 'Chart…', run: () => setChartDialog(true) },
+              { label: 'Conditional format…', run: () => setCondDialog(true) },
+            ] },
+          ]}
+        />
         <span className="mx-1 h-4 w-px bg-white/10" />
         <select value={doc.locale} onChange={e => commit('locale', { ...cloneDoc(doc), locale: e.target.value, currency: defaultCurrencyFor(e.target.value) })} className="h-7 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-xs text-zinc-100" title="Locale (number/date/currency formatting)">
           {LOCALES.map(l => <option key={l.code} value={l.code}>{l.nativeName} ({l.code})</option>)}

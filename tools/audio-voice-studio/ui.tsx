@@ -25,7 +25,7 @@ import {
   findSilences, broadcastChain, deEss as deEssBuffer,
   EffectsRack, AUDIO_EFFECTS, makeAppliedEffect, type AppliedEffect,
   LufsMeter, LufsMeterDisplay, SpectrogramView,
-  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
+  HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly, ToolMenu,
   EmptyState, pushToast,
   SharedDialog,
   TemplateGallery, type GalleryItem,
@@ -1094,12 +1094,34 @@ export default function VoiceStudioPro() {
             <button onClick={() => recording ? stopRecording() : void startRecording()} className={cn('inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium', recording ? 'bg-rose-500 text-white animate-pulse' : 'text-rose-300 hover:bg-rose-500/10')}>
               {recording ? <><Square className="h-3 w-3" /> {fmtT(recordTime)}</> : <><Mic className="h-3.5 w-3.5" /> Record</>}
             </button>
-            <StudioButton variant="ghost" size="sm" onClick={() => setTtsDialog(true)}><Wand2 className="h-3.5 w-3.5" /> TTS</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={() => doc.selectedId ? void transcribeClip(doc.selectedId) : toastFor('Select a clip first')} title="Transcribe the selected clip on your device"><FileText className="h-3.5 w-3.5" /> Transcribe</StudioButton>
-            {Object.keys(transcripts).length > 0 && <StudioButton variant="ghost" size="sm" onClick={() => void downloadSrt()} title="Export transcript as SRT subtitles">SRT</StudioButton>}
-            <StudioButton variant="ghost" size="sm" onClick={() => { setTemplateCat('all'); setTemplatesOpen(true); }} title="Templates"><LayoutTemplate className="h-3.5 w-3.5" /> Templates</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={openSaved}><FileText className="h-3.5 w-3.5" /> Library</StudioButton>
-            <StudioButton variant="ghost" size="sm" onClick={saveCurrent}><Save className="h-3.5 w-3.5" /> Save</StudioButton>
+            <ToolMenu
+              label="Tools"
+              icon={<Wand2 className="h-3.5 w-3.5" />}
+              title="Voice tools, transcript & project actions"
+              groups={[
+                {
+                  label: 'Create',
+                  items: [
+                    { label: 'TTS — generate speech', run: () => setTtsDialog(true) },
+                    { label: 'Templates', run: () => { setTemplateCat('all'); setTemplatesOpen(true); } },
+                  ],
+                },
+                {
+                  label: 'Transcript',
+                  items: [
+                    { label: 'Transcribe selected clip', run: () => doc.selectedId ? void transcribeClip(doc.selectedId) : toastFor('Select a clip first') },
+                    { label: 'Export as SRT subtitles', run: () => void downloadSrt(), disabled: Object.keys(transcripts).length === 0 },
+                  ],
+                },
+                {
+                  label: 'Project',
+                  items: [
+                    { label: 'Library', run: openSaved },
+                    { label: 'Save', run: saveCurrent },
+                  ],
+                },
+              ]}
+            />
             {/* On mobile Export is pinned in the always-visible right cluster instead. */}
             <DesktopOnly><StudioButton variant="primary" size="sm" onClick={() => setExportDialog(true)}><Download className="h-3.5 w-3.5" /> Export</StudioButton></DesktopOnly>
             <span className="ml-2 h-5 w-px bg-white/10" />

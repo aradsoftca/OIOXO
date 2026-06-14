@@ -58,6 +58,7 @@ import {
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly,
   EmptyState, pushToast,
   SharedDialog,
+  ToolMenu,
   TemplateGallery, type GalleryItem,
   SUBTITLE_TEMPLATES, SUBTITLE_TEMPLATE_CATEGORIES,
   materializeSubtitleTemplate, renderSubtitleThumb,
@@ -1297,17 +1298,38 @@ export default function SubtitleStudioPro() {
             <div className="mx-2 h-4 w-px bg-white/10" />
             <button onClick={() => setSnap(s => !s)} title="Snap cue edges to neighbours · hold Alt while dragging for free placement" className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', snap ? 'bg-cyan-500/15 text-cyan-200' : 'text-zinc-400 hover:bg-white/5')}><Magnet className="h-3 w-3" /> Snap</button>
             <button onClick={fixTiming} title="Fix timing: clamp overlaps, enforce min duration + gap, fix negative durations across all cues" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><AlertTriangle className="h-3 w-3" /> Fix timing</button>
-            <button onClick={fixReadingSpeed} title="Fix CPS: auto-extend cues that read too fast (>21 chars/sec) until they hit a comfortable reading speed, without overlapping the next cue" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Wand2 className="h-3 w-3" /> Fix CPS</button>
+            <ToolMenu
+              label="Timing"
+              icon={<Wand2 className="h-3 w-3" />}
+              title="Batch timing operations"
+              groups={[
+                {
+                  label: 'Repair',
+                  items: [
+                    { label: 'Fix CPS', run: fixReadingSpeed },
+                    { label: 'Find & replace', run: () => setFindReplaceOpen(true), disabled: !doc.cues.length },
+                  ],
+                },
+                {
+                  label: 'Shift',
+                  items: [
+                    { label: 'Shift −0.5s', run: () => shiftTiming(-0.5) },
+                    { label: 'Shift +0.5s', run: () => shiftTiming(0.5) },
+                  ],
+                },
+                {
+                  label: 'Scale',
+                  items: [
+                    { label: 'Slower 4%', run: () => scaleTiming(1.04) },
+                    { label: 'Faster 4%', run: () => scaleTiming(0.96) },
+                  ],
+                },
+              ]}
+            />
             <div className="mx-1 h-4 w-px bg-white/10" />
             <button onClick={() => doc.selectedId && splitAtTime(doc.selectedId, time)} disabled={!canSplitHere} title={canSplitHere ? 'Split the selected cue into two at the playhead' : 'Select a cue and move the playhead inside it to split here'} className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent"><Scissors className="h-3 w-3" /> Split here</button>
             <button onClick={reindexCues} title="Re-sort cues by start time and renumber them 1…N in timeline order" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><FileText className="h-3 w-3" /> Re-index</button>
             <button onClick={zeroFirstCue} title="Shift everything so the first cue starts at exactly 0:00 (removes leading dead-air)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><SkipBack className="h-3 w-3" /> First → 0</button>
-            <button onClick={() => setFindReplaceOpen(true)} disabled={!doc.cues.length} title="Find & replace text across every cue — fix recurring transcription errors in one pass" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5 disabled:opacity-40 disabled:hover:bg-transparent"><Search className="h-3 w-3" /> Find &amp; replace</button>
-            <div className="mx-1 h-4 w-px bg-white/10" />
-            <button onClick={() => shiftTiming(-0.5)} title="Shift all cues (or the selected cue) 0.5s earlier" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronLeft className="h-3 w-3" /> Shift −0.5s</button>
-            <button onClick={() => shiftTiming(0.5)} title="Shift all cues (or the selected cue) 0.5s later" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><ChevronRight className="h-3 w-3" /> Shift +0.5s</button>
-            <button onClick={() => scaleTiming(1.04)} title="Scale all cue times ×1.04 — stretch timing 4% slower (e.g. framerate conversion)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><Rewind className="h-3 w-3" /> Slower 4%</button>
-            <button onClick={() => scaleTiming(0.96)} title="Scale all cue times ×0.96 — compress timing 4% faster (e.g. framerate conversion)" className="flex items-center gap-1 rounded px-2 py-1 text-xs text-zinc-300 hover:bg-white/5"><FastForward className="h-3 w-3" /> Faster 4%</button>
             <div className="ml-auto flex items-center gap-2">
               <span className="text-[11px] tabular-nums text-zinc-400" title="Total cues · timeline length (end of the last cue)">Σ {doc.cues.length} cue{doc.cues.length === 1 ? '' : 's'} · {fmtMSS(totalDuration)} total</span>
               <div className="mx-1 h-4 w-px bg-white/10" />

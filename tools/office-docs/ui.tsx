@@ -36,7 +36,7 @@ import {
   extractTocFromHtml, buildTocHtml, readAloud, stopReadAloud, makeVoiceTyping, type VoiceTypingHandler,
   preloadKatex, renderEquationToHtml, EQUATION_TEMPLATES,
   HelpButton, useRegisterShortcuts, DesktopOnly, MobileOnly, isPhone,
-  pushToast, SharedDialog, EmptyState,
+  pushToast, SharedDialog, EmptyState, ToolMenu,
 } from '@/lib/studios';
 import { sanitizeHtml } from '@/lib/safe-html';
 
@@ -1506,24 +1506,59 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => exec('bold')} title="Bold (Ctrl+B)"><Bold className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('italic')} title="Italic (Ctrl+I)"><Italic className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('underline')} title="Underline (Ctrl+U)"><Underline className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('strikeThrough')} title="Strikethrough"><Strikethrough className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('subscript')} title="Subscript"><Subscript className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('superscript')} title="Superscript"><Superscript className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('insertUnorderedList')} title="Bullet list"><List className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('insertOrderedList')} title="Numbered list"><ListOrdered className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={insertChecklist} title="Checklist (task list)"><ListChecks className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('outdent')} title="Outdent"><Outdent className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('indent')} title="Indent"><Indent className="h-3.5 w-3.5" /></Tb>
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        <Tb onClick={() => exec('insertHTML', '<hr/>')} title="Horizontal rule"><Minus className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => formatBlock('blockquote')} title="Blockquote"><Quote className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={insertPageBreak} title="Page break"><SeparatorHorizontal className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('justifyLeft')} title="Left"><AlignLeft className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('justifyCenter')} title="Center"><AlignCenter className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('justifyRight')} title="Right"><AlignRight className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('justifyFull')} title="Justify"><AlignJustify className="h-3.5 w-3.5" /></Tb>
+        <span className="mx-1 h-4 w-px bg-white/10" />
+        <ToolMenu
+          label="Insert"
+          title="Insert content"
+          cols={2}
+          groups={[
+            { label: 'Insert', items: [
+              { label: 'Link (Ctrl+K)', run: insertLink },
+              { label: 'Image', run: insertImageBtn },
+              { label: 'Table 3×3', run: () => insertTable(3, 3) },
+              { label: 'Checklist', run: insertChecklist },
+              { label: 'Horizontal rule', run: () => exec('insertHTML', '<hr/>') },
+              { label: 'Page break', run: insertPageBreak },
+            ] },
+            { label: 'Reference', items: [
+              { label: 'Symbol Ω', run: () => setSymbolDialog(true) },
+              { label: 'Equation (LaTeX)', run: () => setEquationDialog(true) },
+              { label: 'Table of Contents', run: insertToc },
+              { label: 'Date', run: () => exec('insertText', new Date().toLocaleDateString()) },
+              { label: 'Time', run: () => exec('insertText', new Date().toLocaleTimeString()) },
+            ] },
+          ]}
+        />
+        <ToolMenu
+          label="More"
+          title="More formatting"
+          cols={2}
+          groups={[
+            { label: 'Text', items: [
+              { label: 'Strikethrough', run: () => exec('strikeThrough') },
+              { label: 'Subscript', run: () => exec('subscript') },
+              { label: 'Superscript', run: () => exec('superscript') },
+              { label: 'Clear formatting', run: () => exec('removeFormat') },
+            ] },
+            { label: 'Case', items: [
+              { label: 'UPPERCASE', run: () => transformCase('upper') },
+              { label: 'lowercase', run: () => transformCase('lower') },
+              { label: 'Title Case', run: () => transformCase('title') },
+            ] },
+            { label: 'Layout', items: [
+              { label: 'Increase indent', run: () => exec('indent') },
+              { label: 'Decrease indent', run: () => exec('outdent') },
+            ] },
+          ]}
+        />
         <span className="mx-1 h-4 w-px bg-white/10" />
         {/* Line spacing (Google Docs parity) */}
         <select
@@ -1539,13 +1574,6 @@ export default function OfficeDocsPro() {
           <option value="2.5">2.5</option>
         </select>
         <span className="mx-1 h-4 w-px bg-white/10" />
-        <Tb onClick={() => transformCase('upper')} title="UPPERCASE"><span className="text-[11px] font-semibold">AA</span></Tb>
-        <Tb onClick={() => transformCase('lower')} title="lowercase"><span className="text-[11px] font-semibold">aa</span></Tb>
-        <Tb onClick={() => transformCase('title')} title="Title Case"><span className="text-[11px] font-semibold">Aa</span></Tb>
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        <Tb onClick={() => exec('outdent')} title="Decrease indent"><Outdent className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('indent')} title="Increase indent"><Indent className="h-3.5 w-3.5" /></Tb>
-        <span className="mx-1 h-4 w-px bg-white/10" />
         <input type="color" onChange={e => exec('foreColor', e.target.value)} className="h-6 w-6 cursor-pointer rounded border border-white/10" title="Text color" />
         {TEXT_SWATCHES.map(c => (
           <Swatch key={`fc-${c.hex}`} hex={c.hex} title={`Text: ${c.name}`} onClick={() => exec('foreColor', c.hex)} />
@@ -1554,10 +1582,6 @@ export default function OfficeDocsPro() {
         {HILITE_SWATCHES.map(c => (
           <Swatch key={`hl-${c.hex}`} hex={c.hex} title={`Highlight: ${c.name}`} onClick={() => exec('hiliteColor', c.hex)} />
         ))}
-        <span className="mx-1 h-4 w-px bg-white/10" />
-        <Tb onClick={insertLink} title="Link (Ctrl+K)"><LinkIcon className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={insertImageBtn} title="Image"><ImageIcon className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => insertTable(3, 3)} title="Insert 3×3 table"><TableIcon className="h-3.5 w-3.5" /></Tb>
         {inTable && (
           <>
             <span className="mx-1 h-4 w-px bg-white/10" />
@@ -1568,13 +1592,7 @@ export default function OfficeDocsPro() {
             <span className="mx-1 h-4 w-px bg-white/10" />
           </>
         )}
-        <Tb onClick={() => exec('removeFormat')} title="Clear formatting"><Eraser className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('insertText', new Date().toLocaleDateString())} title="Insert date"><Calendar className="h-3.5 w-3.5" /></Tb>
-        <Tb onClick={() => exec('insertText', new Date().toLocaleTimeString())} title="Insert time"><Clock className="h-3.5 w-3.5" /></Tb>
         <div className="ml-auto flex items-center gap-1">
-          <Tb onClick={() => setSymbolDialog(true)} title="Insert special character / symbol"><span className="text-[13px] font-semibold leading-none">Ω</span></Tb>
-          <Tb onClick={() => setEquationDialog(true)} title="Insert equation (LaTeX)"><Sigma className="h-3.5 w-3.5" /></Tb>
-          <Tb onClick={insertToc} title="Insert Table of Contents"><BookOpen className="h-3.5 w-3.5" /></Tb>
           <button onClick={reading ? stopReading : startReadAloud} title={reading ? 'Stop reading' : 'Read aloud'} className={cn('flex items-center gap-1 rounded px-2 py-1 text-xs', reading ? 'bg-cyan-500/20 text-cyan-200' : 'text-zinc-300 hover:bg-white/5')}>
             <Volume2 className="h-3 w-3" />
           </button>

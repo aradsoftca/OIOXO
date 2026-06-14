@@ -3135,7 +3135,26 @@ function Timeline({ doc, zoom, tool, snap, mediaMap, onSeek, onSelect, onMoveCli
   );
 }
 
+// Copy/paste color grade between clips. The grade is the full look — the four
+// CSS-filter params plus the per-pixel color pipeline (wheels/curves/LUT) — so a
+// pasted clip matches the source exactly in both preview and export. Stored in a
+// module-level ref so it survives inspector re-mounts when the selection changes.
+type ClipGrade = Pick<VideoClip, 'brightness' | 'contrast' | 'saturation' | 'hue' | 'colorWheels' | 'curves' | 'lut' | 'lutName' | 'lutIntensity'>;
+const gradeClipboard = React.createRef<ClipGrade | null>() as { current: ClipGrade | null };
+const copyClipGrade = (c: VideoClip): ClipGrade => structuredClone({
+  brightness: c.brightness, contrast: c.contrast, saturation: c.saturation, hue: c.hue,
+  colorWheels: c.colorWheels, curves: c.curves, lut: c.lut, lutName: c.lutName, lutIntensity: c.lutIntensity,
+});
+const pasteClipGrade = (v: VideoClip, g: ClipGrade) => {
+  v.brightness = g.brightness; v.contrast = g.contrast; v.saturation = g.saturation; v.hue = g.hue;
+  v.colorWheels = g.colorWheels ? structuredClone(g.colorWheels) : undefined;
+  v.curves = g.curves ? structuredClone(g.curves) : undefined;
+  if (g.lut) { v.lut = structuredClone(g.lut); v.lutName = g.lutName; v.lutIntensity = g.lutIntensity ?? 1; }
+  else { delete v.lut; delete v.lutName; delete v.lutIntensity; }
+};
+
 function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, onAllTransitions, playhead }: { clip: TimelineClip; media: MediaItem | null; onChange: (mut: (c: TimelineClip) => void) => void; onOpenText: () => void; onApplyGrade?: (gradeId: string) => void; onAllTransitions?: (id: TransitionId) => void; playhead?: number }) {
+  const [, forceGrade] = React.useReducer(x => x + 1, 0);
   if (clip.kind === 'video') {
     const c = clip;
     const matchedGrade = COLOR_GRADES.find(g => Math.abs(g.brightness - c.brightness) < 2 && Math.abs(g.contrast - c.contrast) < 2 && Math.abs(g.saturation - c.saturation) < 2 && Math.abs(g.hue - c.hue) < 3);
@@ -3279,6 +3298,11 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, onAllT
             <AnimatableSlider label="Contrast" value={c.contrast} min={0} max={200} suffix="%" paramName="contrast" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).contrast = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), contrast: kf }; })} />
             <AnimatableSlider label="Saturation" value={c.saturation} min={0} max={200} suffix="%" paramName="saturation" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).saturation = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), saturation: kf }; })} />
             <AnimatableSlider label="Hue" value={c.hue} min={-180} max={180} suffix="°" paramName="hue" clip={c} localT={localT} onChange={v => onChange(x => { (x as VideoClip).hue = v; })} onAnimate={(kf) => onChange(x => { (x as VideoClip).keyframes = { ...((x as VideoClip).keyframes ?? {}), hue: kf }; })} />
+            <div className="text-xs text-zinc-500">Color grade clipboard (copy a look between clips)</div>
+            <div className="flex gap-1">
+              <button onClick={() => { gradeClipboard.current = copyClipGrade(c); forceGrade(); }} className="flex-1 rounded bg-white/5 px-2 py-1 text-[10px] text-zinc-300 hover:bg-white/10" title="Copy this clip's full color grade (brightness/contrast/saturation/hue + wheels/curves/LUT)">Copy grade</button>
+              <button disabled={!gradeClipboard.current} onClick={() => { const g = gradeClipboard.current; if (g) onChange(x => pasteClipGrade(x as VideoClip, g)); }} className="flex-1 rounded bg-cyan-500/15 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-40" title="Paste the copied color grade onto this clip">Paste grade</button>
+            </div>
           </div>
         </StudioPanel>
         <StudioPanel title="Motion / Transform" defaultOpen={!!c.transform && (c.transform.scale !== 1 || c.transform.x !== 0 || c.transform.y !== 0 || c.transform.rotation !== 0) || !!(c.keyframes?.posX || c.keyframes?.posY || c.keyframes?.scale || c.keyframes?.rotation)}>

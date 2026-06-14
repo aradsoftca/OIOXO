@@ -169,6 +169,8 @@ export default function PdfStudioPro() {
   const [pageJump, setPageJump] = React.useState('');
   // "Delete page range" box (e.g. "3-5") — removes those pages in one undo step.
   const [deleteRangeText, setDeleteRangeText] = React.useState('');
+  // "Duplicate page range" box (e.g. "3-5") — copies those pages in one undo step.
+  const [dupRangeText, setDupRangeText] = React.useState('');
 
   // Latest-doc ref so builders that fire several times before React re-renders
   // (e.g. opening multiple PDFs in one `for…await` loop) stack instead of
@@ -759,6 +761,42 @@ export default function PdfStudioPro() {
     if (next.selectedId && removedIds.has(next.selectedId)) next.selectedId = next.pages[0]?.id ?? null;
     commit('delete range', next);
     toastFor(`Deleted ${seen.size} page${seen.size === 1 ? '' : 's'}`);
+  };
+  // Duplicate a page RANGE in one undo step (Acrobat "Insert → duplicate pages").
+  // Accepts the same range syntax as Delete/Extract ("3-5", "2, 4, 6-8"): a
+  // 1-based set of page numbers, clamped to range. Each selected page is cloned
+  // (new id, same srcId/srcIndex/rotation) AND its annotations are copied, then
+  // the copies are appended to the END of the document in original page order —
+  // far faster than clicking the per-thumbnail Duplicate N times. Walking the
+  // ORIGINAL indices (not the growing array) keeps the math independent of where
+  // the copies land.
+  const duplicateRange = (txt: string) => {
+    const total = doc.pages.length;
+    if (!total) return;
+    const seen = new Set<number>();
+    for (const part of txt.split(',').map(s => s.trim()).filter(Boolean)) {
+      const m = /^(\d+)\s*-\s*(\d+)$/.exec(part);
+      if (m) {
+        let a = parseInt(m[1]), b = parseInt(m[2]);
+        if (a > b) [a, b] = [b, a];
+        for (let n = a; n <= b; n++) if (n >= 1 && n <= total) seen.add(n);
+      } else {
+        const n = parseInt(part);
+        if (!isNaN(n) && n >= 1 && n <= total) seen.add(n);
+      }
+    }
+    if (!seen.size) { toastFor(`Enter a valid range (1–${total})`); return; }
+    const next = cloneDoc(doc);
+    const order = Array.from(seen).sort((a, b) => a - b);
+    for (const n of order) {
+      const src = next.pages[n - 1];
+      const copy = { ...src, id: `p${++_pid}` };
+      next.pages.push(copy);
+      const srcAnnos = next.annotations[src.id];
+      if (srcAnnos && srcAnnos.length) next.annotations[copy.id] = srcAnnos.map(a => ({ ...a }));
+    }
+    commit('duplicate range', next);
+    toastFor(`Duplicated ${seen.size} page${seen.size === 1 ? '' : 's'}`);
   };
 
   const addAnno = (pageId: string, a: Annotation) => {
@@ -1626,6 +1664,20 @@ export default function PdfStudioPro() {
                 className="h-7 flex-1 rounded border border-white/10 bg-transparent px-2 font-mono text-xs text-zinc-200 outline-none hover:border-white/20 focus:border-cyan-400/50 disabled:opacity-40"
               />
               <StudioButton size="sm" variant="soft" onClick={() => { deleteRange(deleteRangeText); setDeleteRangeText(''); }} disabled={!doc.pages.length || !deleteRangeText.trim()} title="Delete the typed page range"><Trash2 className="h-3 w-3" /> Delete range</StudioButton>
+            </div>
+            {/* Duplicate a page RANGE in one undo step (same "3-5" syntax) — copies
+                those pages (and their annotations) to the end of the document. */}
+            <div className="mb-2 flex items-center gap-1.5">
+              <input
+                value={dupRangeText}
+                onChange={e => setDupRangeText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); duplicateRange(dupRangeText); setDupRangeText(''); } }}
+                disabled={!doc.pages.length}
+                placeholder="e.g. 3-5"
+                title='Type a page range (e.g. "3-5" or "2, 4, 6-8") and press Enter — or click Duplicate — to copy those pages to the end'
+                className="h-7 flex-1 rounded border border-white/10 bg-transparent px-2 font-mono text-xs text-zinc-200 outline-none hover:border-white/20 focus:border-cyan-400/50 disabled:opacity-40"
+              />
+              <StudioButton size="sm" variant="soft" onClick={() => { duplicateRange(dupRangeText); setDupRangeText(''); }} disabled={!doc.pages.length || !dupRangeText.trim()} title="Duplicate the typed page range to the end"><Copy className="h-3 w-3" /> Duplicate range</StudioButton>
             </div>
             {/* Bulk clear of the editing layer — counterpart to the double-click
                 delete-one on individual annotations. */}

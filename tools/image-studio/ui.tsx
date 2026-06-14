@@ -2107,6 +2107,71 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runDuotone = async () => {
+    // Map each pixel's luminance to a two-colour gradient: shadows → deep blue #1a1a4e,
+    // highlights → warm #ffd36b, lerped by L (0..1). L = 0.299R+0.587G+0.114B / 255.
+    // Destructive on the active layer, alpha preserved. Same structure as runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Applying duotone…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const sr = 0x1a, sg = 0x1a, sb = 0x4e; // shadow #1a1a4e deep blue
+      const hr = 0xff, hg = 0xd3, hb = 0x6b; // highlight #ffd36b warm
+      for (let i = 0; i < d.length; i += 4) {
+        const L = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+        d[i] = Math.min(255, Math.max(0, sr + (hr - sr) * L)) | 0;
+        d[i + 1] = Math.min(255, Math.max(0, sg + (hg - sg) * L)) | 0;
+        d[i + 2] = Math.min(255, Math.max(0, sb + (hb - sb) * L)) | 0;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('duotone', next);
+      toastFor('Duotone applied ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runSolarize = async () => {
+    // Classic solarize: invert each colour channel whose value exceeds 128
+    // (v > 128 ? 255 - v : v) per channel. Destructive on the active layer,
+    // alpha preserved. Same structure as runVignette.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Solarizing…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = d[i] > 128 ? 255 - d[i] : d[i];
+        d[i + 1] = d[i + 1] > 128 ? 255 - d[i + 1] : d[i + 1];
+        d[i + 2] = d[i + 2] > 128 ? 255 - d[i + 2] : d[i + 2];
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('solarize', next);
+      toastFor('Solarized ✓');
+    } finally { setBusy(''); }
+  };
+
   const runGaussianBlur = async () => {
     // Soften the active layer with a single-pass Gaussian blur (radius 2px) via the
     // shared canvas-filter helper. Destructive on the active layer, alpha preserved.
@@ -3706,6 +3771,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSaturation(1.2)} title={pristine ? 'Open an image first' : 'Saturate — boost colour intensity (S ×1.2)'}><Sparkles className="h-3.5 w-3.5" /> Saturate</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSaturation(0.8)} title={pristine ? 'Open an image first' : 'Desaturate — mute colour intensity (S ×0.8)'}><Sparkles className="h-3.5 w-3.5" /> Desaturate</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runDuotone()} title={pristine ? 'Open an image first' : 'Duotone — map luminance to a deep-blue→warm gradient'}><Sparkles className="h-3.5 w-3.5" /> Duotone</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSolarize()} title={pristine ? 'Open an image first' : 'Solarize — invert channel values above mid-grey'}><Sparkles className="h-3.5 w-3.5" /> Solarize</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runGaussianBlur()} title={pristine ? 'Open an image first' : 'Gaussian Blur — soften the active layer'}><Sparkles className="h-3.5 w-3.5" /> Blur</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSharpen()} title={pristine ? 'Open an image first' : 'Sharpen — crisp edges on the active layer'}><Sparkles className="h-3.5 w-3.5" /> Sharpen</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runReduceNoise()} title={pristine ? 'Open an image first' : 'Reduce noise — light denoise, edges partly preserved'}><Sparkles className="h-3.5 w-3.5" /> Reduce noise</StudioButton>

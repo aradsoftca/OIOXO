@@ -712,6 +712,35 @@ export default function OfficeDocsPro() {
     persistHtml(); recordChange();
   };
 
+  // Apply a font family to the current selection (Google Docs font picker).
+  // Wraps the selected text in <font face> via execCommand('fontName').
+  const setSelectionFont = (family: string) => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { toastFor('Select some text first'); return; }
+    el?.focus();
+    document.execCommand('fontName', false, family);
+    persistHtml(); recordChange();
+  };
+
+  // Apply a pixel font size to the current selection. execCommand('fontSize')
+  // only accepts 1–7, so we tag the selection with size 7 then rewrite the
+  // resulting <font size="7"> elements to the requested px value (the standard
+  // contentEditable font-size workaround).
+  const setSelectionFontSize = (px: number) => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || sel.isCollapsed) { toastFor('Select some text first'); return; }
+    el.focus();
+    document.execCommand('styleWithCSS', false, 'false');
+    document.execCommand('fontSize', false, '7');
+    el.querySelectorAll('font[size="7"]').forEach(f => {
+      f.removeAttribute('size');
+      (f as HTMLElement).style.fontSize = `${px}px`;
+    });
+    persistHtml(); recordChange();
+  };
+
   // Capitalization transforms for the current selection (Google Docs
   // Format > Text > Capitalization). Reads the selected text, transforms it,
   // and replaces the selection in place via insertText (keeps undo working).
@@ -1454,6 +1483,25 @@ export default function OfficeDocsPro() {
         <Tb onClick={() => formatBlock('h3')} title="H3"><Heading3 className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => formatBlock('blockquote')} title="Quote"><Quote className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => formatBlock('pre')} title="Code block"><Code className="h-3.5 w-3.5" /></Tb>
+        <span className="mx-1 h-4 w-px bg-white/10" />
+        {/* Selection font family (applies to highlighted text, not whole doc) */}
+        <select
+          onChange={e => { if (e.target.value) setSelectionFont(e.target.value); e.currentTarget.selectedIndex = 0; }}
+          title="Font family (selected text)"
+          className="h-7 shrink-0 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-[11px] text-zinc-200"
+        >
+          <option value="">Font</option>
+          {FONTS.map(f => <option key={`sf-${f.v}`} value={f.v}>{f.label}</option>)}
+        </select>
+        {/* Selection font size in px (applies to highlighted text) */}
+        <select
+          onChange={e => { const v = parseInt(e.target.value, 10); if (v) setSelectionFontSize(v); e.currentTarget.selectedIndex = 0; }}
+          title="Font size (selected text)"
+          className="h-7 shrink-0 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-[11px] text-zinc-200"
+        >
+          <option value="">Size</option>
+          {[10, 12, 14, 16, 18, 24, 36, 48].map(s => <option key={`fs-${s}`} value={s}>{s}</option>)}
+        </select>
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('bold')} title="Bold (Ctrl+B)"><Bold className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('italic')} title="Italic (Ctrl+I)"><Italic className="h-3.5 w-3.5" /></Tb>

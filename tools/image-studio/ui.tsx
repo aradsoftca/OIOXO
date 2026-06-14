@@ -2214,6 +2214,48 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runEmboss = async () => {
+    // Stamp the active layer with a single-pass 3×3 emboss convolution kernel
+    // (KERNELS.emboss [-2,-1,0,-1,1,1,0,1,2]) via applyKernel. Destructive on the
+    // active layer, alpha preserved. Same structure as runSharpen.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Embossing…');
+    try {
+      const src = getCanvasOf(target)!;
+      const out = applyKernel(src, KERNELS.emboss, 1);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('emboss', next);
+      toastFor('Embossed ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runFindEdges = async () => {
+    // Highlight edges on the active layer with a single-pass 3×3 edge-detect
+    // convolution kernel (KERNELS.edge [-1,-1,-1,-1,8,-1,-1,-1,-1]) via applyKernel.
+    // Destructive on the active layer, alpha preserved. Same structure as runSharpen.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Finding edges…');
+    try {
+      const src = getCanvasOf(target)!;
+      const out = applyKernel(src, KERNELS.edge, 1);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('edge', next);
+      toastFor('Edges found ✓');
+    } finally { setBusy(''); }
+  };
+
   const runReduceNoise = async () => {
     // Light denoise: a radius-1 Gaussian blur blended back over the original at 50%
     // so flat areas smooth out while edges/detail are partly preserved. Destructive on
@@ -3775,6 +3817,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSolarize()} title={pristine ? 'Open an image first' : 'Solarize — invert channel values above mid-grey'}><Sparkles className="h-3.5 w-3.5" /> Solarize</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runGaussianBlur()} title={pristine ? 'Open an image first' : 'Gaussian Blur — soften the active layer'}><Sparkles className="h-3.5 w-3.5" /> Blur</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSharpen()} title={pristine ? 'Open an image first' : 'Sharpen — crisp edges on the active layer'}><Sparkles className="h-3.5 w-3.5" /> Sharpen</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runEmboss()} title={pristine ? 'Open an image first' : 'Emboss — raised relief from a 3×3 directional kernel'}><Sparkles className="h-3.5 w-3.5" /> Emboss</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFindEdges()} title={pristine ? 'Open an image first' : 'Find Edges — highlight edges with a 3×3 Laplacian kernel'}><Sparkles className="h-3.5 w-3.5" /> Find Edges</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runReduceNoise()} title={pristine ? 'Open an image first' : 'Reduce noise — light denoise, edges partly preserved'}><Sparkles className="h-3.5 w-3.5" /> Reduce noise</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runMedian()} title={pristine ? 'Open an image first' : 'Median — 3×3 despeckle (salt-and-pepper removal)'}><Sparkles className="h-3.5 w-3.5" /> Median</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFilmGrain()} title={pristine ? 'Open an image first' : 'Film grain — add subtle analog noise'}><Sparkles className="h-3.5 w-3.5" /> Film Grain</StudioButton>

@@ -7,7 +7,7 @@ import {
   PenTool, Eraser, Minus, Circle as CircleIcon, Save, Upload, Undo2, Redo2, X,
   MousePointer2, Signature, FileSignature, Sparkles, Shield, ScanText, MessageSquare,
   Droplets, Scissors, FileCheck2, FileType2, ArrowUpDown, Info as InfoIcon,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, Bookmark,
 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { BRAND_DOMAIN } from '@/lib/brand';
@@ -50,11 +50,15 @@ interface DocState {
   watermarkEnabled: boolean;
   /** Bates numbering (legal discovery stamp) — undefined = off. */
   bates?: { prefix: string; suffix: string; start: number; digits: number; position: 'bl' | 'br' | 'tl' | 'tr' };
+  /** User-named page bookmarks/labels, keyed by PageRef.id. PageRef comes from
+      the engine and can't carry the field, so labels live here on DocState. */
+  pageLabels?: Record<string, string>;
 }
 const cloneDoc = (d: DocState): DocState => ({
   ...d,
   pages: d.pages.map(p => ({ ...p })),
   annotations: Object.fromEntries(Object.entries(d.annotations).map(([k, v]) => [k, v.map(a => ({ ...a }))])),
+  pageLabels: d.pageLabels ? { ...d.pageLabels } : undefined,
 });
 const NEW_DOC = (): DocState => ({
   name: 'Untitled', pages: [], annotations: {}, selectedId: null,
@@ -171,6 +175,9 @@ export default function PdfStudioPro() {
   const [deleteRangeText, setDeleteRangeText] = React.useState('');
   // "Duplicate page range" box (e.g. "3-5") — copies those pages in one undo step.
   const [dupRangeText, setDupRangeText] = React.useState('');
+  // "Label this page" box — the in-progress name for the selected page's
+  // bookmark; seeded from doc.pageLabels when the selection changes (below).
+  const [labelDraft, setLabelDraft] = React.useState('');
 
   // Latest-doc ref so builders that fire several times before React re-renders
   // (e.g. opening multiple PDFs in one `for…await` loop) stack instead of
@@ -522,6 +529,12 @@ export default function PdfStudioPro() {
     thumbRefs.current[doc.selectedId]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [doc.selectedId]);
 
+  // Seed the "Label this page" box from the selected page's saved bookmark so
+  // editing starts from its current name (and clears when nothing is selected).
+  React.useEffect(() => {
+    setLabelDraft(doc.selectedId ? (doc.pageLabels?.[doc.selectedId] ?? '') : '');
+  }, [doc.selectedId, doc.pageLabels]);
+
   // Select a page by id using the existing selection mechanism (setDoc selectedId).
   const goToPage = (id: string | undefined) => { if (id) setDoc(d => ({ ...d, selectedId: id })); };
   // Resolve a 1-based page number typed in the jump box, clamped to range.
@@ -686,6 +699,7 @@ export default function PdfStudioPro() {
     const next = cloneDoc(doc);
     next.pages = next.pages.filter(p => p.id !== id);
     delete next.annotations[id];
+    if (next.pageLabels) delete next.pageLabels[id];
     if (next.selectedId === id) next.selectedId = next.pages[0]?.id ?? null;
     commit('delete', next);
   };
@@ -727,6 +741,19 @@ export default function PdfStudioPro() {
     const next = cloneDoc(doc);
     next.pages.reverse();
     commit('reverse order', next);
+  };
+  // Name a page (bookmark/label) — shown on its thumbnail and usable to find it
+  // at a glance ("Cover", "Signature", "Appendix"). Labels live in
+  // doc.pageLabels keyed by PageRef.id (PageRef is the engine's type and can't
+  // carry the field). Empty/blank clears the label.
+  const setPageLabel = (id: string, label: string) => {
+    const next = cloneDoc(doc);
+    const labels = { ...(next.pageLabels ?? {}) };
+    const trimmed = label.trim();
+    if (trimmed) labels[id] = trimmed;
+    else delete labels[id];
+    next.pageLabels = labels;
+    commit(trimmed ? 'label page' : 'clear label', next);
   };
   // Delete a page RANGE in one undo step (Acrobat "Delete pages → from-to").
   // Accepts the same range syntax as the Extract dialog ("3-5", "2, 4, 6-8"):
@@ -1652,6 +1679,20 @@ export default function PdfStudioPro() {
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'start')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the front"><ChevronsLeft className="h-3 w-3" /> To start</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'end')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the back"><ChevronsRight className="h-3 w-3" /> To end</StudioButton>
             </div>
+            {/* Name the selected page (bookmark/label) — shown on its thumbnail
+                and a quick way to find "Cover" / "Signature" / "Appendix". */}
+            <div className="mb-2 flex items-center gap-1.5">
+              <input
+                value={labelDraft}
+                onChange={e => setLabelDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (doc.selectedId) setPageLabel(doc.selectedId, labelDraft); } }}
+                disabled={!doc.selectedId}
+                placeholder="Label this page"
+                title="Type a name for the selected page (e.g. Cover, Signature) and press Enter — it shows on the thumbnail"
+                className="h-7 flex-1 rounded border border-white/10 bg-transparent px-2 text-xs text-zinc-200 outline-none hover:border-white/20 focus:border-cyan-400/50 disabled:opacity-40"
+              />
+              <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && setPageLabel(doc.selectedId, labelDraft)} disabled={!doc.selectedId} title="Save this page's label"><Bookmark className="h-3 w-3" /> Label</StudioButton>
+            </div>
             {/* Delete a page RANGE in one undo step (same "3-5" syntax as Extract). */}
             <div className="mb-2 flex items-center gap-1.5">
               <input
@@ -1700,6 +1741,12 @@ export default function PdfStudioPro() {
                       {rp ? <PreviewCanvas canvas={rp.canvas} /> : <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />}
                     </div>
                     <div className="absolute left-1 top-1 rounded bg-black/60 px-1.5 text-[9px] font-bold text-white">{i + 1}</div>
+                    {doc.pageLabels?.[p.id] && (
+                      <div className="absolute right-1 top-1 flex max-w-[80%] items-center gap-0.5 rounded bg-cyan-500/80 px-1 text-[9px] font-semibold text-white" title={doc.pageLabels[p.id]}>
+                        <Bookmark className="h-2.5 w-2.5 shrink-0" />
+                        <span className="truncate">{doc.pageLabels[p.id]}</span>
+                      </div>
+                    )}
                     <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-0.5 bg-black/70 p-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                       <IconBtn title="Move left" onClick={() => movePage(p.id, -1)}><ChevronLeft className="h-3 w-3" /></IconBtn>
                       <IconBtn title="Rotate left" onClick={() => rotatePageLeft(p.id)}><RotateCcw className="h-3 w-3" /></IconBtn>

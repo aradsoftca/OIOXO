@@ -229,6 +229,7 @@ export function callFormula(name: string, args: any[]): any {
     case 'REGEXMATCH':  { try { return new RegExp(String(args[1] ?? '')).test(String(args[0] ?? '')) ? 1 : 0; } catch { return '#VALUE!'; } }
     case 'REGEXREPLACE': { try { return String(args[0] ?? '').replace(new RegExp(String(args[1] ?? ''), 'g'), String(args[2] ?? '')); } catch { return '#VALUE!'; } }
     case 'SPLIT':       return String(args[0] ?? '').split(String(args[1] ?? ' '));
+    case 'TEXTSPLIT':   { const text = String(args[0] ?? ''); const colDelims = (Array.isArray(args[1]) ? flatAll(args[1]) : [args[1]]).map(d => String(d ?? '')).filter(d => d !== ''); const rowDelims = args.length > 2 && args[2] != null ? (Array.isArray(args[2]) ? flatAll(args[2]) : [args[2]]).map(d => String(d ?? '')).filter(d => d !== '') : []; const ignoreEmpty = args.length > 3 ? getNum(args[3]) !== 0 : false; const splitBy = (s: string, delims: string[]): string[] => { if (!delims.length) return [s]; const re = new RegExp(delims.map(d => d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')); let parts = [s]; for (let changed = true; changed;) { changed = false; const next: string[] = []; for (const p of parts) { const idx = p.search(re); if (idx >= 0) { const m = re.exec(p)!; next.push(p.slice(0, idx)); next.push(p.slice(idx + m[0].length)); changed = true; } else next.push(p); } parts = next; } return parts; }; const rows = rowDelims.length ? splitBy(text, rowDelims) : [text]; const grid = rows.map(r => { let cols = splitBy(r, colDelims); if (ignoreEmpty) cols = cols.filter(c => c !== ''); return cols; }); return rowDelims.length ? grid : grid[0]; }
 
     // --- Date / time ---
     case 'NOW':         return serialFromDate(new Date()) + (new Date().getHours() / 24) + (new Date().getMinutes() / 1440);
@@ -249,6 +250,7 @@ export function callFormula(name: string, args: any[]): any {
     case 'EOMONTH':     { const d = dateFromSerial(getNum(args[0])); const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + Math.round(getNum(args[1])) + 1, 0)); return Math.floor(serialFromDate(target)); }
     case 'NETWORKDAYS': { let s = Math.floor(getNum(args[0])); const e = Math.floor(getNum(args[1])); let count = 0; for (let i = s; i <= e; i++) { const d = dateFromSerial(i).getUTCDay(); if (d !== 0 && d !== 6) count++; } return count; }
     case 'WORKDAY':     { let n = Math.floor(getNum(args[0])); let days = Math.round(getNum(args[1])); const step = days >= 0 ? 1 : -1; while (days !== 0) { n += step; const d = dateFromSerial(n).getUTCDay(); if (d !== 0 && d !== 6) days -= step; } return n; }
+    case 'WORKDAY.INTL': { let n = Math.floor(getNum(args[0])); let days = Math.round(getNum(args[1])); const wkArg = args.length > 2 ? args[2] : 1; const wkStr = typeof wkArg === 'string' && /^[01]{7}$/.test(wkArg) ? wkArg : (['','1111111','0000011','0000110','0001100','0011000','0110000','1100000','1000001','','','','0000001','0000010','0000100','0001000','0010000','0100000','1000000'][Math.floor(getNum(wkArg))] ?? '0000011'); const weekend = wkStr.split('').map(c => c === '1'); if (weekend.every(Boolean)) return '#NUM!'; const step = days >= 0 ? 1 : -1; while (days !== 0) { n += step; const idx = (dateFromSerial(n).getUTCDay() + 6) % 7; if (!weekend[idx]) days -= step; } return n; }
     case 'YEARFRAC':    return Math.abs(getNum(args[1]) - getNum(args[0])) / 365.25;
     case 'DATEDIF':     { let s = dateFromSerial(Math.floor(getNum(args[0]))); let e = dateFromSerial(Math.floor(getNum(args[1]))); const unit = String(args[2] ?? '').toUpperCase(); if (e.getTime() < s.getTime()) return '#NUM!'; const sy = s.getUTCFullYear(), sm = s.getUTCMonth(), sd = s.getUTCDate(); const ey = e.getUTCFullYear(), em = e.getUTCMonth(), ed = e.getUTCDate(); switch (unit) { case 'Y': { let y = ey - sy; if (em < sm || (em === sm && ed < sd)) y--; return y; } case 'M': { let m = (ey - sy) * 12 + (em - sm); if (ed < sd) m--; return m; } case 'D': return Math.floor(getNum(args[1])) - Math.floor(getNum(args[0])); case 'MD': { let d = ed - sd; if (d < 0) { const prev = new Date(Date.UTC(ey, em, 0)).getUTCDate(); d += prev; } return d; } case 'YM': { let m = (em - sm + 12) % 12; if (ed < sd) m = (m - 1 + 12) % 12; return m; } case 'YD': { const anchor = new Date(Date.UTC(sy + ((em < sm || (em === sm && ed < sd)) ? ey - sy - 1 : ey - sy), sm, sd)); return Math.floor((e.getTime() - anchor.getTime()) / 86400000); } default: return '#NUM!'; } }
     case 'ISOWEEKNUM':  { const d = dateFromSerial(Math.floor(getNum(args[0]))); const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())); const day = (t.getUTCDay() + 6) % 7; t.setUTCDate(t.getUTCDate() - day + 3); const firstThu = new Date(Date.UTC(t.getUTCFullYear(), 0, 4)); const firstDay = (firstThu.getUTCDay() + 6) % 7; firstThu.setUTCDate(firstThu.getUTCDate() - firstDay + 3); return 1 + Math.round((t.getTime() - firstThu.getTime()) / (86400000 * 7)); }
@@ -304,6 +306,7 @@ export function callFormula(name: string, args: any[]): any {
     case 'NOMINAL':     { const effect = getNum(args[0]), npery = Math.floor(getNum(args[1])); if (effect <= 0 || npery < 1) return '#NUM!'; return (Math.pow(effect + 1, 1 / npery) - 1) * npery; }
     case 'PDURATION':   { const rate = getNum(args[0]), pv = getNum(args[1]), fv = getNum(args[2]); if (rate <= 0 || pv <= 0 || fv <= 0) return '#NUM!'; return (Math.log(fv) - Math.log(pv)) / Math.log(1 + rate); }
     case 'RRI':         { const nper = getNum(args[0]), pv = getNum(args[1]), fv = getNum(args[2]); if (nper <= 0 || pv === 0) return '#NUM!'; return Math.pow(fv / pv, 1 / nper) - 1; }
+    case 'FVSCHEDULE':  { let principal = getNum(args[0]); const rates = flatNums(args.slice(1)); for (const r of rates) principal *= (1 + r); return principal; }
     case 'DOLLARDE':    { const dollar = getNum(args[0]), frac = Math.floor(getNum(args[1])); if (frac < 0) return '#NUM!'; if (frac === 0) return '#DIV/0!'; const sign = dollar < 0 ? -1 : 1; const ab = Math.abs(dollar); const intPart = Math.floor(ab); const fracPart = ab - intPart; return sign * (intPart + fracPart * Math.pow(10, Math.ceil(Math.log10(frac))) / frac); }
     case 'DOLLARFR':    { const dollar = getNum(args[0]), frac = Math.floor(getNum(args[1])); if (frac < 0) return '#NUM!'; if (frac === 0) return '#DIV/0!'; const sign = dollar < 0 ? -1 : 1; const ab = Math.abs(dollar); const intPart = Math.floor(ab); const fracPart = ab - intPart; return sign * (intPart + (fracPart * frac) / Math.pow(10, Math.ceil(Math.log10(frac)))); }
     // --- More math ---
@@ -404,6 +407,22 @@ export function callFormula(name: string, args: any[]): any {
     }
 
     // --- Engineering / advanced math ---
+    case 'CONVERT':     {
+      const val = getNum(args[0]); const from = String(args[1] ?? ''); const to = String(args[2] ?? '');
+      // factor to a base unit per measurement family
+      const length: Record<string, number> = { 'm': 1, 'km': 1000, 'cm': 0.01, 'mm': 0.001, 'in': 0.0254, 'ft': 0.3048, 'yd': 0.9144, 'mi': 1609.344, 'Nmi': 1852, 'ly': 9.4607304725808e15, 'ang': 1e-10, 'pica': 0.0254 / 6 };
+      const mass: Record<string, number> = { 'g': 1, 'kg': 1000, 'mg': 0.001, 'lbm': 453.59237, 'ozm': 28.349523125, 'stone': 6350.29318, 'ton': 907184.74, 'u': 1.66053886e-24 };
+      const time: Record<string, number> = { 'sec': 1, 's': 1, 'min': 60, 'mn': 60, 'hr': 3600, 'day': 86400, 'd': 86400, 'yr': 31557600 };
+      const families = [length, mass, time];
+      for (const fam of families) {
+        if (from in fam && to in fam) return val * fam[from] / fam[to];
+      }
+      // temperature (affine, handled separately)
+      const tempC = (v: number, u: string): number | null => { if (u === 'C' || u === 'cel') return v; if (u === 'F' || u === 'fah') return (v - 32) * 5 / 9; if (u === 'K' || u === 'kel') return v - 273.15; return null; };
+      const fromC = (c: number, u: string): number | null => { if (u === 'C' || u === 'cel') return c; if (u === 'F' || u === 'fah') return c * 9 / 5 + 32; if (u === 'K' || u === 'kel') return c + 273.15; return null; };
+      const c = tempC(val, from); if (c !== null) { const r = fromC(c, to); if (r !== null) return r; }
+      return '#N/A';
+    }
     case 'SQRTPI':      return Math.sqrt(getNum(args[0]) * Math.PI);
     case 'SERIESSUM':   { const x = getNum(args[0]), n = getNum(args[1]), m = getNum(args[2]); const coeffs = flatNums(args.slice(3)); let s = 0; for (let i = 0; i < coeffs.length; i++) s += coeffs[i] * Math.pow(x, n + i * m); return s; }
     case 'MULTINOMIAL': { const ns = flatNums(args).map(v => Math.floor(v)); if (ns.some(v => v < 0)) return '#NUM!'; const total = ns.reduce((a, b) => a + b, 0); let num = factln(total), den = 0; for (const v of ns) den += factln(v); return Math.round(Math.exp(num - den)); }
@@ -747,20 +766,20 @@ export const FORMULA_NAMES = [
   'CONCATENATE', 'CONCAT', 'TEXTJOIN', 'LEN', 'UPPER', 'LOWER', 'PROPER', 'TRIM', 'CLEAN',
   'LEFT', 'RIGHT', 'MID', 'REPT', 'SUBSTITUTE', 'REPLACE', 'FIND', 'SEARCH', 'EXACT',
   'TEXT', 'VALUE', 'CHAR', 'CODE', 'UNICHAR', 'UNICODE',
-  'REGEXEXTRACT', 'REGEXMATCH', 'REGEXREPLACE', 'SPLIT',
+  'REGEXEXTRACT', 'REGEXMATCH', 'REGEXREPLACE', 'SPLIT', 'TEXTSPLIT',
   'NOW', 'TODAY', 'DATE', 'DATEVALUE', 'TIME', 'YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'SECOND',
-  'WEEKDAY', 'WEEKNUM', 'DAYS', 'EDATE', 'EOMONTH', 'NETWORKDAYS', 'WORKDAY', 'YEARFRAC',
+  'WEEKDAY', 'WEEKNUM', 'DAYS', 'EDATE', 'EOMONTH', 'NETWORKDAYS', 'WORKDAY', 'WORKDAY.INTL', 'YEARFRAC',
   'DATEDIF', 'ISOWEEKNUM', 'DAYS360', 'TIMEVALUE', 'WEEKDAYNAME', 'MONTHNAME', 'QUARTER',
   'ISLEAPYEAR', 'DAYSINMONTH', 'NETWORKDAYS.INTL', 'ISODATE',
   'VLOOKUP', 'HLOOKUP', 'XLOOKUP', 'INDEX', 'MATCH', 'CHOOSE', 'ROW', 'COLUMN',
   'ISBLANK', 'ISNUMBER', 'ISTEXT', 'ISLOGICAL', 'ISERROR', 'ISNA', 'ISEVEN', 'ISODD', 'N', 'TYPE',
   'PMT', 'PV', 'FV', 'NPER', 'NPV', 'IRR', 'RATE', 'XNPV', 'XIRR', 'MIRR', 'AGGREGATE',
-  'SLN', 'SYD', 'DDB', 'DB', 'IPMT', 'PPMT', 'ISPMT', 'EFFECT', 'NOMINAL', 'PDURATION', 'RRI', 'DOLLARDE', 'DOLLARFR',
+  'SLN', 'SYD', 'DDB', 'DB', 'IPMT', 'PPMT', 'ISPMT', 'EFFECT', 'NOMINAL', 'PDURATION', 'RRI', 'FVSCHEDULE', 'DOLLARDE', 'DOLLARFR',
   'FACT', 'FACTDOUBLE', 'COMBIN', 'PERMUT', 'PERMUTATIONA', 'GAMMA', 'MROUND', 'QUOTIENT', 'SEC', 'CSC', 'COT',
   'BASE', 'DECIMAL', 'ROMAN', 'ARABIC', 'GEOMEAN', 'HARMEAN', 'AVEDEV', 'DEVSQ', 'TRIMMEAN',
   'SKEW', 'SKEW.P', 'KURT', 'COVARIANCE.P', 'COVAR', 'COVARIANCE.S', 'PEARSON', 'RSQ',
   'TEXTBEFORE', 'TEXTAFTER', 'NUMBERVALUE', 'FIXED', 'DOLLAR',
-  'SQRTPI', 'SERIESSUM', 'MULTINOMIAL', 'COMBINA', 'GAMMALN', 'GAMMALN.PRECISE',
+  'CONVERT', 'SQRTPI', 'SERIESSUM', 'MULTINOMIAL', 'COMBINA', 'GAMMALN', 'GAMMALN.PRECISE',
   'FISHER', 'FISHERINV', 'GAUSS', 'PHI', 'STANDARDIZE',
   'NORMSDIST', 'NORM.S.DIST', 'NORMSINV', 'NORM.S.INV', 'CONFIDENCE', 'CONFIDENCE.NORM',
   'EXPONDIST', 'EXPON.DIST', 'POISSON', 'POISSON.DIST', 'BINOMDIST', 'BINOM.DIST', 'T',

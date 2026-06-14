@@ -2435,7 +2435,25 @@ export default function VideoStudioPro() {
             </StudioPanel>
           )}
           <StudioPanel title="Project">
-            <label className="flex items-center justify-between gap-2 text-xs text-zinc-300" title="Color behind clips and in the letterbox bars (the cleared frame). Used in the preview and bundled into the export.">
+            <label className="block text-xs text-zinc-300" title="Reframe the whole project. Sets the canvas size — the preview and export use this aspect ratio and resolution.">
+              Aspect ratio / resolution
+              <select
+                value={PRESETS.find(p => p.w === doc.width && p.h === doc.height)?.id ?? ''}
+                onChange={e => {
+                  const p = PRESETS.find(x => x.id === e.target.value);
+                  if (p) { commit('resolution', { ...cloneDoc(doc), width: p.w, height: p.h, fps: p.fps }); }
+                }}
+                className="mt-1 w-full rounded border border-white/10 bg-[#0a0b0e] px-2 py-1.5 text-xs text-zinc-100"
+              >
+                {!PRESETS.find(p => p.w === doc.width && p.h === doc.height) && (
+                  <option value="" disabled>Custom ({doc.width}×{doc.height})</option>
+                )}
+                {PRESETS.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="mt-2 flex items-center justify-between gap-2 text-xs text-zinc-300" title="Color behind clips and in the letterbox bars (the cleared frame). Used in the preview and bundled into the export.">
               Background color
               <input type="color" value={doc.background} onChange={e => commit('background color', { ...cloneDoc(doc), background: e.target.value })} className="h-7 w-9 cursor-pointer rounded border border-white/10 bg-transparent" />
             </label>

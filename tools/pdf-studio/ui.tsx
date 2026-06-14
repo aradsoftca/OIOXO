@@ -825,6 +825,24 @@ export default function PdfStudioPro() {
     toastFor(`Header/footer added to ${total} page${total === 1 ? '' : 's'}`);
   };
 
+  // Acrobat-style "Stamp" presets: drop a large coloured status word
+  // (APPROVED / REJECTED / REVIEWED / DRAFT) onto the selected page as a plain
+  // {kind:'text'} annotation. Reuses addAnno (cloneDoc/commit + one undo step),
+  // so the stamp flattens on export exactly like Header/Footer or the Text tool,
+  // and the user can drag it afterwards. Placed top-right by default (nx 0.7,
+  // ny 0.1) at a large size.
+  const STAMP_PRESETS: { label: string; color: string }[] = [
+    { label: 'APPROVED', color: '#16a34a' },
+    { label: 'REJECTED', color: '#dc2626' },
+    { label: 'REVIEWED', color: '#2563eb' },
+    { label: 'DRAFT', color: '#6b7280' },
+  ];
+  const addStamp = (label: string, color: string) => {
+    if (!selPage) { toastFor('Select a page first'); return; }
+    addAnno(selPage.id, { kind: 'text', nx: 0.7, ny: 0.1, text: label, size: 36, color });
+    toastFor(`${label} stamp added`);
+  };
+
   const commitTextEdit = () => {
     const te = textEdit;
     setTextEdit(null);
@@ -1551,6 +1569,12 @@ export default function PdfStudioPro() {
           </label>
           <StudioButton size="sm" variant={doc.bates ? 'primary' : 'soft'} onClick={() => setBatesDialog(true)} title="Bates numbering — sequential legal-discovery stamp (PREFIX000042SUFFIX) on every page"><Hash className="h-3 w-3" /> Bates{doc.bates ? ' ✓' : ''}</StudioButton>
           <StudioButton size="sm" variant="soft" onClick={() => setHeaderFooterDialog(true)} title="Add header &amp; footer text to every page"><TypeIcon className="h-3 w-3" /> Header/Footer</StudioButton>
+          <span className="mx-0.5 h-4 w-px self-center bg-white/10" />
+          {STAMP_PRESETS.map(s => (
+            <StudioButton key={s.label} size="sm" variant="soft" disabled={!selPage} onClick={() => addStamp(s.label, s.color)} title={`Stamp ${s.label} on the selected page`}>
+              <span style={{ color: s.color }}>● </span>{s.label}
+            </StudioButton>
+          ))}
         </div>
       </div>
 

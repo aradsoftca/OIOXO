@@ -445,6 +445,43 @@ function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: num
   ctx.closePath();
 }
 
+// RGB↔HSL conversion for per-pixel hue/saturation ops (runHueShift/runSaturation).
+// r,g,b in 0..255 → [h,s,l] each 0..1; and back, returning integers 0..255.
+function rgb2hsl(r: number, g: number, b: number): [number, number, number] {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0, s = 0;
+  if (max !== min) {
+    const dlt = max - min;
+    s = l > 0.5 ? dlt / (2 - max - min) : dlt / (max + min);
+    if (max === r) h = (g - b) / dlt + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / dlt + 2;
+    else h = (r - g) / dlt + 4;
+    h /= 6;
+  }
+  return [h, s, l];
+}
+
+function hsl2rgb(h: number, s: number, l: number): [number, number, number] {
+  if (s === 0) { const v = Math.round(l * 255); return [v, v, v]; }
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return [
+    Math.round(hue2rgb(p, q, h + 1 / 3) * 255),
+    Math.round(hue2rgb(p, q, h) * 255),
+    Math.round(hue2rgb(p, q, h - 1 / 3) * 255),
+  ];
+}
+
 function applyAdjustmentBelow(target: HTMLCanvasElement, adj: AdjustmentLayer): HTMLCanvasElement {
   const w = target.width, h = target.height;
   const out = blankCanvas(w, h);
@@ -1848,6 +1885,74 @@ export default function ImageStudioPro() {
       const tag = dir === 'warm' ? (strong ? 'warmer' : 'warm') : (strong ? 'cooler' : 'cool');
       commit(tag, next);
       toastFor(dir === 'warm' ? (strong ? 'Warmed more ✓' : 'Warmed ✓') : (strong ? 'Cooled more ✓' : 'Cooled ✓'));
+    } finally { setBusy(''); }
+  };
+
+  const runHueShift = async (deg: number) => {
+    // One-click hue rotation. Converts each pixel RGB→HSL, rotates the hue by
+    // `deg` (wrapping 0..1), and converts back — so colours shift around the
+    // wheel while luminance/saturation stay put. Destructive on the active
+    // paint/image layer (clamped to 0..255, alpha preserved) so it
+    // composites/exports identically. Same structure as runSepia/runWhiteBalance.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy(deg >= 0 ? 'Shifting hue +30°…' : 'Shifting hue −30°…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      const dh = ((deg / 360) % 1 + 1) % 1; // fractional hue offset, wrapped
+      for (let i = 0; i < d.length; i += 4) {
+        const [hh, s, l] = rgb2hsl(d[i], d[i + 1], d[i + 2]);
+        const [r, g, b] = hsl2rgb((hh + dh) % 1, s, l);
+        d[i] = r; d[i + 1] = g; d[i + 2] = b;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit(deg >= 0 ? 'hue-shift-plus' : 'hue-shift-minus', next);
+      toastFor(deg >= 0 ? 'Hue +30° ✓' : 'Hue −30° ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runSaturation = async (factor: number) => {
+    // One-click saturate / desaturate. Converts each pixel RGB→HSL, multiplies
+    // the saturation by `factor` (1.2 = Saturate, 0.8 = Desaturate), clamps S to
+    // 0..1, and converts back. Destructive on the active paint/image layer
+    // (clamped to 0..255, alpha preserved) so it composites/exports identically.
+    // Same structure as runSepia/runWhiteBalance.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy(factor >= 1 ? 'Saturating…' : 'Desaturating…');
+    try {
+      const src = getCanvasOf(target)!;
+      const w = src.width, h = src.height;
+      const out = blankCanvas(w, h);
+      const octx = out.getContext('2d')!;
+      const img = src.getContext('2d')!.getImageData(0, 0, w, h);
+      const d = img.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const [hh, s, l] = rgb2hsl(d[i], d[i + 1], d[i + 2]);
+        const ns = Math.min(1, Math.max(0, s * factor));
+        const [r, g, b] = hsl2rgb(hh, ns, l);
+        d[i] = r; d[i + 1] = g; d[i + 2] = b;
+      }
+      octx.putImageData(img, 0, 0);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit(factor >= 1 ? 'saturate' : 'desaturate', next);
+      toastFor(factor >= 1 ? 'Saturated ✓' : 'Desaturated ✓');
     } finally { setBusy(''); }
   };
 
@@ -3596,6 +3701,10 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runDehaze()} title={pristine ? 'Open an image first' : 'Dehaze — cut atmospheric haze (contrast + saturation)'}><Sparkles className="h-3.5 w-3.5" /> Dehaze</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLiftShadows()} title={pristine ? 'Open an image first' : 'Lift shadows — recover dark detail (luminance-weighted gain)'}><Sparkles className="h-3.5 w-3.5" /> Lift Shadows</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runClarity()} title={pristine ? 'Open an image first' : 'Clarity — punch up midtone local contrast'}><Sparkles className="h-3.5 w-3.5" /> Clarity</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runHueShift(30)} title={pristine ? 'Open an image first' : 'Hue +30° — rotate all colours forward around the wheel'}><Sparkles className="h-3.5 w-3.5" /> Hue +30°</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runHueShift(-30)} title={pristine ? 'Open an image first' : 'Hue −30° — rotate all colours back around the wheel'}><Sparkles className="h-3.5 w-3.5" /> Hue −30°</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSaturation(1.2)} title={pristine ? 'Open an image first' : 'Saturate — boost colour intensity (S ×1.2)'}><Sparkles className="h-3.5 w-3.5" /> Saturate</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSaturation(0.8)} title={pristine ? 'Open an image first' : 'Desaturate — mute colour intensity (S ×0.8)'}><Sparkles className="h-3.5 w-3.5" /> Desaturate</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runVignette()} title={pristine ? 'Open an image first' : 'Vignette — darken edges by distance from centre'}><Sparkles className="h-3.5 w-3.5" /> Vignette</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runGaussianBlur()} title={pristine ? 'Open an image first' : 'Gaussian Blur — soften the active layer'}><Sparkles className="h-3.5 w-3.5" /> Blur</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runSharpen()} title={pristine ? 'Open an image first' : 'Sharpen — crisp edges on the active layer'}><Sparkles className="h-3.5 w-3.5" /> Sharpen</StudioButton>

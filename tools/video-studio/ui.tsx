@@ -2434,6 +2434,12 @@ export default function VideoStudioPro() {
               <div className="text-xs text-zinc-500">Select a clip on the timeline to edit its properties.</div>
             </StudioPanel>
           )}
+          <StudioPanel title="Project">
+            <label className="flex items-center justify-between gap-2 text-xs text-zinc-300" title="Color behind clips and in the letterbox bars (the cleared frame). Used in the preview and bundled into the export.">
+              Background color
+              <input type="color" value={doc.background} onChange={e => commit('background color', { ...cloneDoc(doc), background: e.target.value })} className="h-7 w-9 cursor-pointer rounded border border-white/10 bg-transparent" />
+            </label>
+          </StudioPanel>
           <StudioPanel title="Master">
             <StudioSlider label="Volume" value={Math.round(doc.master.volume * 100)} min={0} max={200} onChange={v => commit('master vol', { ...cloneDoc(doc), master: { ...doc.master, volume: v / 100 } })} suffix="%" />
             <label className="mt-2 flex items-center gap-2 text-xs text-zinc-300">

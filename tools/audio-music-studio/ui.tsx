@@ -331,6 +331,22 @@ export default function MusicStudioPro() {
   const undo = () => { const p = stack.current.undo(cloneDoc(doc)); if (p) { setDoc(p); force(); } };
   const redo = () => { const p = stack.current.redo(); if (p) { setDoc(p); force(); } };
 
+  // BPM helpers — nudge by a delta (clamped 40..240, matching the input) and
+  // tap-tempo from the average interval of the last few taps.
+  const setBpm = (value: number) => commit('bpm', { ...cloneDoc(doc), bpm: Math.max(40, Math.min(240, Math.round(value))) });
+  const tapTempo = () => {
+    const now = Date.now();
+    const taps = tapTimesRef.current;
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps.length = 0; // gap → restart
+    taps.push(now);
+    if (taps.length > 4) taps.shift();
+    if (taps.length < 2) return;
+    let sum = 0;
+    for (let i = 1; i < taps.length; i++) sum += taps[i] - taps[i - 1];
+    const avgMs = sum / (taps.length - 1);
+    if (avgMs > 0) setBpm(Math.max(40, Math.min(300, 60000 / avgMs)));
+  };
+
   const [playing, setPlaying] = React.useState(false);
   const [currentStep, setCurrentStep] = React.useState(-1);
   // Metronome: an audible click on each beat during playback, higher pitch on
@@ -347,6 +363,9 @@ export default function MusicStudioPro() {
   const [humanize, setHumanize] = React.useState(0);
   const humanizeRef = React.useRef(0);
   React.useEffect(() => { humanizeRef.current = humanize; }, [humanize]);
+  // Tap tempo: record recent tap timestamps and derive BPM from the average
+  // interval of the last few taps. A gap >2s starts a fresh measurement.
+  const tapTimesRef = React.useRef<number[]>([]);
   const [busy, setBusy] = React.useState('');
   const [toast, setToast] = React.useState('');
   const [progress, setProgress] = React.useState(0);
@@ -1229,7 +1248,12 @@ export default function MusicStudioPro() {
         <button onClick={() => setMetronome(m => !m)} title={metronome ? 'Metronome on — click on each beat' : 'Metronome off'} className={cn('rounded p-2', metronome ? 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-400/50' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200')}><Timer className="h-4 w-4" /></button>
         <div className="flex items-center gap-1.5">
           <span className="text-zinc-500">BPM</span>
+          <button onClick={() => setBpm(doc.bpm - 5)} title="-5 BPM" className="h-7 w-7 rounded border border-white/10 bg-[#0a0b0e] text-zinc-300 hover:bg-white/5">−5</button>
+          <button onClick={() => setBpm(doc.bpm - 1)} title="-1 BPM" className="h-7 w-7 rounded border border-white/10 bg-[#0a0b0e] text-zinc-300 hover:bg-white/5">−1</button>
           <input type="number" min={40} max={240} value={doc.bpm} onChange={e => commit('bpm', { ...cloneDoc(doc), bpm: Math.max(40, Math.min(240, +e.target.value)) })} className="h-7 w-16 rounded border border-white/10 bg-[#0a0b0e] px-1.5 text-right" />
+          <button onClick={() => setBpm(doc.bpm + 1)} title="+1 BPM" className="h-7 w-7 rounded border border-white/10 bg-[#0a0b0e] text-zinc-300 hover:bg-white/5">+1</button>
+          <button onClick={() => setBpm(doc.bpm + 5)} title="+5 BPM" className="h-7 w-7 rounded border border-white/10 bg-[#0a0b0e] text-zinc-300 hover:bg-white/5">+5</button>
+          <button onClick={tapTempo} title="Tap tempo — click on each beat to set BPM" className="h-7 rounded border border-cyan-400/40 bg-cyan-500/10 px-2.5 text-cyan-300 hover:bg-cyan-500/20">Tap</button>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-zinc-500">Key</span>

@@ -3819,6 +3819,71 @@ export default function ImageStudioPro() {
   // filters/tools. They light back up the moment real content exists.
   const pristine = doc.layers.length === 1 && doc.layers[0].kind === 'paint' && doc.name === 'Untitled';
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  // Functions can't cross the CDP boundary, so ops take plain values (ids,
+  // names, prop objects), never callbacks.
+  React.useEffect(() => {
+    const filters: Record<string, () => void> = {
+      blackAndWhite: () => void runBlackAndWhite(),
+      bw: () => void runBlackAndWhite(),
+      invert: () => void runInvert(),
+      threshold: () => void runThreshold(),
+      autoContrast: () => void runAutoContrast(),
+      autoEnhance: () => void runAutoEnhance(),
+      sepia: () => void runSepia(),
+      dehaze: () => void runDehaze(),
+      liftShadows: () => void runLiftShadows(),
+      clarity: () => void runClarity(),
+      vignette: () => void runVignette(),
+      duotone: () => void runDuotone(),
+      solarize: () => void runSolarize(),
+      gaussianBlur: () => void runGaussianBlur(),
+      sharpen: () => void runSharpen(),
+      emboss: () => void runEmboss(),
+      findEdges: () => void runFindEdges(),
+      reduceNoise: () => void runReduceNoise(),
+      median: () => void runMedian(),
+      posterize: () => void runPosterize(),
+      pixelate: () => void runPixelate(),
+      filmGrain: () => void runFilmGrain(),
+    };
+    (window as any).__image = {
+      doc: () => ({ layers: doc.layers.map(l => ({ id: l.id, kind: l.kind, name: l.name, visible: l.visible, opacity: l.opacity, blend: l.blend })), width: doc.width, height: doc.height, activeId: doc.activeId }),
+      // Add a blank text layer using the current text settings (mirrors the
+      // text-tool click path), returns the new layer id.
+      addLayer: (props?: any) => {
+        const t: TextLayer = {
+          id: lid(), kind: 'text', name: 'Text',
+          text: 'Type here', x: Math.round(doc.width / 2), y: Math.round(doc.height / 2),
+          size: textSettings.size, color: textSettings.color, font: textSettings.font,
+          weight: textSettings.weight, italic: textSettings.italic, align: textSettings.align,
+          letterSpacing: textSettings.letterSpacing, lineHeight: textSettings.lineHeight,
+          outline: textSettings.outline, outlineColor: textSettings.outlineColor, outlineWidth: textSettings.outlineWidth,
+          shadow: textSettings.shadow, shadowBlur: textSettings.shadowBlur, shadowColor: textSettings.shadowColor,
+          visible: true, locked: false, opacity: 1, blend: 'source-over', adjust: { ...ZERO_ADJUST },
+          ...(props || {}),
+        };
+        addLayer(t, 'add text');
+        return t.id;
+      },
+      selectLayer: (id: string) => setActive(id),
+      // Run a named filter (see `filters` map) on the active layer.
+      runFilter: (name: string) => { const f = filters[name]; if (f) f(); else throw new Error('unknown filter: ' + name); },
+      // Filters that take a data arg.
+      filter: (kind: 'blur' | 'sharpen' | 'noise' | 'pixelate' | 'posterize' | 'emboss' | 'edge', param: number) => runFilter(kind, param),
+      whiteBalance: (dir: 'warm' | 'cool', strong = false) => void runWhiteBalance(dir, strong),
+      hueShift: (deg: number) => void runHueShift(deg),
+      saturation: (factor: number) => void runSaturation(factor),
+      look: (look: 'vintage' | 'cinematic' | 'noir' | 'faded') => void runLook(look),
+      // Data-only edit of a text layer (or any layer's shared props).
+      setText: (id: string, props: any) => updateLayer(id, (l: Layer) => { Object.assign(l, props); }, 'text'),
+      exportInfo: () => ({ width: composite.width, height: composite.height }),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

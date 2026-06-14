@@ -1097,6 +1097,34 @@ export default function SubtitleStudioPro() {
     { combo: 'end', handler: () => seek(waveform?.duration ?? 0) },
   ]);
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users. There
+  // is no docRef in this studio, so the snapshot reads from current `doc` state.
+  React.useEffect(() => {
+    (window as any).__subtitle = {
+      doc: () => ({
+        count: doc.cues.length,
+        duration: doc.cues.reduce((m, c) => Math.max(m, c.end), 0),
+        selectedId: doc.selectedId,
+        texts: doc.cues.map(c => c.text),
+      }),
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies inside the page).
+      addCue: (start: number, end: number, text: string) => {
+        const next = cloneDoc(doc);
+        const c: Cue = { id: cid(), start, end: Math.max(end, start + 0.1), text };
+        next.cues.push(c);
+        next.selectedId = c.id;
+        commit('add cue', next);
+      },
+      setCueText: (id: string, text: string) => updateCue(id, c => { c.text = text; }, 'text'),
+      shiftAll: (delta: number) => shiftTiming(delta),
+      fixTiming: () => fixTiming(),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

@@ -1035,6 +1035,39 @@ export default function OfficeSlidesPro() {
     );
   }
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  React.useEffect(() => {
+    (window as any).__slides = {
+      doc: () => {
+        const s = doc.slides.find(x => x.id === doc.selectedSlideId);
+        return {
+          slideCount: doc.slides.length,
+          selectedSlideId: doc.selectedSlideId,
+          elements: (s?.elements ?? []).map(e => ({ id: e.id, kind: e.kind, text: (e as any).text, x: e.x, y: e.y, w: e.w, h: e.h })),
+        };
+      },
+      addSlide: (layout?: string) => addSlide(layout ?? 'blank'),
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies inside the page).
+      // Build the text element directly (mirrors addElement's 'text' branch) and
+      // merge plain-data props in one commit, since addElement's selection update
+      // isn't visible to this closure synchronously.
+      addText: (props?: any) => {
+        const next = cloneDoc(doc);
+        const s = next.slides.find(x => x.id === doc.selectedSlideId)!;
+        const el: any = { id: nid(), kind: 'text', x: 200, y: 200, w: 360, h: 60, rotation: 0, text: 'New text', size: 28, color: doc.theme.textColor, font: doc.theme.font, align: 'left', ...(props || {}) };
+        s.elements.push(el);
+        next.selectedElementId = el.id;
+        commit('addText', next);
+      },
+      setBackground: (color: string) => updateSlide(doc.selectedSlideId, s => { s.background = color; }, 'bg'),
+      setTransition: (type: SlideTransition) => updateSlide(doc.selectedSlideId, s => { s.transition = type === 'none' ? undefined : { type, duration: s.transition?.duration ?? 0.5 }; }, 'transition'),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

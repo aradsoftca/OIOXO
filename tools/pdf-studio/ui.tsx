@@ -1554,6 +1554,31 @@ export default function PdfStudioPro() {
     );
   }
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  React.useEffect(() => {
+    (window as any).__pdf = {
+      doc: () => ({
+        pages: docRef.current.pages.length,
+        annotations: Object.values(docRef.current.annotations).reduce((n, list) => n + (list?.length ?? 0), 0),
+        selectedId: docRef.current.selectedId,
+      }),
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies inside the page).
+      addAnnotation: (pageId: string, anno: Annotation) => addAnno(pageId, anno),
+      selectPage: (id: string) => goToPage(id),
+      rotate: (id: string) => rotatePage(id),
+      // Stamp a text annotation onto the selected page (center-ish; draggable after).
+      stamp: (label: string, color: string) => {
+        const cur = docRef.current.selectedId;
+        if (!cur) return;
+        addAnno(cur, { kind: 'text', nx: 0.35, ny: 0.5, text: label, size: 24, color });
+      },
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

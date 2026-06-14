@@ -1684,6 +1684,35 @@ export default function OfficeStudioPro() {
     toastFor(added ? `Smart-filled ${added} rows` : 'No fillable rows');
   };
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  React.useEffect(() => {
+    (window as any).__sheets = {
+      // Read-only snapshot off the live ref (cells of the active sheet).
+      doc: () => {
+        const d = docRef.current;
+        const sh = d.sheets.find(s => s.id === d.activeSheetId) ?? d.sheets[0];
+        return {
+          sheets: d.sheets.map(s => ({ id: s.id, name: s.name, rows: s.rows, cols: s.cols, cellCount: Object.keys(s.cells).length })),
+          activeSheetId: d.activeSheetId,
+          cells: Object.fromEntries(Object.entries(sh.cells).map(([k, v]) => [k, (v as any).raw])),
+          selection: { ...d.selection },
+        };
+      },
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies inside the page).
+      // addr like "0_0" (r_c) → existing setCellRaw.
+      setCell: (addr: string, raw: string) => { const [r, c] = String(addr).split('_').map(Number); setCellRaw(r, c, String(raw)); },
+      select: (r: number, c: number) => selectCell(r, c),
+      selectRange: (r: number, c: number, r2: number, c2: number) => setDoc(d => ({ ...d, selection: { r, c, r2, c2 } })),
+      setActiveSheet: (id: string) => setDoc(d => ({ ...d, activeSheetId: id })),
+      sort: (dir: 'asc' | 'desc', byCol?: number) => sortSelection(dir, byCol),
+      find: (text: string, matchCase = false) => findNext(text, matchCase),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

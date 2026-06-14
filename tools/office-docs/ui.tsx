@@ -1377,6 +1377,30 @@ export default function OfficeDocsPro() {
     { combo: 'mod+0', handler: () => formatBlock('p') },
   ]);
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  React.useEffect(() => {
+    (window as any).__docs = {
+      // Read-only snapshot: live editor HTML is the source of truth (doc.html
+      // lags by a render), with derived word/char counts.
+      doc: () => {
+        const html = editorRef.current?.innerHTML ?? doc.html;
+        return { html, htmlLength: html.length, words: wordCount.words, chars: wordCount.chars };
+      },
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies inside the page) — thin wrappers
+      // over the studio's existing handlers.
+      setHtml: (html: string) => {
+        if (editorRef.current) editorRef.current.innerHTML = sanitizeHtml(String(html));
+        persistHtml();
+      },
+      exec: (cmd: string, value?: string) => exec(cmd, value),
+      insertText: (t: string) => exec('insertText', String(t)),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

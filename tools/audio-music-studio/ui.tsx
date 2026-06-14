@@ -1198,6 +1198,31 @@ export default function MusicStudioPro() {
     if (audioCtxRef.current) try { audioCtxRef.current.close(); } catch {}
   }, []);
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  React.useEffect(() => {
+    (window as any).__music = {
+      doc: () => {
+        const d = docRef.current;
+        const p = d.patterns.find(x => x.id === d.activePatternId) ?? d.patterns[0];
+        return {
+          bpm: d.bpm,
+          instruments: d.instruments.length,
+          // Active steps per instrument (count of non-null cells in the active pattern).
+          activeSteps: Object.fromEntries(d.instruments.map(i => [i.id, (p?.notes[i.id] ?? []).filter(v => v != null).length])),
+        };
+      },
+      // Data-only edit ops (functions can't cross the CDP boundary, so these take
+      // plain values that the wrapper applies via the existing handlers).
+      setStep: (instId: string, step: number, on: boolean) => setNote(instId as InstId, step, on ? 0 : null),
+      setBpm: (value: number) => setBpm(value),
+      randomFill: () => randomPattern(),
+      transpose: (instId: string, semis: number) => transposeInstrument(instId as InstId, semis),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

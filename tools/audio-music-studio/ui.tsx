@@ -1688,7 +1688,7 @@ function StepCell({ filled, value, vel, chance, mode, color, beat4, playing, syn
       onPointerEnter={onPointerEnter}
       onContextMenu={onContext}
       className={cn(
-        'relative flex-1 aspect-square min-w-[28px] overflow-hidden rounded transition-[box-shadow,transform]',
+        'relative aspect-square h-7 w-7 shrink-0 overflow-hidden rounded transition-[box-shadow,transform] sm:h-auto sm:w-auto sm:flex-1 sm:min-w-[28px]',
         filled ? '' : beat4 ? 'bg-white/[.06] hover:bg-white/[.10]' : 'bg-white/[.03] hover:bg-white/[.06]',
         valueMode && filled && 'cursor-ns-resize',
         playing && 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0a0b0e]',

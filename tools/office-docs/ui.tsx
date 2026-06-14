@@ -4,7 +4,7 @@ import * as React from 'react';
 import {
   Loader2, Download, Save, Upload, Undo2, Redo2, FileText, Search,
   Bold, Italic, Underline, Strikethrough, Subscript, Superscript, Code, Quote, Link as LinkIcon,
-  List, ListOrdered, Heading1, Heading2, Heading3, AlignLeft, AlignCenter, AlignRight, AlignJustify,
+  List, ListOrdered, ListChecks, Heading1, Heading2, Heading3, AlignLeft, AlignCenter, AlignRight, AlignJustify,
   Table as TableIcon, Image as ImageIcon, X, Type as TypeIcon, Palette, Highlighter,
   Indent, Outdent, Eraser, Eye, EyeOff, Sparkles, Wand2, Languages, Users, Share2,
   History, Check, X as XIcon, Volume2, MicVocal, Sigma, BookOpen,
@@ -363,6 +363,21 @@ export default function OfficeDocsPro() {
     }
     persistHtml();
     toastFor(`Inserted TOC with ${entries.length} entries`);
+  };
+
+  // Task list / checklist. Each row is a real <input type=checkbox> marked
+  // contenteditable=false so the caret never lands inside it; the editor click
+  // handler toggles it (and reflects state to the `checked` attribute so it
+  // survives save/load as HTML). A leading data-checklist wrapper lets us style
+  // it and keep bullets/markers hidden.
+  const insertChecklist = () => {
+    const item = '<li style="display:flex;align-items:flex-start;gap:8px;margin:2px 0">'
+      + '<input type="checkbox" contenteditable="false" style="margin-top:4px;cursor:pointer" />'
+      + '<span>Task</span></li>';
+    const html = `<ul data-checklist="1" style="list-style:none;padding-left:0;margin:0.4em 0">${item}${item}${item}</ul><p></p>`;
+    exec('insertHTML', html);
+    persistHtml();
+    toastFor('Inserted checklist');
   };
 
   const insertEquation = async (latex: string, displayMode: boolean) => {
@@ -814,6 +829,7 @@ export default function OfficeDocsPro() {
     { id: 'p', label: 'Paragraph', hint: 'Body text', icon: <Pilcrow className="h-4 w-4" />, run: () => formatBlock('p') },
     { id: 'ul', label: 'Bullet list', hint: 'Unordered list', icon: <List className="h-4 w-4" />, run: () => exec('insertUnorderedList') },
     { id: 'ol', label: 'Numbered list', hint: 'Ordered list', icon: <ListOrdered className="h-4 w-4" />, run: () => exec('insertOrderedList') },
+    { id: 'checklist', label: 'Checklist', hint: 'Task list with checkboxes', icon: <ListChecks className="h-4 w-4" />, run: () => insertChecklist() },
     { id: 'quote', label: 'Quote', hint: 'Block quote', icon: <Quote className="h-4 w-4" />, run: () => formatBlock('blockquote') },
     { id: 'code', label: 'Code block', hint: 'Monospace block', icon: <Code className="h-4 w-4" />, run: () => formatBlock('pre') },
     { id: 'table', label: 'Table', hint: 'Insert 3×3 table', icon: <TableIcon className="h-4 w-4" />, run: () => insertTable(3, 3) },
@@ -1448,6 +1464,7 @@ export default function OfficeDocsPro() {
         <span className="mx-1 h-4 w-px bg-white/10" />
         <Tb onClick={() => exec('insertUnorderedList')} title="Bullet list"><List className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('insertOrderedList')} title="Numbered list"><ListOrdered className="h-3.5 w-3.5" /></Tb>
+        <Tb onClick={insertChecklist} title="Checklist (task list)"><ListChecks className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('outdent')} title="Outdent"><Outdent className="h-3.5 w-3.5" /></Tb>
         <Tb onClick={() => exec('indent')} title="Indent"><Indent className="h-3.5 w-3.5" /></Tb>
         <span className="mx-1 h-4 w-px bg-white/10" />
@@ -1614,6 +1631,19 @@ export default function OfficeDocsPro() {
               onInput={onEditorInput}
               onKeyDown={onEditorKeyDown}
               onClick={(e) => {
+                const tgtEl = e.target as Element;
+                // Checklist checkbox: reflect its toggled state to the `checked`
+                // attribute so it persists through save/load as HTML, then save.
+                if (tgtEl?.tagName === 'INPUT' && (tgtEl as HTMLInputElement).type === 'checkbox') {
+                  const box = tgtEl as HTMLInputElement;
+                  // toggle happened in the DOM already; mirror to the attribute
+                  requestAnimationFrame(() => {
+                    if (box.checked) box.setAttribute('checked', '');
+                    else box.removeAttribute('checked');
+                    persistHtml(); recordChange();
+                  });
+                  return;
+                }
                 const sp = (e.target as Element)?.closest?.('[data-comment]');
                 if (sp) { setActiveCommentId(sp.getAttribute('data-comment')); setShowComments(true); }
                 // Click an inline image → select it for resizing; click elsewhere clears.

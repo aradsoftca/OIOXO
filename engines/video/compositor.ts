@@ -79,7 +79,7 @@ export interface CompVideoClip {
   id: string; kind: 'video'; trackId: string; mediaId: string;
   start: number; srcStart: number; srcEnd: number; speed: number;
   brightness: number; contrast: number; saturation: number; hue: number; opacity: number;
-  fit: 'contain' | 'cover';
+  fit: 'contain' | 'cover' | 'stretch';
   /** Optional PiP transform — normalized to frame (0..1 center, scale 1 = fit). */
   transform?: { x: number; y: number; scale: number; rotation: number };
   /** Mirror the clip horizontally / vertically (matches editor preview). */
@@ -276,7 +276,11 @@ function drawClipFrame(
   let tw = frameW, th = frameH, tx = 0, ty = 0;
   if (c.fit === 'contain') {
     if (sr > dr) { th = frameW / sr; ty = (frameH - th) / 2; } else { tw = frameH * sr; tx = (frameW - tw) / 2; }
+  } else if (c.fit === 'stretch') {
+    // Fill both axes, ignore source aspect (matches the editor preview's stretch).
+    tw = frameW; th = frameH; tx = 0; ty = 0;
   } else {
+    // cover
     if (sr > dr) { tw = frameH * sr; tx = (frameW - tw) / 2; } else { th = frameW / sr; ty = (frameH - th) / 2; }
   }
 

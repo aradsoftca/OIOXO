@@ -101,7 +101,10 @@ interface VideoClip {
   saturation: number;
   hue: number;
   opacity: number;
-  fit: 'contain' | 'cover';
+  /** How the source maps into the project frame: 'contain' = Fit (letterbox,
+   *  whole clip visible), 'cover' = Fill (crop to fill, no bars), 'stretch' =
+   *  Stretch (ignore aspect, fill both axes). */
+  fit: 'contain' | 'cover' | 'stretch';
   transition?: TransitionId;
   transDur?: number;
   chromaKey?: { color: string; similarity: number; smoothness: number; spill: number };
@@ -2682,6 +2685,9 @@ function drawVideoFrame(ctx: CanvasRenderingContext2D, src: HTMLVideoElement | H
   if (v.fit === 'contain') {
     if (sr > dr) { th = dw / sr; ty = (dh - th) / 2; }
     else { tw = dh * sr; tx = (dw - tw) / 2; }
+  } else if (v.fit === 'stretch') {
+    // Stretch distorts the source to fill the whole frame (no aspect preserved).
+    tw = dw; th = dh; tx = 0; ty = 0;
   } else {
     if (sr > dr) { tw = dh * sr; tx = (dw - tw) / 2; }
     else { th = dw / sr; ty = (dh - th) / 2; }
@@ -3189,10 +3195,27 @@ function ClipInspector({ clip, media, onChange, onOpenText, onApplyGrade, onAllT
                 <button key={lvl} onClick={() => onChange(x => { const vc = x as VideoClip; vc.volume = lvl; vc.mutedVolume = undefined; })} className={cn('flex-1 rounded px-2 py-1 text-xs', Math.abs(c.volume - lvl) < 0.001 ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{Math.round(lvl * 100)}%</button>
               ))}
             </div>
-            <div className="text-xs text-zinc-500">Fit</div>
+            <div className="text-xs text-zinc-500">Framing (how the clip fills the frame)</div>
             <div className="flex gap-1">
-              {(['contain', 'cover'] as const).map(f => (
-                <button key={f} onClick={() => onChange(x => { (x as VideoClip).fit = f; })} className={cn('flex-1 rounded px-2 py-1 text-xs', c.fit === f ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300')}>{f}</button>
+              {([
+                { id: 'contain', label: 'Fit', hint: 'Whole clip visible (may letterbox)' },
+                { id: 'cover', label: 'Fill', hint: 'Fill frame, crop overflow (no bars)' },
+                { id: 'stretch', label: 'Stretch', hint: 'Fill both axes, ignore aspect' },
+              ] as const).map(f => (
+                <button
+                  key={f.id}
+                  title={f.hint}
+                  // Re-center the PiP offset so the framing preset cleanly reframes
+                  // the clip into the project frame (scale/rotation are kept so an
+                  // intentional zoom/spin survives a Fit↔Fill↔Stretch switch).
+                  onClick={() => onChange(x => {
+                    const vc = x as VideoClip;
+                    vc.fit = f.id;
+                    const cur = vc.transform ?? { x: 0, y: 0, scale: 1, rotation: 0 };
+                    vc.transform = { ...cur, x: 0, y: 0 };
+                  })}
+                  className={cn('flex-1 rounded px-2 py-1 text-xs', c.fit === f.id ? 'bg-cyan-500 text-zinc-900' : 'bg-white/5 text-zinc-300 hover:bg-white/10')}
+                >{f.label}</button>
               ))}
             </div>
             <div className="text-xs text-zinc-500">Transition in (blends from the previous clip)</div>

@@ -167,6 +167,8 @@ export default function PdfStudioPro() {
   // jump box, First/Last, or keyboard) scrolls it into view in the Pages grid.
   const thumbRefs = React.useRef<Record<string, HTMLDivElement | null>>({});
   const [pageJump, setPageJump] = React.useState('');
+  // "Delete page range" box (e.g. "3-5") — removes those pages in one undo step.
+  const [deleteRangeText, setDeleteRangeText] = React.useState('');
 
   // Latest-doc ref so builders that fire several times before React re-renders
   // (e.g. opening multiple PDFs in one `for…await` loop) stack instead of
@@ -723,6 +725,40 @@ export default function PdfStudioPro() {
     const next = cloneDoc(doc);
     next.pages.reverse();
     commit('reverse order', next);
+  };
+  // Delete a page RANGE in one undo step (Acrobat "Delete pages → from-to").
+  // Accepts the same range syntax as the Extract dialog ("3-5", "2, 4, 6-8"):
+  // a 1-based set of page numbers, clamped to range, that are removed from
+  // doc.pages together (and their annotations) — far faster than walking the
+  // per-thumbnail trash button N times. Refuses to wipe the whole document.
+  const deleteRange = (txt: string) => {
+    const total = doc.pages.length;
+    if (!total) return;
+    const seen = new Set<number>();
+    for (const part of txt.split(',').map(s => s.trim()).filter(Boolean)) {
+      const m = /^(\d+)\s*-\s*(\d+)$/.exec(part);
+      if (m) {
+        let a = parseInt(m[1]), b = parseInt(m[2]);
+        if (a > b) [a, b] = [b, a];
+        for (let n = a; n <= b; n++) if (n >= 1 && n <= total) seen.add(n);
+      } else {
+        const n = parseInt(part);
+        if (!isNaN(n) && n >= 1 && n <= total) seen.add(n);
+      }
+    }
+    if (!seen.size) { toastFor(`Enter a valid range (1–${total})`); return; }
+    if (seen.size >= total) { toastFor('That would delete every page — keep at least one'); return; }
+    const next = cloneDoc(doc);
+    const removedIds = new Set<string>();
+    next.pages = next.pages.filter((p, i) => {
+      const keep = !seen.has(i + 1);
+      if (!keep) removedIds.add(p.id);
+      return keep;
+    });
+    removedIds.forEach(id => { delete next.annotations[id]; });
+    if (next.selectedId && removedIds.has(next.selectedId)) next.selectedId = next.pages[0]?.id ?? null;
+    commit('delete range', next);
+    toastFor(`Deleted ${seen.size} page${seen.size === 1 ? '' : 's'}`);
   };
 
   const addAnno = (pageId: string, a: Annotation) => {
@@ -1553,6 +1589,19 @@ export default function PdfStudioPro() {
             <div className="mb-2 flex gap-1.5">
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'start')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the front"><ChevronsLeft className="h-3 w-3" /> To start</StudioButton>
               <StudioButton size="sm" variant="soft" onClick={() => doc.selectedId && movePageTo(doc.selectedId, 'end')} disabled={doc.pages.length < 2 || !doc.selectedId} title="Move the selected page to the back"><ChevronsRight className="h-3 w-3" /> To end</StudioButton>
+            </div>
+            {/* Delete a page RANGE in one undo step (same "3-5" syntax as Extract). */}
+            <div className="mb-2 flex items-center gap-1.5">
+              <input
+                value={deleteRangeText}
+                onChange={e => setDeleteRangeText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); deleteRange(deleteRangeText); setDeleteRangeText(''); } }}
+                disabled={!doc.pages.length}
+                placeholder="e.g. 3-5"
+                title='Type a page range (e.g. "3-5" or "2, 4, 6-8") and press Enter — or click Delete — to remove those pages'
+                className="h-7 flex-1 rounded border border-white/10 bg-transparent px-2 font-mono text-xs text-zinc-200 outline-none hover:border-white/20 focus:border-cyan-400/50 disabled:opacity-40"
+              />
+              <StudioButton size="sm" variant="soft" onClick={() => { deleteRange(deleteRangeText); setDeleteRangeText(''); }} disabled={!doc.pages.length || !deleteRangeText.trim()} title="Delete the typed page range"><Trash2 className="h-3 w-3" /> Delete range</StudioButton>
             </div>
             {/* Bulk clear of the editing layer — counterpart to the double-click
                 delete-one on individual annotations. */}

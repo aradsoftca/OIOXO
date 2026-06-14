@@ -20,6 +20,21 @@ function flatNums(arr: any[]): number[] {
   return out;
 }
 
+// Excel *A-family value extraction: numbers count as-is, TRUE=1 / FALSE=0,
+// text (incl. numeric-looking strings) counts as 0, blanks/null are ignored.
+function numsA(arr: any[]): number[] {
+  const out: number[] = [];
+  const walk = (v: any) => {
+    if (Array.isArray(v)) for (const x of v) walk(x);
+    else if (v === '' || v == null) return;
+    else if (typeof v === 'number') out.push(v);
+    else if (typeof v === 'boolean') out.push(v ? 1 : 0);
+    else out.push(0);
+  };
+  for (const v of arr) walk(v);
+  return out;
+}
+
 function flatAll(arr: any[]): any[] {
   const out: any[] = [];
   const walk = (v: any) => {
@@ -149,6 +164,15 @@ export function callFormula(name: string, args: any[]): any {
     case 'STDEVP': case 'STDEV.P': { const ns = flatNums(args); if (!ns.length) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return Math.sqrt(ns.reduce((s, n) => s + (n - m) ** 2, 0) / ns.length); }
     case 'VAR': case 'VAR.S':     { const ns = flatNums(args); if (ns.length < 2) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + (n - m) ** 2, 0) / (ns.length - 1); }
     case 'VARP': case 'VAR.P':    { const ns = flatNums(args); if (!ns.length) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + (n - m) ** 2, 0) / ns.length; }
+    case 'COUNTUNIQUE':  { const seen = new Set<any>(); for (const v of flatAll(args)) if (v !== '' && v != null) seen.add(typeof v === 'number' ? v : String(v)); return seen.size; }
+    case 'AVERAGEA':     { const ns = numsA(args); return ns.length ? ns.reduce((s, n) => s + n, 0) / ns.length : '#DIV/0!'; }
+    case 'MAXA':         { const ns = numsA(args); return ns.length ? maxOf(ns) : 0; }
+    case 'MINA':         { const ns = numsA(args); return ns.length ? minOf(ns) : 0; }
+    case 'VARA':         { const ns = numsA(args); if (ns.length < 2) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + (n - m) ** 2, 0) / (ns.length - 1); }
+    case 'VARPA':        { const ns = numsA(args); if (!ns.length) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return ns.reduce((s, n) => s + (n - m) ** 2, 0) / ns.length; }
+    case 'STDEVA':       { const ns = numsA(args); if (ns.length < 2) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return Math.sqrt(ns.reduce((s, n) => s + (n - m) ** 2, 0) / (ns.length - 1)); }
+    case 'STDEVPA':      { const ns = numsA(args); if (!ns.length) return 0; const m = ns.reduce((s, n) => s + n, 0) / ns.length; return Math.sqrt(ns.reduce((s, n) => s + (n - m) ** 2, 0) / ns.length); }
+    case 'MODE.MULT':    { const ns = flatNums(args); const counts = new Map<number, number>(); for (const n of ns) counts.set(n, (counts.get(n) ?? 0) + 1); let bn = 0; for (const c of counts.values()) if (c > bn) bn = c; if (bn < 2) return '#N/A'; const modes: number[] = []; for (const [v, c] of counts) if (c === bn) modes.push(v); modes.sort((a, b) => a - b); return modes[0]; }
     case 'PERCENTILE': case 'PERCENTILE.INC': { const ns = flatNums(args[0]).sort((a, b) => a - b); const p = Math.max(0, Math.min(1, getNum(args[1]))); if (!ns.length) return 0; const idx = p * (ns.length - 1); const lo = Math.floor(idx), hi = Math.ceil(idx); return ns[lo] + (ns[hi] - ns[lo]) * (idx - lo); }
     case 'QUARTILE':    { const ns = flatNums(args[0]).sort((a, b) => a - b); const q = getNum(args[1]); if (!ns.length) return 0; const p = q / 4; const idx = p * (ns.length - 1); const lo = Math.floor(idx), hi = Math.ceil(idx); return ns[lo] + (ns[hi] - ns[lo]) * (idx - lo); }
     case 'RANK': case 'RANK.EQ':  { const target = getNum(args[0]); const ns = flatNums(args[1]).sort((a, b) => b - a); return ns.indexOf(target) + 1 || '#N/A'; }
@@ -741,4 +765,5 @@ export const FORMULA_NAMES = [
   'MODE.SNGL', 'PERCENTILE.EXC', 'QUARTILE.INC', 'QUARTILE.EXC',
   'PERCENTRANK', 'PERCENTRANK.INC', 'PERCENTRANK.EXC',
   'FORECAST', 'FORECAST.LINEAR', 'STEYX',
+  'COUNTUNIQUE', 'AVERAGEA', 'MAXA', 'MINA', 'VARA', 'VARPA', 'STDEVA', 'STDEVPA', 'MODE.MULT',
 ];

@@ -2125,6 +2125,48 @@ export default function ImageStudioPro() {
     } finally { setBusy(''); }
   };
 
+  const runPosterize = async () => {
+    // Quantize each channel to a small set of levels (4) for a flat poster look via the
+    // shared posterize helper. Destructive on the active layer, alpha preserved.
+    // Same structure as runGaussianBlur/runSharpen.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Posterizing…');
+    try {
+      const src = getCanvasOf(target)!;
+      const out = posterize(src, 4);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('posterize', next);
+      toastFor('Posterized ✓');
+    } finally { setBusy(''); }
+  };
+
+  const runPixelate = async () => {
+    // Block-average the active layer into 8px blocks for a mosaic / 8-bit look via the
+    // shared pixelate helper. Destructive on the active layer, alpha preserved.
+    // Same structure as runGaussianBlur/runSharpen.
+    const target = activeLayer;
+    if (!target || (target.kind !== 'paint' && target.kind !== 'image')) { toastFor('Pick an image or paint layer'); return; }
+    setBusy('Pixelating…');
+    try {
+      const src = getCanvasOf(target)!;
+      const out = pixelate(src, 8);
+      const next = cloneDoc(doc);
+      const idx = next.layers.findIndex(l => l.id === target.id);
+      if (idx >= 0) {
+        const l = next.layers[idx];
+        if (l.kind === 'paint' || l.kind === 'image') (l as PaintLayer | ImageLayer).canvas = out;
+      }
+      commit('pixelate', next);
+      toastFor('Pixelated ✓');
+    } finally { setBusy(''); }
+  };
+
   const runFilmGrain = async () => {
     // Per-pixel random noise (±20 on each channel) for an analog film-grain texture.
     // Clamped to 0..255, alpha untouched. Same structure as runClarity/runVignette.
@@ -3560,6 +3602,8 @@ export default function ImageStudioPro() {
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runReduceNoise()} title={pristine ? 'Open an image first' : 'Reduce noise — light denoise, edges partly preserved'}><Sparkles className="h-3.5 w-3.5" /> Reduce noise</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runMedian()} title={pristine ? 'Open an image first' : 'Median — 3×3 despeckle (salt-and-pepper removal)'}><Sparkles className="h-3.5 w-3.5" /> Median</StudioButton>
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runFilmGrain()} title={pristine ? 'Open an image first' : 'Film grain — add subtle analog noise'}><Sparkles className="h-3.5 w-3.5" /> Film Grain</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runPosterize()} title={pristine ? 'Open an image first' : 'Posterize — quantize each channel to 4 levels'}><Sparkles className="h-3.5 w-3.5" /> Posterize</StudioButton>
+            <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runPixelate()} title={pristine ? 'Open an image first' : 'Pixelate — mosaic into 8px blocks'}><Sparkles className="h-3.5 w-3.5" /> Pixelate</StudioButton>
             <span className="ml-1 h-5 w-px bg-white/10" />
             {/* Looks — one-click photographic tone+color grades on the active layer. */}
             <StudioButton variant="soft" size="sm" disabled={pristine} onClick={() => void runLook('vintage')} title={pristine ? 'Open an image first' : 'Vintage look — lifted blacks, warm, softly desaturated'}><Sparkles className="h-3.5 w-3.5" /> Vintage</StudioButton>

@@ -2146,6 +2146,24 @@ export default function VideoStudioPro() {
     { combo: 'shift+z', handler: () => fitZoom() },
   ]);
 
+  // Lightweight automation/test hook: publishes a doc snapshot + the core edit
+  // operations on window so a script (or e2e harness) can drive a real edit
+  // without walking the React fiber tree. Cheap, read-only snapshot + thin
+  // wrappers over the existing handlers — no behavior change for users.
+  React.useEffect(() => {
+    (window as any).__video = {
+      doc: () => ({ clips: docRef.current.clips, tracks: docRef.current.tracks, duration: docRef.current.duration, selectedId: docRef.current.selectedId, master: docRef.current.master }),
+      addClip: (mediaId: string) => addClipFromMedia(mediaId),
+      select: (id: string) => setDoc(d => ({ ...d, selectedId: id })),
+      grade: (id: string, gradeId: string) => applyGradeToClip(id, gradeId),
+      transitionsAll: (t: any) => applyTransitionsToAllCuts(t),
+      addText: () => addTextClip(),
+      update: (id: string, mut: (c: any) => void) => updateClip(id, mut as any, 'edit'),
+      split: (id: string, t: number) => splitAt(id, t),
+      seek: (t: number) => seek(t),
+    };
+  });
+
   return (
     <StudioShell>
       {policyGate.element}

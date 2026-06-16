@@ -4,119 +4,131 @@
 
 # OIOXO
 
-### Describe it. Watch it build. On your device.
+### Describe an app. Watch it build itself. On your own device.
 
-**OIOXO is an in-browser AI IDE.** Write a prompt, and it scaffolds a real, runnable
-project — generated, run, and *verified by actually executing it* — entirely on your own
-machine. Nothing touches our servers.
+**OIOXO is a private AI that builds real apps for you.** Tell it what you want in one
+sentence — it writes the code, **runs it, and fixes it until it works** — all on your own
+computer or phone. Your code never leaves your device. It's free to start, and it cuts your
+AI costs by about 90%.
 
-[**Open the IDE →**](https://oioxo.com/oioxo) &nbsp;·&nbsp;
+[**Start building — free →**](https://oioxo.com/oioxo) &nbsp;·&nbsp;
 [Download](https://oioxo.com/download) &nbsp;·&nbsp;
 [Guides](https://oioxo.com/docs) &nbsp;·&nbsp;
 [Pricing](https://oioxo.com/pricing)
 
 <br/>
 
-![OIOXO build surface](assets/hero-dark.png)
+![OIOXO building an app on your device](assets/hero-dark.png)
 
 </div>
 
 ---
 
-## Why OIOXO is different
+## Why people love it
 
-Most AI coding tools send your code to a server, run a model in someone else's data
-center, and bill you per token. OIOXO runs the model **in your browser** on **your**
-GPU (WebGPU / WASM). Your code never leaves your device, it works offline once loaded,
-and the first tier is free forever — no card.
+Three things make OIOXO different — and they're the kind you feel on day one.
 
-> **Verified, not just generated.** OIOXO doesn't stop at writing code. It runs a
-> plan → write → run → repair loop that *executes* what it built and fixes it until it
-> actually works. The check mark means it ran, not that it looked right.
+### 🔒 Your code stays private
+The AI runs on **your own computer or phone**, not on our servers. So nothing you write or
+ask ever gets uploaded. Privacy isn't a setting you switch on — it's just how it's built.
+The only thing we ever count is *how much* you've used, never *what* you made.
 
-|  |  |
+### 💸 It saves you about 90% on AI — even in the tools you already use
+AI assistants charge you by the word, and they read far more of your project than they need.
+OIOXO hands the AI only the small slice that's actually relevant — same answer, a fraction of
+the cost. A question that would cost ~50,000 words comes back as ~5,000.
+
+And you don't have to switch tools. One small install plugs OIOXO into **GitHub Copilot,
+Cursor, Claude, Windsurf** and more — your existing setup, ~90% cheaper.
+
+```bash
+npx oioxo-mcp@latest
+```
+
+### 🤝 Your devices team up to build together
+Put two of your own devices on the **same Wi-Fi** and they work on the same project together.
+The weaker one borrows the stronger one's power — so your old phone can build like a fast
+laptop. Best part: the time your devices spend helping each other adds **free build time** to
+your account.
+
+- One button — **"Add a device"**: show a code on one device, scan it on the other
+- Your own devices, on your own Wi-Fi — never a stranger's
+- They talk to each other directly — nothing goes through us
+- Stop helping anytime; your project always stays safe on the main device
+
+*(Feature name: Compute Mesh.)*
+
+---
+
+## And it actually finishes the job
+
+OIOXO doesn't just write code and hope. It **runs the app, catches what breaks, and fixes it
+until it actually works.** The check mark means it ran — not that it looked right.
+
+| | |
 | --- | --- |
-| 🔒 **Your code never leaves your device** | The model runs locally. No upload, no proxy, no telemetry on your source. |
-| ⚡ **Verified by execution** | Plan → write → run → repair. OIOXO runs your project and repairs it until it passes. |
-| 💸 **Forever free to start** | A genuine free tier with on-device compute — no credit card, no trial clock. |
-| 🌐 **Everywhere you build** | Web, desktop (Win/Mac/Linux), mobile (iOS/Android), CLI, and a VS Code extension — one account. |
-| 🔌 **Bring your own key** | Prefer a frontier model? Plug in any of 12+ providers — or local Ollama — anytime. |
-| 📡 **Compute Mesh** | Pair two devices over Wi‑Fi with a QR code; the lighter device borrows the stronger one. Serverless. |
+| **Real apps, not snippets** | Plan → write → run → repair, until it works — with a live preview. |
+| **Use your own AI key** | Bring Claude, OpenAI & 12+ providers, or run a model locally with Ollama. Free for everyone. |
+| **Free to run** | Using the AI is always free. Pay only for more time — Pro is **$3.99/mo**. |
+| **Everywhere you build** | Browser, computer (Win/Mac/Linux), phone, terminal, and inside VS Code — one account. |
 
 ---
 
 ## Get OIOXO
 
-| Surface | What it is | Get it |
+| Where | What it is | Get it |
 | --- | --- | --- |
-| **Web IDE** | The full IDE in any modern browser. No install. | [Open the IDE](https://oioxo.com/oioxo) |
-| **Desktop app** `v1.99.6` | Native Windows · macOS · Linux. Bigger models, full file‑system access, background agents. | [Download for your OS](https://oioxo.com/download) |
-| **Mobile** | The full IDE, tuned for touch, on iOS & Android. | [Open on mobile](https://oioxo.com/oioxo) |
-| **CLI** | A terminal coding agent + context engine. Cuts editor token use by ~90%. | `npx oioxo-mcp@latest` &nbsp;·&nbsp; [npm](https://www.npmjs.com/package/oioxo-mcp) |
-| **VS Code extension** | OIOXO inside your editor — on‑device chat, context engine, token‑saver. | [Marketplace](https://marketplace.visualstudio.com/items?itemName=oioxo.oioxo-vscode) |
+| **In your browser** | Nothing to install. Just open it and build. | [Open OIOXO](https://oioxo.com/oioxo) |
+| **On your computer** `v1.99.6` | A full app for Windows, Mac & Linux — more powerful, works with your files. | [Download](https://oioxo.com/download) |
+| **On your phone** | The full thing, made for touch, on iPhone & Android. | [Open on your phone](https://oioxo.com/oioxo) |
+| **In the terminal** | A coding helper for your command line — and the ~90% cost saver. | `npx oioxo-mcp@latest` · [npm](https://www.npmjs.com/package/oioxo-mcp) |
+| **Inside VS Code** | OIOXO right in your editor — private chat + the cost saver. | [Marketplace](https://marketplace.visualstudio.com/items?itemName=oioxo.oioxo-vscode) |
 
-Every platform and release, auto‑detected for your OS, lives at
-**[oioxo.com/download](https://oioxo.com/download)**.
+Everything for every device lives at **[oioxo.com/download](https://oioxo.com/download)**.
 
 ---
 
 ## How it works
 
-**1 · Describe it.** One sentence — "a landing page for a coffee shop," "a REST API with
-auth," "a snake game." OIOXO turns it into a concrete build plan.
+**1 · Tell it what you want.** One sentence — "a landing page for a coffee shop," "a to-do
+app," "a snake game." Or open a project you already have and ask for a change.
 
-**2 · Watch it build.** The model writes the project step by step, narrating as it goes.
-You can steer it mid‑build — the redirect folds into the next step.
+**2 · Watch it build.** OIOXO plans it, writes the code, runs it, and fixes its own mistakes —
+right on your device, telling you what it's doing as it goes. You can change your mind
+mid-build, and it follows.
 
-**3 · It runs and repairs.** OIOXO executes the project on your device, catches what
-breaks, and fixes it until it passes. You get a working project, not a guess.
-
----
-
-## Screenshots
-
-| Build surface | Dark mode |
-| --- | --- |
-| ![Build](assets/build.png) | ![Dark](assets/dark.png) |
+**3 · Use it & share it.** Preview it, tweak it by just talking to it, then put it online in
+one click or send the whole project as a single code. Your work never left your machine.
 
 ---
 
-## Quick start
+## Common questions
 
-**Web** — nothing to install:
+**Does my code really stay on my device?**
+Yes. The AI runs on your own computer or phone — not on our servers. The only thing we count is
+*how much* you've used (a number), never the code itself. It's never uploaded.
 
-```
-Open https://oioxo.com/oioxo  →  type a prompt  →  press Start
-```
+**Is it actually free?**
+Free to start — no card, no countdown. Using the AI models is always free. If you want
+unlimited time, Pro is $3.99/month, but the models stay free either way.
 
-**CLI** — a terminal coding agent + context engine:
+**How do my devices "build together"?**
+Put two of your own devices on the same Wi-Fi, tap "Add a device," and scan a code. Now they
+work on one project, and the weaker one borrows the stronger one's power — earning you free
+build time. They talk directly; nothing goes through us.
 
-```bash
-npx oioxo-mcp@latest          # run instantly
-oioxo code "fix the failing test in src/cart.js"
-```
-
-**Bring your own key** (optional) — frontier models from 12+ providers, or local Ollama,
-configured in Settings → *How the AI runs*.
-
----
-
-## Privacy & trust
-
-- **On‑device runtime.** The coding model runs in your browser over WebGPU/WASM. Your
-  source is processed locally.
-- **No source upload.** OIOXO does not proxy your code through our servers to run it.
-- **Open about limits.** Read what we collect and why in the
-  [Privacy Policy](https://oioxo.com/privacy) and [Terms](https://oioxo.com/terms).
+**Can I use my own AI (like Claude or OpenAI)?**
+Yes — plug in your key from 12+ providers, or run a model locally with Ollama. Free for
+everyone, and OIOXO still trims the bill ~90%.
 
 ---
 
 ## Links
 
 [Website](https://oioxo.com) ·
-[Open the IDE](https://oioxo.com/oioxo) ·
+[Start building](https://oioxo.com/oioxo) ·
 [Download](https://oioxo.com/download) ·
-[Docs & guides](https://oioxo.com/docs) ·
+[Guides](https://oioxo.com/docs) ·
 [Pricing](https://oioxo.com/pricing) ·
 [Privacy](https://oioxo.com/privacy) ·
 [Terms](https://oioxo.com/terms)
@@ -124,7 +136,7 @@ configured in Settings → *How the AI runs*.
 <div align="center">
 <br/>
 
-**Build something in the next minute — on your device.**
+**Build something in the next minute — on your own device.**
 
 [**Start building — free →**](https://oioxo.com/oioxo)
 

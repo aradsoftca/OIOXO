@@ -70,13 +70,13 @@ section{padding:clamp(64px,9vw,118px) 0;position:relative}
 .nav{position:sticky;top:0;z-index:60;backdrop-filter:saturate(180%) blur(16px);background:color-mix(in srgb,var(--bg) 72%,transparent);border-bottom:1px solid transparent;transition:border-color .3s,background .3s}
 .nav.scrolled{border-bottom-color:var(--hairline)}
 .nav-inner{display:flex;align-items:center;gap:22px;height:64px}
-.brand{display:flex;align-items:center;gap:11px;font-weight:700}
-.brand .mk{width:30px;height:30px;border-radius:9px;display:block;transition:transform .4s var(--ease)}
-.brand:hover .mk{transform:rotate(-8deg) scale(1.06)}
-/* The wordmark PNG has CHARCOAL letters (reads on light). On our dark theme we invert
-   it to white — exactly as the live app does (html[data-theme=dark] .oioxo-wordmark).
+.brand{display:flex;align-items:center;font-weight:700}
+/* MAIN LOGO = the oioxo wordmark alone (exactly as live oioxo.com header does).
+   The PNG has CHARCOAL letters (reads on light); on our dark theme we invert it to
+   white — same as the live app (html[data-theme=dark] .oioxo-wordmark).
    hue-rotate keeps the gold X/i-dot warm through the invert. */
-.brand .wm{height:19px;width:auto;opacity:.96;transition:filter .2s}
+.brand .wm{height:24px;width:auto;opacity:.96;transition:filter .2s,transform .3s var(--ease)}
+.brand:hover .wm{transform:scale(1.03)}
 html[data-theme="dark"] .wm{filter:invert(1) hue-rotate(185deg) saturate(1.1)}
 html[data-theme="light"] .wm{filter:none}
 .nav a.link{font-size:14px;color:var(--fg-muted);transition:color .15s;position:relative}
@@ -250,8 +250,7 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
 <!-- NAV -->
 <nav class="nav" id="nav"><div class="wrap nav-inner">
   <a class="brand" href="#top" aria-label="OIOXO home">
-    <img class="mk" src="assets/oioxo-mark.svg" alt="" />
-    <img class="wm" src="assets/oioxo-wordmark.png" alt="OIOXO" />
+    <img class="wm" src="assets/oioxo-wordmark.png" alt="oioxo" />
   </a>
   <div class="spacer"></div>
   <div class="nav-links">
@@ -455,8 +454,7 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
   <div class="foot-grid">
     <div>
       <a class="brand" href="#top" style="margin-bottom:14px">
-        <img class="mk" src="assets/oioxo-mark.svg" alt="" style="width:26px;height:26px" />
-        <img class="wm" src="assets/oioxo-wordmark.png" alt="OIOXO" style="height:17px" />
+        <img class="wm" src="assets/oioxo-wordmark.png" alt="oioxo" style="height:21px" />
       </a>
       <p style="font-size:14px;max-width:34ch;margin-top:14px">The in-browser AI IDE. Describe it, watch it build — generated, run, and verified on your own device. Forever free to start.</p>
     </div>

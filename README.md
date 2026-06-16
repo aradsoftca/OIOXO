@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="OIOXO" width="72" height="72" />
+<img src="assets/oioxo-mark.svg" alt="OIOXO" width="76" height="76" />
 
 # OIOXO
 

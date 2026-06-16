@@ -1,0 +1,28 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="oioxo">
+  <defs>
+    <linearGradient id="oioxoBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C2A33"/>
+      <stop offset="1" stop-color="#141317"/>
+    </linearGradient>
+    <radialGradient id="oioxoGlow" cx="0.5" cy="0.46" r="0.52">
+      <stop offset="0" stop-color="#E2B24A" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#E2B24A" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- squircle tile -->
+  <rect x="16" y="16" width="480" height="480" rx="118" fill="url(#oioxoBg)"/>
+  <rect x="16.5" y="16.5" width="479" height="479" rx="117.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="1"/>
+
+  <!-- warm glow behind the mark -->
+  <circle cx="256" cy="248" r="150" fill="url(#oioxoGlow)"/>
+
+  <!-- the mark: gold ring (o) with a gap + gold x = the "ox" core of oioxo -->
+  <g fill="none" stroke="#E2B24A" stroke-linecap="round">
+    <path d="M367.18 203.02 A120 120 0 1 1 300.96 136.76" stroke-width="32"/>
+    <line x1="208" y1="200" x2="304" y2="296" stroke-width="28"/>
+    <line x1="304" y1="200" x2="208" y2="296" stroke-width="28"/>
+  </g>
+  <!-- i-dot nestled in the ring's gap: o + i + x -->
+  <circle cx="341" cy="163" r="17" fill="#E2B24A"/>
+</svg>

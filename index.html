@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>OIOXO — the in-browser AI IDE that builds on your device</title>
+<meta name="description" content="Describe an app, watch it build — generated, run, and verified entirely on your own device. Forever free to start. Nothing touches our servers." />
+<meta property="og:title" content="OIOXO — the in-browser AI IDE" />
+<meta property="og:description" content="Describe it. Watch it build. On your device. Forever free to start." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://oioxo.com" />
+<meta name="theme-color" content="#0b0b0d" />
+<meta property="og:image" content="https://oioxo.com/assets/hero-dark.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" type="image/svg+xml" href="assets/logo.svg" />
+<link rel="preconnect" href="https://oioxo.com" />
+<style>
+/* ── OIOXO design tokens (mirrors @oioxo/tokens) ─────────────────────────────── */
+:root{
+  --gold:#e2b24a; --gold-hover:#edc362; --gold-ink:#7a5c12; --gold-deep:#b8860b;
+  --bg:#0b0b0d; --bg-1:#121214; --bg-2:#17171a; --card:#141417; --hairline:#26262b; --border:#2c2c32;
+  --fg:#f4f4f5; --fg-muted:#a1a1aa; --fg-subtle:#71717a;
+  --ok:#34d399; --radius:14px; --radius-lg:20px; --maxw:1120px;
+  --font:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;
+  --mono:ui-monospace,"JetBrains Mono","SF Mono",Menlo,monospace;
+}
+html[data-theme="light"]{
+  --bg:#ffffff; --bg-1:#fafafa; --bg-2:#f4f4f5; --card:#ffffff; --hairline:#ececef; --border:#e4e4e7;
+  --fg:#18181b; --fg-muted:#52525b; --fg-subtle:#a1a1aa;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+img{max-width:100%;display:block}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--gold)}
+h1,h2,h3{margin:0;letter-spacing:-.02em;font-weight:700}
+h1{font-size:clamp(40px,6vw,68px);line-height:1.04}
+h2{font-size:clamp(26px,3.4vw,38px);line-height:1.1}
+h3{font-size:18px}
+p{margin:0;color:var(--fg-muted)}
+.muted{color:var(--fg-muted)} .subtle{color:var(--fg-subtle)}
+.btn{display:inline-flex;align-items:center;gap:9px;font-weight:600;font-size:15px;padding:12px 20px;border-radius:var(--radius);border:1px solid transparent;cursor:pointer;transition:transform .12s ease,background .15s ease,border-color .15s ease}
+.btn:active{transform:scale(.98)}
+.btn-gold{background:var(--gold);color:#1a1205}.btn-gold:hover{background:var(--gold-hover)}
+.btn-ghost{background:transparent;color:var(--fg);border-color:var(--border)}.btn-ghost:hover{background:var(--bg-2)}
+.btn:focus-visible{outline:none;box-shadow:0 0 0 2px var(--bg),0 0 0 4px color-mix(in srgb,var(--gold) 60%,transparent)}
+.dot{width:6px;height:6px;border-radius:99px;background:var(--gold);display:inline-block}
+.grid{display:grid;gap:20px}
+.card{background:var(--card);border:1px solid var(--hairline);border-radius:var(--radius-lg);padding:24px}
+section{padding:clamp(64px,9vw,120px) 0}
+.center{text-align:center}
+
+/* ── nav ─────────────────────────────────────────────────────────────────────── */
+.nav{position:sticky;top:0;z-index:50;backdrop-filter:saturate(180%) blur(14px);background:color-mix(in srgb,var(--bg) 78%,transparent);border-bottom:1px solid var(--hairline)}
+.nav-inner{display:flex;align-items:center;gap:22px;height:62px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.18em;font-size:15px}
+.brand .mk{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,var(--gold),var(--gold-deep));display:grid;place-items:center;color:#1a1205;font-weight:800;font-size:12px}
+.nav a.link{font-size:14px;color:var(--fg-muted);transition:color .15s}.nav a.link:hover{color:var(--fg)}
+.nav .spacer{flex:1}
+.iconbtn{width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--fg-muted);display:grid;place-items:center;cursor:pointer}
+.iconbtn:hover{background:var(--bg-2);color:var(--fg)}
+.nav-links{display:flex;gap:22px;align-items:center}
+@media(max-width:820px){.nav-links{display:none}}
+
+/* ── hero ────────────────────────────────────────────────────────────────────── */
+.hero{position:relative;overflow:hidden;padding-top:clamp(56px,8vw,104px)}
+.hero::before{content:"";position:absolute;inset:-40% 0 auto 0;height:680px;background:radial-gradient(60% 50% at 50% 0%,rgba(226,178,74,.14),transparent 70%);pointer-events:none}
+.hero-grid{position:relative}
+.pill{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--fg-muted);background:var(--bg-2);border:1px solid var(--hairline);padding:6px 12px;border-radius:99px}
+.hero h1{margin:22px 0 0;max-width:14ch}
+.hero p.lead{margin:20px 0 0;font-size:clamp(16px,2vw,20px);max-width:54ch}
+.cta-row{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.trust-row{display:flex;flex-wrap:wrap;gap:18px;margin-top:26px;font-size:13px;color:var(--fg-subtle)}
+.trust-row span{display:inline-flex;align-items:center;gap:7px}
+.shot{margin-top:clamp(40px,6vw,72px);border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;box-shadow:0 40px 120px -40px rgba(0,0,0,.6);background:var(--bg-1)}
+.shot img{width:100%}
+.browser-bar{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--hairline);background:var(--bg-2)}
+.tl{width:11px;height:11px;border-radius:99px;background:var(--border)}
+.browser-bar .url{margin-left:10px;font-size:12px;color:var(--fg-subtle);font-family:var(--mono)}
+
+/* ── logos / proof ───────────────────────────────────────────────────────────── */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:40px}
+.kpi b{display:block;font-size:30px;letter-spacing:-.02em}
+.kpi span{font-size:13px;color:var(--fg-subtle)}
+@media(max-width:720px){.kpis{grid-template-columns:repeat(2,1fr)}}
+
+/* ── features ────────────────────────────────────────────────────────────────── */
+.feat-grid{grid-template-columns:repeat(3,1fr);margin-top:48px}
+@media(max-width:900px){.feat-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.feat-grid{grid-template-columns:1fr}}
+.feat .ico{width:40px;height:40px;border-radius:11px;background:color-mix(in srgb,var(--gold) 14%,transparent);display:grid;place-items:center;margin-bottom:14px}
+.feat h3{margin-bottom:7px}
+.feat p{font-size:14px}
+
+/* ── split / showcase ────────────────────────────────────────────────────────── */
+.split{display:grid;grid-template-columns:1.05fr 1fr;gap:48px;align-items:center;margin-top:48px}
+.split.reverse{direction:rtl}.split.reverse>*{direction:ltr}
+@media(max-width:860px){.split,.split.reverse{grid-template-columns:1fr;direction:ltr}}
+.split .imgcard{border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;background:var(--bg-1);box-shadow:0 30px 80px -40px rgba(0,0,0,.5)}
+.split ul{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:11px}
+.split li{display:flex;gap:10px;font-size:14.5px;color:var(--fg-muted)}
+.split li .ck{color:var(--gold);flex:none;margin-top:2px}
+
+/* ── steps ───────────────────────────────────────────────────────────────────── */
+.steps{grid-template-columns:repeat(3,1fr);margin-top:48px;counter-reset:s}
+@media(max-width:760px){.steps{grid-template-columns:1fr}}
+.step{position:relative;padding-top:8px}
+.step .n{width:34px;height:34px;border-radius:10px;border:1px solid var(--border);display:grid;place-items:center;font-weight:700;color:var(--gold);margin-bottom:14px;background:var(--bg-2)}
+.step h3{margin-bottom:6px}.step p{font-size:14px}
+
+/* ── downloads ───────────────────────────────────────────────────────────────── */
+.dl-grid{grid-template-columns:repeat(3,1fr);margin-top:44px}
+@media(max-width:840px){.dl-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.dl-grid{grid-template-columns:1fr}}
+.dl{display:flex;flex-direction:column;gap:6px}
+.dl .top{display:flex;align-items:center;gap:11px}
+.dl .top .ico{width:34px;height:34px;border-radius:9px;background:var(--bg-2);display:grid;place-items:center}
+.dl h3{font-size:16px}
+.dl .meta{font-size:12.5px;color:var(--fg-subtle);font-family:var(--mono)}
+.dl a.go{margin-top:12px;align-self:flex-start;font-size:13.5px;font-weight:600;color:var(--gold);display:inline-flex;gap:6px;align-items:center}
+.dl a.go:hover{color:var(--gold-hover)}
+.dl code{font-family:var(--mono);font-size:12.5px;background:var(--bg-2);border:1px solid var(--hairline);padding:8px 10px;border-radius:8px;display:block;margin-top:10px;color:var(--fg);overflow-x:auto;white-space:nowrap}
+
+/* ── guides ──────────────────────────────────────────────────────────────────── */
+.guide-grid{grid-template-columns:repeat(4,1fr);margin-top:40px}
+@media(max-width:900px){.guide-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.guide-grid{grid-template-columns:1fr}}
+.guide{padding:18px;border-radius:var(--radius);border:1px solid var(--hairline);background:var(--card);transition:border-color .15s,transform .15s}
+.guide:hover{border-color:var(--gold);transform:translateY(-2px)}
+.guide h3{font-size:15px;margin-bottom:5px}.guide p{font-size:13px}
+
+/* ── faq ─────────────────────────────────────────────────────────────────────── */
+.faq{margin-top:36px;display:grid;gap:0}
+.faq details{border-bottom:1px solid var(--hairline);padding:18px 0}
+.faq summary{cursor:pointer;font-weight:600;font-size:16px;list-style:none;display:flex;justify-content:space-between;gap:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:"+";color:var(--gold);font-weight:700}
+.faq details[open] summary::after{content:"–"}
+.faq p{margin-top:10px;font-size:14.5px;max-width:70ch}
+
+/* ── cta band + footer ───────────────────────────────────────────────────────── */
+.band{background:linear-gradient(180deg,var(--bg-1),var(--bg));border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline)}
+footer{padding:56px 0 40px;border-top:1px solid var(--hairline)}
+.foot-grid{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:32px}
+@media(max-width:760px){.foot-grid{grid-template-columns:1fr 1fr}}
+footer h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--fg-subtle);margin:0 0 14px}
+footer a{display:block;font-size:14px;color:var(--fg-muted);padding:4px 0}footer a:hover{color:var(--fg)}
+.foot-bottom{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:40px;padding-top:24px;border-top:1px solid var(--hairline);font-size:13px;color:var(--fg-subtle)}
+.sec-head{max-width:60ch}
+.sec-head.center{margin:0 auto}
+.reveal{opacity:0;transform:translateY(14px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.btn:active{transform:none}}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav class="nav"><div class="wrap nav-inner">
+  <a class="brand" href="#top"><span class="mk">O</span>OIOXO</a>
+  <div class="spacer"></div>
+  <div class="nav-links">
+    <a class="link" href="#features">Features</a>
+    <a class="link" href="#how">How it works</a>
+    <a class="link" href="#download">Download</a>
+    <a class="link" href="#guides">Guides</a>
+    <a class="link" href="https://oioxo.com/pricing">Pricing</a>
+  </div>
+  <button class="iconbtn" id="theme" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  <a class="btn btn-gold" href="https://oioxo.com/oioxo">Open the IDE</a>
+</div></nav>
+
+<!-- HERO -->
+<header class="hero" id="top"><div class="wrap hero-grid">
+  <span class="pill"><span class="dot"></span> New · Compute Mesh — pair your devices over Wi-Fi</span>
+  <h1>Describe it. Watch it build. <span style="color:var(--gold)">On your device.</span></h1>
+  <p class="lead">OIOXO is an in-browser AI IDE. Write a prompt, and it scaffolds a real, runnable project — generated, run, and <b style="color:var(--fg)">verified by actually executing it</b> — entirely on your own machine. Nothing touches our servers.</p>
+  <div class="cta-row">
+    <a class="btn btn-gold" href="https://oioxo.com/oioxo">Start building — free →</a>
+    <a class="btn btn-ghost" href="#download">Download desktop</a>
+  </div>
+  <div class="trust-row">
+    <span>✓ Your code never leaves your device</span>
+    <span>✓ Forever free to start — no card</span>
+    <span>✓ Runs on-device · works offline once loaded</span>
+  </div>
+  <div class="shot reveal">
+    <div class="browser-bar"><span class="tl"></span><span class="tl"></span><span class="tl"></span><span class="url">oioxo.com/oioxo</span></div>
+    <img src="assets/hero-dark.png" alt="OIOXO IDE — build a project on your device" loading="eager" />
+  </div>
+  <div class="kpis">
+    <div class="kpi card center"><b>0</b><span>servers your code touches</span></div>
+    <div class="kpi card center"><b>$0</b><span>forever to start</span></div>
+    <div class="kpi card center"><b>5</b><span>platforms — web, Win, Mac, Linux, mobile</span></div>
+    <div class="kpi card center"><b>12+</b><span>BYOK providers + Ollama</span></div>
+  </div>
+</div></header>
+
+<!-- FEATURES -->
+<section id="features"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow"><span class="dot"></span> Why OIOXO</span>
+  <h2 style="margin-top:14px">An AI IDE that respects your machine.</h2>
+  <p style="margin-top:12px">The model runs where your code lives — on your device. Private by architecture, free by default, and honest about what it builds.</p></div>
+  <div class="grid feat-grid">
+    <div class="card feat reveal"><div class="ico">🔒</div><h3>On-device AI</h3><p>The coding model runs in your browser or app on your own hardware. Your prompts and code are never uploaded — privacy isn't a setting, it's the architecture.</p></div>
+    <div class="card feat reveal"><div class="ico">✓</div><h3>Verified builds</h3><p>OIOXO doesn't just generate — it plans, writes, runs, and repairs its own errors in a real loop until the project actually works.</p></div>
+    <div class="card feat reveal"><div class="ico">🔗</div><h3>Compute Mesh</h3><p>Pair devices you own on the same Wi-Fi. The lighter device borrows the stronger one's compute — and the work lifts your free limit. Serverless, peer-to-peer.</p></div>
+    <div class="card feat reveal"><div class="ico">🔑</div><h3>Bring your own key</h3><p>Prefer a frontier model? Plug in any of 12+ providers or local Ollama. Your key, your models — and OIOXO trims your token bill by ~90%.</p></div>
+    <div class="card feat reveal"><div class="ico">⚡</div><h3>Real runtimes</h3><p>Run JavaScript, Python, SQL, PHP and Lua right in the tab — host-nothing, in-browser. Live preview as it builds.</p></div>
+    <div class="card feat reveal"><div class="ico">🚀</div><h3>Publish &amp; share</h3><p>One click to GitHub Pages, or share a whole project by a single code — peer to peer, nothing stored on a server.</p></div>
+  </div>
+</div></section>
+
+<!-- SHOWCASE 1 -->
+<section class="band"><div class="wrap">
+  <div class="split">
+    <div class="reveal"><span class="eyebrow"><span class="dot"></span> The build surface</span>
+      <h2 style="margin-top:14px">One sentence in. A working app out.</h2>
+      <p style="margin-top:14px">Type what you want. OIOXO plans the steps, writes the files, runs them, and fixes its own mistakes — narrating each move in plain language so you can steer it mid-build.</p>
+      <ul>
+        <li><span class="ck">✓</span> A real plan → write → run → repair loop, on your device</li>
+        <li><span class="ck">✓</span> Live preview updates as it builds</li>
+        <li><span class="ck">✓</span> Steer it as it works — redirect mid-build</li>
+        <li><span class="ck">✓</span> Every change backed up — one-tap undo</li>
+      </ul>
+    </div>
+    <div class="imgcard reveal"><img src="assets/build.png" alt="OIOXO building a coffee-shop landing page on-device" loading="lazy" /></div>
+  </div>
+  <div class="split reverse" style="margin-top:64px">
+    <div class="reveal"><span class="eyebrow"><span class="dot"></span> Designed in the dark</span>
+      <h2 style="margin-top:14px">A workspace you'll want to live in.</h2>
+      <p style="margin-top:14px">A real editor with tabs, a file tree, breadcrumbs, problems, a terminal and a live preview — all dockable. One gold accent, one type scale, light and dark. Built to a craft bar, not a template.</p>
+      <ul>
+        <li><span class="ck">✓</span> VS Code-class editor, fully on-device</li>
+        <li><span class="ck">✓</span> Dockable panels that remember your layout</li>
+        <li><span class="ck">✓</span> First-class on phones — not an afterthought</li>
+        <li><span class="ck">✓</span> Light &amp; dark, tuned by hand</li>
+      </ul>
+    </div>
+    <div class="imgcard reveal"><img src="assets/dark.png" alt="OIOXO dark mode" loading="lazy" /></div>
+  </div>
+</div></section>
+
+<!-- HOW IT WORKS -->
+<section id="how"><div class="wrap">
+  <div class="sec-head center"><span class="eyebrow center" style="justify-content:center"><span class="dot"></span> How it works</span>
+  <h2 style="margin-top:14px">From idea to running app in three beats.</h2></div>
+  <div class="grid steps">
+    <div class="step card reveal"><div class="n">1</div><h3>Describe it</h3><p>Write one sentence — "a landing page for a coffee shop", "a snake game", "a pomodoro timer". Or open a folder and ask for a change.</p></div>
+    <div class="step card reveal"><div class="n">2</div><h3>Watch it build</h3><p>The on-device model plans, writes the files, runs them, and repairs its own errors — live, in your browser, narrating as it goes.</p></div>
+    <div class="step card reveal"><div class="n">3</div><h3>Ship it</h3><p>Preview it, tweak it by talking to it, then publish to GitHub Pages or share it by a single code. Your code never left your machine.</p></div>
+  </div>
+</div></section>
+
+<!-- DOWNLOAD -->
+<section id="download" class="band"><div class="wrap">
+  <div class="sec-head center"><span class="eyebrow center" style="justify-content:center"><span class="dot"></span> Get OIOXO</span>
+  <h2 style="margin-top:14px">Everywhere you build.</h2>
+  <p style="margin-top:12px;margin-left:auto;margin-right:auto">The full IDE in your browser, a native desktop app, a terminal CLI, and a VS Code extension — one account across all of them.</p></div>
+  <div class="grid dl-grid">
+    <div class="card dl reveal"><div class="top"><div class="ico">🌐</div><h3>Web IDE</h3></div>
+      <p class="muted" style="font-size:14px;margin-top:8px">No install. Open it and start building on your device, in any modern browser.</p>
+      <a class="go" href="https://oioxo.com/oioxo">Open the IDE →</a></div>
+    <div class="card dl reveal"><div class="top"><div class="ico">🖥️</div><h3>Desktop app</h3></div>
+      <p class="muted" style="font-size:14px;margin-top:8px">Windows, macOS &amp; Linux. Bigger models, full file-system access, background agents.</p>
+      <span class="meta">v1.99.6 · Win · Mac · Linux</span>
+      <a class="go" href="https://oioxo.com/download">Download for your OS →</a></div>
+    <div class="card dl reveal"><div class="top"><div class="ico">📱</div><h3>Mobile</h3></div>
+      <p class="muted" style="font-size:14px;margin-top:8px">Build from your phone — the full IDE, tuned for touch, on iOS &amp; Android.</p>
+      <a class="go" href="https://oioxo.com/oioxo">Open on mobile →</a></div>
+    <div class="card dl reveal"><div class="top"><div class="ico">⌨️</div><h3>CLI</h3></div>
+      <p class="muted" style="font-size:14px;margin-top:8px">A terminal coding agent + context engine. Cut Copilot/Cursor token use by ~90%.</p>
+      <code>npx oioxo-mcp@latest</code>
+      <a class="go" href="https://www.npmjs.com/package/oioxo-mcp">View on npm →</a></div>
+    <div class="card dl reveal"><div class="top"><div class="ico">🧩</div><h3>VS Code extension</h3></div>
+      <p class="muted" style="font-size:14px;margin-top:8px">OIOXO inside your editor — on-device chat, the context engine, the token-saver.</p>
+      <a class="go" href="https://marketplace.visualstudio.com/items?itemName=oioxo.oioxo-vscode">Get it on Marketplace →</a></div>
+    <div class="card dl reveal"><div class="top"><div class="ico">📦</div><h3>All downloads</h3></div>
+      <p class="muted" style="font-size:14px;margin-top:8px">Every platform, every release, auto-detected for your OS, in one place.</p>
+      <a class="go" href="https://oioxo.com/download">Go to downloads →</a></div>
+  </div>
+</div></section>
+
+<!-- GUIDES -->
+<section id="guides"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow"><span class="dot"></span> Guides &amp; docs</span>
+  <h2 style="margin-top:14px">Get going in minutes.</h2>
+  <p style="margin-top:12px">Everything from your first build to the deep features — written for humans, kept honest against the code.</p></div>
+  <div class="grid guide-grid">
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>Getting started →</h3><p>Your first build, the build surface, and what "on-device" really means.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>How OIOXO works →</h3><p>The plan → write → run → repair loop, and how it verifies builds.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>Compute Mesh →</h3><p>Pair a device on your Wi-Fi to build together and lift your limit.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>Bring your own key →</h3><p>Use any of 12+ providers or local Ollama — and save on tokens.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>Publish &amp; share →</h3><p>One-click GitHub Pages, or share a whole project by a single code.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>Keyboard shortcuts →</h3><p>Move fast — the slash menu and every shortcut in one place.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>The CLI &amp; agents →</h3><p>Drive OIOXO from the terminal as a real coding agent.</p></a>
+    <a class="guide reveal" href="https://oioxo.com/docs"><h3>Troubleshooting →</h3><p>WebGPU, model downloads, offline builds — solved.</p></a>
+  </div>
+</div></section>
+
+<!-- TRUST -->
+<section class="band"><div class="wrap">
+  <div class="split">
+    <div class="imgcard reveal"><img src="assets/pricing.png" alt="OIOXO pricing — forever free to start" loading="lazy" /></div>
+    <div class="reveal"><span class="eyebrow"><span class="dot"></span> Private &amp; free by design</span>
+      <h2 style="margin-top:14px">Nothing touches our servers.</h2>
+      <p style="margin-top:14px">The runtime bytes load from public CDNs; the model runs on your device; your code and prompts stay with you. We meter only the volume of AI generation — never your work. Free forever to start; Pro just removes the wait.</p>
+      <ul>
+        <li><span class="ck">✓</span> Your code &amp; prompts never leave your device</li>
+        <li><span class="ck">✓</span> Forever free to start — no card, no trial clock</li>
+        <li><span class="ck">✓</span> Bring your own key — uncapped, your models</li>
+        <li><span class="ck">✓</span> One account across web, desktop, CLI &amp; extension</li>
+      </ul>
+      <div class="cta-row"><a class="btn btn-gold" href="https://oioxo.com/pricing">See pricing →</a></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- FAQ -->
+<section><div class="wrap" style="max-width:820px">
+  <div class="sec-head center"><span class="eyebrow center" style="justify-content:center"><span class="dot"></span> Questions</span>
+  <h2 style="margin-top:14px">Good to know.</h2></div>
+  <div class="faq">
+    <details open><summary>Does my code really stay on my device?</summary><p>Yes. The AI model runs in your browser or app on your own hardware; the only thing we ever measure is the <i>volume</i> of AI generation (token counts). Your code and prompts are never uploaded — it's the architecture, not a toggle.</p></details>
+    <details><summary>Is it actually free?</summary><p>Forever free to start — no card, no trial clock. The free tier includes the complete IDE and an allowance that refills every few hours. Pro ($3.99/mo) simply removes the wait; model access stays free either way.</p></details>
+    <details><summary>What's the first-build experience like?</summary><p>The first time, OIOXO downloads the on-device coder once (then it's cached and works offline). After that, you describe an app and watch it plan, write, run, and repair the project live — on your machine.</p></details>
+    <details><summary>Can I use my own API key or a frontier model?</summary><p>Yes — bring your own key from 12+ providers or run a local Ollama model. BYOK is free for everyone, and OIOXO's context engine trims your token bill by roughly 90%.</p></details>
+    <details><summary>What is the Compute Mesh?</summary><p>Pair devices you own on the same Wi-Fi. The lighter device borrows the stronger one's compute to build faster — and the work it does lifts your free limit. It's peer-to-peer and serverless; nothing routes through us.</p></details>
+  </div>
+</div></section>
+
+<!-- CTA BAND -->
+<section class="band center"><div class="wrap">
+  <h2>Build something in the next minute.</h2>
+  <p style="margin:14px auto 0;max-width:50ch">No install, no card. Describe it, watch it build — on your device.</p>
+  <div class="cta-row" style="justify-content:center;margin-top:26px">
+    <a class="btn btn-gold" href="https://oioxo.com/oioxo">Open the IDE — free →</a>
+    <a class="btn btn-ghost" href="#download">Download desktop</a>
+  </div>
+</div></section>
+
+<!-- FOOTER -->
+<footer><div class="wrap">
+  <div class="foot-grid">
+    <div>
+      <a class="brand" href="#top" style="margin-bottom:14px"><span class="mk">O</span>OIOXO</a>
+      <p style="font-size:14px;max-width:32ch">The in-browser AI IDE. Describe it, watch it build — generated, run, and verified on your own device. Forever free to start.</p>
+    </div>
+    <div><h4>Product</h4>
+      <a href="https://oioxo.com/oioxo">Open the IDE</a>
+      <a href="#features">Features</a>
+      <a href="https://oioxo.com/pricing">Pricing</a>
+      <a href="#download">Download</a>
+    </div>
+    <div><h4>Documentation</h4>
+      <a href="https://oioxo.com/docs">Getting started</a>
+      <a href="https://oioxo.com/docs">How OIOXO works</a>
+      <a href="https://oioxo.com/docs">Keyboard shortcuts</a>
+      <a href="https://oioxo.com/docs">Troubleshooting</a>
+    </div>
+    <div><h4>Trust</h4>
+      <a href="https://oioxo.com/privacy">Privacy by design</a>
+      <a href="https://oioxo.com/privacy">Privacy policy</a>
+      <a href="https://oioxo.com/terms">Terms of service</a>
+      <a href="https://oioxo.com/docs">FAQ</a>
+    </div>
+  </div>
+  <div class="foot-bottom">
+    <span>© 2026 OIOXO. All rights reserved.</span>
+    <span>Your code never leaves your device.</span>
+  </div>
+</div></footer>
+
+<script>
+// theme toggle (persists)
+(function(){
+  var root=document.documentElement, key='oioxo-site-theme';
+  try{var s=localStorage.getItem(key); if(s) root.setAttribute('data-theme',s);}catch(e){}
+  document.getElementById('theme').addEventListener('click',function(){
+    var next=root.getAttribute('data-theme')==='dark'?'light':'dark';
+    root.setAttribute('data-theme',next); try{localStorage.setItem(key,next);}catch(e){}
+  });
+})();
+// reveal on scroll
+(function(){
+  if(!('IntersectionObserver' in window)){document.querySelectorAll('.reveal').forEach(function(e){e.classList.add('in')});return;}
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}})},{threshold:.12});
+  document.querySelectorAll('.reveal').forEach(function(e){io.observe(e);});
+})();
+</script>
+</body>
+</html>

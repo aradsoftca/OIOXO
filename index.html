@@ -351,9 +351,13 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
     <div class="imgcard reveal" style="display:grid;place-items:center;min-height:300px;background:linear-gradient(160deg,var(--bg-2),var(--bg-1));padding:34px">
       <!-- simple, on-brand illustration of two devices teaming up -->
       <svg width="100%" viewBox="0 0 420 260" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="A phone and a laptop building together over Wi-Fi" style="max-width:380px">
-        <!-- phone (weaker, left) -->
+        <!-- phone (weaker, left) — builds on borrowed power -->
         <rect x="34" y="78" width="80" height="140" rx="13" fill="var(--card)" stroke="var(--border)"/>
         <rect x="44" y="92" width="60" height="100" rx="5" fill="var(--bg)"/>
+        <!-- build bar filling on the phone screen -->
+        <rect x="44" y="172" width="60" height="20" rx="0" fill="var(--gold)" opacity=".22">
+          <animate attributeName="width" values="8;60;60" keyTimes="0;0.6;1" dur="3.2s" repeatCount="indefinite"/>
+        </rect>
         <circle cx="74" cy="206" r="4" fill="var(--fg-subtle)"/>
         <text x="74" y="246" text-anchor="middle" fill="var(--fg-subtle)" font-family="Inter,sans-serif" font-size="12">your phone</text>
         <!-- laptop (stronger, right) -->
@@ -363,8 +367,9 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
         <text x="319" y="246" text-anchor="middle" fill="var(--fg-subtle)" font-family="Inter,sans-serif" font-size="12">your laptop</text>
         <!-- connection: dashed link + travelling dots -->
         <line x1="118" y1="140" x2="240" y2="140" stroke="var(--gold)" stroke-width="2" stroke-dasharray="6 7" opacity=".55"/>
-        <circle r="4.5" fill="var(--gold)"><animateMotion dur="1.8s" repeatCount="indefinite" path="M118 140 H240"/></circle>
-        <circle r="4.5" fill="var(--gold)" opacity=".6"><animateMotion dur="1.8s" begin="0.9s" repeatCount="indefinite" path="M118 140 H240"/></circle>
+        <!-- power flows laptop → phone (the weaker borrows the stronger) -->
+        <circle r="4.5" fill="var(--gold)"><animateMotion dur="1.8s" repeatCount="indefinite" path="M240 140 H118"/></circle>
+        <circle r="4.5" fill="var(--gold)" opacity=".6"><animateMotion dur="1.8s" begin="0.9s" repeatCount="indefinite" path="M240 140 H118"/></circle>
         <!-- wifi mark above the link -->
         <g transform="translate(179,96)" stroke="var(--gold)" stroke-width="2" fill="none" stroke-linecap="round" opacity=".8">
           <path d="M-13 6 A18 18 0 0 1 13 6"/><path d="M-7 12 A10 10 0 0 1 7 12"/><circle cx="0" cy="17" r="1.6" fill="var(--gold)" stroke="none"/>

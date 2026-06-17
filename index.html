@@ -110,6 +110,10 @@ html[data-theme="light"] .aurora i{opacity:.32;mix-blend-mode:multiply}
 .trust-row{display:flex;flex-wrap:wrap;gap:20px;margin-top:28px;font-size:13px;color:var(--fg-subtle)}
 .trust-row span{display:inline-flex;align-items:center;gap:7px}
 .trust-row .ck{color:var(--ok)}
+/* rotating "cool phrase" card — the showroom's bit of personality (comes & goes). */
+.rotcard{display:inline-flex;align-items:center;gap:11px;margin-top:26px;padding:11px 18px;border:1px solid var(--hairline);border-radius:99px;background:color-mix(in srgb,var(--bg-2) 55%,transparent);backdrop-filter:blur(8px);font-size:15px;font-weight:500;color:var(--fg);min-height:22px;transition:opacity .42s var(--ease),transform .42s var(--ease)}
+.rotcard .rdot{width:6px;height:6px;border-radius:50%;background:var(--gold);box-shadow:0 0 9px var(--gold);flex:none}
+.rotcard.swap{opacity:0;transform:translateY(7px)}
 
 .hero-stage{margin-top:clamp(44px,6vw,76px);display:grid;grid-template-columns:1fr;gap:18px;position:relative}
 .shot{border-radius:var(--radius-lg);border:1px solid var(--border);overflow:hidden;box-shadow:0 50px 140px -50px rgba(0,0,0,.75),0 0 0 1px color-mix(in srgb,var(--gold) 8%,transparent);background:var(--bg-1);transform:perspective(1600px) rotateX(4deg);transition:transform .5s var(--ease)}
@@ -279,6 +283,7 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
       <span><span class="ck">✓</span> Free to start — no card</span>
       <span><span class="ck">✓</span> Works offline once it's loaded</span>
     </div>
+    <div class="rotcard" id="rotcard" aria-live="polite"><span class="rdot"></span><span id="rotphrase">Yes — it really codes on that $80 phone.</span></div>
   </div>
 
   <div class="hero-stage reveal">
@@ -582,6 +587,29 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
 
   var kpiEl=document.querySelector('.kpis');
   if(kpiEl){ var ko=new IntersectionObserver(function(es){if(es[0].isIntersecting){countUp();ko.disconnect();}},{threshold:.4}); ko.observe(kpiEl); }
+
+  // rotating "cool phrase" card — the showroom's personality. Comes & goes; pauses on hover;
+  // reduced-motion holds the first. A little coolness on the edge of professional.
+  var rcard=document.getElementById('rotcard'), rph=document.getElementById('rotphrase');
+  if(rcard && rph && !reduce){
+    var phrases=[
+      'Yes — it really codes on that $80 phone.',
+      'Your code never meets the cloud. Not once.',
+      "Old phone, laptop's brain — over your own Wi-Fi.",
+      'Offline on a plane? Still shipping.',
+      'Your AI bill, minus up to 90%.',
+      'Private by default. Not by checkbox.',
+      'No servers were touched making your app.',
+      'Two devices, one project, zero cloud.'
+    ], rp=0, rpaused=false;
+    rcard.addEventListener('mouseenter',function(){rpaused=true;});
+    rcard.addEventListener('mouseleave',function(){rpaused=false;});
+    setInterval(function(){
+      if(rpaused||document.hidden) return;
+      rcard.classList.add('swap');
+      setTimeout(function(){ rp=(rp+1)%phrases.length; rph.textContent=phrases[rp]; rcard.classList.remove('swap'); },420);
+    },3200);
+  }
 
   // hero terminal type-out
   var tb=document.getElementById('termbody');

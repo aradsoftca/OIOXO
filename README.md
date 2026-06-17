@@ -8,8 +8,8 @@
 
 **OIOXO is a private AI that builds real apps for you.** Tell it what you want in one
 sentence — it writes the code, **runs it, and fixes it until it works** — all on your own
-computer or phone. Your code never leaves your device. It's free to start, and it cuts your
-AI costs by about 90%.
+computer or phone. Your code never leaves your device. It's free to start, and it can cut your
+AI costs by up to 90%.
 
 [**Start building — free →**](https://oioxo.com/oioxo) &nbsp;·&nbsp;
 [Download](https://oioxo.com/download) &nbsp;·&nbsp;
@@ -33,13 +33,13 @@ The AI runs on **your own computer or phone**, not on our servers. So nothing yo
 ask ever gets uploaded. Privacy isn't a setting you switch on — it's just how it's built.
 The only thing we ever count is *how much* you've used, never *what* you made.
 
-### 💸 It saves you about 90% on AI — even in the tools you already use
+### 💸 It can cut your AI bill by up to 90% — even in the tools you already use
 AI assistants charge you by the word, and they read far more of your project than they need.
 OIOXO hands the AI only the small slice that's actually relevant — same answer, a fraction of
 the cost. A question that would cost ~50,000 words comes back as ~5,000.
 
 And you don't have to switch tools. One small install plugs OIOXO into **GitHub Copilot,
-Cursor, Claude, Windsurf** and more — your existing setup, ~90% cheaper.
+Cursor, Claude, Windsurf** and more — your existing setup, up to ~90% cheaper.
 
 ```bash
 npx oioxo-mcp@latest
@@ -81,7 +81,7 @@ until it actually works.** The check mark means it ran — not that it looked ri
 | **In your browser** | Nothing to install. Just open it and build. | [Open OIOXO](https://oioxo.com/oioxo) |
 | **On your computer** `v1.99.6` | A full app for Windows, Mac & Linux — more powerful, works with your files. | [Download](https://oioxo.com/download) |
 | **On your phone** | The full thing, made for touch, on iPhone & Android. | [Open on your phone](https://oioxo.com/oioxo) |
-| **In the terminal** | A coding helper for your command line — and the ~90% cost saver. | `npx oioxo-mcp@latest` · [npm](https://www.npmjs.com/package/oioxo-mcp) |
+| **In the terminal** | A coding helper for your command line — and the up-to-~90% cost saver. | `npx oioxo-mcp@latest` · [npm](https://www.npmjs.com/package/oioxo-mcp) |
 | **Inside VS Code** | OIOXO right in your editor — private chat + the cost saver. | [Marketplace](https://marketplace.visualstudio.com/items?itemName=oioxo.oioxo-vscode) |
 
 Everything for every device lives at **[oioxo.com/download](https://oioxo.com/download)**.
@@ -119,7 +119,7 @@ build time. They talk directly; nothing goes through us.
 
 **Can I use my own AI (like Claude or OpenAI)?**
 Yes — plug in your key from 12+ providers, or run a model locally with Ollama. Free for
-everyone, and OIOXO still trims the bill ~90%.
+everyone, and OIOXO still trims the bill by up to ~90%.
 
 ---
 

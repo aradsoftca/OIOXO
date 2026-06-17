@@ -268,7 +268,7 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
 <header class="hero" id="top"><div class="wrap">
   <div class="stagger" id="herotext">
     <span class="pill"><span class="tag">NEW</span> Your phone &amp; laptop can now build together</span>
-    <h1>The private AI that builds<br>real apps — on your <span class="grad" id="rotword">device.</span></h1>
+    <h1>Build real apps — privately,<br>on the <span class="grad">device in your hand.</span></h1>
     <p class="lead">OIOXO is a private AI that builds real apps for you. Tell it what you want in one sentence — it writes the code, <b style="color:var(--fg)">runs it, and fixes it until it works</b> — all on your own computer or phone. Your code never leaves your device. Free to start, and it can cut your AI costs by up to 90%.</p>
     <div class="cta-row">
       <a class="btn btn-gold" href="https://oioxo.com/oioxo">Start building — free →</a>
@@ -575,19 +575,6 @@ footer a.fl:hover{color:var(--gold);padding-left:4px}
     });
   }
 
-  // hero rotating last word — one word, the single premium motion touch. Reinforces
-  // "runs on the weakest device" without making the hero a slideshow. Reduced-motion: static.
-  var rw=document.getElementById('rotword');
-  if(rw && !reduce){
-    var words=['device.','phone.','laptop.','anything.'], wi=0;
-    rw.style.transition='opacity .34s var(--ease), transform .34s var(--ease)';
-    rw.style.display='inline-block';
-    setInterval(function(){
-      if(document.hidden) return;
-      rw.style.opacity='0'; rw.style.transform='translateY(6px)';
-      setTimeout(function(){ wi=(wi+1)%words.length; rw.textContent=words[wi]; rw.style.opacity='1'; rw.style.transform='none'; },340);
-    },2600);
-  }
   var kpiEl=document.querySelector('.kpis');
   if(kpiEl){ var ko=new IntersectionObserver(function(es){if(es[0].isIntersecting){countUp();ko.disconnect();}},{threshold:.4}); ko.observe(kpiEl); }
 

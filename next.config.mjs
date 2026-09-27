@@ -224,14 +224,6 @@ const nextConfig = {
         config.optimization.minimize = false;
 
         const WebpackObfuscator = require('webpack-obfuscator');
-        // The allowed-host list MUST match the brand build target — domainLock
-        // makes the bundle SELF-CHECK its location at runtime and silently
-        // refuse to run on the wrong host (a copied site on attacker.tld
-        // simply never executes). Bypass requires comprehending and patching
-        // the obfuscated host check inside hex-renamed code.
-        const allowedHosts = process.env.OBFUSCATE_HOSTS
-          ? process.env.OBFUSCATE_HOSTS.split(',').map((h) => h.trim()).filter(Boolean)
-          : ['xonvert.com', 'www.xonvert.com', 'new.xonvert.com', 'oioxo.com', 'www.oioxo.com', 'localhost'];
         config.plugins.push(
           new WebpackObfuscator(
             {
@@ -266,10 +258,14 @@ const nextConfig = {
               controlFlowFlattening: false,
               deadCodeInjection: false,
               renameProperties: false,
-              domainLock: allowedHosts,
-              // domainLock with NO redirect → unauthorized host = silent failure
-              // (no useful error message for the cloner to debug against).
-              domainLockRedirectUrl: 'about:blank',
+              // domainLock: OFF. Its prologue reads document/location, which a
+              // Worker lacks, and webpack's worker chunks have numeric names
+              // (e.g. 6043.<hash>.js) that the '**/*.worker.js' exclude below
+              // never matches — so ffmpeg's worker threw "reading 'undefined'"
+              // on load and EVERY ffmpeg tool (all video tools, WAV→MP3,
+              // video→audio) hung forever in production. Found by driving the
+              // live pages in Chrome (scripts/live_e2e.mjs).
+              domainLock: [],
               log: false,
             },
             // Don't touch the framework runtime / worker glue — obfuscating those

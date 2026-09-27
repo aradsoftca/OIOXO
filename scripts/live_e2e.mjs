@@ -58,6 +58,30 @@ function isSmallImage(b) {
   if (b[0] === 0x89 && h.slice(1, 4) === 'PNG') return null;
   return 'not an image (magic ' + b.subarray(0, 4).toString('hex') + ')';
 }
+function isPdf(minPages) {
+  return (b) => {
+    const s = b.toString('latin1');
+    if (!s.startsWith('%PDF-')) return 'not PDF (magic ' + b.subarray(0, 5).toString('hex') + ')';
+    if (!s.includes('%%EOF')) return 'PDF has no %%EOF';
+    // Page objects may sit inside compressed object streams; only judge when visible.
+    const pages = (s.match(/\/Type\s*\/Page(?!s)/g) || []).length;
+    if (pages && pages < minPages) return `PDF has ${pages} pages, expected >= ${minPages}`;
+    return null;
+  };
+}
+function isMp3(b) {
+  const h = b.subarray(0, 3).toString('latin1');
+  return h === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) ? null : 'not MP3 (magic ' + b.subarray(0, 4).toString('hex') + ')';
+}
+function isAudio(b) {
+  const h = b.subarray(0, 12).toString('latin1');
+  if (h.startsWith('ID3')) return null; // mp3 with tag
+  if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return null; // mp3 / ADTS aac frame sync
+  if (h.slice(4, 8) === 'ftyp') return null; // m4a
+  if (h.startsWith('RIFF') && h.slice(8, 12) === 'WAVE') return null;
+  if (h.startsWith('OggS') || h.startsWith('fLaC')) return null;
+  return 'not audio (magic ' + b.subarray(0, 4).toString('hex') + ')';
+}
 const isWav = (b) => (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WAVE' && b.length > 44 ? null : 'not WAV (magic ' + b.subarray(0, 4).toString('hex') + ')');
 
 // click: optional button-text regex pressed once after upload (the page's own action).
@@ -72,6 +96,13 @@ const CASES = [
   // image-compress runs as soon as the file is added — no action button, just Download.
   { name: 'image-compress',  url: '/tools/image-compress',   file: 'test.png',         check: isSmallImage },
   { name: 'audio-volume',    url: '/tools/audio-volume',     file: 'tone.wav',         check: isWav,  click: /^(apply|convert|export|process)/i },
+  { name: 'pdf-compress',    url: '/tools/pdf-compress',     file: 'two-page.pdf',     check: isPdf(2), click: /^compress$/i },
+  { name: 'pdf-merge',       url: '/tools/pdf-merge',        file: ['two-page.pdf', 'one-page.pdf'], check: isPdf(3), click: /^merge/i },
+  { name: 'video-extract-audio', url: '/tools/video-extract-audio', file: 'clip.mp4',  check: isAudio, click: /^extract/i },
+  // image-resize renders the result on upload; the runner then presses its Download button.
+  // Goes through the ffmpeg worker — broken in prod by the obfuscator's domainLock until 2026-09-27.
+  { name: 'wav-to-mp3',      url: '/convert/wav-to-mp3',     file: 'tone.wav',         check: isMp3,  click: /^convert/i },
+  { name: 'image-resize',    url: '/tools/image-resize',     file: 'test.png',         check: isSmallImage },
 ];
 
 async function runCase(browser, c) {
@@ -86,8 +117,8 @@ async function runCase(browser, c) {
   const left = () => Math.max(1000, deadline - Date.now());
   const firstErr = () => (errors[0] ? ' | ' + errors[0].replace(/\s+/g, ' ').slice(0, 240) : '');
   try {
-    const sample = path.join(SAMPLES, c.file);
-    if (!fs.existsSync(sample)) throw new Error('missing sample ' + sample);
+    const sample = [].concat(c.file).map((f) => path.join(SAMPLES, f));
+    for (const f of sample) if (!fs.existsSync(f)) throw new Error('missing sample ' + f);
     await page.goto(BASE + c.url, { waitUntil: 'networkidle', timeout: left() });
     await page.locator('input[type=file]').first().setInputFiles(sample, { timeout: left() });
     await page.waitForTimeout(1500);

@@ -37,5 +37,37 @@ f = wave.open(os.path.join(d, 'tone.wav'), 'wb')
 f.setnchannels(1); f.setsampwidth(2); f.setframerate(44100)
 f.writeframes(b''.join(struct.pack('<h', int(12000 * math.sin(2 * math.pi * 440 * i / 44100))) for i in range(44100 * 2)))
 f.close()
+
+# Minimal valid PDFs (Helvetica text, correct xref offsets), no dependencies.
+NL = chr(10)
+def make_pdf(path, labels):
+    n = len(labels)
+    objs = ['<< /Type /Catalog /Pages 2 0 R >>']
+    kids = ' '.join(f'{3 + 2 * i} 0 R' for i in range(n))
+    objs.append(f'<< /Type /Pages /Kids [{kids}] /Count {n} >>')
+    font = 3 + 2 * n
+    for i, label in enumerate(labels):
+        stream = f'BT /F1 24 Tf 72 700 Td ({label}) Tj ET'
+        objs.append(f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 {font} 0 R >> >> /Contents {4 + 2 * i} 0 R >>')
+        objs.append(f'<< /Length {len(stream)} >>' + NL + 'stream' + NL + stream + NL + 'endstream')
+    objs.append('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>')
+    out = '%PDF-1.4' + NL
+    offsets = []
+    for i, o in enumerate(objs):
+        offsets.append(len(out))
+        out += f'{i + 1} 0 obj' + NL + o + NL + 'endobj' + NL
+    xref = len(out)
+    out += 'xref' + NL + f'0 {len(objs) + 1}' + NL + '0000000000 65535 f ' + NL
+    for off in offsets:
+        out += f'{off:010d} 00000 n ' + NL
+    out += 'trailer' + NL + f'<< /Size {len(objs) + 1} /Root 1 0 R >>' + NL + 'startxref' + NL + str(xref) + NL + '%%EOF' + NL
+    open(path, 'wb').write(out.encode('latin-1'))
+make_pdf(os.path.join(d, 'two-page.pdf'), ['Xonvert e2e page one', 'Xonvert e2e page two'])
+make_pdf(os.path.join(d, 'one-page.pdf'), ['Xonvert e2e single page'])
 PY
+
+# 2 s test video with a 440 Hz audio track (needs ffmpeg: apt-get install -y ffmpeg).
+command -v ffmpeg >/dev/null || { echo "ffmpeg not found - install it (apt-get install -y ffmpeg)" >&2; exit 1; }
+ffmpeg -nostdin -loglevel error -y -f lavfi -i testsrc=size=320x240:rate=25 -f lavfi -i sine=frequency=440:sample_rate=44100 \
+  -t 2 -c:v libx264 -pix_fmt yuv420p -c:a aac -b:a 128k -shortest -movflags +faststart clip.mp4
 ls -la "$DIR"

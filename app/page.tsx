@@ -12,6 +12,14 @@ import ConvertAnythingTool from '@/tools/convert-anything/ui';
 import { buildMeta } from '@/lib/seo/meta';
 import { faqPageJsonLd, structuredDataToScript } from '@/lib/seo/jsonld';
 
+const POPULAR_IDS = [
+  'pdf-compress', 'pdf-merge', 'pdf-split', 'pdf-to-images', 'images-to-pdf', 'pdf-rotate',
+  'image-compress', 'image-resize', 'image-convert-format', 'image-remove-bg', 'image-crop', 'image-heic-convert',
+  'video-compress', 'video-extract-audio', 'video-to-gif', 'video-trim', 'video-convert-format', 'video-resize',
+  'audio-convert-format', 'audio-trim', 'audio-volume', 'model-3d-convert', 'cad-convert', 'font-convert',
+];
+const POPULAR = POPULAR_IDS.map((id) => TOOLS.find((t) => t.id === id)).filter((t): t is (typeof TOOLS)[number] => !!t && !t.pinDefault);
+
 export const metadata: Metadata = buildMeta({
   path: '/',
   title: IS_OIOXO
@@ -28,8 +36,8 @@ export const metadata: Metadata = buildMeta({
 const HOME_FAQS_XONVERT = [
   { q: `Is ${BRAND} really free?`, a: `Yes — every tool is free to use without a credit card or signup. Pro unlocks higher daily quotas, removes the small export watermark, and lifts limits on heavy operations.` },
   { q: 'Do my files get uploaded?', a: `No. ${BRAND} runs entirely in your browser. Your files are processed locally and never reach our servers. You can verify this in your browser's network panel.` },
-  { q: `What can ${BRAND} actually do?`, a: `Image: resize, compress, convert, edit with layers, batch process. Audio: trim, master, transcribe, generate voiceovers. Video: cut, color grade, caption, export. PDF: merge, split, OCR, sign, redact. Documents, sheets, slides. Hundreds of utility, generator, and calculator tools.` },
-  { q: 'How many formats are supported?', a: `260+ formats across image, audio, video, document, ebook, archive, 3D, font, and subtitle categories. The Convert hub lists every supported pair.` },
+  { q: `What can ${BRAND} actually do?`, a: `Images: compress, resize, convert, crop, remove backgrounds. PDF: compress, merge, split, rotate, convert to and from images. Video: compress, trim, resize, convert, extract audio as MP3. Audio: convert, trim, change volume. CAD & 3D: DWG to DXF, STEP/IGES to STL or OBJ, and 3D models to GLB/glTF. Plus hundreds of text, developer and calculator tools.` },
+  { q: 'Which formats are supported?', a: `Common image, audio, video and PDF formats, plus CAD and 3D formats (DWG, DXF, STEP, IGES, STL, OBJ, FBX, GLB and more), fonts and subtitles. The Convert hub and the CAD & 3D page list every supported conversion.` },
   { q: 'Does it work offline?', a: 'Yes — once a tool page is loaded, the browser caches the assets and the tool keeps working without internet.' },
   { q: 'Does it work on mobile?', a: 'Yes. Every tool works in modern mobile browsers on Android and iOS without an app install.' },
 ];
@@ -190,16 +198,19 @@ export default function HomePage() {
         <CategoryGrid />
       </section>
 
-      {/* All migrated tools — Phase 1 batch */}
+      {/* Popular tools. Not all 340+: rendering every tile (each with an inline
+          SVG icon) made the homepage 761 KB of HTML at 3.5% text. /tools lists all. */}
       <section className="space-y-3">
         <div className="flex items-baseline justify-between">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--color-fg-muted)]">
-            Available now
+            Popular tools
           </h2>
-          <span className="text-[12px] text-[var(--color-fg-subtle)]">{TOOLS.length} live · more coming</span>
+          <Link href="/tools" className="text-[12px] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]">
+            All {TOOLS.length} tools →
+          </Link>
         </div>
         <TileGrid cols={4}>
-          {TOOLS.filter((t) => !t.pinDefault).map((t, i) => (
+          {POPULAR.map((t, i) => (
             <ToolTile key={t.id} tool={t} flipDelay={`${i * 1.2}s`} />
           ))}
         </TileGrid>

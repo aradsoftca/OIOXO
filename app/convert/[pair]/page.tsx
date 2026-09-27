@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import dynamic from 'next/dynamic';
+import { PairToolUI } from './tool-modules';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { CONVERT_PAIRS, getPair, pairTitle, pairBlurb } from '@/lib/convert/pairs';
@@ -72,24 +72,6 @@ function buildConvertFaqs(pair: { from: string; to: string }) {
   ];
 }
 
-const loading = () => <div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />;
-
-const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
-  'image-convert-format': dynamic(() => import('@/tools/image-convert-format/ui'), { loading }),
-  'audio-convert-format': dynamic(() => import('@/tools/audio-convert-format/ui'), { loading }),
-  'video-to-gif':         dynamic(() => import('@/tools/video-to-gif/ui'),         { loading }),
-  'video-extract-audio':  dynamic(() => import('@/tools/video-extract-audio/ui'),  { loading }),
-  'video-convert-format': dynamic(() => import('@/tools/video-convert-format/ui'), { loading }),
-  'images-to-video':      dynamic(() => import('@/tools/images-to-video/ui'),      { loading }),
-  'pdf-to-images':        dynamic(() => import('@/tools/pdf-to-images/ui'),        { loading }),
-  'images-to-pdf':        dynamic(() => import('@/tools/images-to-pdf/ui'),        { loading }),
-  'pdf-to-text':          dynamic(() => import('@/tools/pdf-to-text/ui'),          { loading }),
-  'image-ocr':            dynamic(() => import('@/tools/image-ocr/ui'),            { loading }),
-  'audio-to-text':        dynamic(() => import('@/tools/audio-to-text/ui'),        { loading }),
-  'model-3d-convert':     dynamic(() => import('@/tools/model-3d-convert/ui'),     { loading }),
-  'cad-convert':          dynamic(() => import('@/tools/cad-convert/ui'),          { loading }),
-  'convert-anything':     dynamic(() => import('@/tools/convert-anything/ui'),     { loading }),
-};
 
 export default async function ConvertPairPage({ params }: Props) {
   const { pair: slug } = await params;
@@ -97,13 +79,12 @@ export default async function ConvertPairPage({ params }: Props) {
   if (!pair) notFound();
 
   const tool = getTool(pair.toolId);
-  const ToolUI = ToolModules[pair.toolId];
   const content = await getConversionContent(slug);
 
   return (
     <ConvertFrame pair={pair}>
       <div className="space-y-6">
-        {ToolUI ? <ConvertTargetProvider to={pair.to}><ToolUI /></ConvertTargetProvider> : (
+        {pair.toolId ? <ConvertTargetProvider to={pair.to}><PairToolUI id={pair.toolId} /></ConvertTargetProvider> : (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-8 text-center text-[var(--color-fg-muted)]">
             This conversion is registered but the underlying tool isn&apos;t wired yet.
           </div>

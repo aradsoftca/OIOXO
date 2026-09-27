@@ -1,6 +1,7 @@
 import type { ToolManifest, Category } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
 import { BRAND, IS_OIOXO } from '@/lib/brand';
+import { TOOL_COPY } from '@/lib/seo/tool-copy';
 
 export interface RichSection {
   heading: string;
@@ -556,9 +557,14 @@ export function buildRichPage(tool: ToolManifest, relatedToolIds: string[] = [])
   return {
     title: trunc(title, 70),
     description: trunc(`${tool.blurb} Free, private, runs in your browser. ${/^[aeiou]/i.test(firstRival) ? 'An' : 'A'} ${firstRival} alternative.`, 160),
-    intro: xonvertIntro(tool, profile),
-    sections: xonvertSections(tool, profile),
-    faqs: xonvertFaqs(tool, profile),
+    // Hand-written, code-checked copy for the top tools; generic template otherwise.
+    intro: TOOL_COPY[tool.id]?.intro ?? xonvertIntro(tool, profile),
+    sections: TOOL_COPY[tool.id]
+      ? [...TOOL_COPY[tool.id].sections, ...xonvertSections(tool, profile).slice(1)]
+      : xonvertSections(tool, profile),
+    faqs: TOOL_COPY[tool.id]
+      ? [...TOOL_COPY[tool.id].faqs, ...xonvertFaqs(tool, profile).slice(1)]
+      : xonvertFaqs(tool, profile),
     steps: xonvertSteps(tool),
     benefits: xonvertBenefits(tool),
     keywords: xonvertKeywords(tool, profile),

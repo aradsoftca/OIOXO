@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { useConvertTarget } from '@/lib/convert/target-context';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
 import { fmtDuration } from '@/engines/video';
@@ -40,7 +41,7 @@ export default function Tool() {
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
-  const [target, setTarget] = React.useState<Target>('mp4');
+  const [target, setTarget] = React.useState<Target>(useConvertTarget<Target>(['mp4', 'webm', 'mov', 'mkv'], 'mp4'));
   const [quality, setQuality] = React.useState(QUALITIES[1]);
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);

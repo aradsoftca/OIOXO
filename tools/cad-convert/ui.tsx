@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useConvertTarget } from '@/lib/convert/target-context';
 import { Download, Loader2, Box } from 'lucide-react';
 import { cadKind } from '@/engines/cad';
 import { convertCadInWorker } from '@/engines/cad/client';
@@ -11,7 +12,7 @@ type Target = 'stl' | 'obj';
 
 export default function CadConvertTool() {
   const [file, setFile] = React.useState<File | null>(null);
-  const [target, setTarget] = React.useState<Target>('stl');
+  const [target, setTarget] = React.useState<Target>(useConvertTarget<Target>(['stl', 'obj'], 'stl'));
   const [busy, setBusy] = React.useState(false);
   const [stats, setStats] = React.useState<{ parts: number; triangles: number } | null>(null);
   const [error, setError] = React.useState('');

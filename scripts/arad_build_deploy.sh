@@ -83,5 +83,13 @@ if [ "${DEPLOY:-0}" = "1" ]; then
   TOOL_WASM_KEY="$KEY" BRAIN_WASM_KEY="$BRAIN_KEY" ICELAND_KEY=/root/.ssh/id_oioxo_deploy \
     python3 -u scripts/deploy.py --from-artifact "$ART"
   echo "== live commit: $(curl -s https://xonvert.com/build-commit.txt)"
+  # Real conversions on the LIVE site in Chromium. A Node engine harness passed
+  # 25/25 while every live CAD/3D/image-worker conversion failed — only this sees it.
+  echo "== live e2e"
+  [ -s "${SAMPLES_DIR:-/root/cadtest/samples}/box.fbx" ] || bash scripts/live_e2e_samples.sh >/dev/null
+  if ! node scripts/live_e2e.mjs https://xonvert.com; then
+    echo "LIVE_E2E_FAIL — the deploy is live but conversions are broken; fix or roll back (.next.prev on the server)"
+    exit 1
+  fi
 fi
 echo "ARAD_BUILD_DONE $COMMIT"

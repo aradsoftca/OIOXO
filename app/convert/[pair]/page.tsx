@@ -8,6 +8,7 @@ import { ConvertFrame } from '@/components/tool/ConvertFrame';
 import { getConversionContent } from '@/lib/convert/content';
 import { ConversionSEO } from '@/components/convert/ConversionSEO';
 import { BRAND } from '@/lib/brand';
+import { ConvertTargetProvider } from '@/lib/convert/target-context';
 import { buildMeta } from '@/lib/seo/meta';
 import { faqPageJsonLd, structuredDataToScript } from '@/lib/seo/jsonld';
 import { PolicyHint } from '@/components/limits/PolicyHint';
@@ -103,7 +104,7 @@ export default async function ConvertPairPage({ params }: Props) {
     <ConvertFrame pair={pair}>
       <div className="space-y-6">
         {pair.toolId && <PolicyHint toolKey={pair.toolId} fallbackKey="convert" />}
-        {ToolUI ? <ToolUI /> : (
+        {ToolUI ? <ConvertTargetProvider to={pair.to}><ToolUI /></ConvertTargetProvider> : (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-8 text-center text-[var(--color-fg-muted)]">
             This conversion is registered but the underlying tool isn&apos;t wired yet.
           </div>

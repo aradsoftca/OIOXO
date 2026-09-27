@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { useConvertTarget } from '@/lib/convert/target-context';
 import { Download, Loader2 } from 'lucide-react';
 import { AudioDrop, type AudioFileItem } from '@/components/tool/AudioDrop';
 import { encodeWav, encodeMp3, downloadBlob } from '@/engines/audio';
@@ -18,7 +19,7 @@ export default function Tool() {
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
   const [item, setItem] = React.useState<AudioFileItem | null>(null);
-  const [format, setFormat] = React.useState<Format>('mp3');
+  const [format, setFormat] = React.useState<Format>(useConvertTarget<Format>(['wav', 'mp3'], 'mp3'));
   const [bitrate, setBitrate] = React.useState(192);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');

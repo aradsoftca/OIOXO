@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useConvertTarget } from '@/lib/convert/target-context';
 import { Download, Loader2, X, Box } from 'lucide-react';
 import { type Model3dTarget } from '@/engines/model3d';
 import { convertModelInWorker } from '@/engines/model3d/client';
@@ -10,7 +11,7 @@ interface Item { file: File }
 
 export default function Model3dConvertTool() {
   const [items, setItems] = React.useState<Item[]>([]);
-  const [target, setTarget] = React.useState<Model3dTarget>('glb');
+  const [target, setTarget] = React.useState<Model3dTarget>(useConvertTarget<Model3dTarget>(['glb', 'gltf'], 'glb'));
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [result, setResult] = React.useState<{ url: string; name: string; count: number } | null>(null);

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useConvertTarget } from '@/lib/convert/target-context';
 import * as Slider from '@radix-ui/react-slider';
 import { Download, Upload, Image as ImageIcon, Loader2, Shuffle } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -32,7 +33,9 @@ export default function ConvertFormatTool() {
   const [outputUrl, setOutputUrl] = React.useState('');
   const [outputBytes, setOutputBytes] = React.useState(0);
   const [dims, setDims] = React.useState<{ w: number; h: number } | null>(null);
-  const [target, setTarget] = React.useState<ImageFormat>('webp');
+  const [target, setTarget] = React.useState<ImageFormat>(
+    useConvertTarget<ImageFormat>(['jpeg', 'png', 'webp', 'avif'], 'webp', { jpg: 'jpeg' }),
+  );
   const [quality, setQuality] = React.useState(90);
   const [busy, setBusy] = React.useState(false);
 

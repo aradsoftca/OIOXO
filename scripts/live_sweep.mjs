@@ -78,6 +78,28 @@ const SECOND_FILE = { 'two-page.pdf': 'one-page.pdf', 'tone.wav': 'tone2.wav', '
 // covered by ACTION_RE (texts collected from the live pages by this sweep).
 // Each entry still passes NOT_ACTION_RE, so it can never press a purchase/share button.
 const ACTION_OVERRIDE = {};
+
+// Per-tool PREP, run after upload and before the action: these tools start on a neutral
+// default (0 semitones, 1x, 0 dB, no pages, no password, no audio) that keeps the action
+// button disabled. Each step is best-effort; a failure is recorded in rec.prepError.
+const clickChip = (label) => async (page) => page.locator('button:visible', { hasText: label }).first().click({ timeout: 5000 });
+const PREP = {
+  'audio-pitch': clickChip(/^\s*\+7\s*$/),
+  'audio-speed': clickChip(/^\s*1\.5×\s*$/),
+  'video-speed': clickChip(/^\s*1\.5×\s*$/),
+  'video-volume': clickChip(/^\s*\+6\s*$/),
+  'pdf-delete-pages': async (page) => page.locator('input[placeholder="2, 5-7, 10"]').fill('2'),
+  'pdf-protect': async (page) => {
+    await page.locator('input[placeholder="Enter a password"]').fill('qa-sweep-1');
+    await page.locator('input[placeholder="Re-enter the password"]').fill('qa-sweep-1');
+  },
+  'video-add-audio': async (page) => {
+    const inputs = page.locator('input[type=file]');
+    await inputs.nth((await inputs.count()) - 1).setInputFiles(path.join(SAMPLES, 'tone.wav'));
+  },
+};
+// alert()/confirm() text that means the action failed (tools that report errors by dialog).
+const DIALOG_FAIL_RE = /fail|error|could not|couldn't|unable/i;
 // Labels seen on the live pages that ACTION_RE misses ("MUTE & DOWNLOAD", "BUILD PDF", "ADD ECHO",
 // "SHIFT PITCH", "RE-ENCODE", "Transcribe", ...). Checked in addition to ACTION_RE.
 const ACTION_EXTRA_RE = /(&\s*download\b|^build\b|^add (echo|audio|numbers|text|watermark)\b|^shift pitch|^change (speed|tempo)|^apply volume|^re-encode|^loop$|^dub video|^scan$|^transcribe$|^enlarge\b|^reframe$|^compile gif|^translate to\b|^read again$)/i;
@@ -202,6 +224,11 @@ async function runPage(browser, url) {
   const ctx = SHARED_CTX || await newSweepContext(browser);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => rec.pageErrors.push(String(e.message || e).slice(0, 300)));
+  // Playwright dismisses dialogs silently by default; record them (studio-gif hid its error in an alert).
+  page.on('dialog', (d) => {
+    (rec.dialogs ||= []).push(`${d.type()}: ${d.message().slice(0, 200)}`);
+    d.dismiss().catch(() => {});
+  });
   page.on('console', (m) => { if (m.type() === 'error') rec.consoleErrors.push(m.text().slice(0, 300)); });
   page.on('response', (r) => {
     try { if (r.status() >= 400 && new URL(r.url()).origin === ORIGIN) rec.http.push(`${r.status()} ${r.url().replace(ORIGIN, '')}`); } catch {}
@@ -240,6 +267,10 @@ async function runPage(browser, url) {
     if (multiple !== null && second && fs.existsSync(path.join(SAMPLES, second))) files.push(path.join(SAMPLES, second));
     await page.locator('input[type=file]').first().setInputFiles(files);
     await page.waitForTimeout(2000);
+    if (sid && PREP[sid]) {
+      try { await PREP[sid](page); rec.prep = true; } catch (e) { rec.prepError = String(e.message || e).split('\n')[0].slice(0, 160); }
+      await page.waitForTimeout(1000);
+    }
 
     const clicked = new Set();
     const deadline = Date.now() + DL_TIMEOUT;
@@ -286,6 +317,8 @@ async function runPage(browser, url) {
       if (await page.getByText(/free limit reached/i).first().isVisible().catch(() => false)) { rec.quota = true; break; }
       const red = (await page.locator('.text-red-600:visible, [role=alert]:visible').allInnerTexts().catch(() => [])).map((x) => x.trim()).filter(Boolean);
       if (red.length && !download) { rec.red = red.slice(0, 3); break; }
+      const badDialog = (rec.dialogs || []).find((m) => DIALOG_FAIL_RE.test(m));
+      if (badDialog && !download) { rec.dialogFail = badDialog; break; }
     }
     rec.clicked = [...clicked];
     if (!download && rec.quota) { rec.status = 'SKIPPED'; rec.reasons.push('daily free-export limit reached (quota modal) - output not testable today'); return finish(rec); }
@@ -297,7 +330,10 @@ async function runPage(browser, url) {
         rec.status = 'SKIPPED'; rec.reasons.push('uploaded, but no recognisable action/download button'); return finish(rec);
       }
       rec.status = 'UPLOAD-FAIL';
-      rec.reasons.push(rec.red.length ? 'error shown: ' + rec.red[0].slice(0, 160) : `no download within ${DL_TIMEOUT / 1000}s`);
+      rec.reasons.push(rec.red.length ? 'error shown: ' + rec.red[0].slice(0, 160)
+        : rec.dialogFail ? 'error dialog: ' + rec.dialogFail
+        : (rec.dialogs || []).length ? `no download within ${DL_TIMEOUT / 1000}s (dialog: ${rec.dialogs[0]})`
+        : `no download within ${DL_TIMEOUT / 1000}s`);
       return finish(rec);
     }
     const out = path.join(DL_DIR, url.replace(/\W+/g, '_') + '-' + download.suggestedFilename());
@@ -347,7 +383,9 @@ async function urlList() {
 // ---------- main ----------
 const urls = await urlList();
 console.error(`sweeping ${urls.length} pages against ${BASE} (concurrency ${CONCURRENCY})`);
-const browser = await chromium.launch({ executablePath: CHROME, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
+const browser = await chromium.launch({ executablePath: CHROME, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
+  // video-mute & co. record by real-time playback; headless blocks unmuted autoplay without this.
+  '--autoplay-policy=no-user-gesture-required'] });
 const qa = readQaEnv();
 if (qa) {
   SHARED_CTX = await signIn(browser, qa);

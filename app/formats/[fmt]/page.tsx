@@ -63,7 +63,7 @@ export default async function FormatPage({ params }: Props) {
         {CAD3D_FORMATS[fmt] && <Link href="/cad-3d" className="inline-flex min-h-[44px] items-center hover:underline">CAD &amp; 3D</Link>}
       </nav>
       <header className="space-y-3">
-        <h1 className="text-[32px] font-bold tracking-tight text-[var(--color-fg)]">{f.name}</h1>
+        <h1 className="break-words text-[28px] font-bold tracking-tight text-[var(--color-fg)] sm:text-[32px]">{f.name}</h1>
         <p className="text-[15px] leading-relaxed text-[var(--color-fg)]">{f.what}</p>
         <p className="text-[14px] leading-relaxed text-[var(--color-fg-muted)]"><strong>Used by:</strong> {f.usedBy}</p>
       </header>

@@ -236,7 +236,7 @@ export default function ConvertFormatTool() {
                 )}>
                   {outputBytes > 0 ? formatBytes(outputBytes) : '—'}
                   {ratio !== 0 && outputBytes > 0 && (
-                    <span className="ml-1 text-[10px] font-normal text-[var(--color-fg-subtle)]">
+                    <span className="ml-1 text-[11px] font-normal text-[var(--color-fg-subtle)]">
                       ({ratio > 0 ? '−' : '+'}{Math.abs(ratio)}%)
                     </span>
                   )}
@@ -266,7 +266,7 @@ export default function ConvertFormatTool() {
               <div>
                 <div className="text-[13px] font-bold">{f.label}</div>
                 <div className={cn(
-                  'text-[10px]',
+                  'text-[11px]',
                   target === f.id ? 'text-white/75' : 'text-[var(--color-fg-subtle)]',
                 )}>
                   {f.sub}

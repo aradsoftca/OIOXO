@@ -120,7 +120,7 @@ export function AppShell({ children }: AppShellProps) {
                 type="button"
                 onClick={() => setPaletteOpen(true)}
                 aria-label="Search"
-                className="flex items-center gap-2 rounded-lg border border-[var(--color-stroke)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-3)] hover:text-[var(--color-fg)] sm:px-3"
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center gap-2 rounded-lg border border-[var(--color-stroke)] bg-[var(--color-surface-2)] px-2.5 py-1.5 text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-3)] hover:text-[var(--color-fg)] sm:px-3"
               >
                 <TileIcon name="search" size={14} />
                 <span className="hidden lg:inline">Search</span>
@@ -135,7 +135,7 @@ export function AppShell({ children }: AppShellProps) {
                 onClick={() => setMenuOpen(true)}
                 aria-label="Open menu"
                 aria-expanded={menuOpen}
-                className="grid h-9 w-9 place-items-center rounded-lg border border-[var(--color-stroke)] bg-[var(--color-surface-2)] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-3)] hover:text-[var(--color-fg)] md:hidden"
+                className="grid h-10 w-10 place-items-center rounded-lg border border-[var(--color-stroke)] bg-[var(--color-surface-2)] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-3)] hover:text-[var(--color-fg)] md:hidden"
               >
                 <Menu className="h-5 w-5" />
               </button>

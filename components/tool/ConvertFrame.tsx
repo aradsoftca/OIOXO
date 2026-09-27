@@ -40,7 +40,7 @@ export function ConvertFrame({ pair, children }: Props) {
           <div className="flex items-center gap-4">
             <Link
               href="/convert"
-              className="flex h-9 w-9 items-center justify-center bg-white/15 text-white transition hover:bg-white/25"
+              className="flex h-10 w-10 shrink-0 items-center justify-center bg-white/15 text-white transition hover:bg-white/25"
               aria-label="Back to convert hub"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -64,7 +64,7 @@ export function ConvertFrame({ pair, children }: Props) {
 
           <button
             type="button"
-            className="flex h-9 w-9 items-center justify-center bg-white/15 text-white transition hover:bg-white/25"
+            className="flex h-10 w-10 shrink-0 items-center justify-center bg-white/15 text-white transition hover:bg-white/25"
             aria-label="Share"
             onClick={() => {
               if (typeof navigator === 'undefined') return;

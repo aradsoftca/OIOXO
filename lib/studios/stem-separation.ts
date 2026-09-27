@@ -31,6 +31,9 @@ async function loadOrt(): Promise<any> {
   await new Promise<void>((res, rej) => {
     if ((window as any).ort) { res(); return; }
     const s = document.createElement('script');
+    // crossOrigin: the site is cross-origin-isolated (COEP); a no-CORS cross-origin
+    // script is blocked (net::ERR_BLOCKED_BY_ORB). The CDN sends ACAO:*, so request it with CORS.
+    s.crossOrigin = 'anonymous';
     s.src = ORT_URL; s.async = true;
     s.onload = () => res(); s.onerror = () => rej(new Error('Could not load the inference runtime'));
     document.head.appendChild(s);

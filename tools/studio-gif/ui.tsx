@@ -33,8 +33,13 @@ export default function GifStudioUI() {
   useEffect(() => {
     if ((window as any).gifshot) return;
     const script = document.createElement('script');
+    // crossOrigin: under the site's COEP isolation a no-CORS cross-origin script
+    // is blocked (ERR_BLOCKED_BY_ORB), so gifshot never loaded and every compile
+    // hit "still loading". cdnjs sends ACAO:*.
+    script.crossOrigin = 'anonymous';
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/gifshot/0.3.7/gifshot.min.js';
     script.async = true;
+    script.onerror = () => { (window as any).__gifshotFailed = true; };
     document.body.appendChild(script);
     return () => {
       document.body.removeChild(script);
@@ -129,7 +134,9 @@ export default function GifStudioUI() {
       return;
     }
     if (!(window as any).gifshot) {
-      alert('GIF compiler is still loading from CDN, please wait.');
+      alert((window as any).__gifshotFailed
+        ? 'The GIF compiler could not be loaded. Check your connection and reload the page.'
+        : 'The GIF compiler is still loading — try again in a moment.');
       return;
     }
 

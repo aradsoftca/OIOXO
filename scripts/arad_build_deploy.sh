@@ -95,5 +95,7 @@ if [ "${DEPLOY:-0}" = "1" ]; then
     echo "LIVE_E2E_FAIL — the deploy is live but conversions are broken; fix or roll back (.next.prev on the server)"
     exit 1
   fi
+  # Only a deploy that passed its live e2e is announced to search engines.
+  node scripts/indexnow.mjs https://xonvert.com || true
 fi
 echo "ARAD_BUILD_DONE $COMMIT"

@@ -4,6 +4,8 @@
  * page and the header AppsBar.
  */
 
+import { STUDIOS_DISABLED } from '@/lib/studios/disabled';
+
 export interface AppEntry {
   href: string;
   name: string;
@@ -51,7 +53,7 @@ export const APPS: AppEntry[] = [
 
 /** Apps visible for the active brand (drops AI-only entries on xonvert). */
 export function visibleApps(isOioxo: boolean): AppEntry[] {
-  return APPS.filter((a) => isOioxo || !a.oioxoOnly);
+  return APPS.filter((a) => (isOioxo || !a.oioxoOnly) && !(STUDIOS_DISABLED && a.studio));
 }
 
 /** Live / utility apps only (P2P, recorder, scanner, viewer, AI…) — excludes Studios. */

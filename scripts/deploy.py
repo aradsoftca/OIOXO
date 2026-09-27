@@ -160,7 +160,14 @@ def excluded(rel: str) -> bool:
 def open_ssh():
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(HOST, username=USER, password=PASSWORD, timeout=20)
+    # Iceland is publickey-only now (password auth is refused), so prefer the
+    # deploy key; the password stays as a fallback for older setups.
+    key = os.environ.get("ICELAND_KEY", os.path.expanduser("~/.ssh/id_oioxo_deploy"))
+    if os.path.exists(key):
+        ssh.connect(HOST, username=USER, key_filename=key, look_for_keys=False,
+                    allow_agent=False, timeout=20)
+    else:
+        ssh.connect(HOST, username=USER, password=PASSWORD, timeout=20)
     return ssh
 
 

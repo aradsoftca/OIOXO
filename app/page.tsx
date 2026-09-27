@@ -19,7 +19,7 @@ export const metadata: Metadata = buildMeta({
     : `${BRAND} — 400+ browser tools for files, photos, audio, video, PDF`,
   description: IS_OIOXO
     ? `${BRAND} is an on-device AI platform: ask it to edit photos, cut video, master audio, OCR PDFs, transcribe speech, build apps — and it does it on your device, privately, in your browser.`
-    : `${BRAND} ships 400+ free tools for image, audio, video, PDF, text, dev, calc and more. Convert 260+ formats. Edit with Photoshop-class Studios. Files never leave your device.`,
+    : `${BRAND} ships 400+ free tools for image, audio, video, PDF, text, dev, calc and more. Convert 260+ formats. Files never leave your device.`,
   keywords: IS_OIOXO
     ? ['on-device ai', 'private ai', 'browser ai', 'webgpu ai', 'ai photo editor', 'ai video editor', 'ai voice studio', 'ai pdf', 'chatgpt alternative', 'free ai assistant']
     : ['free online tools', 'file converter', 'photo editor browser', 'pdf tools', 'video editor online', 'audio converter', 'free pdf editor', 'no upload tools', 'no signup tools', 'browser productivity'],

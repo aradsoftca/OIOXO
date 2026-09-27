@@ -10,6 +10,7 @@ import { DragMagicProvider } from './DragMagicProvider';
 import { ToolsBar } from './ToolsBar';
 import { AppsBar } from './AppsBar';
 import { HeaderAccount } from './HeaderAccount';
+import { STUDIOS_DISABLED } from '@/lib/studios/disabled';
 import { UsageGateProvider } from '@/components/usage/UsageGateProvider';
 import { GlobalProgress } from './GlobalProgress';
 import { NavProgress } from './NavProgress';
@@ -29,7 +30,7 @@ const NAV_LINKS = [
   { href: '/studios', label: 'Studios' },
   { href: '/tools', label: 'All tools' },
   { href: '/pricing', label: 'Pricing' },
-];
+].filter((l) => !(STUDIOS_DISABLED && l.href === '/studios'));
 
 // Pages where the AppsBar + ToolsBar strips stay always visible (top-level
 // browse surfaces). Everywhere else is an "internal" page (an individual tool,

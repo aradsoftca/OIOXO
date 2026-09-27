@@ -22,7 +22,9 @@ export const metadata: Metadata = {
   publisher: BRAND,
   creator: BRAND,
   formatDetection: { email: false, address: false, telephone: false },
-  alternates: { canonical: `https://${BRAND_DOMAIN}` },
+  // No site-wide canonical: every page that didn't set its own inherited the
+  // homepage URL, telling Google /tools, /convert, /send… were copies of "/".
+  // Pages that need one set it via buildMeta; the rest self-canonicalize.
   icons: IS_OIOXO
     ? {
         icon: [

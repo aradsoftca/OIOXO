@@ -28,7 +28,7 @@ export function AppsBar() {
     <div className="border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/92 backdrop-blur-xl">
       <div className="mx-auto max-w-[1440px] px-3">
         <BarRow label="Apps" items={apps} pathname={activePath} />
-        <div className="h-px bg-[var(--color-stroke)]/60" />
+        {studios.length > 0 && <div className="h-px bg-[var(--color-stroke)]/60" />}
         <BarRow label="Studios" items={studios} pathname={activePath} />
       </div>
     </div>

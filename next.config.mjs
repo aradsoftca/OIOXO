@@ -18,6 +18,14 @@ const PKG_ROOT = dirname(fileURLToPath(import.meta.url));
 // on Iceland (http://194.247.182.248/xonvert/). Leave empty for local dev.
 const basePath = process.env.NEXT_BASE_PATH || '';
 
+// xonvert brand only (oioxo builds with NEXT_PUBLIC_BRAND=oioxo).
+const IS_XONVERT = (process.env.NEXT_PUBLIC_BRAND || 'Xonvert').toLowerCase() !== 'oioxo';
+// Unfinished studios: hidden in lib/studios/disabled.ts, bounced here. Temporary
+// (307) so they can come back without a stale permanent redirect in caches.
+const DISABLED_STUDIOS = IS_XONVERT
+  ? require('./lib/studios/disabled-ids.json').ids
+  : [];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -66,6 +74,15 @@ const nextConfig = {
       { source: '/dashboard', destination: '/account', permanent: true },
       { source: '/dashboard/:path*', destination: '/account', permanent: false },
       { source: '/contact', destination: '/support', permanent: true },
+      { source: '/upgrade', destination: '/pricing', permanent: true },
+      ...(IS_XONVERT
+        ? [
+            // One host for Google: www is a full duplicate of the apex.
+            { source: '/:path*', has: [{ type: 'host', value: 'www.xonvert.com' }], destination: 'https://xonvert.com/:path*', permanent: true },
+            { source: '/studios', destination: '/tools', permanent: false },
+            ...DISABLED_STUDIOS.map((id) => ({ source: `/tools/${id}`, destination: '/tools', permanent: false })),
+          ]
+        : []),
     ];
   },
   // SharedArrayBuffer + cross-origin isolation for ffmpeg.wasm multi-thread.

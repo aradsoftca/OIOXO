@@ -491,6 +491,7 @@ import { manifest as studioDiagram } from '@/tools/studio-diagram/manifest';
 import { manifest as studioMockup } from '@/tools/studio-mockup/manifest';
 import { manifest as studioRedact } from '@/tools/studio-redact/manifest';
 import { manifest as devEncrypt } from '@/tools/dev-encrypt/manifest';
+import { isStudioDisabled } from '@/lib/studios/disabled';
 
 
 /**
@@ -498,7 +499,7 @@ import { manifest as devEncrypt } from '@/tools/dev-encrypt/manifest';
  * migration is one folder. New tools get appended here + a dynamic loader
  * entry in `app/tools/[slug]/page.tsx`.
  */
-export const TOOLS: ToolManifest[] = [
+const ALL_TOOLS: ToolManifest[] = [
   // image
   imageBlur,
   imageFaceDetect,
@@ -915,6 +916,9 @@ export const TOOLS: ToolManifest[] = [
   studioSticker,
   studioAvatar,
 ];
+
+/** Everything the brand exposes — unfinished studios are dropped on xonvert. */
+export const TOOLS: ToolManifest[] = ALL_TOOLS.filter((t) => !isStudioDisabled(t.id));
 
 export const TOOL_BY_ID = new Map(TOOLS.map((t) => [t.id, t]));
 

@@ -3,6 +3,7 @@ import { TOOLS, CATEGORIES } from '@/lib/registry';
 import { CONVERT_PAIRS } from '@/lib/convert/pairs';
 import { POSTS } from '@/lib/blog/posts';
 import { BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
+import { isStudioDisabled } from '@/lib/studios/disabled';
 
 const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -14,7 +15,6 @@ function url(path: string): string {
 const SUITE_HUBS_XONVERT: string[] = [
   '/',
   '/tools',
-  '/studios',
   '/convert',
   '/apps',
   '/blog',
@@ -80,6 +80,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   }
 
   for (const path of PRO_STUDIO_PAGES) {
+    if (isStudioDisabled(path.slice('/tools/'.length))) continue;
     entries.push({
       url: url(path),
       lastModified: now,

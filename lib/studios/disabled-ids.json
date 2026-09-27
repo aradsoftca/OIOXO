@@ -1,0 +1,17 @@
+{
+  "_comment": "Studios hidden + disabled on the xonvert brand (not finished). Read by lib/studios/disabled.ts and next.config.mjs (redirects). Empty this list to bring them back.",
+  "ids": [
+    "image-studio",
+    "video-studio",
+    "subtitle-studio",
+    "pdf-studio",
+    "audio-voice-studio",
+    "audio-music-studio",
+    "office-studio",
+    "office-docs",
+    "office-slides",
+    "studio-chart",
+    "translate-studio",
+    "video-auto-subtitle"
+  ]
+}

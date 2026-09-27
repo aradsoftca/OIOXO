@@ -82,10 +82,15 @@ async function copyProtected() {
     console.error(`[copy-oioxo-static] MISSING ${srcDir} — run "node scripts/encrypt-search.mjs" first`);
     process.exit(1);
   }
-  // Wipe so removed assets don't linger. (search.html knows from manifest.json
-  // which assets exist; stale .enc files are harmless but waste disk.)
-  await rm(dstDir, { recursive: true, force: true });
+  // Clear OUR assets so removed ones don't linger — but NOT the tool workers
+  // (*.worker.js.enc) that encrypt-workers.mjs wrote here earlier in prebuild.
+  // Wiping the whole dir deleted image/codec/audio/cad/model3d workers from
+  // every build, so those tools failed live with a 404 on their worker.
   await mkdir(dstDir, { recursive: true });
+  for (const name of await readdir(dstDir)) {
+    if (name.endsWith('.worker.js.enc')) continue;
+    await rm(path.join(dstDir, name), { recursive: true, force: true });
+  }
   let count = 0;
   for (const name of await readdir(srcDir)) {
     if (!name.endsWith('.enc') && name !== 'manifest.json') continue;

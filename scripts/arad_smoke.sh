@@ -45,6 +45,9 @@ check "step-to-stl hand-written copy" "1" "$( echo "$CAD" | grep -q 'tessellates
 check "fbx-to-glb page 200"           "200 " "$(st $B/convert/fbx-to-glb)"
 check "home links CAD hub"            "1" "$( curl -s $B/ | grep -q 'href="/cad-3d"' && echo 1 || echo 0)"
 check "engine uses GetPath"           "0" "$(grep -c 'GetName()' engines/model3d/index.ts)"
+for w in image codec audio cad model3d; do
+  check "worker $w.worker.js.enc served" "200 " "$(st $B/protected/$w.worker.js.enc)"
+done
 check "legacy /mp4-to-mp3"            "308 https://xonvert.com/tools/video-extract-audio" "$(st $B/mp4-to-mp3)"
 check "legacy /png-to-jpg"            "308 https://xonvert.com/convert/png-to-jpg" "$(st $B/png-to-jpg)"
 check "legacy /cfg-to-txt -> hub"     "308 https://xonvert.com/convert" "$(st $B/cfg-to-txt)"

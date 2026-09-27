@@ -53,15 +53,25 @@ export async function docxToText(file: File): Promise<string> {
 export async function htmlToPdf(html: string, title = 'document'): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   const { sanitizeHtml } = await import('@/lib/safe-html');
-  const holder = document.createElement('div');
-  holder.style.cssText = 'position:fixed;left:-9999px;top:0;width:794px;background:#fff;color:#000;padding:48px;font:14px/1.5 system-ui,Arial,sans-serif;';
+  // Render inside a blank, same-origin iframe: html2canvas 1.4.1 parses every
+  // computed colour, and the site's global oklch() palette made it throw
+  // "Attempting to parse an unsupported color function \"oklch\"" — doc, ebook
+  // and slides → PDF all failed live. No site CSS in the frame = nothing to choke on.
+  const frame = document.createElement('iframe');
+  frame.setAttribute('aria-hidden', 'true');
+  frame.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;height:1200px;border:0;visibility:hidden;';
+  document.body.appendChild(frame);
+  const fdoc = frame.contentDocument!;
+  fdoc.open(); fdoc.write('<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#fff"></body></html>'); fdoc.close();
+  const holder = fdoc.createElement('div');
+  holder.style.cssText = 'width:794px;background:#fff;color:#000;padding:48px;font:14px/1.5 system-ui,Arial,sans-serif;';
   // Defence-in-depth: callers include converted-document content (docx/pptx/
   // office) whose authors are untrusted. Without sanitising, attaching the
   // node to document.body would execute any inline event handlers like
   // <img onerror=…> during the html→canvas walk. Sanitise here so every
   // caller is safe even if it skipped the step.
   holder.innerHTML = sanitizeHtml(html);
-  document.body.appendChild(holder);
+  fdoc.body.appendChild(holder);
   try {
     const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
     await pdf.html(holder, {
@@ -74,7 +84,7 @@ export async function htmlToPdf(html: string, title = 'document'): Promise<Blob>
     try { const { brandJsPdf } = await import('@/lib/watermark/download'); brandJsPdf(pdf); } catch { /* never break export */ }
     return pdf.output('blob');
   } finally {
-    document.body.removeChild(holder);
+    frame.remove();
   }
 }
 

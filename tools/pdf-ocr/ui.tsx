@@ -51,12 +51,14 @@ export default function PdfOcrTool() {
     setProgress(null);
     try {
       const buffer = await target.arrayBuffer();
-      const count = await getPdfPageCount(buffer);
+      // pdf.js transfers (detaches) the buffer it is given, so each call gets its
+      // own copy — reusing it threw "Cannot perform Construct on a detached ArrayBuffer".
+      const count = await getPdfPageCount(buffer.slice(0));
       setPageCount(count);
       const pagesHit = checkLever(POLICY_KEY, 'pages', count, isPro);
       if (pagesHit) { policyGate.fire(pagesHit); setRunning(false); setStage(''); return; }
       setStage('Rendering pages');
-      const rendered = await rasterizePdf(buffer, {
+      const rendered = await rasterizePdf(buffer.slice(0), {
         maxEdge,
         onProgress: (p) => setProgress({ done: p.page, total: p.pageCount }),
       });

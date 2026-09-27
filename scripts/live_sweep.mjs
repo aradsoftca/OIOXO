@@ -78,6 +78,9 @@ const SECOND_FILE = { 'two-page.pdf': 'one-page.pdf', 'tone.wav': 'tone2.wav', '
 // covered by ACTION_RE (texts collected from the live pages by this sweep).
 // Each entry still passes NOT_ACTION_RE, so it can never press a purchase/share button.
 const ACTION_OVERRIDE = {};
+// Labels seen on the live pages that ACTION_RE misses ("MUTE & DOWNLOAD", "BUILD PDF", "ADD ECHO",
+// "SHIFT PITCH", "RE-ENCODE", "Transcribe", ...). Checked in addition to ACTION_RE.
+const ACTION_EXTRA_RE = /(&\s*download\b|^build\b|^add (echo|audio|numbers|text|watermark)\b|^shift pitch|^change (speed|tempo)|^apply volume|^re-encode|^loop$|^dub video|^scan$|^transcribe$|^enlarge\b|^reframe$|^compile gif|^translate to\b|^read again$)/i;
 
 const ACTION_RE = /^(convert|compress|apply|extract|merge|export|process|download|save|generate|render|resize|crop|rotate|split|encode|run|start|create|make|optimi[sz]e|remove|flip|trim|cut|join|combine|enhance|upscale|blur|sharpen|protect|unlock|sign|watermark|reverse|normalize|mix|denoise)/i;
 // Never press anything that starts an account, a purchase or a share.
@@ -252,7 +255,7 @@ async function runPage(browser, url) {
       // or when the page has no action at all (auto-processing tools). Otherwise a
       // Download of the ORIGINAL / an unrelated control wins and the tool never runs.
       const override = sid && ACTION_OVERRIDE[sid];
-      const isAction = (t) => !!t && t.length <= 40 && (ACTION_RE.test(t) || (override && override.test(t)))
+      const isAction = (t) => !!t && t.length <= 40 && (ACTION_RE.test(t) || ACTION_EXTRA_RE.test(t) || (override && override.test(t)))
         && !(NOT_ACTION_RE.test(t) && !/^download/i.test(t));
       const texts = [];
       for (let i = 0; i < n; i++) texts.push((await btns.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim());

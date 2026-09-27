@@ -364,7 +364,7 @@ async function runFfmpegMultiInner(opts: {
   mimeType: string;
   onProgress?: (p: number) => void;
   onLog?: (msg: string) => void;
-}): Promise<Blob> {
+}, retried = false): Promise<Blob> {
   const ff = await loadInstance();
   const { fetchFile } = await import('@ffmpeg/util');
 
@@ -380,15 +380,36 @@ async function runFfmpegMultiInner(opts: {
       written.push(inp.name);
     }
     for (const f of opts.extraFiles ?? []) {
-      await ff.writeFile(f.name, f.data);
+      // Copy: writeFile transfers a Uint8Array (detaching it), which would leave
+      // an empty file for the single-thread retry below.
+      await ff.writeFile(f.name, typeof f.data === 'string' ? f.data : f.data.slice());
       written.push(f.name);
     }
-    await ff.exec(withThreads(opts.args(opts.inputs.map((i) => i.name), opts.outputName)));
-    finalName = await maybeWatermarkVideo(ff, opts.outputName, opts.mimeType);
+    // Same guard as runFfmpegInner: a stall or failure on the MT core retries once
+    // single-threaded; otherwise the user sees ffmpeg's own error line.
+    const retryST = () => {
+      ff.off('progress', onProgress);
+      detachLog?.();
+      abandonMT(ff);
+      return runFfmpegMultiInner(opts, true);
+    };
+    const r = await execGuarded(ff, withThreads(opts.args(opts.inputs.map((i) => i.name), opts.outputName)));
+    if (r.status !== 'ok') {
+      if (_isMT && !retried) return retryST();
+      throw new Error(r.status === 'stalled' ? 'Processing stalled. Please try again.' : `Conversion failed${r.tail ? `: ${r.tail}` : '.'}`);
+    }
+    try {
+      finalName = await maybeWatermarkVideo(ff, opts.outputName, opts.mimeType);
+    } catch (e) {
+      if (!(e instanceof MtStall)) throw e;
+      if (!retried) return retryST();
+      throw new Error('Processing stalled. Please try again.');
+    }
     const data = await ff.readFile(finalName);
     const bytes = data instanceof Uint8Array
       ? data
       : new TextEncoder().encode(String(data));
+    if (!bytes.length) throw new Error('Conversion produced an empty file.');
     return new Blob([bufferOf(bytes)], { type: opts.mimeType });
   } finally {
     ff.off('progress', onProgress);

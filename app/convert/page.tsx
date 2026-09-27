@@ -1,14 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SectionTitle } from '@/components/layout/SectionTitle';
+import { buildMeta } from '@/lib/seo/meta';
 import { CONVERT_PAIRS, popularPairs, pairsByCategory } from '@/lib/convert/pairs';
 import { TileIcon } from '@/components/tiles/TileIcon';
 import ConvertAnythingTool from '@/tools/convert-anything/ui';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildMeta({
+  path: '/convert',
   title: 'Convert anything',
   description: `Convert files across ${CONVERT_PAIRS.length}+ format pairs — images, audio, video. Files stay yours.`,
-};
+});
 
 function PairTile({ from, to, popular = false }: { from: string; to: string; popular?: boolean }) {
   return (

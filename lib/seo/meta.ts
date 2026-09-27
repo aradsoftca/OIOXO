@@ -54,7 +54,9 @@ export function buildMeta(input: PageMetaInput): Metadata {
       images: [ogImage],
     },
     robots: input.noindex
-      ? { index: false, follow: false, googleBot: { index: false, follow: false } }
+      // noindex, FOLLOW: thin pages stay out of the index but still pass their
+      // links (1,500+ internal links point at thin /convert pairs).
+      ? { index: false, follow: true, googleBot: { index: false, follow: true } }
       : {
           index: true,
           follow: true,

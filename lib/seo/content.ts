@@ -600,7 +600,7 @@ export function buildRichPage(tool: ToolManifest, relatedToolIds: string[] = [])
   const title = `${tool.name} — free ${cat.name.toLowerCase()} tool, no upload, no signup`;
   return {
     title: trunc(title, 70),
-    description: trunc(`${tool.blurb} Free, private, runs in your browser. A ${firstRival} alternative.`, 160),
+    description: trunc(`${tool.blurb} Free, private, runs in your browser. ${/^[aeiou]/i.test(firstRival) ? 'An' : 'A'} ${firstRival} alternative.`, 160),
     intro: xonvertIntro(tool, profile),
     sections: xonvertSections(tool, profile),
     faqs: xonvertFaqs(tool, profile),

@@ -9,15 +9,16 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: ['/'],
+        // /_next/ carries every JS/CSS/font/image the page needs. Blocking it
+        // made Google render unstyled pages whose tools never load. The explicit
+        // allow also beats '/*?' (longest match wins) for /_next/image?url=….
+        allow: ['/', '/_next/'],
         disallow: [
           '/api/',
           '/auth/',
           '/dashboard/',
           '/admin/',
           '/account/',
-          '/_next/',
-          '/static/',
           '/limits/',
           '/*?',
         ],

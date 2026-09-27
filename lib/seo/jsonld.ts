@@ -102,11 +102,7 @@ export function webSiteJsonLd() {
     '@type': 'WebSite',
     url: SITE,
     name: BRAND,
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: `${SITE}/search?q={search_term_string}`,
-      'query-input': 'required name=search_term_string',
-    },
+    // No SearchAction: /search?q= 404s (and /*? is robots-disallowed).
   };
 }
 

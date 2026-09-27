@@ -40,7 +40,8 @@ export const metadata: Metadata = {
   openGraph: {
     title: BRAND_TITLE,
     description: BRAND_DESC,
-    url: `https://${BRAND_DOMAIN}`,
+    // No site-wide og:url — same trap as the old canonical (every page that
+    // didn't set one claimed to be the homepage). buildMeta sets it per page.
     siteName: BRAND,
     type: 'website',
     locale: 'en_US',

@@ -17,7 +17,7 @@ import path from 'node:path';
 const BASE = (process.argv[2] || 'https://xonvert.com').replace(/\/$/, '');
 const SAMPLES = process.env.SAMPLES_DIR || '/root/cadtest/samples';
 const CHROME = process.env.CHROMIUM_PATH || '/root/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome';
-const CASE_TIMEOUT = 60_000;
+const CASE_TIMEOUT = 120_000; // video cases may pay a 30 s MT-stall fallback
 const OUT = fs.mkdtempSync(path.join(os.tmpdir(), 'xonvert-e2e-'));
 
 // ---- validators: return null when OK, else a reason string ----
@@ -73,6 +73,8 @@ function isMp3(b) {
   const h = b.subarray(0, 3).toString('latin1');
   return h === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) ? null : 'not MP3 (magic ' + b.subarray(0, 4).toString('hex') + ')';
 }
+function isWebm(b) { return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 ? null : 'not WebM (magic ' + b.subarray(0, 4).toString('hex') + ')'; }
+function isVideo(b) { return isWebm(b) === null || b.subarray(4, 8).toString('latin1') === 'ftyp' ? null : 'not MP4/WebM (magic ' + b.subarray(0, 8).toString('hex') + ')'; }
 function isAudio(b) {
   const h = b.subarray(0, 12).toString('latin1');
   if (h.startsWith('ID3')) return null; // mp3 with tag
@@ -102,6 +104,10 @@ const CASES = [
   // image-resize renders the result on upload; the runner then presses its Download button.
   // Goes through the ffmpeg worker — broken in prod by the obfuscator's domainLock until 2026-09-27.
   { name: 'wav-to-mp3',      url: '/convert/wav-to-mp3',     file: 'tone.wav',         check: isMp3,  click: /^convert/i },
+  // Video encodes hung on the multi-thread ffmpeg core (live sweep 2026-09-27); the engine
+  // now falls back to single-thread after 30 s of silence — these must finish.
+  { name: 'mp4-to-webm',     url: '/convert/mp4-to-webm',    file: 'clip.mp4',         check: isWebm, click: /^convert/i },
+  { name: 'video-compress',  url: '/tools/video-compress',   file: 'clip.mp4',         check: isVideo, click: /^compress/i },
   { name: 'image-resize',    url: '/tools/image-resize',     file: 'test.png',         check: isSmallImage },
 ];
 

@@ -58,7 +58,7 @@ async function mmsPipe(iso3: string, onProgress?: (r: number) => void): Promise<
   if (!pipes.has(iso3)) {
     const p = (async () => {
       try {
-        const lib: any = await import('@xenova/transformers');
+        const lib: any = await import('@huggingface/transformers').catch(() => null) ?? await import('@xenova/transformers'); // v3 first — v2 404s its JSEP loader
         lib.env.allowLocalModels = false;
         lib.env.allowRemoteModels = true;
         return await lib.pipeline('text-to-speech', `Xenova/mms-tts-${iso3}`, {

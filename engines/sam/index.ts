@@ -12,7 +12,10 @@ let procP: Promise<any> | null = null;
 const MODEL = 'Xenova/slimsam-77-uniform';
 
 async function getModel(onProgress?: (p: any) => void) {
-  const t = await import('@xenova/transformers');
+  // transformers.js v3 first: v2 (@xenova 2.17.2) imports ort-wasm-simd-threaded.jsep.mjs,
+  // which its ORT never shipped → 404 in the cross-origin-isolated tab (same fix as
+  // engines/transcribe). Found live by scripts/live_sweep.mjs.
+  const t: any = await import('@huggingface/transformers').catch(() => null) ?? await import('@xenova/transformers'); // eslint-disable-line @typescript-eslint/no-explicit-any
   t.env.allowLocalModels = false;
   if (!modelP) {
     const p = t.SamModel.from_pretrained(MODEL, { quantized: true, progress_callback: onProgress });

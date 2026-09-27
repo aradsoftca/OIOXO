@@ -112,23 +112,63 @@ async function maybeWatermarkVideo(ff: FFmpeg, outName: string, mime: string): P
     if (!png) return outName;
     await ff.writeFile('xwm.png', png);
     const wmOut = 'xwm_' + outName;
-    await ff.exec(withThreads([
+    const r = await execGuarded(ff, withThreads([
       '-i', outName, '-i', 'xwm.png',
       '-filter_complex', 'overlay=W-w-24:H-h-24',
       '-c:a', 'copy', wmOut,
     ]));
+    if (r === 'stalled') throw new MtStall();
     const d = await ff.readFile(wmOut);
     try { await ff.deleteFile('xwm.png'); } catch { /* ignore */ }
     if (d && (d as Uint8Array).length > 0) return wmOut;
     try { await ff.deleteFile(wmOut); } catch { /* ignore */ }
     return outName;
-  } catch {
+  } catch (e) {
+    if (e instanceof MtStall) throw e; // the caller restarts the job single-threaded
     return outName;
   }
 }
 
+class MtStall extends Error { constructor() { super('mt-stall'); } }
+
 let _instance: FFmpeg | null = null;
 let _isMT = false;
+// Set once the multi-thread core has stalled in this tab: every later load uses
+// the single-thread core. (Live sweep: MT video encodes — compress, resize,
+// mp4→webm — produced no progress and no error for 120 s, while audio jobs on
+// the same core finished. ST is slower but completes.)
+let _forceST = false;
+const MT_STALL_MS = 30_000;
+
+/** exec() that gives up if the MT core goes silent (no progress/log events). */
+async function execGuarded(ff: FFmpeg, args: string[]): Promise<'ok' | 'stalled'> {
+  if (!_isMT) { await ff.exec(args); return 'ok'; }
+  let last = Date.now();
+  const bump = () => { last = Date.now(); };
+  ff.on('progress', bump);
+  ff.on('log', bump);
+  let timer: ReturnType<typeof setInterval> | undefined;
+  try {
+    return await Promise.race([
+      ff.exec(args).then(() => 'ok' as const),
+      new Promise<'stalled'>((resolve) => {
+        timer = setInterval(() => { if (Date.now() - last > MT_STALL_MS) resolve('stalled'); }, 2_000);
+      }),
+    ]);
+  } finally {
+    if (timer) clearInterval(timer);
+    try { ff.off('progress', bump); ff.off('log', bump); } catch { /* */ }
+  }
+}
+
+/** Drop the stalled MT instance so the next load comes up single-threaded. */
+function abandonMT(ff: FFmpeg) {
+  try { ff.terminate(); } catch { /* */ }
+  _instance = null;
+  _loadPromise = null;
+  _isMT = false;
+  _forceST = true;
+}
 let _loadPromise: Promise<FFmpeg> | null = null;
 
 // Serialize ffmpeg runs. The engine is a singleton with one shared virtual
@@ -149,7 +189,7 @@ async function loadInstance(onLog?: (msg: string) => void): Promise<FFmpeg> {
   if (_loadPromise) return _loadPromise;
   const p = (async () => {
     const { FFmpeg } = await import('@ffmpeg/ffmpeg');
-    const mt = canUseMT();
+    const mt = canUseMT() && !_forceST;
     const ff = new FFmpeg();
     // NOTE: log handler is attached PER-RUN (in runFfmpeg / runFfmpegMulti),
     // not here at load time. The original code attached the first caller's
@@ -233,7 +273,7 @@ export async function runFfmpeg(opts: RunOptions): Promise<Blob> {
   return serialize(() => runFfmpegInner(opts));
 }
 
-async function runFfmpegInner(opts: RunOptions): Promise<Blob> {
+async function runFfmpegInner(opts: RunOptions, retried = false): Promise<Blob> {
   const ff = await loadInstance();
   const { fetchFile } = await import('@ffmpeg/util');
 
@@ -246,8 +286,23 @@ async function runFfmpegInner(opts: RunOptions): Promise<Blob> {
   let finalName = opts.outputName;
   try {
     await ff.writeFile(opts.inputName, await fetchFile(opts.input));
-    await ff.exec(withThreads(opts.args(opts.inputName, opts.outputName)));
-    finalName = await maybeWatermarkVideo(ff, opts.outputName, opts.mimeType);
+    if ((await execGuarded(ff, withThreads(opts.args(opts.inputName, opts.outputName)))) === 'stalled') {
+      ff.off('progress', onProgress);
+      detachLog?.();
+      abandonMT(ff);
+      if (retried) throw new Error('Processing stalled. Please try again.');
+      return runFfmpegInner(opts, true);
+    }
+    try {
+      finalName = await maybeWatermarkVideo(ff, opts.outputName, opts.mimeType);
+    } catch (e) {
+      if (!(e instanceof MtStall)) throw e;
+      ff.off('progress', onProgress);
+      detachLog?.();
+      abandonMT(ff);
+      if (retried) throw new Error('Processing stalled. Please try again.');
+      return runFfmpegInner(opts, true);
+    }
     const data = await ff.readFile(finalName);
     // readFile may return Uint8Array; coerce safely.
     const bytes = data instanceof Uint8Array

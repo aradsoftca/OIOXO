@@ -50,7 +50,7 @@ function pickModel(factor: UpscaleFactor, quality: UpscaleQuality): string {
 }
 
 type Pipeline = (input: unknown) => Promise<{ width: number; height: number; channels: number; data: Uint8Array }>;
-type LibType = typeof import('@xenova/transformers');
+type LibType = any; // eslint-disable-line @typescript-eslint/no-explicit-any
 let cached: { key: string; pipeline: Pipeline; lib: LibType } | null = null;
 
 async function getPipeline(factor: UpscaleFactor, quality: UpscaleQuality, onProgress?: (p: UpscaleProgress) => void): Promise<{ pipeline: Pipeline; lib: LibType }> {
@@ -64,7 +64,10 @@ async function getPipeline(factor: UpscaleFactor, quality: UpscaleQuality, onPro
     cached = null;
   }
 
-  const lib = await import('@xenova/transformers');
+  // transformers.js v3 first: v2 (@xenova 2.17.2) imports ort-wasm-simd-threaded.jsep.mjs,
+  // which its ORT never shipped → 404 in the cross-origin-isolated tab (same fix as
+  // engines/transcribe). Found live by scripts/live_sweep.mjs.
+  const lib: LibType = await import('@huggingface/transformers').catch(() => null) ?? await import('@xenova/transformers');
   lib.env.allowLocalModels = false;
   lib.env.allowRemoteModels = true;
   // Multi-threaded WASM + SIMD + proxy worker: faster inference, no UI freeze.

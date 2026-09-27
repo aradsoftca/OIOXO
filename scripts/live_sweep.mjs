@@ -48,7 +48,7 @@ const SAMPLE_TYPES = [
 
 const ACTION_RE = /^(convert|compress|apply|extract|merge|export|process|download|save|generate|render|resize|crop|rotate|split|encode|run|start|create|make|optimi[sz]e|remove|flip|trim|cut|join|combine|enhance|upscale|blur|sharpen|protect|unlock|sign|watermark|reverse|normalize|mix|denoise)/i;
 // Never press anything that starts an account, a purchase or a share.
-const NOT_ACTION_RE = /change file|replace|add more|clear|reset|remove file|pin|search|upgrade|sign in|sign up|log in|register|subscribe|buy|checkout|pay|pro\b|share|invite|cancel|back/i;
+const NOT_ACTION_RE = /change file|replace|add more|clear|reset|remove file|pin|search|upgrade|sign in|sign up|log in|register|subscribe|buy|checkout|pay|pro\b|share|invite|cancel|back|sign out|log out|logout|delete account/i;
 const HW_RE = /\b(camera|webcam|microphone|record (your|from)|mic\b|screen record)/i;
 
 // Studios intentionally disabled on this brand (they 307 to /tools); stale CDN sitemaps still list them.
@@ -106,12 +106,20 @@ function magicKind(b) {
   return null;
 }
 
-// ---------- page run ----------
-async function runPage(browser, url) {
-  const rec = { url, status: 'OK', reasons: [], pageErrors: [], consoleErrors: [], http: [], red: [], ui: false, sample: null, output: null, ms: 0 };
-  const t0 = Date.now();
-  const sid = (url.match(/^\/tools\/([^/?#]+)/) || [])[1];
-  if (sid && DISABLED.has(sid)) { rec.status = 'SKIPPED'; rec.reasons.push('disabled studio (lib/studios/disabled-ids.json)'); return rec; }
+// ---------- optional QA sign-in (one shared, signed-in context) ----------
+const QA_ENV_FILE = process.env.QA_ENV_FILE || '/root/cadtest/.qa_pro';
+const ANON = process.env.ANON === '1';
+let SHARED_CTX = null;
+function readQaEnv() {
+  if (ANON || !fs.existsSync(QA_ENV_FILE)) return null;
+  const kv = {};
+  for (const line of fs.readFileSync(QA_ENV_FILE, 'utf8').split(/\r?\n/)) {
+    const m = line.match(/^\s*(QA_EMAIL|QA_PASS)\s*=\s*(.*)$/);
+    if (m) kv[m[1]] = m[2].trim().replace(/^['"]|['"]$/g, '');
+  }
+  return kv.QA_EMAIL && kv.QA_PASS ? { email: kv.QA_EMAIL, pass: kv.QA_PASS } : null;
+}
+async function newSweepContext(browser) {
   const ctx = await browser.newContext({ acceptDownloads: true });
   await ctx.addInitScript(() => {
     const md = navigator.mediaDevices;
@@ -120,6 +128,37 @@ async function runPage(browser, url) {
       md.getUserMedia = (...a) => { window.__wantsMedia = true; return orig(...a); };
     }
   });
+  return ctx;
+}
+async function sessionEmail(ctx) {
+  const r = await ctx.request.get(BASE + '/api/auth/session');
+  const j = await r.json().catch(() => ({}));
+  return (j && j.user && j.user.email) || null;
+}
+// Signs in through the real /auth/sign-in form (credentials provider). Never logs the password.
+async function signIn(browser, qa) {
+  const ctx = await newSweepContext(browser);
+  const page = await ctx.newPage();
+  await page.goto(BASE + '/auth/sign-in', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  const form = page.locator('form').filter({ has: page.locator('input[type=password]') }).first();
+  await form.locator('input[type=email]').fill(qa.email);
+  await form.locator('input[type=password]').fill(qa.pass);
+  await form.locator('button[type=submit]').click();
+  const until = Date.now() + 30_000;
+  let who = null;
+  while (Date.now() < until && who !== qa.email) { await page.waitForTimeout(1000); who = await sessionEmail(ctx).catch(() => null); }
+  await page.close();
+  if (who !== qa.email) { await ctx.close(); throw new Error(`sign-in failed: /api/auth/session shows ${who ? 'a different user' : 'no user'}`); }
+  return ctx;
+}
+
+// ---------- page run ----------
+async function runPage(browser, url) {
+  const rec = { url, status: 'OK', reasons: [], pageErrors: [], consoleErrors: [], http: [], red: [], ui: false, sample: null, output: null, ms: 0 };
+  const t0 = Date.now();
+  const sid = (url.match(/^\/tools\/([^/?#]+)/) || [])[1];
+  if (sid && DISABLED.has(sid)) { rec.status = 'SKIPPED'; rec.reasons.push('disabled studio (lib/studios/disabled-ids.json)'); return rec; }
+  const ctx = SHARED_CTX || await newSweepContext(browser);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => rec.pageErrors.push(String(e.message || e).slice(0, 300)));
   page.on('console', (m) => { if (m.type() === 'error') rec.consoleErrors.push(m.text().slice(0, 300)); });
@@ -207,7 +246,8 @@ async function runPage(browser, url) {
     return rec;
   } finally {
     rec.ms = Date.now() - t0;
-    await ctx.close().catch(() => {});
+    if (SHARED_CTX) await page.close().catch(() => {});
+    else await ctx.close().catch(() => {});
   }
 }
 // A page that "works" but threw is still reported, as OK-with-errors -> LOAD-ERROR only when it has a pageerror.
@@ -239,6 +279,11 @@ async function urlList() {
 const urls = await urlList();
 console.error(`sweeping ${urls.length} pages against ${BASE} (concurrency ${CONCURRENCY})`);
 const browser = await chromium.launch({ executablePath: CHROME, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
+const qa = readQaEnv();
+if (qa) {
+  SHARED_CTX = await signIn(browser, qa);
+  console.error(`signed in as ${qa.email} (session confirmed via /api/auth/session); all pages share this context`);
+} else console.error(ANON ? 'ANON=1: anonymous contexts' : `no ${QA_ENV_FILE}: anonymous contexts`);
 const results = [];
 let next = 0;
 async function worker() {
@@ -252,6 +297,8 @@ async function worker() {
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+let endSession = null;
+if (SHARED_CTX) { endSession = await sessionEmail(SHARED_CTX).catch(() => null); console.error(`session at end: ${endSession === qa.email ? 'still signed in' : 'LOST (' + endSession + ')'}`); }
 await browser.close();
 
 results.sort((a, b) => a.url.localeCompare(b.url));

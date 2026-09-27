@@ -61,6 +61,7 @@ async function mmsPipe(iso3: string, onProgress?: (r: number) => void): Promise<
         const lib: any = await import('@huggingface/transformers').catch(() => null) ?? await import('@xenova/transformers'); // v3 first — v2 404s its JSEP loader
         lib.env.allowLocalModels = false;
         lib.env.allowRemoteModels = true;
+        if (String(lib.env?.version ?? '').startsWith('3')) try { lib.env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'; } catch { /* */ } // match the bundled ORT JS (1.21) — else "_OrtGetInputName is not a function" (lib/studios/ai-bgremove.ts)
         return await lib.pipeline('text-to-speech', `Xenova/mms-tts-${iso3}`, {
           quantized: true,
           progress_callback: (d: any) => {

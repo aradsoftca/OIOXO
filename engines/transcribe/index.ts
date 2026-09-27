@@ -90,6 +90,7 @@ async function getPipeline(size: TranscribeSize, onProgress?: (p: TranscribeProg
   // v2 needs the WASM threadpool tuned; v3 manages its own runtime, so this is
   // a best-effort no-op there.
   configureOnnxRuntime(lib);
+  if (String(lib.env?.version ?? '').startsWith('3')) try { lib.env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'; } catch { /* */ } // match the bundled ORT JS (1.21) — else "_OrtGetInputName is not a function" (lib/studios/ai-bgremove.ts)
 
   const progress_callback = (data: { status: string; progress?: number; loaded?: number; total?: number; file?: string }) => {
     if (!onProgress) return;

@@ -112,7 +112,7 @@ const CASES = [
 ];
 
 async function runCase(browser, c) {
-  const page = await browser.newPage({ acceptDownloads: true });
+  const page = CTX ? await CTX.newPage() : await browser.newPage({ acceptDownloads: true });
   const errors = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push('pageerror: ' + (e.message || String(e))));
@@ -158,7 +158,39 @@ async function runCase(browser, c) {
   }
 }
 
+// Sign in as the Pro QA account (credentials in QA_ENV_FILE, arad only) so the
+// daily free quota can't turn the gate red — an anonymous run after a sweep
+// failed 8/15 on "Daily free limit reached". ANON=1 tests the free path.
+const QA_ENV_FILE = process.env.QA_ENV_FILE || '/root/cadtest/.qa_pro';
+let CTX = null;
+function readQa() {
+  if (process.env.ANON === '1' || !fs.existsSync(QA_ENV_FILE)) return null;
+  const kv = {};
+  for (const line of fs.readFileSync(QA_ENV_FILE, 'utf8').split('\n')) {
+    const m = line.match(/^\s*(QA_EMAIL|QA_PASS)\s*=\s*(.*)$/);
+    if (m) kv[m[1]] = m[2].trim();
+  }
+  return kv.QA_EMAIL && kv.QA_PASS ? { email: kv.QA_EMAIL, pass: kv.QA_PASS } : null;
+}
+async function signIn(browser, qa) {
+  const ctx = await browser.newContext({ acceptDownloads: true });
+  const page = await ctx.newPage();
+  await page.goto(BASE + '/auth/sign-in', { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  const form = page.locator('form').filter({ has: page.locator('input[type=password]') }).first();
+  await form.locator('input[type=email]').fill(qa.email);
+  await form.locator('input[type=password]').fill(qa.pass);
+  await form.locator('button[type=submit]').click();
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(1000);
+    const j = await (await ctx.request.get(BASE + '/api/auth/session')).json().catch(() => ({}));
+    if (j?.user?.email === qa.email) { await page.close(); return ctx; }
+  }
+  throw new Error('QA sign-in failed (session never showed the QA user)');
+}
+
 const browser = await chromium.launch({ executablePath: CHROME });
+const qa = readQa();
+if (qa) { CTX = await signIn(browser, qa); console.log(`signed in as ${qa.email}`); } else console.log('anonymous run');
 let failed = 0;
 try {
   for (const c of CASES) if (!(await runCase(browser, c))) failed++;

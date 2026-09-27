@@ -17,6 +17,7 @@ async function getModel(onProgress?: (p: any) => void) {
   // engines/transcribe). Found live by scripts/live_sweep.mjs.
   const t: any = await import('@huggingface/transformers').catch(() => null) ?? await import('@xenova/transformers'); // eslint-disable-line @typescript-eslint/no-explicit-any
   t.env.allowLocalModels = false;
+  if (String(t.env?.version ?? '').startsWith('3')) try { t.env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'; } catch { /* */ } // match the bundled ORT JS (1.21) — else "_OrtGetInputName is not a function" (lib/studios/ai-bgremove.ts)
   if (!modelP) {
     const p = t.SamModel.from_pretrained(MODEL, { quantized: true, progress_callback: onProgress });
     // Drop the cache on rejection so a transient model-download failure

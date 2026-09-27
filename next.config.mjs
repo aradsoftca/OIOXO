@@ -252,7 +252,9 @@ const nextConfig = {
               // disabled. Identifier hex-renaming + domainLock remain the moat.
               transformObjectKeys: false,
               unicodeEscapeSequence: true,
-              disableConsoleOutput: true,
+              // OFF: it swallowed every console.error in prod, so live failures
+              // (SAM load, silent ffmpeg hangs) showed nothing to diagnose.
+              disableConsoleOutput: false,
               stringArray: false,
               selfDefending: false,
               controlFlowFlattening: false,

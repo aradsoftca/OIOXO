@@ -10,6 +10,7 @@
  *   2. Add an entry below. The slug is `${from}-to-${to}` (lowercase).
  *   3. Optionally override `title`, `blurb` for more specific copy.
  */
+import { CAD3D_PAIRS } from '@/lib/convert/cad3d';
 import type { Category } from '@/lib/registry/types';
 
 export interface ConvertPair {
@@ -185,7 +186,7 @@ function buildImageVideoPairs(): ConvertPair[] {
   }));
 }
 
-export const CONVERT_PAIRS: ConvertPair[] = [
+const BASE_PAIRS: ConvertPair[] = [
   ...buildImagePairs(),
   ...buildAudioPairs(),
   ...buildVideoPairs(),
@@ -193,6 +194,12 @@ export const CONVERT_PAIRS: ConvertPair[] = [
   ...buildImageVideoPairs(),
   ...buildPdfPairs(),
   ...buildTextExtractPairs(),
+];
+
+// CAD & 3D flagship pairs (lib/convert/cad3d.ts) — hand-written, engine-verified.
+export const CONVERT_PAIRS: ConvertPair[] = [
+  ...BASE_PAIRS,
+  ...CAD3D_PAIRS.filter((c) => !BASE_PAIRS.some((b) => b.from === c.from && b.to === c.to)),
 ];
 
 export const CONVERT_PAIRS_BY_SLUG = new Map(

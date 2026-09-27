@@ -38,6 +38,13 @@ check "/convert self-canonical"       "https://xonvert.com/convert" "$(canon /co
 check "/tools links uncatalogued tool" "1" "$(curl -s $B/tools | grep -c 'href="/tools/video-info"')"
 check "thin pair is noindex,follow"   "1" "$(curl -s $B/convert/avif-to-jpg | grep -c 'content="noindex, follow"')"
 check "no SearchAction"               "0" "$(curl -s $B/ | grep -c 'SearchAction')"
+check "/cad-3d hub 200 + canonical"   "https://xonvert.com/cad-3d" "$(canon /cad-3d)"
+CAD=$(curl -s $B/convert/step-to-stl)
+check "step-to-stl indexable"         "0" "$(echo "$CAD" | grep -c 'content="noindex')"
+check "step-to-stl hand-written copy" "1" "$( echo "$CAD" | grep -q 'tessellates every surface' && echo 1 || echo 0)"
+check "fbx-to-glb page 200"           "200 " "$(st $B/convert/fbx-to-glb)"
+check "home links CAD hub"            "1" "$( curl -s $B/ | grep -q 'href="/cad-3d"' && echo 1 || echo 0)"
+check "engine uses GetPath"           "0" "$(grep -c 'GetName()' engines/model3d/index.ts)"
 check "legacy /mp4-to-mp3"            "308 https://xonvert.com/tools/video-extract-audio" "$(st $B/mp4-to-mp3)"
 check "legacy /png-to-jpg"            "308 https://xonvert.com/convert/png-to-jpg" "$(st $B/png-to-jpg)"
 check "legacy /cfg-to-txt -> hub"     "308 https://xonvert.com/convert" "$(st $B/cfg-to-txt)"

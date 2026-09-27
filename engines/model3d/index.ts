@@ -16,7 +16,9 @@ export const MODEL3D_INPUTS = [
   'x', 'x3d', 'off', 'ms3d', 'lwo', 'lws', 'ac', 'blend', 'ifc', 'dxf',
 ];
 
-interface AssimpFile { GetName(): string; GetContent(): Uint8Array }
+// assimpjs 0.0.10 result files expose GetPath/GetContent — there is no GetName
+// (calling it threw on every conversion: all 16 mesh→glb/gltf pairs were broken).
+interface AssimpFile { GetPath(): string; GetContent(): Uint8Array }
 interface AssimpResult {
   IsSuccess(): boolean;
   GetErrorCode(): string;
@@ -65,7 +67,7 @@ export async function convertModel(
   const n = result.FileCount();
   for (let i = 0; i < n; i++) {
     const file = result.GetFile(i);
-    out.push({ name: file.GetName(), data: file.GetContent() });
+    out.push({ name: file.GetPath(), data: file.GetContent() });
   }
   return { files: out };
 }

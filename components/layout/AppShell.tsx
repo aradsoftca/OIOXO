@@ -26,6 +26,7 @@ interface AppShellProps {
 const NAV_LINKS = [
   { href: '/', label: 'Home' },
   { href: '/convert', label: 'Convert' },
+  { href: '/cad-3d', label: 'CAD & 3D' },
   { href: '/apps', label: 'Apps' },
   { href: '/studios', label: 'Studios' },
   { href: '/tools', label: 'All tools' },

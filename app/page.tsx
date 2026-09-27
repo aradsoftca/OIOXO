@@ -121,6 +121,27 @@ export default function HomePage() {
         </section>
       )}
 
+      {/* The niche xonvert leads with: private CAD & 3D conversion */}
+      {!IS_OIOXO && (
+        <section className="border border-black/[0.08] bg-[var(--color-surface-1)] p-5">
+          <h2 className="text-[22px] font-bold tracking-tight text-[var(--color-fg)]">
+            <Link href="/cad-3d" className="hover:underline">CAD &amp; 3D files — converted privately in your browser</Link>
+          </h2>
+          <p className="mt-1 max-w-3xl text-[14px] text-[var(--color-fg-muted)]">
+            Open AutoCAD drawings without AutoCAD, mesh STEP and IGES solids for 3D printing, and turn FBX, OBJ or STL
+            models into web-ready GLB. Your designs never leave your device.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 font-mono text-[13px] font-semibold">
+            {['dwg-to-dxf', 'step-to-stl', 'stp-to-stl', 'step-to-obj', 'iges-to-stl', 'fbx-to-glb', 'obj-to-glb', 'stl-to-glb'].map((s) => (
+              <Link key={s} href={`/convert/${s}`} className="border border-black/[0.08] px-2.5 py-1.5 hover:bg-[var(--color-surface-2)]">
+                {s.replace('-to-', ' → ').toUpperCase()}
+              </Link>
+            ))}
+            <Link href="/cad-3d" className="px-2.5 py-1.5 underline underline-offset-2">All CAD &amp; 3D →</Link>
+          </div>
+        </section>
+      )}
+
       {/* Quick tiles — pinned tools + convert hub */}
       <section>
         <TileGrid cols={4}>

@@ -5,6 +5,7 @@
  */
 
 import { prisma } from '@/lib/db';
+import { cad3dContent } from '@/lib/convert/cad3d';
 
 export interface FaqItem { question: string; answer: string }
 export interface ConversionContentData {
@@ -33,6 +34,9 @@ function asFaq(raw: unknown): FaqItem[] {
 }
 
 export async function getConversionContent(slug: string): Promise<ConversionContentData | null> {
+  // Hand-written CAD & 3D copy wins over the migrated old-site rows.
+  const cad = cad3dContent(slug);
+  if (cad) return cad;
   try {
     const row = await prisma.conversionContent.findUnique({
       where: { slug },

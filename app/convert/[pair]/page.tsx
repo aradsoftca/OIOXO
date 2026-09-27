@@ -85,6 +85,9 @@ const ToolModules: Record<string, ReturnType<typeof dynamic>> = {
   'pdf-to-text':          dynamic(() => import('@/tools/pdf-to-text/ui'),          { loading }),
   'image-ocr':            dynamic(() => import('@/tools/image-ocr/ui'),            { loading }),
   'audio-to-text':        dynamic(() => import('@/tools/audio-to-text/ui'),        { loading }),
+  'model-3d-convert':     dynamic(() => import('@/tools/model-3d-convert/ui'),     { loading }),
+  'cad-convert':          dynamic(() => import('@/tools/cad-convert/ui'),          { loading }),
+  'convert-anything':     dynamic(() => import('@/tools/convert-anything/ui'),     { loading }),
 };
 
 export default async function ConvertPairPage({ params }: Props) {
@@ -120,7 +123,10 @@ export default async function ConvertPairPage({ params }: Props) {
 
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: structuredDataToScript(faqPageJsonLd(buildConvertFaqs(pair))) }}
+          dangerouslySetInnerHTML={{ __html: structuredDataToScript(faqPageJsonLd(
+            // Structured data must match the visible FAQ when the page has one.
+            content?.faq.length ? content.faq.map((f) => ({ q: f.question, a: f.answer })) : buildConvertFaqs(pair),
+          )) }}
         />
       </div>
     </ConvertFrame>

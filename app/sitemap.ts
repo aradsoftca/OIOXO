@@ -15,6 +15,7 @@ function url(path: string): string {
 const SUITE_HUBS_XONVERT: string[] = [
   '/',
   '/tools',
+  '/cad-3d',
   '/convert',
   '/apps',
   '/blog',

@@ -8,6 +8,9 @@
 # Checkout: /root/newxonvert (WSL ext4, origin = GitHub). Builds exactly the
 # pushed commit — a dirty tree is refused, so what ships is what GitHub has.
 set -euo pipefail
+# arad's WSL has no working IPv6 route; next/font's Google Fonts fetch times
+# out trying it first ("Failed to fetch `Geist`") unless IPv4 is preferred.
+export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
 BRANCH="${1:?usage: arad_build_deploy.sh <branch>}"
 cd /root/newxonvert
 

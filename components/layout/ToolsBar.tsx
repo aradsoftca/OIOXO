@@ -284,6 +284,7 @@ function DropdownItem({
 
   return (
     <Link
+      prefetch={false}
       href={toolHref(tool)}
       onClick={onClick}
       className="group flex items-center gap-2 px-2.5 py-1.5 text-[12px] font-medium text-[var(--color-fg)] transition hover:bg-black/[0.04]"

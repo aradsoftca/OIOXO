@@ -105,7 +105,7 @@ export function AppShell({ children }: AppShellProps) {
                 <span className="text-xl font-extrabold tracking-tight text-[var(--color-fg)]">{BRAND}</span>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element */
-                <img src="/logo.png" alt={BRAND} className="h-7 w-auto" />
+                <img src="/logo-header.webp" alt={BRAND} width={297} height={84} className="h-7 w-auto" />
               )}
             </Link>
 

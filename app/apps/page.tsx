@@ -76,7 +76,7 @@ export default function AppsPage() {
 
       <div className="grid grid-cols-1 gap-[2px] sm:grid-cols-2 lg:grid-cols-3">
         {apps.map((a) => (
-          <Link key={a.href} href={a.href}
+          <Link prefetch={false} key={a.href} href={a.href}
             className="group flex flex-col gap-3 bg-[var(--color-surface-1)] p-5 transition hover:bg-[var(--color-surface-2)]">
             <div className="flex items-center justify-between">
               <span className="grid h-11 w-11 place-items-center text-white" style={{ background: `var(${a.colorVar})` }}>

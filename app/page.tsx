@@ -141,7 +141,7 @@ export default function HomePage() {
           </p>
           <div className="mt-3 flex flex-wrap gap-2 font-mono text-[13px] font-semibold">
             {['dwg-to-dxf', 'step-to-stl', 'stp-to-stl', 'step-to-obj', 'iges-to-stl', 'fbx-to-glb', 'obj-to-glb', 'stl-to-glb'].map((s) => (
-              <Link key={s} href={`/convert/${s}`} className="border border-black/[0.08] px-2.5 py-1.5 hover:bg-[var(--color-surface-2)]">
+              <Link prefetch={false} key={s} href={`/convert/${s}`} className="border border-black/[0.08] px-2.5 py-1.5 hover:bg-[var(--color-surface-2)]">
                 {s.replace('-to-', ' → ').toUpperCase()}
               </Link>
             ))}

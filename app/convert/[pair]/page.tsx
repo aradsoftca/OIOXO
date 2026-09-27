@@ -113,7 +113,7 @@ export default async function ConvertPairPage({ params }: Props) {
         {tool && (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-[12px] text-[var(--color-fg-muted)]">
             Powered by{' '}
-            <Link href={`/tools/${tool.id}`} className="font-semibold text-[var(--color-fg)] underline-offset-2 hover:underline">
+            <Link prefetch={false} href={`/tools/${tool.id}`} className="font-semibold text-[var(--color-fg)] underline-offset-2 hover:underline">
               {tool.name}
             </Link>
             . Need more control? Open the full tool.

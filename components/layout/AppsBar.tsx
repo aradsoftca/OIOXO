@@ -45,7 +45,7 @@ function BarRow({ label, items, pathname }: { label: string; items: AppEntry[]; 
       {items.map((a) => {
         const active = pathname === a.href;
         return (
-          <Link
+          <Link prefetch={false}
             key={a.href}
             href={a.href}
             className={cn(

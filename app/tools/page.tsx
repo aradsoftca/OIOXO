@@ -83,7 +83,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                   const ready = isLive(tool.slug);
                   if (ready) {
                     return (
-                      <Link
+                      <Link prefetch={false}
                         key={tool.slug}
                         href={`/tools/${tool.slug}`}
                         className="group flex items-center gap-2 bg-[var(--color-surface-1)] px-3 py-2.5 text-[13px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
@@ -124,7 +124,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
             </div>
             <div className="grid grid-cols-2 gap-[2px] md:grid-cols-3 lg:grid-cols-4">
               {uncatalogued.map((tool) => (
-                <Link
+                <Link prefetch={false}
                   key={tool.id}
                   href={`/tools/${tool.id}`}
                   className="flex items-center gap-2 bg-[var(--color-surface-1)] px-3 py-2.5 text-[13px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"

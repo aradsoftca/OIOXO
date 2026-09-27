@@ -96,7 +96,7 @@ export function RichToolSection({ tool, page, related = [] }: Props) {
           <h3 className="text-[18px] font-bold tracking-tight">Related {cat.name.toLowerCase()} tools</h3>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {related.map((t) => (
-              <Link
+              <Link prefetch={false}
                 key={t.id}
                 href={`/tools/${t.id}`}
                 className="group block border border-black/[0.06] bg-[var(--color-surface-1)] p-3 transition-colors hover:border-black/[0.16]"
@@ -115,7 +115,7 @@ export function RichToolSection({ tool, page, related = [] }: Props) {
           <li>›</li>
           <li><Link href="/tools" className="hover:underline">Tools</Link></li>
           <li>›</li>
-          <li><Link href={`/tools/c/${cat.id}`} className="hover:underline">{cat.name}</Link></li>
+          <li><Link prefetch={false} href={`/tools/c/${cat.id}`} className="hover:underline">{cat.name}</Link></li>
           <li>›</li>
           <li className="text-[var(--color-fg)]">{tool.name}</li>
         </ol>

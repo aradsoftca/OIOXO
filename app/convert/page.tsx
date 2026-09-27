@@ -14,7 +14,7 @@ export const metadata: Metadata = buildMeta({
 
 function PairTile({ from, to, popular = false }: { from: string; to: string; popular?: boolean }) {
   return (
-    <Link
+    <Link prefetch={false}
       href={`/convert/${from}-to-${to}`}
       className="group relative flex items-center justify-between border border-black/[0.08] bg-[var(--color-surface-1)] px-4 py-3 transition hover:border-[var(--color-cat-convert)] hover:bg-[var(--color-cat-convert)] hover:text-white"
     >

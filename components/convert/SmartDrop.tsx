@@ -19,7 +19,7 @@ const KIND_LABEL: Record<FileKind, string> = {
 function SuggestionCard({ s }: { s: ToolSuggestion }) {
   const cat = CATEGORIES[s.tool.category];
   return (
-    <Link
+    <Link prefetch={false}
       href={`/tools/${s.tool.id}`}
       className="group flex items-center gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] px-3.5 py-3 transition hover:border-[var(--color-cat-convert)] hover:bg-[var(--color-surface-2)]"
     >

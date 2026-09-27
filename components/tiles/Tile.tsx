@@ -121,6 +121,9 @@ export const Tile = React.forwardRef<HTMLDivElement, TileProps>(
       return (
         <Link
           href={href}
+          // Tool/convert routes share one heavy bundle; viewport prefetch pulled
+          // ~4 MB on every page with tool tiles. Load it on click instead.
+          prefetch={typeof href === 'string' && /^\/(tools|convert)\//.test(href) ? false : undefined}
           className="block focus-visible:outline-none"
           aria-label={typeof rest['aria-label'] === 'string' ? rest['aria-label'] : undefined}
         >

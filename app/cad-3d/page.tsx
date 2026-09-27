@@ -55,12 +55,12 @@ export default function Cad3dHub() {
               <h2 className="text-[24px] font-bold tracking-tight text-[var(--color-fg)]">{g.title}</h2>
               <p className="text-[14px] text-[var(--color-fg-muted)]">
                 {g.blurb}{' '}
-                <Link href={`/tools/${g.tool}`} className="underline underline-offset-2">Open the full tool</Link>.
+                <Link prefetch={false} href={`/tools/${g.tool}`} className="underline underline-offset-2">Open the full tool</Link>.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-[2px] md:grid-cols-3 lg:grid-cols-5">
               {pairs.map((p) => (
-                <Link
+                <Link prefetch={false}
                   key={`${p.from}-${p.to}`}
                   href={`/convert/${p.from}-to-${p.to}`}
                   className="flex items-baseline gap-1.5 border border-black/[0.08] bg-[var(--color-surface-1)] px-4 py-3 font-mono text-[14px] font-semibold tracking-tight transition hover:bg-[var(--color-surface-2)]"

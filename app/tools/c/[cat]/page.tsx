@@ -361,7 +361,7 @@ export default async function CategoryPage({ params }: Props) {
           <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-muted)]">Most popular</h2>
           <div className="grid grid-cols-1 gap-[2px] sm:grid-cols-2 lg:grid-cols-3">
             {pinned.map((t) => (
-              <Link key={t.id} href={`/tools/${t.id}`} className="group block bg-[var(--color-surface-1)] p-4 transition hover:bg-[var(--color-surface-2)]">
+              <Link prefetch={false} key={t.id} href={`/tools/${t.id}`} className="group block bg-[var(--color-surface-1)] p-4 transition hover:bg-[var(--color-surface-2)]">
                 <div className="text-[15px] font-bold tracking-tight text-[var(--color-fg)]">{t.name}</div>
                 <div className="mt-1 line-clamp-2 text-[12px] text-[var(--color-fg-muted)]">{t.blurb}</div>
               </Link>
@@ -374,7 +374,7 @@ export default async function CategoryPage({ params }: Props) {
         <h2 className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-muted)]">All {c.name.toLowerCase()} tools</h2>
         <div className="grid grid-cols-1 gap-[2px] sm:grid-cols-2 lg:grid-cols-3">
           {others.map((t) => (
-            <Link key={t.id} href={`/tools/${t.id}`} className="group block bg-[var(--color-surface-1)] p-4 transition hover:bg-[var(--color-surface-2)]">
+            <Link prefetch={false} key={t.id} href={`/tools/${t.id}`} className="group block bg-[var(--color-surface-1)] p-4 transition hover:bg-[var(--color-surface-2)]">
               <div className="text-[14px] font-semibold tracking-tight text-[var(--color-fg)]">{t.name}</div>
               <div className="mt-1 line-clamp-2 text-[12px] text-[var(--color-fg-muted)]">{t.blurb}</div>
             </Link>

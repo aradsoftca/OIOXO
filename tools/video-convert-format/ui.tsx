@@ -3,7 +3,7 @@ import * as React from 'react';
 import { useConvertTarget } from '@/lib/convert/target-context';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
 import { FfmpegRunButton } from '@/components/tool/FfmpegRunButton';
-import { fmtDuration } from '@/engines/video';
+import { fmtDuration, recordRange } from '@/engines/video';
 import { runFfmpeg, downloadBlob } from '@/engines/ffmpeg';
 import { checkLever, checkFormat } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
@@ -97,7 +97,19 @@ export default function Tool() {
         const again = await requestPermission(POLICY_KEY, inputHash, specs);
         if (again.denial) throw e;
         setProgress(0);
-        blob = await run(['-c:v', 'libvpx', '-b:v', '1M', '-deadline', 'realtime', '-cpu-used', '8', '-c:a', 'libvorbis'], again.permission);
+        try {
+          blob = await run(['-c:v', 'libvpx', '-b:v', '1M', '-deadline', 'realtime', '-cpu-used', '8', '-c:a', 'libvorbis'], again.permission);
+        } catch (e2) {
+          // Live 2026-09-27: the wasm libvpx build aborts on both VP9 and VP8. The
+          // browser's own MediaRecorder writes WebM natively (video-mute uses it and
+          // passes the sweep) — real-time, but it works. Needs a playable source.
+          if (!item.info.duration) throw e2;
+          setProgress(0);
+          blob = await recordRange(item.video, 0, item.info.duration, {
+            mimeType: 'video/webm',
+            onProgress: (t) => setProgress(Math.round((t / item.info.duration) * 100)),
+          });
+        }
       }
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '.' + target);
     } catch (e) {

@@ -498,7 +498,8 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
     key: 'video-compress', displayName: 'Video Compress', tier: 'standard',
     levers: [
       { type: 'count-day', free: 4, label: 'Daily compresses', response: 'block' },
-      { type: 'input-size', free: 500 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
+      // 150 MB = the enforced video cap (lib/usage/config.ts FREE_MAX_BYTES); 500 here was never true.
+      { type: 'input-size', free: 150 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'input-duration', free: 5 * 60, unit: 'min', label: 'Max input length', response: 'block' },
     ],
     watermarkFree: true,
@@ -645,7 +646,8 @@ const HEAVY_TOOL_POLICIES: ToolPolicy[] = [
   {
     key: 'audio-convert-format', displayName: 'Audio Convert', tier: 'top-of-funnel',
     levers: [
-      { type: 'count-day', free: 5, label: 'Daily conversions', response: 'block' },
+      // 10 = what the gate enforces (audio category, lib/usage/config.ts); this count-day is display-only.
+      { type: 'count-day', free: 10, label: 'Daily conversions', response: 'block' },
       { type: 'input-size', free: 50 * 1024 * 1024, unit: 'MB', label: 'Max input size', response: 'block' },
       { type: 'output-bitrate', free: 192, pro: 320, unit: 'kbps', label: 'Max output bitrate', response: 'degrade' },
       { type: 'formats', free: 0, label: 'Free formats', response: 'block', freeFormats: ['mp3', 'wav', 'ogg'] },

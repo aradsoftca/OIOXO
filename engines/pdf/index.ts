@@ -5,6 +5,7 @@
 import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
 import type { PDFFont, PageSizes } from 'pdf-lib';
 import { BRAND_DOMAIN } from '@/lib/brand';
+import { shouldWatermarkHere } from '@/lib/watermark/config';
 
 // ---- Brand footer (free) ----------------------------------------------------
 // A faint "Made with <brand>" footer (BRAND_DOMAIN) on every page of any PDF this engine
@@ -23,7 +24,10 @@ export function setPdfWatermark(text: string | null): void { _pdfWm = text; }
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function stampPdfFooter(doc: any): Promise<void> {
-  if (!_pdfWm) return;
+  // Respect the tool's policy like the audio/image/ffmpeg engines do: utilities
+  // declared watermarkFree:false (merge, compress, split…) stay clean. The footer
+  // was stamped on every PDF regardless — including someone's merged contract.
+  if (!_pdfWm || !shouldWatermarkHere()) return;
   try {
     const font = await doc.embedFont(StandardFonts.Helvetica);
     const text = `Made with ${_pdfWm}`;

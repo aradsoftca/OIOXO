@@ -317,7 +317,9 @@ def preflight(ssh):
     # Use `pm2 list` (table) instead of `jlist` (JSON with full env dump)
     # so we don't echo other tenants' secrets into the deploy log.
     rc, out, _ = run(ssh, "pm2 list --no-color 2>&1", label="PM2 processes")
-    needed = ["translation-lab", "traxlate-web"]
+    # Co-tenants that must still be running on this box (translation-lab was
+    # retired; traxlate2-prod is the live Traxlate now).
+    needed = ["newxonvert", "traxlate2-prod"]
     for name in needed:
         if name in out:
             print(f"      ✓ {name} present")

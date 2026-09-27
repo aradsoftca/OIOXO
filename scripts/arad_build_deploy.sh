@@ -33,6 +33,9 @@ npx tsc --noEmit -p tsconfig.json
 
 service postgresql start >/dev/null
 KEY=$(openssl rand -base64 32)
+# Fresh brain-WASM key + ciphertext for this build (deploy.py's rotate_brain_key).
+BRAIN_KEY=$(node lib/ai/wasm/encrypt.mjs --rotate | sed -n 's/^ROTATED_BRAIN_WASM_KEY=//p')
+[ -n "$BRAIN_KEY" ] || { echo "brain WASM rotate produced no key"; exit 1; }
 
 # Build env = the deploy secrets + this build's worker key + the CI defaults.
 cp .env.deploy.local .env
@@ -41,7 +44,9 @@ grep -q '^DATABASE_URL=' .env || printf 'DATABASE_URL=postgresql://newxonvert:nx
 grep -q '^NEXTAUTH_URL=' .env || printf 'NEXTAUTH_URL=https://xonvert.com\n' >> .env
 grep -q '^NEXT_BASE_PATH=' .env || printf 'NEXT_BASE_PATH=\n' >> .env
 grep -q '^NEXT_PUBLIC_BASE_PATH=' .env || printf 'NEXT_PUBLIC_BASE_PATH=\n' >> .env
-trap 'rm -f /root/newxonvert/.env' EXIT
+printf 'BRAIN_WASM_KEY=%s\n' "$BRAIN_KEY" >> .env
+# Leave the checkout clean for the next run (rotate rewrites a tracked file).
+trap 'rm -f /root/newxonvert/.env; git -C /root/newxonvert checkout -q -- lib/ai/wasm/wasm-bytes.ts' EXIT
 
 # The build DB must point at the throwaway local Postgres, whatever the secrets say.
 DATABASE_URL='postgresql://newxonvert:nx_pw_change_me@127.0.0.1:5432/newxonvert?schema=public' \
@@ -71,7 +76,7 @@ ls -la "$ART"
 
 if [ "${DEPLOY:-0}" = "1" ]; then
   echo "== deploy $COMMIT"
-  TOOL_WASM_KEY="$KEY" ICELAND_KEY=/root/.ssh/id_oioxo_deploy \
+  TOOL_WASM_KEY="$KEY" BRAIN_WASM_KEY="$BRAIN_KEY" ICELAND_KEY=/root/.ssh/id_oioxo_deploy \
     python3 -u scripts/deploy.py --from-artifact "$ART"
   echo "== live commit: $(curl -s https://xonvert.com/build-commit.txt)"
 fi

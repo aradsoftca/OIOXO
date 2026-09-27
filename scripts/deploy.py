@@ -553,8 +553,11 @@ def main():
         # workers into public/protected/*.enc with $TOOL_WASM_KEY), and packaged
         # .next+public+prisma. We just write that SAME key to the remote .env and
         # swap the prebuilt .next in. node_modules stays persistent on the server.
-        global TOOL_KEY
+        global TOOL_KEY, ROTATED_KEY
         TOOL_KEY = os.environ.get("TOOL_WASM_KEY")
+        # A builder that rotated the brain WASM ships its key too; without it the
+        # remote .env would get the stale key from the secrets file.
+        ROTATED_KEY = os.environ.get("BRAIN_WASM_KEY") or None
         if not TOOL_KEY:
             print("      ! --from-artifact requires $TOOL_WASM_KEY (the key the artifact was built with)")
             sys.exit(1)

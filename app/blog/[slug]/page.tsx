@@ -46,6 +46,8 @@ export default async function BlogPostPage({ params }: Props) {
         {post.body.map((b, i) =>
           b.type === 'h2'
             ? <h2 key={i} className="pt-3 text-[18px] font-bold tracking-tight text-[var(--color-fg)]">{b.text}</h2>
+            : b.type === 'link' && b.href
+            ? <p key={i}><Link prefetch={false} href={b.href} className="inline-flex min-h-[44px] items-center border border-black/[0.1] bg-[var(--color-surface-1)] px-4 text-[14px] font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface-2)]">{b.text} →</Link></p>
             : <p key={i} className="text-[15px] leading-relaxed text-[var(--color-fg-muted)]">{b.text}</p>,
         )}
       </article>

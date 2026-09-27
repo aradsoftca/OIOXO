@@ -121,7 +121,8 @@ export default function ConvertAnythingTool() {
             <>
               Convert it to any format, or open it in the right tool. Files never leave your device.
               <br />
-              1 free conversion/day · {freeSizeLabel('convert')} · <a href="/limits" className="underline underline-offset-2">see all limits</a>
+              {/* Was "1 free conversion/day" — the gate allows unlimited conversion (config.ts convert: 9999). */}
+              Unlimited free conversion · {freeSizeLabel('convert')} · <a href="/limits" className="inline-flex min-h-[32px] items-center underline underline-offset-2">see all limits</a>
             </>
           }
           onFiles={(files) => load(files[0])}

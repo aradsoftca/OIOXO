@@ -1,7 +1,7 @@
 import { BRAND } from '@/lib/brand';
 /** Starter blog content. Each post is plain data → rendered server-side. */
 
-export interface Block { type: 'p' | 'h2'; text: string }
+export interface Block { type: 'p' | 'h2' | 'link'; text: string; href?: string }
 export interface Post {
   slug: string;
   title: string;
@@ -11,6 +11,83 @@ export interface Post {
 }
 
 export const POSTS: Post[] = [
+  {
+    slug: 'open-dwg-file-without-autocad',
+    title: 'How to open a DWG file without AutoCAD',
+    date: '2026-09-27',
+    excerpt: 'Someone sent you an AutoCAD drawing and you don’t have AutoCAD. Convert it to DXF — the documented format almost every CAD program opens — in your browser, without uploading it.',
+    body: [
+      { type: 'p', text: 'DWG is AutoCAD’s native drawing format. It is proprietary and changes with AutoCAD releases, which is why most other programs cannot open it directly.' },
+      { type: 'h2', text: 'The practical answer: convert to DXF' },
+      { type: 'p', text: 'DXF is Autodesk’s documented exchange format. LibreCAD, QCAD, FreeCAD, Inkscape and the software behind laser cutters and CNC machines all read it.' },
+      { type: 'link', text: 'Convert DWG to DXF in your browser', href: '/convert/dwg-to-dxf' },
+      { type: 'h2', text: 'What comes across' },
+      { type: 'p', text: 'The drawing is read with LibreDWG, the GNU project’s open DWG library. Lines, arcs, polylines, circles, layers, blocks and text convert. Custom objects from AutoCAD add-ons such as Civil 3D may be missing — check the parts that matter before sending the file to a machine.' },
+      { type: 'h2', text: 'Confidential drawings' },
+      { type: 'p', text: 'Engineering drawings are often under NDA. The converter runs entirely in your browser, so the DWG is never uploaded to a server.' },
+    ],
+  },
+  {
+    slug: '3d-print-a-step-file',
+    title: 'How to 3D print a STEP file',
+    date: '2026-09-27',
+    excerpt: 'Slicers print triangle meshes, not CAD solids. Here is how to turn a STEP or STP file into an STL your slicer accepts — and what to check before printing.',
+    body: [
+      { type: 'p', text: 'STEP (.step or .stp) stores exact CAD geometry: a cylinder is a true cylinder. Slicers such as Cura, PrusaSlicer and Bambu Studio need a mesh of triangles instead, usually STL.' },
+      { type: 'link', text: 'Convert STEP to STL', href: '/convert/step-to-stl' },
+      { type: 'h2', text: 'What changes in the conversion' },
+      { type: 'p', text: 'Every curved surface is tessellated into flat triangles, so round parts become faceted. The CAD feature history and dimensions do not survive — keep the STEP file as your editable master.' },
+      { type: 'h2', text: 'Check the scale' },
+      { type: 'p', text: 'STL has no units. Slicers assume millimetres, which matches almost all mechanical CAD, but confirm the size when you import.' },
+      { type: 'h2', text: 'Assemblies' },
+      { type: 'p', text: 'A single-file assembly is meshed into one STL. If the top STEP file only references parts stored in separate files, export a single-file STEP from your CAD tool first.' },
+    ],
+  },
+  {
+    slug: 'convert-iphone-heic-photos-to-jpg',
+    title: 'How to convert iPhone HEIC photos to JPG',
+    date: '2026-09-27',
+    excerpt: 'iPhones save photos as HEIC, which many Windows programs, websites and upload forms reject. Convert them to JPG in your browser — no app, no upload.',
+    body: [
+      { type: 'p', text: 'Since iOS 11, iPhones store photos as HEIC. The files are about half the size of JPG, but plenty of software still cannot open them.' },
+      { type: 'link', text: 'Convert HEIC to JPG', href: '/tools/image-heic-convert' },
+      { type: 'h2', text: 'Stop it happening in future' },
+      { type: 'p', text: 'On the iPhone, Settings → Camera → Formats → “Most Compatible” makes the camera save JPG instead. Existing photos stay HEIC, so convert those.' },
+      { type: 'h2', text: 'Privacy' },
+      { type: 'p', text: 'Photos often contain location data and private moments. The conversion runs on your device; the photos are not uploaded.' },
+    ],
+  },
+  {
+    slug: 'extract-audio-from-video-mp4-to-mp3',
+    title: 'How to extract the audio from a video (MP4 to MP3)',
+    date: '2026-09-27',
+    excerpt: 'Keep just the sound of a video — a song, a talk or a voice memo — as an MP3 that plays anywhere.',
+    body: [
+      { type: 'p', text: 'Drop the video and download an MP3. The audio track is converted to a 192 kbps MP3 with ffmpeg running in your browser; it takes seconds for typical clips.' },
+      { type: 'link', text: 'Convert MP4 to MP3', href: '/convert/mp4-to-mp3' },
+      { type: 'p', text: 'iPhone videos are MOV files — the same tool handles them.' },
+      { type: 'link', text: 'Convert MOV to MP3', href: '/convert/mov-to-mp3' },
+      { type: 'h2', text: 'Quality' },
+      { type: 'p', text: '192 kbps MP3 sounds transparent for most listening. The original video is not changed.' },
+    ],
+  },
+  {
+    slug: 'make-a-pdf-smaller-for-email',
+    title: 'How to make a PDF smaller for email',
+    date: '2026-09-27',
+    excerpt: 'Email attachments are usually capped around 20–25 MB. Here is how to shrink a heavy PDF — and when compression will not help.',
+    body: [
+      { type: 'p', text: 'PDFs get large because of the images inside them: scans, photos and exported slides. Shrinking those images is what makes the file small.' },
+      { type: 'link', text: 'Compress a PDF', href: '/tools/pdf-compress' },
+      { type: 'h2', text: 'Pick a level' },
+      { type: 'p', text: 'Balanced suits most documents. Use Light if it will be printed, Strong when it only needs to be readable on screen or must fit a strict limit. A grayscale option saves more on colour scans.' },
+      { type: 'h2', text: 'The trade-off' },
+      { type: 'p', text: 'Pages are re-saved as images, so text in the compressed PDF can no longer be selected or searched. Keep the original if you need that.' },
+      { type: 'h2', text: 'Still too big?' },
+      { type: 'p', text: 'Split it into parts and send them separately.' },
+      { type: 'link', text: 'Split a PDF', href: '/tools/pdf-split' },
+    ],
+  },
   {
     slug: 'files-never-leave-your-device',
     title: 'Your files never have to leave your device',
@@ -22,8 +99,8 @@ export const POSTS: Post[] = [
       { type: 'p', text: `${BRAND} runs the conversion, compression, and editing right inside your browser tab. The bytes of your file are read locally and never sent to us. There’s no upload step, no server copy, and nothing to delete — because we never had it.` },
       { type: 'h2', text: 'Why it’s also faster' },
       { type: 'p', text: 'Skipping the upload and download round-trip means small files are often done before a server-based tool has finished uploading. And it works offline once the page has loaded.' },
-      { type: 'h2', text: 'The one exception' },
-      { type: 'p', text: 'For the heaviest jobs you can opt into “Pro Quality,” which uses a processing server for that single file over an encrypted connection. It’s explicit, optional, and the file is discarded immediately after.' },
+      { type: 'h2', text: 'No exceptions' },
+      { type: 'p', text: 'Every tool runs on your device — including AI features such as background removal and transcription, whose models download once and then run locally. There is no “send it to our server” mode.' },
     ],
   },
   {

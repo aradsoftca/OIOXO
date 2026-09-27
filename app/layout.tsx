@@ -36,7 +36,9 @@ export const metadata: Metadata = {
         shortcut: '/oioxo-favicon.ico',
       }
     : { icon: '/icon.png', apple: '/apple-icon.png' },
-  manifest: '/manifest.webmanifest',
+  // public/manifest.webmanifest is OIOXO's search PWA (copied over by prebuild):
+  // xonvert.com used to install as "oioxo — frontier search" opening a 404 /search.
+  manifest: IS_OIOXO ? '/manifest.webmanifest' : '/xonvert.webmanifest',
   openGraph: {
     title: BRAND_TITLE,
     description: BRAND_DESC,

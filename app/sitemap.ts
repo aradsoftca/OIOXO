@@ -94,6 +94,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   for (const path of APP_PAGES) {
     if (hubs.includes(path)) continue;
+    if (!IS_OIOXO && (path === '/ai' || path === '/summarize')) continue; // OIOXO-only, redirected on xonvert
     entries.push({
       url: url(path),
       lastModified: now,

@@ -1,0 +1,16 @@
+{
+  "name": "Xonvert — every file, every tool",
+  "short_name": "Xonvert",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f1e7",
+  "theme_color": "#f6f1e7",
+  "description": "Convert, compress and edit files privately in your browser — images, PDF, video, audio, CAD and 3D.",
+  "lang": "en",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/xonvert-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/xonvert-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

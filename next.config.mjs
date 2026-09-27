@@ -80,6 +80,14 @@ const nextConfig = {
             // One host for Google: www is a full duplicate of the apex.
             { source: '/:path*', has: [{ type: 'host', value: 'www.xonvert.com' }], destination: 'https://xonvert.com/:path*', permanent: true },
             { source: '/studios', destination: '/tools', permanent: false },
+            // OIOXO-only surfaces the shared codebase also served on xonvert.com (indexable,
+            // "oioxo — all-in-one AI · Xonvert"; /ai + /summarize with AI switched off here).
+            { source: '/oioxo', destination: '/', permanent: true },
+            { source: '/oioxo/:path*', destination: '/', permanent: true },
+            { source: '/ai', destination: '/', permanent: true },
+            { source: '/summarize', destination: '/tools', permanent: true },
+            { source: '/search.html', destination: '/', permanent: true },
+            { source: '/newsearch.html', destination: '/', permanent: true },
             ...DISABLED_STUDIOS.map((id) => ({ source: `/tools/${id}`, destination: '/tools', permanent: false })),
           ]
         : []),

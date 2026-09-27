@@ -13,7 +13,28 @@ export default function Tool() {
 
   const handleDownload = () => {
     if (!font) return;
-    const buf = font.toArrayBuffer();
+    let buf: ArrayBuffer;
+    try {
+      buf = font.toArrayBuffer();
+    } catch (e) {
+      // opentype.js can't WRITE some GSUB lookups (e.g. type 7 extension tables,
+      // which Lato and many real fonts use): "Unable to write GSUB lookup type 7
+      // tables." — the click silently did nothing. Retry without GSUB; glyphs and
+      // metrics are kept, ligatures/alternates are dropped (and we say so).
+      const tables = (font as unknown as { tables: Record<string, unknown> }).tables;
+      if (!/GSUB/i.test((e as Error)?.message || '') || !tables.gsub) {
+        alert(`Could not convert this font: ${(e as Error)?.message || 'unknown error'}`);
+        return;
+      }
+      delete tables.gsub;
+      try {
+        buf = font.toArrayBuffer();
+      } catch (e2) {
+        alert(`Could not convert this font: ${(e2 as Error)?.message || 'unknown error'}`);
+        return;
+      }
+      alert('Converted. Note: this font’s ligature/alternate tables (GSUB) could not be written and were left out.');
+    }
     const blob = new Blob([buf], { type: 'font/ttf' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

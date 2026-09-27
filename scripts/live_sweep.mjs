@@ -47,7 +47,37 @@ const SAMPLE_TYPES = [
   { file: 'box.fbx',          mime: 'model/fbx',       exts: ['fbx'] },
   { file: 'as1-oc-214.step',  mime: 'model/step',      exts: ['step', 'stp'] },
   { file: 'example_2000.dwg', mime: 'image/vnd.dwg',   exts: ['dwg'] },
+  // Extra samples (scripts/live_e2e_samples.sh) for the tools the first sweeps could not feed.
+  { file: 'test.webp',        mime: 'image/webp',      exts: ['webp'] },
+  { file: 'anim.gif',         mime: 'image/gif',       exts: ['gif'] },
+  { file: 'example.heic',     mime: 'image/heic',      exts: ['heic', 'heif'], alt: ['image/heif'] },
+  { file: 'test.svg',         mime: 'image/svg+xml',   exts: ['svg'] },
+  { file: 'tone.mp3',         mime: 'audio/mpeg',      exts: ['mp3'], alt: ['audio/mp3'] },
+  { file: 'clip.mov',         mime: 'video/quicktime', exts: ['mov'] },
+  { file: 'clip.mkv',         mime: 'video/x-matroska', exts: ['mkv'] },
+  { file: 'clip.avi',         mime: 'video/x-msvideo', exts: ['avi'] },
+  { file: 'test.docx',        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', exts: ['docx'] },
+  { file: 'test.xlsx',        mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', exts: ['xlsx'] },
+  { file: 'test.pptx',        mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', exts: ['pptx'] },
+  { file: 'test.epub',        mime: 'application/epub+zip', exts: ['epub'] },
+  { file: 'test.zip',         mime: 'application/zip', exts: ['zip'], alt: ['application/x-zip-compressed'] },
+  { file: 'lato.ttf',         mime: 'font/ttf',        exts: ['ttf'], alt: ['application/x-font-ttf'] },
+  { file: 'source.otf',       mime: 'font/otf',        exts: ['otf'] },
+  { file: 'test.srt',         mime: 'application/x-subrip', exts: ['srt'], alt: ['text/srt'] },
+  { file: 'test.vtt',         mime: 'text/vtt',        exts: ['vtt'] },
+  { file: 'test.csv',         mime: 'text/csv',        exts: ['csv'] },
+  { file: 'test.json',        mime: 'application/json', exts: ['json'] },
+  { file: 'test.md',          mime: 'text/markdown',   exts: ['md', 'markdown'] },
+  { file: 'test.txt',         mime: 'text/plain',      exts: ['txt'] },
 ].filter((s) => fs.existsSync(path.join(SAMPLES, s.file)));
+
+// Second file for tools whose input is `multiple` (merge/combine/compare), by first sample.
+const SECOND_FILE = { 'two-page.pdf': 'one-page.pdf', 'tone.wav': 'tone2.wav', 'test.png': 'test.jpg', 'clip.mp4': 'clip.mp4', 'test.srt': 'test.vtt' };
+
+// Per-tool action overrides: the tool's real "do it" button when its label is not
+// covered by ACTION_RE (texts collected from the live pages by this sweep).
+// Each entry still passes NOT_ACTION_RE, so it can never press a purchase/share button.
+const ACTION_OVERRIDE = {};
 
 const ACTION_RE = /^(convert|compress|apply|extract|merge|export|process|download|save|generate|render|resize|crop|rotate|split|encode|run|start|create|make|optimi[sz]e|remove|flip|trim|cut|join|combine|enhance|upscale|blur|sharpen|protect|unlock|sign|watermark|reverse|normalize|mix|denoise)/i;
 // Never press anything that starts an account, a purchase or a share.
@@ -78,6 +108,10 @@ function pickSample(url, accepts) {
   if (pair) return SAMPLE_TYPES.find((s) => s.exts.includes(pair[1])) || null;
   if (!accepts || !accepts.length) return null;
   return SAMPLE_TYPES.find((s) => acceptsSample(accepts, s)) || null;
+}
+// The page's own <input type=file accept="..."> - used when the manifest has no `accepts`.
+function parseAcceptAttr(a) {
+  return (a || '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
 }
 
 // ---------- output validation ----------
@@ -185,7 +219,12 @@ async function runPage(browser, url) {
     const accepts = id ? readAccepts(id) : null;
     const hasFileInput = (await page.locator('input[type=file]').count()) > 0;
     const text = (await page.locator('main').innerText().catch(() => '')).slice(0, 4000);
-    const sample = pickSample(url, accepts);
+    let sample = pickSample(url, accepts);
+    if (!sample && hasFileInput) {
+      const attr = parseAcceptAttr(await page.locator('input[type=file]').first().getAttribute('accept').catch(() => ''));
+      if (attr.length) { sample = pickSample(url, attr); rec.acceptAttr = attr; }
+      else if (!accepts) sample = null;
+    }
     if (!hasFileInput || !sample) {
       rec.status = 'SKIPPED';
       rec.reasons.push(!hasFileInput ? (HW_RE.test(text) ? 'needs camera/mic' : 'no file input (text/interactive tool)') : `no sample for accepts=${JSON.stringify(accepts)}`);
@@ -194,7 +233,8 @@ async function runPage(browser, url) {
     rec.sample = sample.file;
     const multiple = await page.locator('input[type=file]').first().getAttribute('multiple');
     const files = [path.join(SAMPLES, sample.file)];
-    if (multiple !== null && sample.file.endsWith('.pdf') && fs.existsSync(path.join(SAMPLES, 'one-page.pdf'))) files.push(path.join(SAMPLES, 'one-page.pdf'));
+    const second = SECOND_FILE[sample.file];
+    if (multiple !== null && second && fs.existsSync(path.join(SAMPLES, second))) files.push(path.join(SAMPLES, second));
     await page.locator('input[type=file]').first().setInputFiles(files);
     await page.waitForTimeout(2000);
 
@@ -208,14 +248,26 @@ async function runPage(browser, url) {
       // tool has an "MP3" FORMAT chip, and matching it made the sweep pick the
       // format instead of pressing "Apply & Download" — 14 false audio FAILs.
       // Subtitle downloads are labelled ".srt" / ".vtt" / ".txt".
+      // Press the tool's action first; a bare Download is used only after an action ran,
+      // or when the page has no action at all (auto-processing tools). Otherwise a
+      // Download of the ORIGINAL / an unrelated control wins and the tool never runs.
+      const override = sid && ACTION_OVERRIDE[sid];
+      const isAction = (t) => !!t && t.length <= 40 && (ACTION_RE.test(t) || (override && override.test(t)))
+        && !(NOT_ACTION_RE.test(t) && !/^download/i.test(t));
+      const texts = [];
+      for (let i = 0; i < n; i++) texts.push((await btns.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim());
+      const pendingAction = texts.some((t) => isAction(t) && !/^download/i.test(t) && !clicked.has(t));
       const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|m4r|\.(srt|vtt|txt)\b)/i }).first();
-      if (await dlFirst.count() && !(await dlFirst.isDisabled().catch(() => true))) {
+      if ((clicked.size > 0 || !pendingAction) && await dlFirst.count() && !(await dlFirst.isDisabled().catch(() => true))) {
         clicked.add('Download'); await dlFirst.click({ timeout: 3000 }).catch(() => {}); acted = true;
       }
-      for (let i = 0; i < n && !acted; i++) {
+      // Override label first (it is the tool's real action), then the generic ones.
+      const order = [...Array(n).keys()].sort((a, b) => Number(!!(override && override.test(texts[b]))) - Number(!!(override && override.test(texts[a]))));
+      for (const i of order) {
+        if (acted) break;
         const b = btns.nth(i);
-        const t = (await b.innerText().catch(() => '')).replace(/\s+/g, ' ').trim();
-        if (!t || t.length > 40 || !ACTION_RE.test(t) || (NOT_ACTION_RE.test(t) && !/^download/i.test(t))) continue;
+        const t = texts[i];
+        if (!isAction(t)) continue;
         if (await b.isDisabled().catch(() => true)) continue;
         const isDl = /^download/i.test(t);
         if (!isDl && clicked.has(t)) continue; // press each action once; re-press Download
@@ -234,7 +286,10 @@ async function runPage(browser, url) {
     if (!download) {
       const wantsMedia = await page.evaluate(() => !!window.__wantsMedia).catch(() => false);
       if (wantsMedia || (!clicked.size && HW_RE.test(text))) { rec.status = 'SKIPPED'; rec.reasons.push('needs camera/mic'); return finish(rec); }
-      if (!clicked.size) { rec.status = 'SKIPPED'; rec.reasons.push('uploaded, but no recognisable action/download button'); return finish(rec); }
+      if (!clicked.size) {
+        rec.buttons = (await page.locator('main button:visible').allInnerTexts().catch(() => [])).map((t) => t.replace(/\s+/g, ' ').trim()).filter((t) => t && t.length <= 40);
+        rec.status = 'SKIPPED'; rec.reasons.push('uploaded, but no recognisable action/download button'); return finish(rec);
+      }
       rec.status = 'UPLOAD-FAIL';
       rec.reasons.push(rec.red.length ? 'error shown: ' + rec.red[0].slice(0, 160) : `no download within ${DL_TIMEOUT / 1000}s`);
       return finish(rec);

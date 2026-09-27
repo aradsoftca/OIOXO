@@ -6,7 +6,7 @@
   "scripts": {
     "predev": "node scripts/copy-monaco.mjs && node scripts/copy-jsquash.mjs && node scripts/copy-libredwg.mjs && node scripts/encrypt-workers.mjs && node scripts/sync-oioxo-source.mjs && node scripts/encrypt-oioxo.mjs && node scripts/copy-oioxo-static.mjs",
     "dev": "next dev -p 3001",
-    "prebuild": "node scripts/copy-monaco.mjs && node scripts/copy-jsquash.mjs && node scripts/copy-libredwg.mjs && node scripts/encrypt-workers.mjs && node scripts/sync-oioxo-source.mjs && node scripts/encrypt-oioxo.mjs && node scripts/copy-oioxo-static.mjs",
+    "prebuild": "node scripts/copy-monaco.mjs && node scripts/copy-jsquash.mjs && node scripts/copy-libredwg.mjs && node scripts/copy-opencv.mjs && node scripts/encrypt-workers.mjs && node scripts/sync-oioxo-source.mjs && node scripts/encrypt-oioxo.mjs && node scripts/copy-oioxo-static.mjs",
     "build": "next build",
     "copy:monaco": "node scripts/copy-monaco.mjs",
     "start": "next start -p 3001",
@@ -70,6 +70,7 @@
     "@radix-ui/react-tooltip": "^1.1.6",
     "@shiguredo/rnnoise-wasm": "^2025.1.5",
     "@stripe/stripe-js": "^5.3.0",
+    "@techstark/opencv-js": "^4.10.0-release.1",
     "@types/diff": "^5.2.3",
     "@types/gif.js": "^0.2.5",
     "@types/js-beautify": "^1.14.3",

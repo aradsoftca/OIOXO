@@ -52,3 +52,6 @@ _hf_token.txt
 
 # jsquash runtime assets copied for the encrypted workers (regenerated in prebuild)
 /public/jsquash/
+
+# built by scripts/copy-opencv.mjs
+public/vendor/

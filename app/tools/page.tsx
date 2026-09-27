@@ -86,7 +86,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                       <Link prefetch={false}
                         key={tool.slug}
                         href={`/tools/${tool.slug}`}
-                        className="group flex items-center gap-2 bg-[var(--color-surface-1)] px-3 py-2.5 text-[13px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
+                        className="group flex items-center gap-2 bg-[var(--color-surface-1)] min-h-[44px] px-3 py-2.5 text-[13px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
                       >
                         <span
                           className="h-1.5 w-1.5 shrink-0 transition-transform group-hover:scale-150"
@@ -102,7 +102,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                   return (
                     <div
                       key={tool.slug}
-                      className="flex items-center gap-2 bg-[var(--color-surface-1)]/40 px-3 py-2.5 text-[13px] text-[var(--color-fg-subtle)]"
+                      className="flex items-center gap-2 bg-[var(--color-surface-1)]/40 min-h-[44px] px-3 py-2.5 text-[13px] text-[var(--color-fg-subtle)]"
                       title="Coming soon"
                     >
                       <span className="h-1.5 w-1.5 shrink-0 bg-[var(--color-fg-subtle)]" />
@@ -127,7 +127,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                 <Link prefetch={false}
                   key={tool.id}
                   href={`/tools/${tool.id}`}
-                  className="flex items-center gap-2 bg-[var(--color-surface-1)] px-3 py-2.5 text-[13px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
+                  className="flex items-center gap-2 bg-[var(--color-surface-1)] min-h-[44px] px-3 py-2.5 text-[13px] font-medium text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)]"
                 >
                   <span className="truncate">{tool.name}</span>
                 </Link>

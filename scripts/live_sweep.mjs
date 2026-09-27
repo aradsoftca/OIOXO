@@ -207,7 +207,8 @@ async function runPage(browser, url) {
       // Ringtone labels a download "M4R (iPhone)". NOT a bare "MP3": every audio
       // tool has an "MP3" FORMAT chip, and matching it made the sweep pick the
       // format instead of pressing "Apply & Download" — 14 false audio FAILs.
-      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|m4r)/i }).first();
+      // Subtitle downloads are labelled ".srt" / ".vtt" / ".txt".
+      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|m4r|\.(srt|vtt|txt)\b)/i }).first();
       if (await dlFirst.count() && !(await dlFirst.isDisabled().catch(() => true))) {
         clicked.add('Download'); await dlFirst.click({ timeout: 3000 }).catch(() => {}); acted = true;
       }

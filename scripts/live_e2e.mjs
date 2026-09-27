@@ -73,6 +73,7 @@ function isMp3(b) {
   const h = b.subarray(0, 3).toString('latin1');
   return h === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) ? null : 'not MP3 (magic ' + b.subarray(0, 4).toString('hex') + ')';
 }
+function isSrt(b) { return /^\s*1\s*\r?\n\d\d:\d\d:\d\d,\d{3} --> /.test(b.toString('utf8')) ? null : 'not SRT (' + JSON.stringify(b.toString('utf8').slice(0, 40)) + ')'; }
 function isWebm(b) { return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3 ? null : 'not WebM (magic ' + b.subarray(0, 4).toString('hex') + ')'; }
 function isVideo(b) { return isWebm(b) === null || b.subarray(4, 8).toString('latin1') === 'ftyp' ? null : 'not MP4/WebM (magic ' + b.subarray(0, 8).toString('hex') + ')'; }
 function isAudio(b) {
@@ -109,6 +110,9 @@ const CASES = [
   { name: 'mp4-to-webm',     url: '/convert/mp4-to-webm',    file: 'clip.mp4',         check: isWebm, click: /^convert/i },
   { name: 'video-compress',  url: '/tools/video-compress',   file: 'clip.mp4',         check: isVideo, click: /^compress/i },
   { name: 'image-resize',    url: '/tools/image-resize',     file: 'test.png',         check: isSmallImage },
+  // Whisper on transformers v3 (input shape fixed 2026-09-27). A tone has no speech,
+  // so the SRT is tiny — the check is that a well-formed cue comes out at all.
+  { name: 'subtitle-generate', url: '/tools/subtitle-generate', file: 'tone.wav',     check: isSrt,  click: /^generate/i },
 ];
 
 async function runCase(browser, c) {
@@ -138,7 +142,8 @@ async function runCase(browser, c) {
     while (!download && Date.now() < deadline) {
       const red = (await page.locator('.text-red-600:visible').allInnerTexts().catch(() => [])).filter(Boolean);
       if (red.length) throw new Error('page error: ' + red[0].slice(0, 200));
-      const dl = page.locator('button:visible, a:visible', { hasText: /^\s*download/i }).first();
+      // Subtitle downloads are labelled ".srt" / ".vtt" / ".txt".
+      const dl = page.locator('button:visible, a:visible', { hasText: /^\s*(download|\.(srt|vtt|txt)\b)/i }).first();
       if (await dl.count()) { await dl.click({ timeout: 5000 }).catch(() => {}); await page.waitForTimeout(1500); }
       else await page.waitForTimeout(500);
     }

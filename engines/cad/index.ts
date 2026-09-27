@@ -20,6 +20,17 @@ interface OcctModule {
   ReadBrepFile(buf: Uint8Array, params: unknown): OcctResult;
 }
 
+/** Absolute URL for a public/ asset. These engines run inside a blob: worker
+ *  (lib/protect/protected-worker.ts), where fetch() cannot resolve a relative
+ *  "/occt/x.wasm" — that failed every live CAD/3D conversion. The loader stamps
+ *  __XW_BASE__ = "<origin><basePath>/jsquash/"; derive the site root from it. */
+function publicUrl(path: string): string {
+  const xw = (globalThis as { __XW_BASE__?: string }).__XW_BASE__;
+  if (xw) return new URL(`..${path}`, xw).href;
+  if (typeof location !== 'undefined' && location.origin && location.origin !== 'null') return `${location.origin}${path}`;
+  return path;
+}
+
 let cached: Promise<OcctModule> | null = null;
 async function getOcct(): Promise<OcctModule> {
   if (!cached) {
@@ -27,7 +38,7 @@ async function getOcct(): Promise<OcctModule> {
       const mod = await import('occt-import-js');
       const factory = (mod as unknown as { default?: (o?: unknown) => Promise<OcctModule> }).default
         ?? (mod as unknown as (o?: unknown) => Promise<OcctModule>);
-      return factory({ locateFile: (f: string) => `/occt/${f}` });
+      return factory({ locateFile: (f: string) => publicUrl(`/occt/${f}`) });
     })();
     // Clear the cache on rejection so a transient WASM load failure doesn't
     // memoise a broken promise forever.

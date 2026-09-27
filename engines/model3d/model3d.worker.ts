@@ -10,6 +10,10 @@ interface Req { files: { name: string; data: ArrayBuffer }[]; target: Model3dTar
 const ctx = self as unknown as { postMessage: (m: unknown, t?: Transferable[]) => void; onmessage: ((e: MessageEvent) => void) | null };
 
 ctx.onmessage = async (e: MessageEvent<Req>) => {
+  // loadProtectedWorker posts {__wmInit} first. Treating it as a job threw
+  // (undefined.map / bad buffer) and that error was taken as the reply, so every
+  // live CAD/3D conversion failed. Ignore it — only a real request gets a reply.
+  if ((e.data as { __wmInit?: boolean } | null)?.__wmInit) return;
   try {
     const inputs = e.data.files.map((f) => ({ name: f.name, data: new Uint8Array(f.data) }));
     const out = await convertModel(inputs, e.data.target);

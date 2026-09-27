@@ -30,6 +30,17 @@ interface AssimpModule {
   ConvertFileList(list: unknown, format: string): AssimpResult;
 }
 
+/** Absolute URL for a public/ asset. These engines run inside a blob: worker
+ *  (lib/protect/protected-worker.ts), where fetch() cannot resolve a relative
+ *  "/occt/x.wasm" — that failed every live CAD/3D conversion. The loader stamps
+ *  __XW_BASE__ = "<origin><basePath>/jsquash/"; derive the site root from it. */
+function publicUrl(path: string): string {
+  const xw = (globalThis as { __XW_BASE__?: string }).__XW_BASE__;
+  if (xw) return new URL(`..${path}`, xw).href;
+  if (typeof location !== 'undefined' && location.origin && location.origin !== 'null') return `${location.origin}${path}`;
+  return path;
+}
+
 let cached: Promise<AssimpModule> | null = null;
 async function getAssimp(): Promise<AssimpModule> {
   if (!cached) {
@@ -37,7 +48,7 @@ async function getAssimp(): Promise<AssimpModule> {
       const mod = await import('assimpjs');
       const factory = (mod as unknown as { default?: (o?: unknown) => Promise<AssimpModule> }).default
         ?? (mod as unknown as (o?: unknown) => Promise<AssimpModule>);
-      return factory({ locateFile: (f: string) => `/assimpjs/${f}` });
+      return factory({ locateFile: (f: string) => publicUrl(`/assimpjs/${f}`) });
     })();
     // Clear the cache on rejection so a transient WASM load failure doesn't
     // memoise a broken promise forever.

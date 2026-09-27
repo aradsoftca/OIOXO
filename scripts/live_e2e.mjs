@@ -69,7 +69,8 @@ const CASES = [
   { name: 'step-to-stl',     url: '/convert/step-to-stl',    file: 'as1-oc-214.step',  check: isStl,  click: /^convert to/i },
   { name: 'step-to-obj',     url: '/convert/step-to-obj',    file: 'as1-oc-214.step',  check: isObj,  click: /^convert to/i },
   { name: 'dwg-to-dxf',      url: '/convert/dwg-to-dxf',     file: 'example_2000.dwg', check: isDxf,  click: /^(convert to|dwg\s*dxf)/i },
-  { name: 'image-compress',  url: '/tools/image-compress',   file: 'test.png',         check: isSmallImage, click: /^compress/i },
+  // image-compress runs as soon as the file is added — no action button, just Download.
+  { name: 'image-compress',  url: '/tools/image-compress',   file: 'test.png',         check: isSmallImage },
   { name: 'audio-volume',    url: '/tools/audio-volume',     file: 'tone.wav',         check: isWav,  click: /^(apply|convert|export|process)/i },
 ];
 

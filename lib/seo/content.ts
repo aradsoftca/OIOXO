@@ -318,13 +318,12 @@ function pickNlExample(tool: ToolManifest): string {
 }
 
 function xonvertIntro(tool: ToolManifest, profile: CategoryProfile): string {
-  const cat = CATEGORIES[tool.category];
   const accepts = acceptsLabel(tool);
   const produces = producesLabel(tool);
-  const inOut = accepts && produces
-    ? `Accepts ${accepts} input; produces ${produces} output. `
-    : '';
-  return `${tool.blurb} ${inOut}${tool.name} is one of Xonvert's ${cat.name.toLowerCase()} tools — a focused, no-nonsense utility that does this one job exceptionally well. Xonvert competes head-on with ${profile.alternatives} for ${profile.niche}: the same depth, none of the cost, and your files stay on your device.`;
+  const inOut = accepts && produces ? ` It takes ${accepts} and gives you ${produces}.` : '';
+  // Short and specific on purpose: the old paragraph was the same on every
+  // tool page with the name swapped (64% of each page was template).
+  return `${tool.blurb}${inOut} It runs in your browser, so the file is processed on your own device.`;
 }
 
 function oioxoIntro(tool: ToolManifest, profile: CategoryProfile): string {
@@ -339,33 +338,17 @@ function oioxoIntro(tool: ToolManifest, profile: CategoryProfile): string {
 }
 
 function xonvertSections(tool: ToolManifest, profile: CategoryProfile): RichSection[] {
-  const cat = CATEGORIES[tool.category];
-  const firstRival = profile.alternatives.split(',')[0].trim();
+  // No category "workflows" list: it was identical on every tool in a category
+  // and advertised features (layers, 60-language voiceovers…) most tools lack.
+  const produces = producesLabel(tool);
   return [
     {
-      heading: `What ${tool.name} does, in detail`,
-      body: `${tool.blurb} It is built for ${profile.niche}, with the same depth a paid desktop tool offers and none of the friction. The full workflow runs inside your browser tab — no upload, no signup, no installer.${producesLabel(tool) ? ` Output is delivered as ${producesLabel(tool)} ready to download or copy.` : ''}`,
+      heading: `What ${tool.name} does`,
+      body: `${tool.blurb}${produces ? ` The result is a ${produces} file you download directly.` : ''}`,
     },
     {
-      heading: `${tool.name} vs ${firstRival}`,
-      body: `Compared with ${profile.alternatives}, ${tool.name} sits in the same capability ballpark for everyday ${profile.niche} but trades the install, license, and account for a URL. ${profile.proAngle}`,
-    },
-    {
-      heading: `Common ${cat.name.toLowerCase()} workflows you can run here`,
-      body: `Things people actually do with ${tool.name} and its sibling Xonvert tools:`,
-      bullets: profile.workflows,
-    },
-    {
-      heading: `Quality and technical edge`,
-      body: profile.technicalEdge,
-    },
-    {
-      heading: `Privacy by architecture, not policy`,
-      body: `${tool.name} loads as static JavaScript that runs in your browser. There is no backend that receives your file — no upload, no temporary storage, no logging. You can verify this by opening DevTools → Network and watching as your file is processed without any outgoing data. We do not need a privacy policy to make this guarantee, because the architecture itself cannot leak what it never receives.`,
-    },
-    {
-      heading: `Where ${tool.name} fits in the Xonvert suite`,
-      body: `Xonvert ships 340+ tools organized into 20 categories. ${tool.name} is one of the ${cat.name} tools, so you can switch to a related operation in a single click without losing your file. Common neighbors include format conversion, batch operations, and category-specific editors that share the same drop-magic input.`,
+      heading: `How it works`,
+      body: `${profile.technicalEdge} The processing code runs inside the page, so your file is not uploaded to a server — you can confirm this in your browser's DevTools → Network tab.`,
     },
   ];
 }
@@ -401,40 +384,22 @@ function oioxoSections(tool: ToolManifest, profile: CategoryProfile): RichSectio
   ];
 }
 
-function xonvertFaqs(tool: ToolManifest, profile: CategoryProfile): RichFaq[] {
-  const firstRival = profile.alternatives.split(',')[0].trim();
+function xonvertFaqs(tool: ToolManifest, _profile: CategoryProfile): RichFaq[] {
+  // Every answer must answer its own question and be true for THIS tool.
+  // (The old set answered "is quality lost?" with offline text and asked about
+  // AI hardware on a brand where AI is switched off.)
   return [
     {
-      q: `Is Xonvert ${tool.name} as capable as ${firstRival}?`,
-      a: `For everyday ${profile.niche}, yes. ${profile.proAngle} Specialized professional projects (e.g. 8K post-production, archival print) still benefit from native tools, but for the vast majority of tasks ${tool.name} matches them feature-for-feature with no install or license.`,
+      q: `Does ${tool.name} upload my files?`,
+      a: `No. ${tool.name} runs in your browser and processes the file on your device. Nothing is sent to our servers.`,
     },
     {
-      q: `Does Xonvert ${tool.name} upload my files?`,
-      a: `No. ${tool.name} runs entirely in your browser — your files are processed locally and never reach our servers. You can verify this by opening DevTools → Network while you use the tool. Xonvert's architecture is privacy-first because there is no backend to leak from.`,
+      q: `Is ${tool.name} free?`,
+      a: `Yes, with a daily free allowance and no signup. Xonvert Pro ($4.99/month) removes the daily limits and the watermark on exported files.`,
     },
     {
-      q: `Is ${tool.name} actually free, or is "free" a trial?`,
-      a: `Free without a trial. Xonvert's free tier has no expiration, no signup wall, and no credit card. Pro removes the small footer watermark on exported assets and lifts soft daily quotas, but the underlying capabilities — every algorithm, every format, every output — are available on the free tier.`,
-    },
-    {
-      q: `What about quality — is anything lost in the browser version?`,
-      a: `${profile.technicalEdge} The browser is a first-class compute environment now — WebGPU, WebAssembly SIMD, WebCodecs, AudioWorklet — and ${tool.name} uses these directly. Output is bit-accurate to what a desktop tool produces.`,
-    },
-    {
-      q: `Can I use ${tool.name} for commercial / client work?`,
-      a: `Yes, with no licensing fees and no per-seat costs. We do not claim any rights to what you produce, and the free tier is fine for monetized work. Pro is recommended for teams or anyone who exports daily.`,
-    },
-    {
-      q: `Does ${tool.name} work offline?`,
-      a: `Yes — once the page has loaded once, the browser caches the assets and the tool keeps working offline. This is true even on the free tier. Useful on planes and in places with iffy Wi-Fi.`,
-    },
-    {
-      q: `What hardware does ${tool.name} need?`,
-      a: `Any modern browser on any OS. ${tool.compute === 'webgpu' ? 'A discrete GPU helps for the heaviest jobs but is not required.' : tool.compute === 'pro' ? 'For the heaviest professional jobs, an optional Pro mode can offload to our GPU server.' : 'Even a five-year-old laptop or a mid-range phone runs this comfortably.'} Storage usage is whatever the file itself takes, with no permanent caching.`,
-    },
-    {
-      q: `Where does ${tool.name} fit alongside other Xonvert tools?`,
-      a: `Xonvert ships 340+ tools organized by category. Once your file is in the browser, switching to a related tool (for example, ${tool.category === 'image' ? 'compress after resize' : tool.category === 'video' ? 'extract audio after trim' : 'a related step'}) is a single click and reuses the same file without re-upload.`,
+      q: `Do I need to install anything?`,
+      a: `No. It works in any modern browser on Windows, macOS, Linux, ChromeOS, Android and iPad.`,
     },
   ];
 }
@@ -480,15 +445,9 @@ function xonvertSteps(tool: ToolManifest): string[] {
   const accepts = acceptsLabel(tool);
   const produces = producesLabel(tool);
   return [
-    `Open ${tool.name} in your browser. No download, no installer, no signup screen.`,
-    accepts
-      ? `Drop a ${accepts} file onto the page, or click to choose one from your device. Several tools accept multiple files for batch processing.`
-      : `Type or paste your input into the form. Results update live as you type.`,
-    `Adjust the parameters to taste. Every option is shown directly in the interface with reasonable defaults — there are no hidden settings.`,
-    `Preview the result in real time. Undo and redo are local and instant. Your work history is kept in the browser tab, never sent anywhere.`,
-    produces
-      ? `Download the finished ${produces} file. The file is generated in your browser and saved directly to your device.`
-      : `Copy or save the result. Everything stays on your device throughout.`,
+    accepts ? `Drop a ${accepts} file on the page, or click to choose one.` : `Type or paste your input.`,
+    `Pick the options you want.`,
+    produces ? `Download the ${produces} file.` : `Copy or save the result.`,
   ];
 }
 
@@ -505,16 +464,12 @@ function oioxoSteps(tool: ToolManifest): string[] {
   ];
 }
 
-function xonvertBenefits(tool: ToolManifest): string[] {
-  const cat = CATEGORIES[tool.category];
+function xonvertBenefits(_tool: ToolManifest): string[] {
   return [
-    `Free forever — no signup, no credit card, no trial expiry`,
-    `Files stay on your device — no upload, no server-side processing`,
-    `Works offline once the page is loaded`,
-    `Cross-platform — runs on Windows, Mac, Linux, ChromeOS, Android, iPad`,
-    `Bit-accurate output — same quality as desktop equivalents`,
-    `Part of a 340+ tool suite — switch to a related ${cat.name.toLowerCase()} tool in one click without re-upload`,
-    `No ads, no telemetry, no tracking pixels`,
+    `Files stay on your device — nothing is uploaded`,
+    `No signup needed`,
+    `Works in any modern browser, on any OS`,
+    `Free daily use; Pro removes limits and watermarks`,
   ];
 }
 

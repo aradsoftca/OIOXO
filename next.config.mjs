@@ -85,6 +85,13 @@ const nextConfig = {
         : []),
     ];
   },
+  // Old root-level converter URLs (/cfg-to-txt…) that Google indexed. Runs after
+  // the filesystem, so only paths that would 404 reach the legacy redirector.
+  async rewrites() {
+    return IS_XONVERT
+      ? [{ source: '/:pair([a-z0-9]{1,12}-to-[a-z0-9]{1,12})', destination: '/api/legacy-convert/:pair' }]
+      : [];
+  },
   // SharedArrayBuffer + cross-origin isolation for ffmpeg.wasm multi-thread.
   async headers() {
     // Big WASM cores + worker glue never change for a given build, so let the

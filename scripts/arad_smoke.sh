@@ -30,6 +30,10 @@ check "home canonical"                "https://xonvert.com" "$(canon / | sed 's:
 check "/tools not canonical to home"  "" "$(canon /tools | grep -x 'https://xonvert.com/\?' )"
 check "/convert not canonical to home" "" "$(canon /convert | grep -x 'https://xonvert.com/\?' )"
 check "/tools/pdf-compress canonical" "https://xonvert.com/tools/pdf-compress" "$(canon /tools/pdf-compress)"
+check "legacy /mp4-to-mp3"            "308 https://xonvert.com/tools/video-extract-audio" "$(st $B/mp4-to-mp3)"
+check "legacy /png-to-jpg"            "308 https://xonvert.com/convert/png-to-jpg" "$(st $B/png-to-jpg)"
+check "legacy /cfg-to-txt -> hub"     "308 https://xonvert.com/convert" "$(st $B/cfg-to-txt)"
+check "/pricing untouched by legacy"  "200 " "$(st $B/pricing)"
 SM=$(curl -s $B/sitemap.xml)
 check "sitemap has no studios"        "0" "$(echo "$SM" | grep -cE '/(studios|tools/(image-studio|video-studio|pdf-studio|office-docs))<')"
 check "sitemap still has tools"       "yes" "$( [ $(echo "$SM" | grep -c '<loc>') -gt 300 ] && echo yes || echo no)"

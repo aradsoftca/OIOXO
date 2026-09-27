@@ -36,7 +36,7 @@ const GROUPS: { cat: string; colorVar: string; note: string; formats: string[] }
 export default function FormatsPage() {
   return (
     <div className="mx-auto w-[min(1000px,96vw)] py-6">
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Reference</div>
+      <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Reference</div>
       <h1 className="text-[28px] font-bold tracking-tight">Supported formats</h1>
       <p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-[var(--color-fg-muted)]">
         {BRAND} works with hundreds of formats across these families — all processed in your browser.

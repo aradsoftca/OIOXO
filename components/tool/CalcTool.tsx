@@ -150,7 +150,7 @@ export function CalcTool({
       <div className="tile-surface" data-neutral="true">
         <div className="tile-content gap-4 !justify-start">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
               Inputs
             </div>
             <button
@@ -193,7 +193,7 @@ export function CalcTool({
           >
             <div className="tile-content gap-4 !justify-start">
               <div className="flex items-start justify-between gap-3">
-                <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+                <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                   Result
                 </div>
                 <button
@@ -293,7 +293,7 @@ function ResultRow({ result, colorVar }: { result: CalcResult; colorVar: string 
   if (result.primary) {
     return (
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
           {result.label}
         </div>
         <div className="mt-1 flex items-baseline gap-2">
@@ -351,7 +351,7 @@ function BreakdownChart({ spec, colorVar }: { spec: CalcChartSpec; colorVar: str
     <div className="tile-surface" data-neutral="true">
       <div className="tile-content gap-4 !justify-start">
         {spec.title && (
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
             {spec.title}
           </div>
         )}

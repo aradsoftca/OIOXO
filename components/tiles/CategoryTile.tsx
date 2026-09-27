@@ -30,7 +30,7 @@ export function CategoryTile({ category, count, icon, size = 'M' }: CategoryTile
         </span>
       </div>
       <div>
-        <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-white/75">
+        <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/75">
           Category
         </div>
         <div className="mt-0.5 text-[20px] font-semibold leading-tight tracking-tight text-white">

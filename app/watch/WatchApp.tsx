@@ -150,7 +150,7 @@ function Host() {
 
         <aside className="space-y-3">
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Send to a viewer</div>
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Send to a viewer</div>
             {qr && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={qr} alt="QR" className="mx-auto my-3 h-40 w-40 border border-black/[0.06] bg-white p-1" />
@@ -158,8 +158,8 @@ function Host() {
             <button type="button" onClick={copy} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy link'}
             </button>
-            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
-            <p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--color-fg-subtle)]"><Wifi className="h-3 w-3 text-green-600" /> Opens in any browser — no app, no account.</p>
+            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--color-fg-subtle)]"><Wifi className="h-3 w-3 text-green-600" /> Opens in any browser — no app, no account.</p>
             {sharing ? (
               <button type="button" onClick={stop} className="mt-3 flex w-full items-center justify-center gap-2 border border-black/[0.08] py-2 text-[12px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)]"><Square className="h-3.5 w-3.5" /> Stop sharing</button>
             ) : (

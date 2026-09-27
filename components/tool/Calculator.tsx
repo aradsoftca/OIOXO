@@ -208,7 +208,7 @@ export function Calculator({ scientific = false }: { scientific?: boolean }) {
         <div className="flex min-h-[20px] items-center justify-between gap-2">
           <span
             className={cn(
-              'text-[10px] font-bold uppercase tracking-[0.16em] transition',
+              'text-[11px] font-bold uppercase tracking-[0.16em] transition',
               copied ? 'text-[var(--color-cat-calc)] opacity-100' : 'opacity-0 group-hover:opacity-60',
             )}
           >
@@ -255,11 +255,11 @@ export function Calculator({ scientific = false }: { scientific?: boolean }) {
       {history.length > 0 && (
         <div className="border border-black/[0.08] bg-[var(--color-surface-1)]">
           <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2">
-            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">History</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">History</span>
             <button
               type="button"
               onClick={() => setHistory([])}
-              className="text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
+              className="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
             >
               Clear
             </button>

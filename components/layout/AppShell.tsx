@@ -124,7 +124,7 @@ export function AppShell({ children }: AppShellProps) {
               >
                 <TileIcon name="search" size={14} />
                 <span className="hidden lg:inline">Search</span>
-                <kbd className="ml-1 hidden rounded border border-[var(--color-stroke)] bg-[var(--color-surface-3)] px-1.5 py-0.5 font-mono text-[10px] lg:inline">
+                <kbd className="ml-1 hidden rounded border border-[var(--color-stroke)] bg-[var(--color-surface-3)] px-1.5 py-0.5 font-mono text-[11px] lg:inline">
                   ⌘K
                 </kbd>
               </button>
@@ -262,7 +262,7 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
             ))}
           </nav>
 
-          <div className="mt-4 mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-subtle)]">
+          <div className="mt-4 mb-2 px-3 text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-subtle)]">
             Categories
           </div>
           <div className="grid grid-cols-2 gap-1.5">
@@ -284,7 +284,7 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[12.5px] font-medium text-[var(--color-fg)]">{cat.label}</span>
                   </span>
-                  <span className="shrink-0 font-mono text-[10px] tabular-nums text-[var(--color-fg-subtle)]">{cat.tools.length}</span>
+                  <span className="shrink-0 font-mono text-[11px] tabular-nums text-[var(--color-fg-subtle)]">{cat.tools.length}</span>
                 </Link>
               );
             })}

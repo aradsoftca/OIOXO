@@ -31,7 +31,7 @@ export function HeroDropTile() {
             <TileIcon name="sparkles" size={22} strokeWidth={1.75} className="text-[var(--color-fg)]" />
           </div>
           <div className="flex-1">
-            <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-subtle)]">
+            <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--color-fg-subtle)]">
               Drop · Describe · Done
             </div>
             <div className="mt-1.5 text-[28px] font-semibold leading-[1.05] tracking-tight text-[var(--color-fg)] text-balance">
@@ -52,7 +52,7 @@ export function HeroDropTile() {
             placeholder="Convert to mp3 — or drop a file anywhere on this page"
             className="flex-1 bg-transparent text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:outline-none"
           />
-          <kbd className="border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-fg-subtle)]">
+          <kbd className="border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-fg-subtle)]">
             ⌘K
           </kbd>
         </div>

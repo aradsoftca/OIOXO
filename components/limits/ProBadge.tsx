@@ -43,8 +43,8 @@ export function ProBadge({
       href="/pricing"
       className={`inline-flex items-center gap-1 rounded font-bold uppercase tracking-wider transition hover:brightness-110 ${
         compact
-          ? 'px-1 py-px text-[9px]'
-          : 'px-1.5 py-0.5 text-[10px]'
+          ? 'px-1 py-px text-[11px]'
+          : 'px-1.5 py-0.5 text-[11px]'
       }`}
       style={{ background: 'var(--brand-gradient)', color: 'white' }}
       title={`Pro unlocks ${l.label.toLowerCase()} up to ${l.pro ?? 'unlimited'}${l.unit ? ' ' + l.unit : ''}`}
@@ -79,7 +79,7 @@ export function FormatProBadge({
     <Link
       href="/pricing"
       className={`inline-flex items-center gap-1 rounded font-bold uppercase tracking-wider transition hover:brightness-110 ${
-        compact ? 'px-1 py-px text-[9px]' : 'px-1.5 py-0.5 text-[10px]'
+        compact ? 'px-1 py-px text-[11px]' : 'px-1.5 py-0.5 text-[11px]'
       }`}
       style={{ background: 'var(--brand-gradient)', color: 'white' }}
       title={`Pro format. Free: ${l.freeFormats.map((f) => f.toUpperCase()).join(', ')}.`}
@@ -101,7 +101,7 @@ export function FreeCapHint({ toolKey, lever, isPro }: { toolKey: string; lever:
   const l = getLever(toolKey, lever);
   if (!l) return null;
   return (
-    <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-[var(--color-fg-subtle)]" title={`Pro: up to ${l.pro ?? 'unlimited'}${l.unit ? ' ' + l.unit : ''}`}>
+    <span className="ml-1 inline-flex items-center gap-0.5 text-[11px] text-[var(--color-fg-subtle)]" title={`Pro: up to ${l.pro ?? 'unlimited'}${l.unit ? ' ' + l.unit : ''}`}>
       <Lock className="h-2.5 w-2.5" />
       free max {l.free}{l.unit ? ' ' + l.unit : ''}
     </span>

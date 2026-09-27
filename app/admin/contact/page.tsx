@@ -70,7 +70,7 @@ export default function AdminContactPage() {
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-[14px] font-semibold text-[var(--color-fg)]">{m.subject}</span>
-                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">{m.status}</span>
+                <span className="shrink-0 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">{m.status}</span>
               </div>
               <div className="mt-1 truncate text-[11px] text-[var(--color-fg-muted)]">{m.name} · {m.email}</div>
             </button>
@@ -82,12 +82,12 @@ export default function AdminContactPage() {
             <div className="grid h-full min-h-[200px] place-items-center text-[13px] text-[var(--color-fg-muted)]">Select a message.</div>
           ) : (
             <div className="space-y-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">From {sel.name} · {sel.email}</div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">From {sel.name} · {sel.email}</div>
               <div className="border border-black/[0.08] bg-white/60 px-3 py-2 text-[13px] font-semibold">{sel.subject}</div>
               <div className="whitespace-pre-wrap border border-black/[0.08] bg-white/60 px-3 py-2 text-[13px] leading-relaxed text-[var(--color-fg)]">{sel.message}</div>
               {sel.response && (
                 <div className="border border-[var(--color-cat-image)]/30 bg-[var(--color-cat-image)]/5 px-3 py-2 text-[13px]">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">Previous response</div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">Previous response</div>
                   <div className="mt-1 whitespace-pre-wrap">{sel.response}</div>
                 </div>
               )}

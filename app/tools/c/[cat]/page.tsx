@@ -347,7 +347,7 @@ export default async function CategoryPage({ params }: Props) {
   return (
     <div className="mx-auto w-[min(1100px,96vw)] py-6 space-y-10">
       <header className="space-y-3">
-        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
           <Link href="/" className="hover:underline">{BRAND}</Link> · <Link href="/tools" className="hover:underline">Tools</Link> · {c.name}
         </div>
         <h1 className="text-[36px] font-extrabold leading-tight tracking-tight text-[var(--color-fg)]">

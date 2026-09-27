@@ -53,7 +53,7 @@ function ResetInner() {
               <TileIcon name="lock" size={18} />
             </div>
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 Account recovery
               </div>
               <div className="text-[20px] font-bold tracking-tight">Set new password</div>

@@ -89,7 +89,7 @@ export default function HelpPage() {
           <TileIcon name="life-buoy" size={20} />
         </div>
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Help center</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Help center</div>
           <h1 className="text-[26px] font-bold tracking-tight">Frequently asked questions</h1>
         </div>
       </div>

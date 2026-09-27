@@ -33,19 +33,19 @@ export function SubtitleCuePreview({ text, max = 60 }: { text: string; max?: num
     <div className="tile-surface" data-neutral="true">
       <div className="tile-content gap-2.5 !justify-start">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
             Preview
           </div>
           <span className="font-mono text-[11px] text-[var(--color-fg-subtle)] tabular-nums">
             {cues.length} cues · {fmtDur(totalSec)}
           </span>
           {zeroDur > 0 && (
-            <span className="bg-[var(--color-cat-subtitle)]/12 px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-cat-subtitle)]">
+            <span className="bg-[var(--color-cat-subtitle)]/12 px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-cat-subtitle)]">
               {zeroDur} zero-length
             </span>
           )}
           {overlaps > 0 && (
-            <span className="bg-amber-500/12 px-1.5 py-0.5 font-mono text-[10px] text-amber-600">
+            <span className="bg-amber-500/12 px-1.5 py-0.5 font-mono text-[11px] text-amber-600">
               {overlaps} overlap{overlaps > 1 ? 's' : ''}
             </span>
           )}
@@ -57,7 +57,7 @@ export function SubtitleCuePreview({ text, max = 60 }: { text: string; max?: num
             return (
               <div key={i} className="flex gap-3 px-2.5 py-1.5">
                 <span
-                  className="shrink-0 font-mono text-[10px] leading-relaxed tabular-nums text-[var(--color-fg-subtle)]"
+                  className="shrink-0 font-mono text-[11px] leading-relaxed tabular-nums text-[var(--color-fg-subtle)]"
                   title={`${formatSrt(c.start)} → ${formatSrt(c.end)}`}
                 >
                   {clock(c.start)}
@@ -70,7 +70,7 @@ export function SubtitleCuePreview({ text, max = 60 }: { text: string; max?: num
             );
           })}
           {cues.length > shown.length && (
-            <div className="px-2.5 py-1.5 text-center font-mono text-[10px] text-[var(--color-fg-subtle)]">
+            <div className="px-2.5 py-1.5 text-center font-mono text-[11px] text-[var(--color-fg-subtle)]">
               + {cues.length - shown.length} more cues
             </div>
           )}

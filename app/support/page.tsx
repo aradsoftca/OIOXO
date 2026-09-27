@@ -51,7 +51,7 @@ export default function SupportPage() {
           <TileIcon name="life-buoy" size={20} />
         </div>
         <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
             Support
           </div>
           <h1 className="text-[24px] font-bold tracking-tight">How can we help?</h1>

@@ -65,7 +65,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                     <TileIcon name={category.icon} size={20} strokeWidth={1.75} />
                   </span>
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                       {meta.blurb}
                     </div>
                     <h2 className="text-[24px] font-bold leading-tight tracking-tight text-[var(--color-fg)]">
@@ -93,7 +93,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                           style={{ background: `var(${meta.colorVar})` }}
                         />
                         <span className="truncate">{tool.label}</span>
-                        <span className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)] transition group-hover:text-[var(--color-fg-muted)]">
+                        <span className="ml-auto text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)] transition group-hover:text-[var(--color-fg-muted)]">
                           →
                         </span>
                       </Link>
@@ -107,7 +107,7 @@ export default async function ToolsIndex({ searchParams }: { searchParams: Promi
                     >
                       <span className="h-1.5 w-1.5 shrink-0 bg-[var(--color-fg-subtle)]" />
                       <span className="truncate">{tool.label}</span>
-                      <span className="ml-auto text-[9px] font-bold uppercase tracking-wider">
+                      <span className="ml-auto text-[11px] font-bold uppercase tracking-wider">
                         soon
                       </span>
                     </div>

@@ -623,7 +623,7 @@ export default function ChatStudio() {
       <div className="grid flex-1 min-h-0 gap-3 lg:grid-cols-[200px_1fr_280px]">
         <aside className="hidden flex-col gap-2 lg:flex">
           <div className="rounded-xl rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-2 shadow-sm">
-            <div className="px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Channels</div>
+            <div className="px-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Channels</div>
             <div className="mt-1 space-y-0.5">
               {channelList.map((c) => (
                 <a
@@ -639,11 +639,11 @@ export default function ChatStudio() {
           </div>
           {pinnedMsgs.length > 0 && (
             <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-2">
-              <div className="px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Pinned</div>
+              <div className="px-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Pinned</div>
               <div className="mt-1 space-y-1">
                 {pinnedMsgs.map((m) => (
                   <div key={m.id} className="rounded bg-black/[0.04] px-2 py-1 text-[11px]">
-                    <div className="text-[9px] uppercase tracking-wider text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</div>
+                    <div className="text-[11px] uppercase tracking-wider text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</div>
                     <div className="line-clamp-2">{m.text}</div>
                   </div>
                 ))}
@@ -662,7 +662,7 @@ export default function ChatStudio() {
             <span className="flex items-center gap-1.5 font-semibold">
               {connected ? <><Users className="h-3.5 w-3.5 text-green-600" /> {roster} connected</> : failed ? <span className="text-amber-600">Not connected</span> : reconnecting ? <span className="flex items-center gap-1.5 text-amber-600"><Loader2 className="h-3 w-3 animate-spin" /> Reconnecting…</span> : <><Loader2 className="h-3 w-3 animate-spin" /> Connecting…</>}
             </span>
-            <span className="text-[10px] text-[var(--color-fg-subtle)]">Room <span className="font-mono">{room}</span></span>
+            <span className="text-[11px] text-[var(--color-fg-subtle)]">Room <span className="font-mono">{room}</span></span>
           </div>
 
           <div ref={scrollRef} onScroll={onScroll} className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -681,7 +681,7 @@ export default function ChatStudio() {
                     <button
                       type="button"
                       onClick={() => jumpToMsg(parent.id)}
-                      className="mb-0.5 max-w-[78%] cursor-pointer rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1 text-left text-[10px] text-[var(--color-fg-subtle)] transition hover:border-[var(--color-cat-convert)]/40 hover:bg-[var(--color-cat-convert)]/[0.06]"
+                      className="mb-0.5 max-w-[78%] cursor-pointer rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1 text-left text-[11px] text-[var(--color-fg-subtle)] transition hover:border-[var(--color-cat-convert)]/40 hover:bg-[var(--color-cat-convert)]/[0.06]"
                     >
                       <Reply className="mr-1 inline h-2.5 w-2.5" />
                       <span className="font-semibold">{parent.mine ? 'You' : parent.name}:</span> {parent.text?.slice(0, 80) || parent.fileName}
@@ -693,7 +693,7 @@ export default function ChatStudio() {
                     )}
                     {m.kind === 'system' && (
                       <div className="max-w-[78%] whitespace-pre-wrap rounded border border-purple-500/30 bg-purple-500/[0.06] px-3 py-2 text-[13px] leading-relaxed text-[var(--color-fg)]">
-                        <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-purple-500"><Sparkles className="h-3 w-3" /> {BRAND} AI</span>
+                        <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-purple-500"><Sparkles className="h-3 w-3" /> {BRAND} AI</span>
                         <span className="mt-0.5 block">{m.text}</span>
                       </div>
                     )}
@@ -710,7 +710,7 @@ export default function ChatStudio() {
                     {m.kind === 'voice' && m.url && (
                       <div className="flex flex-col gap-1">
                         <VoiceNotePlayer url={m.url} />
-                        <span className="text-[10px] text-[var(--color-fg-subtle)]">Voice · {m.durationMs ? fmtDuration(m.durationMs) : ''}</span>
+                        <span className="text-[11px] text-[var(--color-fg-subtle)]">Voice · {m.durationMs ? fmtDuration(m.durationMs) : ''}</span>
                       </div>
                     )}
                     <div className={`absolute top-0 ${m.mine ? '-left-20' : '-right-20'} hidden gap-1 opacity-0 transition group-hover:flex group-hover:opacity-100`}>
@@ -738,7 +738,7 @@ export default function ChatStudio() {
                       ))}
                     </div>
                   )}
-                  <div className="mt-0.5 flex items-center gap-1 px-1 text-[10px] text-[var(--color-fg-subtle)]">
+                  <div className="mt-0.5 flex items-center gap-1 px-1 text-[11px] text-[var(--color-fg-subtle)]">
                     <span>{m.mine ? 'You' : m.name} · {fmtTime(m.ts)}</span>
                     {threads.length > 0 && <span className="text-[var(--color-cat-convert)]">· {threads.length} {threads.length === 1 ? 'reply' : 'replies'}</span>}
                     {m.pinned && <Pin className="inline h-2.5 w-2.5 text-amber-500" />}
@@ -764,7 +764,7 @@ export default function ChatStudio() {
               className="absolute bottom-[78px] right-4 z-10 flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-2 text-[12px] font-semibold shadow-lg transition hover:brightness-105"
             >
               <ChevronDown className="h-4 w-4" />
-              {unread > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--color-cat-convert)] px-1 text-[10px] font-bold text-white">{unread > 99 ? '99+' : unread}</span>}
+              {unread > 0 && <span className="grid h-5 min-w-5 place-items-center rounded-full bg-[var(--color-cat-convert)] px-1 text-[11px] font-bold text-white">{unread > 99 ? '99+' : unread}</span>}
             </button>
           )}
 
@@ -820,7 +820,7 @@ export default function ChatStudio() {
             <button type="button" onClick={() => setShowEmoji((s) => !s)} disabled={!connected} className="grid h-10 w-9 place-items-center text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)] disabled:opacity-40" title="Emoji"><Smile className="h-5 w-5" /></button>
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={!connected} className="grid h-10 w-9 place-items-center text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)] disabled:opacity-40" title="Attach"><Paperclip className="h-5 w-5" /></button>
             <button type="button" onClick={recordVoice} disabled={!connected} className={`grid h-10 w-9 place-items-center transition disabled:opacity-40 ${voice.recording ? 'text-red-500' : 'text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]'}`} title={voice.recording ? 'Stop & send' : 'Record voice note'}>
-              {voice.recording ? <span className="text-[10px] font-bold">{fmtDuration(voice.duration)}</span> : <Mic className="h-5 w-5" />}
+              {voice.recording ? <span className="text-[11px] font-bold">{fmtDuration(voice.duration)}</span> : <Mic className="h-5 w-5" />}
             </button>
             <textarea
               value={draft}
@@ -844,7 +844,7 @@ export default function ChatStudio() {
               <button
                 key={id}
                 onClick={() => setSidePanel(id)}
-                className={`flex-1 border px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] ${sidePanel === id ? 'border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)] text-white' : 'border-black/[0.08] bg-[var(--color-surface-1)]'}`}
+                className={`flex-1 border px-2 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] ${sidePanel === id ? 'border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)] text-white' : 'border-black/[0.08] bg-[var(--color-surface-1)]'}`}
               >
                 {id}
               </button>
@@ -853,7 +853,7 @@ export default function ChatStudio() {
           {sidePanel === 'invite' && (
             role === 's' ? (
               <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-4">
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite</div>
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite</div>
                 {qr && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={qr} alt="QR" className="mx-auto my-3 h-32 w-32 border border-black/[0.06] bg-white p-1" />
@@ -861,7 +861,7 @@ export default function ChatStudio() {
                 <button type="button" onClick={copyLink} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-convert)] py-2 text-[11px] font-bold uppercase tracking-wider text-white">
                   {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} {copied ? 'Copied' : 'Copy link'}
                 </button>
-                <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[9px] text-[var(--color-fg-muted)]">{link}</div>
+                <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
               </div>
             ) : (
               <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-4 text-[12px] text-[var(--color-fg-muted)]">
@@ -871,7 +871,7 @@ export default function ChatStudio() {
           )}
           {sidePanel === 'channels' && (
             <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Recent rooms</div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Recent rooms</div>
               <div className="mt-2 space-y-0.5">
                 {channelList.map((c) => (
                   <a key={c.name} href={`/chat${c.name === room ? '' : `?r=${c.name}`}`} className={`flex items-center gap-1.5 rounded px-2 py-1 text-[12px] ${c.name === activeChannel ? 'bg-[var(--color-cat-convert)] text-white' : 'hover:bg-black/[0.04]'}`}>
@@ -885,14 +885,14 @@ export default function ChatStudio() {
           )}
           {sidePanel === 'pinned' && (
             <div className="rounded-xl border border-black/[0.08] bg-[var(--color-surface-1)] shadow-sm p-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Pinned messages</div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Pinned messages</div>
               {pinnedMsgs.length === 0 ? (
                 <p className="mt-2 text-[12px] text-[var(--color-fg-subtle)]">Pin important messages to bookmark them here.</p>
               ) : (
                 <div className="mt-2 space-y-1.5">
                   {pinnedMsgs.map((m) => (
                     <div key={m.id} className="rounded border border-black/[0.06] bg-black/[0.02] p-2">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</div>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</div>
                       <div className="text-[12px] line-clamp-3">{m.text || m.fileName}</div>
                     </div>
                   ))}
@@ -900,7 +900,7 @@ export default function ChatStudio() {
               )}
             </div>
           )}
-          <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-2 text-[10px] leading-relaxed text-[var(--color-fg-subtle)]">
+          <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-2 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
             <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-green-600" />
             <span>Messages, voice notes, files, reactions — all P2P encrypted, never on our servers.</span>
           </div>
@@ -912,7 +912,7 @@ export default function ChatStudio() {
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[14vh]" onClick={() => setShowPalette(false)}>
           <div className="w-[min(92vw,440px)] overflow-hidden border border-black/[0.12] bg-[var(--color-surface-1)] shadow-2xl chat-palette" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 border-b border-black/[0.08] px-3 py-2.5 text-[12px] text-[var(--color-fg-muted)]">
-              <Command className="h-4 w-4" /> Quick actions <span className="ml-auto font-mono text-[10px]">Esc</span>
+              <Command className="h-4 w-4" /> Quick actions <span className="ml-auto font-mono text-[11px]">Esc</span>
             </div>
             <div className="max-h-[50vh] overflow-y-auto">
               {paletteActions.map((a) => (

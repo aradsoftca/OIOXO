@@ -78,7 +78,7 @@ export default function AdminUsersPage() {
 
       <div className="overflow-x-auto border border-black/[0.06]">
         <table className="w-full text-left text-[12px]">
-          <thead className="bg-black/[0.03] text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
+          <thead className="bg-black/[0.03] text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
             <tr>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Plan</th>

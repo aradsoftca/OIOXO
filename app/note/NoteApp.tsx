@@ -171,7 +171,7 @@ function Read({ id }: { id: string }) {
         <div className="space-y-3">
           {oneTime && <div className="flex items-center gap-2 border border-[var(--color-cat-pdf)]/30 bg-[var(--color-cat-pdf)]/[0.06] px-3 py-2 text-[12px] text-[var(--color-fg-muted)]"><Flame className="h-4 w-4 text-[var(--color-cat-pdf)]" /> This note has now self-destructed — it can’t be opened again.</div>}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Eye className="h-3.5 w-3.5" /> Decrypted note</div>
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Eye className="h-3.5 w-3.5" /> Decrypted note</div>
             <button type="button" onClick={copy} className="flex items-center gap-1 text-[12px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">{copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />} Copy</button>
           </div>
           <div className="whitespace-pre-wrap break-words border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-[14px] leading-relaxed text-[var(--color-fg)]">{text}</div>

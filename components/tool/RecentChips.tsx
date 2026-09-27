@@ -25,7 +25,7 @@ export function RecentChips({ recent, onPick, onForget, colorVar = '--color-cat-
   if (!recent.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
+      <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
         <History className="h-3 w-3" /> Recent
       </span>
       {recent.map((q) => (

@@ -118,7 +118,7 @@ export default function ViewerPage() {
             <TileIcon name="eye" size={20} />
           </div>
           <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Universal Viewer</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Universal Viewer</div>
             <h1 className="text-[24px] font-bold tracking-tight">View any file</h1>
           </div>
         </div>
@@ -145,7 +145,7 @@ export default function ViewerPage() {
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border border-black/[0.08] bg-[var(--color-surface-1)] px-4 py-2.5 text-[12px]">
             <span className="font-semibold text-[var(--color-fg)]">{file.name}</span>
             <span className="text-[var(--color-fg-muted)]">{fmtBytes(file.size)}</span>
-            <span className="rounded bg-black/[0.05] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wider text-[var(--color-fg-muted)]">{kind}</span>
+            <span className="rounded bg-black/[0.05] px-1.5 py-0.5 font-mono text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">{kind}</span>
             {dims && <span className="font-mono text-[var(--color-fg-muted)]">{dims.w}×{dims.h}</span>}
             <button type="button" onClick={() => inputRef.current?.click()} className="ml-auto text-[var(--brand-1)] hover:underline">Open another</button>
             <input ref={inputRef} type="file" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void open(f); }} />

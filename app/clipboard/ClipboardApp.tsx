@@ -100,7 +100,7 @@ export default function ClipboardApp() {
           </div>
 
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Type or paste, then send</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Type or paste, then send</div>
             <textarea value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Text, a link, a code…"
               onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') sendText(draft); }}
               className="mt-2 h-28 w-full resize-none border border-black/[0.08] bg-[var(--color-surface-2)] p-3 text-[14px] text-[var(--color-fg)] focus:border-[var(--color-cat-convert)] focus:outline-none" />
@@ -118,12 +118,12 @@ export default function ClipboardApp() {
 
           {items.length > 0 && (
             <div className="space-y-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">History</div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">History</div>
               {items.map((it) => (
                 <div key={it.id} className="flex items-start gap-3 border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-2.5">
                   <ArrowDownToLine className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${it.mine ? 'rotate-180 text-[var(--color-fg-subtle)]' : 'text-[var(--color-cat-convert)]'}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">{it.mine ? 'Sent' : 'Received'}</div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">{it.mine ? 'Sent' : 'Received'}</div>
                     <div className="mt-0.5 break-words font-mono text-[13px] text-[var(--color-fg)]">{it.text}</div>
                   </div>
                   <button type="button" onClick={() => copyItem(it)} className="flex shrink-0 items-center gap-1 border border-black/[0.08] px-2 py-1 text-[11px] text-[var(--color-fg-muted)] transition hover:bg-[var(--color-surface-2)] hover:text-[var(--color-fg)]">
@@ -138,7 +138,7 @@ export default function ClipboardApp() {
         <aside className="space-y-3">
           {role === 's' ? (
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Link your other device</div>
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Link your other device</div>
               {qr && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={qr} alt="QR code" className="mx-auto my-3 h-44 w-44 border border-black/[0.06] bg-white p-1" />
@@ -146,7 +146,7 @@ export default function ClipboardApp() {
               <button type="button" onClick={copyLink} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-convert)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
                 {copiedLink ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copiedLink ? 'Copied' : 'Copy link'}
               </button>
-              <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
+              <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
               <p className="mt-3 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">Open this link (or scan the QR) on your other device. Keep both tabs open.</p>
             </div>
           ) : (

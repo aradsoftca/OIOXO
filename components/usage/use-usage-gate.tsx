@@ -273,7 +273,7 @@ export function GateModal({
   const priceLine = `$${DISPLAY_PRICING.monthly}/mo · cancel anytime`;
   const Benefits = () => (
     <ul className="mt-4 space-y-1.5 border-t border-black/[0.06] pt-4">
-      <li className="mb-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">With Pro you get</li>
+      <li className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">With Pro you get</li>
       {benefits.map((b) => (
         <li key={b} className="flex items-start gap-2 text-[12.5px] text-[var(--color-fg)]">
           <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color }} /> {b}
@@ -298,7 +298,7 @@ export function GateModal({
             {phase === 'reward' ? <Gift className="h-5 w-5" /> : <Lock className="h-5 w-5" />}
           </div>
           <div>
-            <div className="text-[9px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
               {meta.name}
             </div>
             <h2 className="text-[19px] font-semibold tracking-tight text-[var(--color-fg)]">

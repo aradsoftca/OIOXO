@@ -133,7 +133,7 @@ export function AudioDrop(props: Props) {
             className="flex w-full flex-col items-center gap-2 text-center">
             <Upload className={`h-6 w-6 ${dragActive ? 'text-[var(--color-cat-audio)]' : 'text-[var(--color-fg-muted)]'}`} />
             <div className="text-[13px] font-semibold">{busy ? 'Loading…' : dragActive ? 'Drop to add' : 'Drop audio files, paste, or click to add'}</div>
-            <div className="text-[10px] text-[var(--color-fg-muted)]">MP3 · WAV · M4A · OGG · FLAC</div>
+            <div className="text-[11px] text-[var(--color-fg-muted)]">MP3 · WAV · M4A · OGG · FLAC</div>
           </button>
           <input ref={inputRef} type="file" accept="audio/*" multiple className="hidden"
             onChange={(e) => { if (e.target.files) void handle(e.target.files); e.target.value = ''; }} />
@@ -145,7 +145,7 @@ export function AudioDrop(props: Props) {
               <li key={i} className="flex items-center gap-2 border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-2">
                 <Music className="h-4 w-4 text-[var(--color-cat-audio)] shrink-0" />
                 <span className="flex-1 text-[12px] truncate">{it.file.name}</span>
-                <span className="font-mono text-[10px] text-[var(--color-fg-muted)]">{it.info.duration.toFixed(1)}s</span>
+                <span className="font-mono text-[11px] text-[var(--color-fg-muted)]">{it.info.duration.toFixed(1)}s</span>
                 <div className="flex">
                   <button type="button" disabled={i === 0}
                     onClick={() => {
@@ -153,14 +153,14 @@ export function AudioDrop(props: Props) {
                       [next[i - 1], next[i]] = [next[i], next[i - 1]];
                       props.onItemsChange(next);
                     }}
-                    className="px-1 text-[10px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↑</button>
+                    className="px-1 text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↑</button>
                   <button type="button" disabled={i === props.items.length - 1}
                     onClick={() => {
                       const next = [...props.items];
                       [next[i], next[i + 1]] = [next[i + 1], next[i]];
                       props.onItemsChange(next);
                     }}
-                    className="px-1 text-[10px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↓</button>
+                    className="px-1 text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↓</button>
                 </div>
                 <button type="button"
                   onClick={() => props.onItemsChange(props.items.filter((_, j) => j !== i))}

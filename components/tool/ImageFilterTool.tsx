@@ -400,7 +400,7 @@ export function ImageFilterTool({
           {EXPORT_FORMATS.find((f) => f.id === format)?.lossy && (
             <div className="mt-3">
               <div className="flex items-baseline justify-between">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--color-fg-subtle)]">Quality</span>
+                <span className="text-[11px] font-mono uppercase tracking-wider text-[var(--color-fg-subtle)]">Quality</span>
                 <span className="font-mono text-[14px] font-semibold tabular-nums text-[var(--color-fg)]">{quality}</span>
               </div>
               <Slider.Root value={[quality]} onValueChange={([v]) => setQuality(v)} min={40} max={100} step={1} className="relative mt-2 flex h-5 w-full touch-none items-center">
@@ -451,7 +451,7 @@ function ControlRow({
           <Slider.Track className="relative h-1.5 grow bg-black/[0.08]"><Slider.Range className="absolute h-full" style={{ background: `var(${colorVar})` }} /></Slider.Track>
           <Slider.Thumb className="block h-5 w-5 border-2 border-[var(--color-fg)] outline-none" style={{ background: `var(${colorVar})` }} />
         </Slider.Root>
-        {control.hint && <div className="mt-1 text-[10px] text-[var(--color-fg-subtle)]">{control.hint}</div>}
+        {control.hint && <div className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">{control.hint}</div>}
       </div>
     );
   }

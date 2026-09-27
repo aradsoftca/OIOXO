@@ -30,7 +30,7 @@ function SuggestionCard({ s }: { s: ToolSuggestion }) {
         <div className="truncate text-[13px] font-semibold text-[var(--color-fg)]">{s.tool.name}</div>
         <div className="truncate text-[11px] text-[var(--color-fg-muted)]">{s.tool.blurb}</div>
       </div>
-      <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-[var(--color-fg-subtle)] group-hover:text-[var(--color-cat-convert)]">
+      <span className="shrink-0 font-mono text-[11px] uppercase tracking-wider text-[var(--color-fg-subtle)] group-hover:text-[var(--color-cat-convert)]">
         Open →
       </span>
     </Link>

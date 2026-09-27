@@ -298,7 +298,7 @@ export default function CallApp() {
           <aside className="space-y-3">
             {role === 's' && state !== 'connected' && (
               <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite someone</div>
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite someone</div>
                 {qr && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={qr} alt="QR" className="mx-auto my-3 h-40 w-40 border border-black/[0.06] bg-white p-1" />
@@ -306,13 +306,13 @@ export default function CallApp() {
                 <button type="button" onClick={copy} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
                   {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy invite link'}
                 </button>
-                <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
+                <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
               </div>
             )}
             {/* Virtual background — on-device, replaces the outgoing camera feed */}
             {!audioOnly && (
               <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+                <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                   <Sparkles className="h-3.5 w-3.5" /> Background {bgBusy && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
                 </div>
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
@@ -333,7 +333,7 @@ export default function CallApp() {
 
             {/* In-call chat — text + emoji over the encrypted data channel */}
             <div className="flex flex-col border border-black/[0.08] bg-[var(--color-surface-1)]">
-              <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 <MessageSquare className="h-3.5 w-3.5" /> Chat
               </div>
               <div className="max-h-72 min-h-[120px] flex-1 space-y-1.5 overflow-y-auto p-3">

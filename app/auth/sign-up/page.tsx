@@ -41,7 +41,7 @@ export default function SignUpPage() {
               <TileIcon name="user-plus" size={18} />
             </div>
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 Get started
               </div>
               <div className="text-[20px] font-bold tracking-tight">Create account</div>

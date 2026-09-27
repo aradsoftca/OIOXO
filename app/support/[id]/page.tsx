@@ -41,7 +41,7 @@ export default function TicketViewPage() {
       {state === 'ok' && ticket && (
         <>
           <div className="mb-5">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
               Ticket #{ticket.ticketNumber} · {ticket.status.replace('_', ' ').toLowerCase()}
             </div>
             <h1 className="text-[22px] font-bold tracking-tight">{ticket.subject}</h1>

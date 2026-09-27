@@ -772,7 +772,7 @@ export default function CallStudio() {
               <Layout className="h-4 w-4" />
             </button>
             <button type="button" onClick={() => { setLayout('spotlight'); pinnedRef.current = false; }} className={`grid h-8 w-8 place-items-center text-xs ${layout === 'spotlight' ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.05] text-[var(--color-fg)]'}`} title="Spotlight — auto-follows whoever is speaking (click a tile to pin)">
-              <span className="text-[10px] font-bold">★</span>
+              <span className="text-[11px] font-bold">★</span>
             </button>
             <button type="button" onClick={() => setLayout('theater')} className={`grid h-8 w-8 place-items-center text-xs ${layout === 'theater' ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.05] text-[var(--color-fg)]'}`} title="Theater (presenter only)">
               <MonitorPlay className="h-4 w-4" />
@@ -1015,7 +1015,7 @@ export default function CallStudio() {
               <BgPanel bg={bg} bgBusy={bgBusy} onPick={applyBg} fileRef={bgFileRef} onImage={pickBgImage} />
             )}
 
-            <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-2 text-[10px] leading-relaxed text-[var(--color-fg-subtle)]">
+            <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-2 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
               <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-green-600" />
               <span>P2P encrypted — audio, video, chat, whiteboard, and reactions never pass through our servers.</span>
             </div>
@@ -1124,7 +1124,7 @@ function GreenRoom({
                 />
               ))}
             </div>
-            <span className="w-24 text-right text-[10px] text-[var(--color-fg-subtle)]">
+            <span className="w-24 text-right text-[11px] text-[var(--color-fg-subtle)]">
               {!micOn ? 'Muted' : lit > 1 ? 'Mic working' : 'Say something…'}
             </span>
           </div>
@@ -1142,7 +1142,7 @@ function GreenRoom({
 
             {/* Device pickers — only show once permission populated labels. */}
             {!audioOnly && devices.cams.length > 1 && (
-              <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
+              <label className="mt-3 block text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
                 Camera
                 <select value={camId} onChange={(e) => onSwitchCam(e.target.value)} className="mt-1 w-full border border-black/[0.08] bg-[var(--color-surface-2)] px-2 py-1.5 text-[12px] font-normal normal-case tracking-normal text-[var(--color-fg)] focus:outline-none">
                   {devices.cams.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>)}
@@ -1150,7 +1150,7 @@ function GreenRoom({
               </label>
             )}
             {devices.mics.length > 1 && (
-              <label className="mt-2 block text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
+              <label className="mt-2 block text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
                 Microphone
                 <select value={micId} onChange={(e) => onSwitchMic(e.target.value)} className="mt-1 w-full border border-black/[0.08] bg-[var(--color-surface-2)] px-2 py-1.5 text-[12px] font-normal normal-case tracking-normal text-[var(--color-fg)] focus:outline-none">
                   {devices.mics.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>)}
@@ -1161,20 +1161,20 @@ function GreenRoom({
             {/* Pre-arm background blur so you never appear in a messy room. */}
             {!audioOnly && (
               <div className="mt-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]"><Sparkles className="h-3 w-3" /> Background</div>
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]"><Sparkles className="h-3 w-3" /> Background</div>
                 <div className="mt-1.5 grid grid-cols-2 gap-1.5">
                   {([['off', 'None'], ['blur', 'Blur']] as const).map(([k, lbl]) => (
                     <button key={k} type="button" onClick={() => onPickBg(k)} className={`py-1.5 text-[12px] font-semibold transition ${bg === k ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.04] hover:bg-black/[0.08]'}`}>{lbl}</button>
                   ))}
                 </div>
-                {bg === 'blur' && <p className="mt-1 text-[10px] text-[var(--color-fg-subtle)]">Blur applies the moment you join.</p>}
+                {bg === 'blur' && <p className="mt-1 text-[11px] text-[var(--color-fg-subtle)]">Blur applies the moment you join.</p>}
               </div>
             )}
           </div>
 
           {role === 's' && (
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-center">
-              <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Invite the other person</div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Invite the other person</div>
               {qr && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={qr} alt="QR" className="mx-auto mb-2 h-28 w-28 border border-black/[0.06] bg-white p-1" />
@@ -1182,7 +1182,7 @@ function GreenRoom({
               <button type="button" onClick={onCopy} className="mx-auto flex items-center gap-2 bg-black/[0.05] px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider transition hover:bg-black/[0.1]">
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy link'}
               </button>
-              <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
+              <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
             </div>
           )}
         </div>
@@ -1203,7 +1203,7 @@ function ChatPanel({ chat, msg, setMsg, state, onSend, onReact, chatEndRef }: {
         {chat.map((m, i) => (
           <div key={i} className={`flex flex-col ${m.mine ? 'items-end' : ''}`}>
             <span className={`max-w-[85%] break-words px-2.5 py-1.5 text-[13px] leading-snug ${m.mine ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.05] text-[var(--color-fg)]'}`}>{m.text}</span>
-            <span className="mt-0.5 px-1 text-[9px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</span>
+            <span className="mt-0.5 px-1 text-[11px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</span>
           </div>
         ))}
         <div ref={chatEndRef} />
@@ -1227,14 +1227,14 @@ function PeoplePanel({ role, state, link, qr, copied, onCopy, handUp, remotes, f
 }) {
   return (
     <div className="flex flex-col gap-2 overflow-y-auto border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
-      <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+      <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
         In the call · {remotes.length + 1}
       </div>
       <div className="flex items-center justify-between rounded bg-black/[0.04] px-2 py-1.5">
         <div className="flex items-center gap-2">
           <div className="grid h-7 w-7 place-items-center rounded-full bg-[var(--color-cat-video)] text-[11px] font-bold text-white">{myName.slice(0, 1).toUpperCase()}</div>
           <div>
-            <div className="text-[12px] font-semibold">{myName} <span className="text-[10px] font-normal text-[var(--color-fg-subtle)]">(you{role === 's' ? ' · host' : ''})</span></div>
+            <div className="text-[12px] font-semibold">{myName} <span className="text-[11px] font-normal text-[var(--color-fg-subtle)]">(you{role === 's' ? ' · host' : ''})</span></div>
           </div>
         </div>
         {handUp && <Hand className="h-3.5 w-3.5 text-yellow-500" />}
@@ -1247,7 +1247,7 @@ function PeoplePanel({ role, state, link, qr, copied, onCopy, handUp, remotes, f
           <div key={r.id} className={`flex items-center justify-between rounded px-2 py-1.5 ${talking ? 'bg-green-500/10 ring-1 ring-green-400/40' : 'bg-black/[0.04]'}`}>
             <div className="flex items-center gap-2">
               <div className={`grid h-7 w-7 place-items-center rounded-full text-[11px] font-bold text-white ${talking ? 'ring-2 ring-green-400' : ''}`} style={{ background: color }}>{r.name.slice(0, 1).toUpperCase()}</div>
-              <div className="text-[12px] font-semibold">{r.name} {r.state !== 'connected' && <span className="text-[10px] font-normal text-[var(--color-fg-subtle)]">({r.state})</span>}</div>
+              <div className="text-[12px] font-semibold">{r.name} {r.state !== 'connected' && <span className="text-[11px] font-normal text-[var(--color-fg-subtle)]">({r.state})</span>}</div>
             </div>
             <div className="flex items-center gap-1">
               {talking && <Mic className="h-3.5 w-3.5 text-green-500" />}
@@ -1264,7 +1264,7 @@ function PeoplePanel({ role, state, link, qr, copied, onCopy, handUp, remotes, f
       {/* Mid-call device switching — change camera/mic without dropping the call. */}
       {(devices.mics.length > 1 || (!audioOnly && devices.cams.length > 1)) && (
         <div className="mt-1 border-t border-black/[0.06] pt-2">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Devices</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Devices</div>
           {!audioOnly && devices.cams.length > 1 && (
             <select value={camId} onChange={(e) => onSwitchCam(e.target.value)} className="mt-1.5 w-full border border-black/[0.08] bg-[var(--color-surface-2)] px-2 py-1.5 text-[11px] focus:outline-none">
               {devices.cams.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || 'Camera'}</option>)}
@@ -1279,7 +1279,7 @@ function PeoplePanel({ role, state, link, qr, copied, onCopy, handUp, remotes, f
       )}
       {role === 's' && (
         <div className="mt-2 border-t border-black/[0.06] pt-3">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Invite more</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Invite more</div>
           {qr && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={qr} alt="QR" className="mx-auto my-2 h-28 w-28 border border-black/[0.06] bg-white p-1" />
@@ -1287,7 +1287,7 @@ function PeoplePanel({ role, state, link, qr, copied, onCopy, handUp, remotes, f
           <button type="button" onClick={onCopy} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-2 text-[11px] font-bold uppercase tracking-wider text-white">
             {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} {copied ? 'Copied' : 'Copy link'}
           </button>
-          <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[9px] text-[var(--color-fg-muted)]">{link}</div>
+          <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
         </div>
       )}
     </div>
@@ -1300,8 +1300,8 @@ function CaptionsPanel({ on, busy, err, onToggle, lines, onClear }: { on: boolea
       <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2">
         <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Captions {busy && <Loader2 className="ml-1 inline h-3 w-3 animate-spin" />}</span>
         <div className="flex items-center gap-1.5">
-          <button type="button" onClick={onClear} className="rounded bg-black/[0.04] px-2 py-1 text-[10px]">Clear</button>
-          <button type="button" onClick={onToggle} className={`rounded px-2 py-1 text-[10px] font-semibold ${on ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.04]'}`}>{on ? 'On' : 'Off'}</button>
+          <button type="button" onClick={onClear} className="rounded bg-black/[0.04] px-2 py-1 text-[11px]">Clear</button>
+          <button type="button" onClick={onToggle} className={`rounded px-2 py-1 text-[11px] font-semibold ${on ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.04]'}`}>{on ? 'On' : 'Off'}</button>
         </div>
       </div>
       <div className="flex-1 space-y-1.5 overflow-y-auto p-3 text-[12px]">
@@ -1315,7 +1315,7 @@ function CaptionsPanel({ on, busy, err, onToggle, lines, onClear }: { on: boolea
         )}
         {lines.map((l, i) => (
           <div key={i}>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">{l.name}</span>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">{l.name}</span>
             <p className="text-[12px] leading-relaxed">{l.text}</p>
           </div>
         ))}
@@ -1329,7 +1329,7 @@ function SummaryPanel({ summary, busy, onRun, chapters }: { summary: string; bus
     <div className="flex min-h-[280px] flex-1 flex-col border border-black/[0.08] bg-[var(--color-surface-1)]">
       <div className="flex items-center justify-between border-b border-black/[0.06] px-3 py-2">
         <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">AI Summary</span>
-        <button type="button" onClick={onRun} disabled={busy} className="flex items-center gap-1.5 rounded bg-[var(--color-cat-video)] px-2 py-1 text-[10px] font-semibold text-white disabled:opacity-50">
+        <button type="button" onClick={onRun} disabled={busy} className="flex items-center gap-1.5 rounded bg-[var(--color-cat-video)] px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-50">
           {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wand2 className="h-3 w-3" />} {busy ? 'Summarizing…' : 'Summarize call'}
         </button>
       </div>
@@ -1341,7 +1341,7 @@ function SummaryPanel({ summary, busy, onRun, chapters }: { summary: string; bus
         )}
         {chapters.length > 0 && (
           <div className="mt-4 border-t border-black/[0.06] pt-3">
-            <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">Chapters</div>
+            <div className="mb-1 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">Chapters</div>
             <ul className="space-y-1">
               {chapters.map((c, i) => (
                 <li key={i} className="text-[11px]"><span className="font-mono text-[var(--color-fg-subtle)]">{(c.ts / 1000).toFixed(0)}s</span> · {c.label}</li>
@@ -1360,7 +1360,7 @@ function BgPanel({ bg, bgBusy, onPick, fileRef, onImage }: {
 }) {
   return (
     <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-2">
-      <div className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+      <div className="flex items-center gap-2 px-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
         <Sparkles className="h-3 w-3" /> Background {bgBusy && <Loader2 className="ml-1 h-3 w-3 animate-spin" />}
       </div>
       <div className="mt-1.5 grid grid-cols-3 gap-1">
@@ -1410,11 +1410,11 @@ function PeerTile({ peer, flags, isSpotlight, speaking, onClick, tileRefs }: {
         </div>
       )}
       {peer.state !== 'connected' && (
-        <div className="absolute inset-0 grid place-items-center bg-black/60 text-[10px] text-white/70">
+        <div className="absolute inset-0 grid place-items-center bg-black/60 text-[11px] text-white/70">
           <Loader2 className="h-4 w-4 animate-spin" />
         </div>
       )}
-      <div className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">
+      <div className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[11px] text-white">
         {speaking && <Mic className="h-2.5 w-2.5 text-green-400" />}
         {peer.name}
         {flags?.handUp && <Hand className="h-2.5 w-2.5 text-yellow-400" />}
@@ -1491,7 +1491,7 @@ function LocalTile({ localRef, myName, myHand, speaking, mirror, camOn }: { loca
       {camOn === false && (
         <div className="absolute inset-0 grid place-items-center bg-gradient-to-b from-[#1a1f2e] to-black"><div className="grid h-10 w-10 place-items-center rounded-full bg-[var(--color-cat-video)]/40 text-sm font-bold text-white">{myName.slice(0, 1).toUpperCase()}</div></div>
       )}
-      <div className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">
+      <div className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 text-[11px] text-white">
         {speaking && <Mic className="h-2.5 w-2.5 text-green-400" />}
         {myName} (you)
         {myHand && <Hand className="h-2.5 w-2.5 text-yellow-400" />}

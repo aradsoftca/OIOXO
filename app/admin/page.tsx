@@ -43,7 +43,7 @@ export default function AdminOverviewPage() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
         {cards.map((c) => (
           <Link key={c.label} href={c.href} className="border border-black/[0.08] bg-white/60 p-4 transition hover:bg-white">
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">{c.label}</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">{c.label}</div>
             <div className="mt-2 text-[28px] font-bold tabular-nums tracking-tight text-[var(--color-fg)]">
               {c.value ?? '—'}
             </div>

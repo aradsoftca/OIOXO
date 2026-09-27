@@ -43,7 +43,7 @@ function Shell({ children, title, subtitle, badge }: { children: React.ReactNode
         {badge}
       </header>
       {children}
-      <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-2 text-[10px] leading-relaxed text-[var(--color-fg-subtle)]">
+      <div className="flex items-start gap-2 border border-black/[0.06] bg-black/[0.015] p-2 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
         <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-green-600" />
         <span>P2P encrypted — video, audio, chat, reactions all stream device-to-device.</span>
       </div>
@@ -53,7 +53,7 @@ function Shell({ children, title, subtitle, badge }: { children: React.ReactNode
 
 /** A small, calm live/connecting/reconnecting pill for the header. */
 function StatusPill({ state, source }: { state: MediaState | null; source?: string | null }) {
-  if (!state) return <span className="shrink-0 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">Idle</span>;
+  if (!state) return <span className="shrink-0 px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">Idle</span>;
   const map: Record<MediaState, { label: string; cls: string; dot: string; spin?: boolean }> = {
     connecting: { label: 'Connecting', cls: 'bg-amber-500/15 text-amber-700', dot: 'bg-amber-500', spin: true },
     connected: { label: 'Live', cls: 'bg-red-500/15 text-red-600', dot: 'bg-red-500 animate-pulse' },
@@ -62,7 +62,7 @@ function StatusPill({ state, source }: { state: MediaState | null; source?: stri
   };
   const m = map[state];
   return (
-    <span className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider ${m.cls}`}>
+    <span className={`flex shrink-0 items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${m.cls}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />{m.label}{source ? <span className="font-medium opacity-70">· {source}</span> : null}
     </span>
   );
@@ -96,7 +96,7 @@ function HealthHUD({ getHealth, viewers }: { getHealth: () => Promise<MediaHealt
     );
   }
   return (
-    <button type="button" onClick={() => setOpen(false)} title="Hide health (G)" className="absolute right-3 top-3 flex cursor-pointer items-center gap-2 bg-black/55 px-2.5 py-1.5 text-[10px] font-mono text-white/85 backdrop-blur transition hover:bg-black/65">
+    <button type="button" onClick={() => setOpen(false)} title="Hide health (G)" className="absolute right-3 top-3 flex cursor-pointer items-center gap-2 bg-black/55 px-2.5 py-1.5 text-[11px] font-mono text-white/85 backdrop-blur transition hover:bg-black/65">
       <Activity className="h-3.5 w-3.5 text-[var(--color-cat-video)]" />
       <span className={rttCls}>{rtt != null ? `${rtt}ms` : '—'}</span>
       <span className="text-white/30">·</span>
@@ -117,9 +117,9 @@ function ShortcutHint({ items }: { items: [string, string][] }) {
   return (
     <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
       {show && (
-        <div className="flex flex-wrap items-center justify-end gap-1.5 bg-black/55 px-2.5 py-1.5 text-[10px] text-white/80 backdrop-blur">
+        <div className="flex flex-wrap items-center justify-end gap-1.5 bg-black/55 px-2.5 py-1.5 text-[11px] text-white/80 backdrop-blur">
           {items.map(([k, v]) => (
-            <span key={k} className="flex items-center gap-1"><kbd className="rounded bg-white/15 px-1 font-mono text-[9px]">{k}</kbd>{v}</span>
+            <span key={k} className="flex items-center gap-1"><kbd className="rounded bg-white/15 px-1 font-mono text-[11px]">{k}</kbd>{v}</span>
           ))}
         </div>
       )}
@@ -412,7 +412,7 @@ function Host() {
     >
       {gate}
       {policyGate.element}
-      <div className="text-[10px] text-[var(--color-fg-subtle)]"><FreeCapHint toolKey={POLICY_KEY} lever="participants" isPro={isPro} /> <FreeCapHint toolKey={POLICY_KEY} lever="session-minutes" isPro={isPro} /></div>
+      <div className="text-[11px] text-[var(--color-fg-subtle)]"><FreeCapHint toolKey={POLICY_KEY} lever="participants" isPro={isPro} /> <FreeCapHint toolKey={POLICY_KEY} lever="session-minutes" isPro={isPro} /></div>
       <div className="grid flex-1 min-h-0 gap-3 lg:grid-cols-[1fr_320px]">
         <div ref={wrapRef} className="relative aspect-video min-h-0 overflow-hidden border border-black/[0.08] bg-[oklch(18%_0.008_250)]">
           <video ref={videoRef} className={`absolute inset-0 h-full w-full object-contain transition-opacity ${panic ? 'opacity-0' : ''}`} playsInline controls={source === 'file'} />
@@ -494,7 +494,7 @@ function Host() {
 
         <aside className="flex min-h-0 flex-col gap-2">
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-3">
-            <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite viewers</div>
+            <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite viewers</div>
             {qr && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={qr} alt="QR" className="mx-auto my-2 h-28 w-28 border border-black/[0.06] bg-white p-1" />
@@ -502,14 +502,14 @@ function Host() {
             <button type="button" onClick={copy} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-2 text-[11px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
               {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} {copied ? 'Copied' : 'Copy link'}
             </button>
-            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[9px] text-[var(--color-fg-muted)]">{link}</div>
-            <p className="mt-2 flex items-center gap-1.5 text-[10px] text-[var(--color-fg-subtle)]"><Wifi className="h-3 w-3 text-green-600" /> Opens in any browser — no app, no account.</p>
+            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--color-fg-subtle)]"><Wifi className="h-3 w-3 text-green-600" /> Opens in any browser — no app, no account.</p>
           </div>
 
           <div className="flex min-h-[240px] flex-1 flex-col border border-black/[0.08] bg-[var(--color-surface-1)]">
-            <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+            <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
               <MessageSquare className="h-3 w-3" /> Watch chat
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="ml-auto w-20 border border-black/[0.08] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-right text-[10px] focus:outline-none" />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="ml-auto w-20 border border-black/[0.08] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-right text-[11px] focus:outline-none" />
             </div>
             <div className="max-h-72 flex-1 space-y-1.5 overflow-y-auto p-3">
               {chat.length === 0 && (
@@ -518,7 +518,7 @@ function Host() {
               {chat.map((m, i) => (
                 <div key={i} className={`flex flex-col ${m.mine ? 'items-end' : ''}`}>
                   <span className={`max-w-[85%] break-words px-2.5 py-1.5 text-[13px] ${m.mine ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.05]'}`}>{m.text}</span>
-                  <span className="mt-0.5 px-1 text-[9px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</span>
+                  <span className="mt-0.5 px-1 text-[11px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</span>
                 </div>
               ))}
               <div ref={chatEndRef} />
@@ -733,16 +733,16 @@ function Viewer({ code }: { code: string }) {
 
         <aside className="flex min-h-0 flex-col gap-2">
           <div className="flex min-h-[280px] flex-1 flex-col border border-black/[0.08] bg-[var(--color-surface-1)]">
-            <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+            <div className="flex items-center gap-2 border-b border-black/[0.06] px-3 py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
               <MessageSquare className="h-3 w-3" /> Watch chat
-              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="ml-auto w-20 border border-black/[0.08] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-right text-[10px] focus:outline-none" />
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="ml-auto w-20 border border-black/[0.08] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-right text-[11px] focus:outline-none" />
             </div>
             <div className="max-h-72 flex-1 space-y-1.5 overflow-y-auto p-3">
               {chat.length === 0 && <p className="text-[12px] text-[var(--color-fg-subtle)]">React, raise your hand, or send a message to the host.</p>}
               {chat.map((m, i) => (
                 <div key={i} className={`flex flex-col ${m.mine ? 'items-end' : ''}`}>
                   <span className={`max-w-[85%] break-words px-2.5 py-1.5 text-[13px] ${m.mine ? 'bg-[var(--color-cat-video)] text-white' : 'bg-black/[0.05]'}`}>{m.text}</span>
-                  <span className="mt-0.5 px-1 text-[9px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</span>
+                  <span className="mt-0.5 px-1 text-[11px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name}</span>
                 </div>
               ))}
               <div ref={chatEndRef} />

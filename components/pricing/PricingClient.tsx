@@ -105,7 +105,7 @@ export function PricingClient({
             >
               {b === 'monthly' ? 'Monthly' : 'Yearly'}
               {b === 'yearly' && (
-                <span className="ml-1.5 text-[10px] text-[var(--color-cat-finance)]">save 17%</span>
+                <span className="ml-1.5 text-[11px] text-[var(--color-cat-finance)]">save 17%</span>
               )}
             </button>
           ))}
@@ -141,7 +141,7 @@ export function PricingClient({
 
         {/* Pro */}
         <div className="relative border-2 border-[var(--color-cat-finance)] bg-[var(--color-surface-1)] p-7">
-          <div className="absolute -top-3 left-7 bg-[var(--color-cat-finance)] px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+          <div className="absolute -top-3 left-7 bg-[var(--color-cat-finance)] px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white">
             Most popular
           </div>
           <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-cat-finance)]">

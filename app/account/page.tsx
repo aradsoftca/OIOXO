@@ -152,7 +152,7 @@ export default async function AccountPage() {
                   <div className="truncate text-[11px] text-[var(--color-fg-muted)]">{new Date(h.date).toLocaleDateString()} · {h.label}</div>
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
-                  <span className={`text-[10px] font-bold uppercase tracking-wider ${/succeed|complete|paid|active/i.test(h.status) ? 'text-green-600' : 'text-[var(--color-fg-subtle)]'}`}>{h.status}</span>
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${/succeed|complete|paid|active/i.test(h.status) ? 'text-green-600' : 'text-[var(--color-fg-subtle)]'}`}>{h.status}</span>
                   {h.link && <a href={h.link} target="_blank" rel="noopener noreferrer" className="text-[12px] text-[var(--brand-1)] hover:underline">Receipt</a>}
                 </div>
               </div>

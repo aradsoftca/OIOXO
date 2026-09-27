@@ -39,7 +39,7 @@ function BarRow({ label, items, pathname }: { label: string; items: AppEntry[]; 
   if (!items.length) return null;
   return (
     <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 py-1.5">
-      <span className="mr-1 w-[52px] shrink-0 self-center px-1 text-[10px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
+      <span className="mr-1 w-[52px] shrink-0 self-center px-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">
         {label}
       </span>
       {items.map((a) => {

@@ -99,7 +99,7 @@ export function ResultGrid({ rows, colorVar = '--color-cat-ip', columns = 2, tit
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         {title ? (
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">{title}</div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">{title}</div>
         ) : <span />}
         <div className="ml-auto inline-flex items-center gap-1.5">
           {json && (

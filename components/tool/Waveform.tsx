@@ -217,7 +217,7 @@ export function Waveform({
             {playhead.toFixed(1)}s / {buffer.duration.toFixed(1)}s
           </span>
           {selection && (
-            <span className="font-mono text-[10px] tabular-nums text-[var(--color-fg-subtle)]">
+            <span className="font-mono text-[11px] tabular-nums text-[var(--color-fg-subtle)]">
               · sel {(selection.end - selection.start).toFixed(1)}s
             </span>
           )}

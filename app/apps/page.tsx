@@ -82,7 +82,7 @@ export default function AppsPage() {
               <span className="grid h-11 w-11 place-items-center text-white" style={{ background: `var(${a.colorVar})` }}>
                 <TileIcon name={a.icon} size={22} strokeWidth={1.75} />
               </span>
-              <span className="text-[9px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">{a.tag}</span>
+              <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">{a.tag}</span>
             </div>
             <div>
               <div className="flex items-center gap-1.5 text-[16px] font-bold tracking-tight text-[var(--color-fg)]">

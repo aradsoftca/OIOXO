@@ -127,7 +127,7 @@ export function PdfDrop(props: Props) {
             className="flex w-full flex-col items-center gap-2 text-center">
             <Upload className={`h-6 w-6 ${dragActive ? 'text-[var(--color-cat-pdf)]' : 'text-[var(--color-fg-muted)]'}`} />
             <div className="text-[13px] font-semibold">{busy ? 'Loading…' : dragActive ? 'Drop to add' : 'Drop PDFs or click to add'}</div>
-            <div className="text-[10px] text-[var(--color-fg-muted)]">or paste · PDF</div>
+            <div className="text-[11px] text-[var(--color-fg-muted)]">or paste · PDF</div>
           </button>
           <input ref={inputRef} type="file" accept="application/pdf" multiple className="hidden"
             onChange={(e) => { if (e.target.files) void handle(e.target.files); e.target.value = ''; }} />
@@ -139,7 +139,7 @@ export function PdfDrop(props: Props) {
               <li key={i} className="flex items-center gap-2 border border-black/[0.08] bg-[var(--color-surface-1)] px-3 py-2">
                 <FileText className="h-4 w-4 text-[var(--color-cat-pdf)] shrink-0" />
                 <span className="flex-1 text-[12px] truncate">{it.file.name}</span>
-                <span className="font-mono text-[10px] text-[var(--color-fg-muted)]">{(it.file.size / 1024).toFixed(0)} KB</span>
+                <span className="font-mono text-[11px] text-[var(--color-fg-muted)]">{(it.file.size / 1024).toFixed(0)} KB</span>
                 <div className="flex">
                   <button type="button" disabled={i === 0}
                     onClick={() => {
@@ -147,14 +147,14 @@ export function PdfDrop(props: Props) {
                       [next[i - 1], next[i]] = [next[i], next[i - 1]];
                       props.onItemsChange(next);
                     }}
-                    className="px-1 text-[10px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↑</button>
+                    className="px-1 text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↑</button>
                   <button type="button" disabled={i === props.items.length - 1}
                     onClick={() => {
                       const next = [...props.items];
                       [next[i], next[i + 1]] = [next[i + 1], next[i]];
                       props.onItemsChange(next);
                     }}
-                    className="px-1 text-[10px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↓</button>
+                    className="px-1 text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] disabled:opacity-30">↓</button>
                 </div>
                 <button type="button"
                   onClick={() => props.onItemsChange(props.items.filter((_, j) => j !== i))}

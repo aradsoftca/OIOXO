@@ -34,7 +34,7 @@ export function PolicyGate({ hit, onClose }: Props) {
           </button>
           <div className="flex items-center gap-2 text-white">
             <Crown className="h-5 w-5" />
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Pro unlocks this</span>
+            <span className="text-[11px] font-bold uppercase tracking-[0.2em]">Pro unlocks this</span>
           </div>
           <h2 className="mt-2 text-[20px] font-extrabold tracking-tight text-white">{title}</h2>
           <p className="mt-1 text-[12px] text-white/90">{hit.friendly}</p>

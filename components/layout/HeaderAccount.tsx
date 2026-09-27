@@ -56,7 +56,7 @@ export function HeaderAccount() {
     <div className="relative flex items-center gap-2" ref={ref}>
       {isPro && (
         <span
-          className="hidden items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white sm:inline-flex"
+          className="hidden items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white sm:inline-flex"
           style={{ background: 'var(--brand-gradient)' }}
         >
           <TileIcon name="crown" size={11} /> Pro

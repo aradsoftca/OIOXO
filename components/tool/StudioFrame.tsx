@@ -92,13 +92,13 @@ export function StudioFrame({ tool, children, about }: StudioFrameProps) {
                 {tool.name}
               </h1>
               <span
-                className="hidden shrink-0 rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-[0.18em] text-white/70 sm:inline"
+                className="hidden shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.18em] text-white/70 sm:inline"
                 style={{ background: 'rgba(255,255,255,0.08)' }}
               >
                 {cat.name}
               </span>
               {tool.compute === 'pro' && (
-                <span className="hidden shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[9px] font-semibold sm:inline">
+                <span className="hidden shrink-0 rounded bg-white/15 px-1.5 py-0.5 text-[11px] font-semibold sm:inline">
                   Pro option
                 </span>
               )}

@@ -246,7 +246,7 @@ export default function ChatApp() {
                     <span className="min-w-0"><span className="block truncate text-[13px] font-medium text-[var(--color-fg)]">{m.fileName}</span><span className="text-[11px] text-[var(--color-fg-subtle)]">{fmtBytes(m.size)}</span></span>
                   </a>
                 )}
-                <div className="mt-0.5 px-1 text-[10px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name} · {fmtTime(m.ts)}</div>
+                <div className="mt-0.5 px-1 text-[11px] text-[var(--color-fg-subtle)]">{m.mine ? 'You' : m.name} · {fmtTime(m.ts)}</div>
               </div>
             ))}
           </div>
@@ -279,7 +279,7 @@ export default function ChatApp() {
         <aside className="space-y-3">
           {role === 's' ? (
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-              <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite people</div>
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]"><Smartphone className="h-3.5 w-3.5" /> Invite people</div>
               {qr && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={qr} alt="QR" className="mx-auto my-3 h-40 w-40 border border-black/[0.06] bg-white p-1" />
@@ -287,7 +287,7 @@ export default function ChatApp() {
               <button type="button" onClick={copyLink} className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-convert)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy invite link'}
               </button>
-              <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
+              <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
               <p className="mt-3 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">Send this link (or QR) to anyone you want in the chat — share it with several people for a group. Keep this tab open; you host the room.</p>
             </div>
           ) : (

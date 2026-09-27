@@ -53,7 +53,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 className="flex-1 bg-transparent text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:outline-none"
                 autoFocus
               />
-              <kbd className="border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-fg-subtle)]">
+              <kbd className="border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-fg-subtle)]">
                 ESC
               </kbd>
             </div>
@@ -63,7 +63,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 No tools match — try a different search.
               </Command.Empty>
 
-              <Command.Group heading="Tools" className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-subtle)] [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
+              <Command.Group heading="Tools" className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-subtle)] [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
                 {TOOLS.map((t) => {
                   const cat = CATEGORIES[t.category];
                   return (
@@ -86,7 +86,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                         <div className="truncate font-medium">{t.name}</div>
                         <div className="truncate text-[11px] text-[var(--color-fg-muted)]">{t.blurb}</div>
                       </div>
-                      <kbd className="border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-fg-subtle)]">
+                      <kbd className="border border-black/10 bg-black/[0.04] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-fg-subtle)]">
                         ↵
                       </kbd>
                     </Command.Item>
@@ -94,7 +94,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 })}
               </Command.Group>
 
-              <Command.Group heading="Categories" className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-subtle)] [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
+              <Command.Group heading="Categories" className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-subtle)] [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2">
                 {Object.values(CATEGORIES).map((c) => (
                   <Command.Item
                     key={c.id}

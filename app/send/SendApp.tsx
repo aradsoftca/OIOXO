@@ -267,7 +267,7 @@ function SendSide() {
             <div className="text-[12px] font-semibold">
               {files.length} file{files.length === 1 ? '' : 's'} · {formatBytes(totalBytes)}
             </div>
-            <button type="button" onClick={reset} className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
+            <button type="button" onClick={reset} className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
               Cancel
             </button>
           </div>
@@ -291,7 +291,7 @@ function SendSide() {
 
         <aside className="space-y-3">
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-            <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
               <Smartphone className="h-3.5 w-3.5" /> Scan to receive
             </div>
             {qr ? (
@@ -309,7 +309,7 @@ function SendSide() {
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               {copied ? 'Copied' : 'Copy link'}
             </button>
-            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">
+            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">
               {link}
             </div>
             <div className="mt-3 text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
@@ -401,7 +401,7 @@ function Receive({ code }: { code: string }) {
               {done.map((d, i) => (
                 <li key={i} className="flex items-center gap-3 border border-black/[0.06] bg-white/40 px-3 py-2">
                   <span className="flex-1 truncate font-mono text-[12px]">{d.name}</span>
-                  <span className="font-mono text-[10px] text-[var(--color-fg-muted)]">{formatBytes(d.size)}</span>
+                  <span className="font-mono text-[11px] text-[var(--color-fg-muted)]">{formatBytes(d.size)}</span>
                   <a href={d.url} download={d.name}
                     className="flex items-center gap-1.5 bg-[var(--color-cat-convert)] px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
                     <Download className="h-3.5 w-3.5" /> {d.auto ? 'Save again' : 'Save'}
@@ -525,14 +525,14 @@ function SelfTestPanel() {
       </button>
       {r && (
         <div className="mt-3 space-y-2 text-[11px] leading-relaxed text-[var(--color-fg-muted)]">
-          <div className="font-mono text-[10px] text-[var(--color-fg-subtle)]">
+          <div className="font-mono text-[11px] text-[var(--color-fg-subtle)]">
             local(host): <b className="text-[var(--color-fg-muted)]">{r.host}</b> ·
             public(srflx): <b className="text-[var(--color-fg-muted)]">{r.srflx}</b> ·
             gather: <b className="text-[var(--color-fg-muted)]">{r.gathering}</b> ·
             {r.durationMs}ms{r.mdns ? ' · mdns' : ''}
           </div>
           {r.errors.length > 0 && (
-            <div className="font-mono text-[10px] text-amber-700">stun errors: {r.errors.join(' | ')}</div>
+            <div className="font-mono text-[11px] text-amber-700">stun errors: {r.errors.join(' | ')}</div>
           )}
           <p className={r.verdict === 'ok' ? 'text-green-700' : 'text-amber-700'}>{verdictText[r.verdict]}</p>
         </div>
@@ -586,7 +586,7 @@ function TransferProgress({ prog, done }: { prog: Progress | null; done: boolean
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[10px] text-[var(--color-fg-subtle)]">
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[11px] text-[var(--color-fg-subtle)]">
         <span className="flex items-center gap-3">
           {multi && <span>File {prog.index + 1} of {prog.filesTotal}</span>}
           <span className="tabular-nums">{formatBytes(prog.bytes)} / {formatBytes(prog.total)}</span>
@@ -648,7 +648,7 @@ function ConnectingStatus({ phase, stat, receiving }: { phase: Phase; stat: Stat
 function DiagLine({ stat }: { stat: Stat | null }) {
   if (!stat) return null;
   return (
-    <div className="mt-3 space-y-0.5 border-t border-black/[0.06] pt-2 font-mono text-[10px] leading-relaxed text-[var(--color-fg-subtle)]">
+    <div className="mt-3 space-y-0.5 border-t border-black/[0.06] pt-2 font-mono text-[11px] leading-relaxed text-[var(--color-fg-subtle)]">
       <div>ice <b className="text-[var(--color-fg-muted)]">{stat.ice}</b> · conn <b className="text-[var(--color-fg-muted)]">{stat.conn}</b> · gather <b className="text-[var(--color-fg-muted)]">{stat.gathering}</b></div>
       <div>mine <b className="text-[var(--color-fg-muted)]">{stat.local}</b> · theirs <b className="text-[var(--color-fg-muted)]">{stat.remote}</b>{stat.mdns ? ' · mdns' : ''}</div>
     </div>

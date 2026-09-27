@@ -65,7 +65,7 @@ function SignInInner() {
               <TileIcon name="log-in" size={18} />
             </div>
             <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 Welcome back
               </div>
               <div className="text-[20px] font-bold tracking-tight">Sign in</div>

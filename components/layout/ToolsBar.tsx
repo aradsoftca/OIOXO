@@ -116,7 +116,7 @@ export function ToolsBar() {
                     <TileIcon name={cat.icon} size={13} strokeWidth={2} />
                   </span>
                   <span className="min-w-0 truncate">{cat.label}</span>
-                  <span className="ml-auto text-[10px] font-mono text-[var(--color-fg-subtle)] tabular-nums">
+                  <span className="ml-auto text-[11px] font-mono text-[var(--color-fg-subtle)] tabular-nums">
                     {cat.tools.length}
                   </span>
                   {/* active underline */}
@@ -200,7 +200,7 @@ function Dropdown({ category, dropPos, onStay, onClose, onItemClick }: DropdownP
                 <div className="text-[14px] font-bold tracking-tight text-[var(--color-fg)]">
                   {category.label}
                 </div>
-                <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+                <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
                   {category.tools.length} tools
                 </div>
               </div>
@@ -277,7 +277,7 @@ function DropdownItem({
       >
         <span className="h-1 w-1 bg-[var(--color-fg-subtle)]" />
         <span className="truncate">{tool.label}</span>
-        <span className="ml-auto text-[9px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">soon</span>
+        <span className="ml-auto text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-subtle)]">soon</span>
       </div>
     );
   }

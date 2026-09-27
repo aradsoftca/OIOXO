@@ -108,7 +108,7 @@ export default function AdminTicketsPage() {
             >
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate text-[14px] font-semibold text-[var(--color-fg)]">#{t.ticketNumber} · {t.subject}</span>
-                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider" style={{ color: PRIORITY_COLOR[t.priority] }}>{t.priority}</span>
+                <span className="shrink-0 text-[11px] font-bold uppercase tracking-wider" style={{ color: PRIORITY_COLOR[t.priority] }}>{t.priority}</span>
               </div>
               <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--color-fg-muted)]">
                 <span className="truncate">{t.name} · {t.email}</span>
@@ -126,13 +126,13 @@ export default function AdminTicketsPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 #{sel.ticketNumber} · {sel.category} · from {sel.email}
               </div>
               <div className="max-h-[42vh] space-y-2 overflow-y-auto pr-1">
                 {sel.messages.map((m) => (
                   <div key={m.id} className={`border px-3 py-2 ${m.isStaff ? 'border-[var(--color-cat-image)]/30 bg-[var(--color-cat-image)]/5' : 'border-black/[0.08] bg-white/60'}`}>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
                       {m.isStaff ? (m.staffName || 'Support') : sel.name} · {new Date(m.createdAt).toLocaleString()}
                     </div>
                     <div className="mt-1 whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--color-fg)]">{m.message}</div>

@@ -38,7 +38,7 @@ export function NameGenerator({ toolId, generate, extraControls = [], defaultCou
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-end gap-3">
-        <span className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">Press Enter to reroll</span>
+        <span className="text-[11px] uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">Press Enter to reroll</span>
         <button
           type="button"
           onClick={() => setNonce((n) => n + 1)}

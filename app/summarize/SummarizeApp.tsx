@@ -123,12 +123,12 @@ export default function SummarizeApp() {
 
           <div className="grid gap-3 md:grid-cols-2">
             <div>
-              <div className="mb-1 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Input ({input.length}/{MAX_CHARS})</div>
+              <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Input ({input.length}/{MAX_CHARS})</div>
               <textarea value={input} onChange={(e) => setInput(e.target.value.slice(0, MAX_CHARS))} placeholder="Paste text, or drop a PDF above…" className="h-72 w-full resize-none border border-black/[0.08] bg-[var(--color-surface-1)] p-3 text-[13px] focus:border-[var(--color-cat-dev)] focus:outline-none" />
             </div>
             <div>
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">{mode === 'summarize' ? 'Summary' : `Translation (${lang})`}</span>
+                <span className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">{mode === 'summarize' ? 'Summary' : `Translation (${lang})`}</span>
                 {output && <button type="button" onClick={copyOut} className="flex items-center gap-1 text-[11px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">{copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />} Copy</button>}
               </div>
               <div className="h-72 w-full overflow-y-auto whitespace-pre-wrap border border-black/[0.08] bg-[var(--color-surface-2)] p-3 text-[13px] leading-relaxed">{output || <span className="text-[var(--color-fg-subtle)]">Result appears here.</span>}</div>

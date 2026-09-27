@@ -426,7 +426,7 @@ export default function BoardApp() {
                 <svg viewBox="0 0 16 16" className="h-4 w-4 drop-shadow" style={{ fill: c.hue }}>
                   <path d="M1 1 L1 12 L4 9 L6.5 14 L8.5 13 L6 8 L10 8 Z" stroke="white" strokeWidth="1" />
                 </svg>
-                <span className="ml-3 inline-block whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[10px] font-semibold text-white shadow"
+                <span className="ml-3 inline-block whitespace-nowrap rounded-sm px-1.5 py-0.5 text-[11px] font-semibold text-white shadow"
                   style={{ background: c.hue }}>{c.name}{c.drawing ? ' ✏️' : ''}</span>
               </div>
             ))}
@@ -457,7 +457,7 @@ export default function BoardApp() {
 
         <aside className="space-y-3">
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-            <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Invite to draw</div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Invite to draw</div>
             {role === 's' && qr && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={qr} alt="QR" className="mx-auto my-3 h-36 w-36 border border-black/[0.06] bg-white p-1" />
@@ -465,23 +465,23 @@ export default function BoardApp() {
             <button type="button" onClick={copyLink} className="mt-2 flex w-full items-center justify-center gap-2 bg-[var(--color-cat-image)] py-2.5 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110">
               {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy link'}
             </button>
-            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[10px] text-[var(--color-fg-muted)]">{link}</div>
+            <div className="mt-2 break-all rounded border border-black/[0.06] bg-black/[0.02] px-2 py-1.5 font-mono text-[11px] text-[var(--color-fg-muted)]">{link}</div>
           </div>
 
           {/* Who's here — live presence list, the "you see WHO" promise. */}
           <div className="border border-black/[0.06] bg-[var(--color-surface-1)] p-3">
-            <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">In this board</div>
+            <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">In this board</div>
             <ul className="space-y-1.5 text-[12px]">
               <li className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: me.hue }} />
                 <span className="font-semibold">{name || 'You'}</span>
-                <span className="text-[10px] text-[var(--color-fg-subtle)]">you</span>
+                <span className="text-[11px] text-[var(--color-fg-subtle)]">you</span>
               </li>
               {liveCursors.map(([id, c]) => (
                 <li key={id} className="flex items-center gap-2">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.hue }} />
                   <span>{c.name}</span>
-                  {c.drawing && <span className="text-[10px] text-green-600">drawing…</span>}
+                  {c.drawing && <span className="text-[11px] text-green-600">drawing…</span>}
                 </li>
               ))}
               {liveCursors.length === 0 && <li className="text-[11px] text-[var(--color-fg-subtle)]">Share the link to bring people in.</li>}
@@ -489,7 +489,7 @@ export default function BoardApp() {
           </div>
 
           <div className="border border-black/[0.06] bg-[var(--color-surface-1)] p-3">
-            <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Shortcuts</div>
+            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Shortcuts</div>
             <ul className="space-y-1 text-[11px] text-[var(--color-fg-muted)]">
               <li><kbd className="font-mono">P</kbd> pen · <kbd className="font-mono">E</kbd> eraser · <kbd className="font-mono">1–7</kbd> colors</li>
               <li><kbd className="font-mono">[ ]</kbd> brush size · <kbd className="font-mono">R</kbd> react</li>

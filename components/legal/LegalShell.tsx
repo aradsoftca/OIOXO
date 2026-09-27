@@ -4,7 +4,7 @@ export function LegalShell({ title, updated, children }: { title: string; update
   return (
     <div className="mx-auto w-[min(760px,94vw)] py-6">
       <div className="mb-6">
-        <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Legal</div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Legal</div>
         <h1 className="mt-1 text-[28px] font-bold tracking-tight text-[var(--color-fg)]">{title}</h1>
         <div className="mt-1 text-[12px] text-[var(--color-fg-subtle)]">Last updated: {updated}</div>
       </div>

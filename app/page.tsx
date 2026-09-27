@@ -108,12 +108,12 @@ export default function HomePage() {
           <Tile size="L" color="oklch(20% 0.008 250)" href="/oioxo?tab=code">
             <div className="flex items-start justify-between">
               <TileIcon name="code-2" size={26} className="text-white/95" />
-              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white/80">
+              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-white/80">
                 New
               </span>
             </div>
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/70">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">
                 Build
               </div>
               <div className="mt-1 text-[22px] font-extrabold leading-tight tracking-tight text-white">
@@ -166,12 +166,12 @@ export default function HomePage() {
           >
             <div className="flex items-start justify-between">
               <TileIcon name="replace" size={26} className="text-white/95" />
-              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-white">
+              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wider text-white">
                 Hub
               </span>
             </div>
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/75">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/75">
                 Convert
               </div>
               <div className="mt-1 font-mono text-[20px] font-semibold leading-tight tracking-tight text-white">

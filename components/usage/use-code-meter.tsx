@@ -65,7 +65,7 @@ function CodePaywall({ onClose }: { onClose: () => void }) {
             <Clock className="h-5 w-5" />
           </div>
           <div>
-            <div className="text-[9px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+            <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
               On-device AI
             </div>
             <h2 className="text-[19px] font-semibold tracking-tight text-[var(--color-fg)]">

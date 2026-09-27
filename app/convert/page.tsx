@@ -24,7 +24,7 @@ function PairTile({ from, to, popular = false }: { from: string; to: string; pop
         <span>{to.toUpperCase()}</span>
       </div>
       {popular && (
-        <span className="ml-2 bg-black/[0.06] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] group-hover:bg-white/20 group-hover:text-white">
+        <span className="ml-2 bg-black/[0.06] px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] group-hover:bg-white/20 group-hover:text-white">
           Popular
         </span>
       )}
@@ -70,7 +70,7 @@ export default function ConvertHub() {
           <div className="flex items-center gap-3">
             <TileIcon name={icon} size={20} strokeWidth={1.75} className="text-[var(--color-cat-convert)]" />
             <SectionTitle label={`${label} formats`} colorVar="--color-cat-convert" />
-            <span className="font-mono text-[10px] tabular-nums text-[var(--color-fg-muted)]">{pairs.length}</span>
+            <span className="font-mono text-[11px] tabular-nums text-[var(--color-fg-muted)]">{pairs.length}</span>
           </div>
           <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {pairs.map((p) => (

@@ -2246,7 +2246,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
             <span className="h-2.5 w-2.5 rounded-full bg-[#ffbd2e]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#27c93f]" />
             <span className="ml-2 truncate text-[11px] tracking-tight text-[var(--term-dim)]">{BRAND.toLowerCase()}@ai: ~/assistant</span>
-            <span className="ml-auto text-[10px] uppercase tracking-[0.18em] text-[var(--term-dim)]">{loadState === 'ready' ? (backend === 'wasm' ? 'compat' : 'online') : loadState === 'loading' ? 'booting' : 'idle'}</span>
+            <span className="ml-auto text-[11px] uppercase tracking-[0.18em] text-[var(--term-dim)]">{loadState === 'ready' ? (backend === 'wasm' ? 'compat' : 'online') : loadState === 'loading' ? 'booting' : 'idle'}</span>
             {expanded && (
               <button type="button" onClick={(e) => { e.stopPropagation(); setExpanded(false); textareaRef.current?.blur(); }} aria-label="Close" className="ml-2 grid h-7 w-7 shrink-0 place-items-center rounded text-[var(--term-dim)] transition hover:bg-white/5 hover:text-[var(--term-fg)]">
                 <X className="h-4 w-4" />
@@ -2269,7 +2269,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                   <p className="mt-1 text-[12px] text-[var(--term-dim)]">or attach a file (📎) and say <em>“convert to wav”</em> or <em>“make this a png”</em> — I’ll run the right tool.</p>
                   {recent.length > 0 && (
                     <div className="mt-5">
-                      <div className="mb-1.5 flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">
+                      <div className="mb-1.5 flex items-center justify-center gap-2 text-[11px] uppercase tracking-[0.16em] text-[var(--term-dim)]">
                         <span>Recent</span>
                         <button type="button" onClick={() => { import('@/lib/ai/search-cache').then(({ clearSearchCache }) => clearSearchCache()).then(() => setRecent([])); }} className="text-[var(--term-dim)] underline-offset-2 hover:text-[var(--term-fg)] hover:underline">clear</button>
                       </div>
@@ -2356,7 +2356,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                       showSources on the message. No origin/attribution footer. */}
                   {m.kind === 'search' && m.showSources && m.sources && m.sources.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                      <span className="text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Sources</span>
+                      <span className="text-[11px] uppercase tracking-[0.16em] text-[var(--term-dim)]">Sources</span>
                       {m.sources.map((s) => (
                         <a key={s.url} href={s.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{s.site} <ArrowRight className="h-3 w-3 -rotate-45" /></a>
                       ))}
@@ -2366,7 +2366,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                     <div className="space-y-2.5">
                       {m.groups.map((g) => (
                         <div key={g.title}>
-                          <div className="mb-1 text-[10px] uppercase tracking-[0.16em] text-[var(--term-dim)]">{g.title}</div>
+                          <div className="mb-1 text-[11px] uppercase tracking-[0.16em] text-[var(--term-dim)]">{g.title}</div>
                           <div className="flex flex-wrap gap-1.5">
                             {g.actions.map((a) => (
                               <Link key={a.href} href={a.href} onClick={() => { if (m.stageFile) stageHandoff(m.stageFile); }} title={a.blurb} className="inline-flex items-center gap-1 border border-[var(--term-fg)]/25 bg-[var(--term-fg)]/[0.06] px-2.5 py-1 text-[12px] text-[var(--term-fg)] transition hover:bg-[var(--term-fg)]/[0.14]">{a.name}</Link>
@@ -2395,7 +2395,7 @@ export default function AiApp({ embedded = false }: { embedded?: boolean } = {})
                     <div className="flex overflow-hidden rounded border border-black/[0.08]">
                       {m.palette.map((hex) => (
                         <button key={hex} type="button" onClick={() => copyHex(hex)} title={hex} className="group relative h-16 flex-1" style={{ background: hex }}>
-                          <span className="absolute inset-x-0 bottom-0 bg-black/30 py-0.5 text-center font-mono text-[9px] text-white opacity-0 transition group-hover:opacity-100">{copied === hex ? 'copied' : hex}</span>
+                          <span className="absolute inset-x-0 bottom-0 bg-black/30 py-0.5 text-center font-mono text-[11px] text-white opacity-0 transition group-hover:opacity-100">{copied === hex ? 'copied' : hex}</span>
                         </button>
                       ))}
                     </div>

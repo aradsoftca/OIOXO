@@ -237,7 +237,7 @@ export function TextTool({
           colorVar={colorVar}
           headerExtra={
             loadedName ? (
-              <span className="truncate font-mono text-[10px] text-[var(--color-fg-subtle)]" title={loadedName}>
+              <span className="truncate font-mono text-[11px] text-[var(--color-fg-subtle)]" title={loadedName}>
                 {loadedName}
               </span>
             ) : undefined
@@ -295,7 +295,7 @@ export function TextTool({
         {controls.length > 0 && (
           <div className="tile-surface" data-neutral="true">
             <div className="tile-content gap-3 !justify-start">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 Options
               </div>
               {controls.map((c) => (
@@ -314,7 +314,7 @@ export function TextTool({
         {stats && (
           <div className="tile-surface" data-neutral="true">
             <div className="tile-content gap-3 !justify-start">
-              <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
                 Stats
               </div>
               {stats(input, output)}
@@ -357,7 +357,7 @@ function Panel({
     >
       <div className="tile-content gap-3 !justify-start">
         <div className="flex items-center justify-between gap-2">
-          <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
+          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">
             {label}
           </div>
           {headerExtra}

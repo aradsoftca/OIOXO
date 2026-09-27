@@ -34,8 +34,9 @@ png += chunk(b'IDAT', zlib.compress(b''.join(rows)))
 png += chunk(b'IEND', b'')
 open(os.path.join(d, 'test.png'), 'wb').write(png)
 f = wave.open(os.path.join(d, 'tone.wav'), 'wb')
-f.setnchannels(1); f.setsampwidth(2); f.setframerate(44100)
-f.writeframes(b''.join(struct.pack('<h', int(12000 * math.sin(2 * math.pi * 440 * i / 44100))) for i in range(44100 * 2)))
+# Stereo (440 Hz left, 660 Hz right): the vocal remover's fast method needs 2 channels.
+f.setnchannels(2); f.setsampwidth(2); f.setframerate(44100)
+f.writeframes(b''.join(struct.pack('<hh', int(12000 * math.sin(2 * math.pi * 440 * i / 44100)), int(12000 * math.sin(2 * math.pi * 660 * i / 44100))) for i in range(44100 * 2)))
 f.close()
 
 # Minimal valid PDFs (Helvetica text, correct xref offsets), no dependencies.

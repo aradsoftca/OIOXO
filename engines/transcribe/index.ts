@@ -186,7 +186,10 @@ export async function transcribe(blob: Blob, opts: TranscribeOptions = {}): Prom
   const pipe = await getPipeline(size, opts.onProgress);
   opts.onProgress?.({ phase: 'Transcribing', ratio: 0.4 });
 
-  const out = await pipe({ array: samples, sampling_rate: 16000 }, {
+  // Pass the Float32Array itself: transformers v3's Whisper calls .subarray()
+  // on the input ("_0x….subarray is not a function" with the {array} object);
+  // audioToWhisperInput already resampled to 16 kHz. v2 accepts both.
+  const out = await pipe(samples, {
     return_timestamps: opts.wordTimestamps ? 'word' : true,
     chunk_length_s: 30,
     stride_length_s: 5,

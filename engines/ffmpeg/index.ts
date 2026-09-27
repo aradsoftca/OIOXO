@@ -117,7 +117,8 @@ async function maybeWatermarkVideo(ff: FFmpeg, outName: string, mime: string): P
       '-filter_complex', 'overlay=W-w-24:H-h-24',
       '-c:a', 'copy', wmOut,
     ]));
-    if (r === 'stalled') throw new MtStall();
+    if (r.status === 'stalled') throw new MtStall();
+    if (r.status === 'failed') { try { await ff.deleteFile(wmOut); } catch { /* */ } return outName; }
     const d = await ff.readFile(wmOut);
     try { await ff.deleteFile('xwm.png'); } catch { /* ignore */ }
     if (d && (d as Uint8Array).length > 0) return wmOut;
@@ -140,24 +141,36 @@ let _isMT = false;
 let _forceST = false;
 const MT_STALL_MS = 30_000;
 
-/** exec() that gives up if the MT core goes silent (no progress/log events). */
-async function execGuarded(ff: FFmpeg, args: string[]): Promise<'ok' | 'stalled'> {
-  if (!_isMT) { await ff.exec(args); return 'ok'; }
+type ExecResult = { status: 'ok' | 'stalled' | 'failed'; tail: string };
+
+/** exec() that (a) reports a non-zero exit code or a crash instead of letting
+ *  the caller read a missing output file — ff.exec RESOLVES with the code, and
+ *  the later readFile error has an EMPTY message, so video-convert → WebM just
+ *  silently stopped — and (b) gives up if the MT core goes silent. */
+async function execGuarded(ff: FFmpeg, args: string[]): Promise<ExecResult> {
   let last = Date.now();
+  const lines: string[] = [];
   const bump = () => { last = Date.now(); };
+  const onLog = ({ message }: { message: string }) => { last = Date.now(); lines.push(message); if (lines.length > 20) lines.shift(); };
   ff.on('progress', bump);
-  ff.on('log', bump);
+  ff.on('log', onLog);
   let timer: ReturnType<typeof setInterval> | undefined;
+  const tail = () => lines.filter((l) => /error|invalid|failed|not |unable|abort/i.test(l)).slice(-2).join(' ') || lines.slice(-1).join('');
   try {
+    const run = ff.exec(args).then(
+      (code) => ({ status: code === 0 ? 'ok' : 'failed', tail: tail() }) as ExecResult,
+      (e) => ({ status: 'failed', tail: (e as Error)?.message || tail() }) as ExecResult,
+    );
+    if (!_isMT) return await run;
     return await Promise.race([
-      ff.exec(args).then(() => 'ok' as const),
-      new Promise<'stalled'>((resolve) => {
-        timer = setInterval(() => { if (Date.now() - last > MT_STALL_MS) resolve('stalled'); }, 2_000);
+      run,
+      new Promise<ExecResult>((resolve) => {
+        timer = setInterval(() => { if (Date.now() - last > MT_STALL_MS) resolve({ status: 'stalled', tail: '' }); }, 2_000);
       }),
     ]);
   } finally {
     if (timer) clearInterval(timer);
-    try { ff.off('progress', bump); ff.off('log', bump); } catch { /* */ }
+    try { ff.off('progress', bump); ff.off('log', onLog); } catch { /* */ }
   }
 }
 
@@ -286,12 +299,18 @@ async function runFfmpegInner(opts: RunOptions, retried = false): Promise<Blob> 
   let finalName = opts.outputName;
   try {
     await ff.writeFile(opts.inputName, await fetchFile(opts.input));
-    if ((await execGuarded(ff, withThreads(opts.args(opts.inputName, opts.outputName)))) === 'stalled') {
-      ff.off('progress', onProgress);
-      detachLog?.();
-      abandonMT(ff);
-      if (retried) throw new Error('Processing stalled. Please try again.');
-      return runFfmpegInner(opts, true);
+    const r = await execGuarded(ff, withThreads(opts.args(opts.inputName, opts.outputName)));
+    if (r.status !== 'ok') {
+      // A stall or a failure on the MT core: retry once on the single-thread core.
+      if (_isMT && !retried) {
+        ff.off('progress', onProgress);
+        detachLog?.();
+        abandonMT(ff);
+        return runFfmpegInner(opts, true);
+      }
+      throw new Error(r.status === 'stalled'
+        ? 'Processing stalled. Please try again.'
+        : `Conversion failed${r.tail ? `: ${r.tail}` : '.'}`);
     }
     try {
       finalName = await maybeWatermarkVideo(ff, opts.outputName, opts.mimeType);
@@ -308,6 +327,7 @@ async function runFfmpegInner(opts: RunOptions, retried = false): Promise<Blob> 
     const bytes = data instanceof Uint8Array
       ? data
       : new TextEncoder().encode(String(data));
+    if (!bytes.length) throw new Error('Conversion produced an empty file.');
     return new Blob([bufferOf(bytes)], { type: opts.mimeType });
   } finally {
     ff.off('progress', onProgress);

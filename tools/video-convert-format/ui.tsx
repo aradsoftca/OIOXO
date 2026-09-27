@@ -32,7 +32,8 @@ const QUALITIES = [
 
 function argsFor(target: Target, crf: number): string[] {
   if (target === 'webm') {
-    return ['-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-c:a', 'libopus'];
+    // realtime/cpu-used 8/row-mt: default VP9 settings are far too slow in wasm.
+    return ['-c:v', 'libvpx-vp9', '-crf', String(crf), '-b:v', '0', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-c:a', 'libopus'];
   }
   return ['-c:v', 'libx264', '-preset', 'fast', '-crf', String(crf), '-c:a', 'aac', '-movflags', '+faststart'];
 }
@@ -86,7 +87,7 @@ export default function Tool() {
       });
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '.' + target);
     } catch (e) {
-      setError((e as Error).message);
+      setError((e as Error)?.message || 'Conversion failed. Please try again.');
     } finally { setBusy(false); }
   };
 

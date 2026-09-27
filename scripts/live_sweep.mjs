@@ -28,7 +28,10 @@ const CHROME = process.env.CHROMIUM_PATH || '/root/.cache/ms-playwright/chromium
 const REPO = process.env.REPO || path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT_JSON = process.env.OUT_JSON || '/root/cadtest/sweep.json';
 const ONLY = process.env.ONLY ? new RegExp(process.env.ONLY) : null;
-const CONCURRENCY = Number(process.env.CONCURRENCY || 3);
+// 2, not 3: at 3 the sweep's own bursts tripped the per-IP /api/tool-key limit.
+const CONCURRENCY = Number(process.env.CONCURRENCY || 2);
+// Tools that need clicks ON the canvas before the action enables (no generic driver).
+const INTERACTIVE = new Set(['image-smart-cutout']);
 const UI_TIMEOUT = 15_000;
 const DL_TIMEOUT = 45_000;
 const DL_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xonvert-sweep-'));
@@ -158,6 +161,7 @@ async function runPage(browser, url) {
   const t0 = Date.now();
   const sid = (url.match(/^\/tools\/([^/?#]+)/) || [])[1];
   if (sid && DISABLED.has(sid)) { rec.status = 'SKIPPED'; rec.reasons.push('disabled studio (lib/studios/disabled-ids.json)'); return rec; }
+  if (sid && INTERACTIVE.has(sid)) { rec.status = 'SKIPPED'; rec.reasons.push('needs clicks on the canvas (no generic driver)'); return rec; }
   const ctx = SHARED_CTX || await newSweepContext(browser);
   const page = await ctx.newPage();
   page.on('pageerror', (e) => rec.pageErrors.push(String(e.message || e).slice(0, 300)));
@@ -200,7 +204,8 @@ async function runPage(browser, url) {
       const btns = page.locator('button:visible, a[download]:visible, a:visible:has-text("Download")');
       const n = await btns.count();
       let acted = false;
-      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*download/i }).first();
+      // Ringtone labels its downloads "MP3" / "M4R (iPhone)", not "Download".
+      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|mp3\s*$|m4r)/i }).first();
       if (await dlFirst.count() && !(await dlFirst.isDisabled().catch(() => true))) {
         clicked.add('Download'); await dlFirst.click({ timeout: 3000 }).catch(() => {}); acted = true;
       }

@@ -51,6 +51,7 @@ done
 TP=$(curl -s $B/tools/pdf-compress)
 check "tool page: no AI-hardware FAQ"  "0" "$(echo "$TP" | grep -c 'What hardware does the AI need')"
 check "tool page: no fake undo/redo"   "0" "$(echo "$TP" | grep -c 'Undo and redo are local')"
+check "tool page: hand-written copy"   "1" "$( echo "$TP" | grep -q 'can no longer be selected' && echo 1 || echo 0)"
 check "tool page: honest free answer"  "1" "$( echo "$TP" | grep -q 'daily free allowance' && echo 1 || echo 0)"
 check "legacy /mp4-to-mp3"            "308 https://xonvert.com/tools/video-extract-audio" "$(st $B/mp4-to-mp3)"
 check "legacy /png-to-jpg"            "308 https://xonvert.com/convert/png-to-jpg" "$(st $B/png-to-jpg)"

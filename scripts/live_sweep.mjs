@@ -204,8 +204,10 @@ async function runPage(browser, url) {
       const btns = page.locator('button:visible, a[download]:visible, a:visible:has-text("Download")');
       const n = await btns.count();
       let acted = false;
-      // Ringtone labels its downloads "MP3" / "M4R (iPhone)", not "Download".
-      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|mp3\s*$|m4r)/i }).first();
+      // Ringtone labels a download "M4R (iPhone)". NOT a bare "MP3": every audio
+      // tool has an "MP3" FORMAT chip, and matching it made the sweep pick the
+      // format instead of pressing "Apply & Download" — 14 false audio FAILs.
+      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|m4r)/i }).first();
       if (await dlFirst.count() && !(await dlFirst.isDisabled().catch(() => true))) {
         clicked.add('Download'); await dlFirst.click({ timeout: 3000 }).catch(() => {}); acted = true;
       }

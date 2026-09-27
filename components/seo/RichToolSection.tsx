@@ -111,11 +111,11 @@ export function RichToolSection({ tool, page, related = [] }: Props) {
 
       <nav aria-label="Breadcrumb" className="border-t border-black/[0.06] pt-4 text-[12px] text-[var(--color-fg-muted)]">
         <ol className="flex flex-wrap items-center gap-1.5">
-          <li><Link href="/" className="hover:underline">Home</Link></li>
+          <li><Link href="/" className="inline-flex min-h-[44px] items-center px-1 hover:underline">Home</Link></li>
           <li>›</li>
-          <li><Link href="/tools" className="hover:underline">Tools</Link></li>
+          <li><Link href="/tools" className="inline-flex min-h-[44px] items-center px-1 hover:underline">Tools</Link></li>
           <li>›</li>
-          <li><Link prefetch={false} href={`/tools/c/${cat.id}`} className="hover:underline">{cat.name}</Link></li>
+          <li><Link prefetch={false} href={`/tools/c/${cat.id}`} className="inline-flex min-h-[44px] items-center px-1 hover:underline">{cat.name}</Link></li>
           <li>›</li>
           <li className="text-[var(--color-fg)]">{tool.name}</li>
         </ol>

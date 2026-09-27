@@ -109,6 +109,8 @@ const CASES = [
   // now falls back to single-thread after 30 s of silence — these must finish.
   { name: 'mp4-to-webm',     url: '/convert/mp4-to-webm',    file: 'clip.mp4',         check: isWebm, click: /^convert/i },
   { name: 'video-compress',  url: '/tools/video-compress',   file: 'clip.mp4',         check: isVideo, click: /^compress/i },
+  // AVI is not decodable by Chrome's <video>; VideoDrop used to reject it before ffmpeg ran.
+  { name: 'avi-to-mp4',      url: '/convert/avi-to-mp4',     file: 'clip.avi',         check: isVideo, click: /^convert/i },
   { name: 'image-resize',    url: '/tools/image-resize',     file: 'test.png',         check: isSmallImage },
   // Whisper on transformers v3 (input shape fixed 2026-09-27). A tone has no speech,
   // so the SRT is tiny — the check is that a well-formed cue comes out at all.

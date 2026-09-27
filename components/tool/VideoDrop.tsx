@@ -17,6 +17,10 @@ interface Props {
   onLoad: (item: VideoFileItem) => void;
   loaded: boolean;
   fileName?: string;
+  /** The tool processes with ffmpeg only (convert / compress / extract audio), so a
+   *  file the BROWSER can't decode (most AVI, some MKV/codecs) is still usable.
+   *  Without this, /convert/avi-to-mp4 rejected the very files it exists for. */
+  ffmpegOnly?: boolean;
 }
 
 function isVideo(f: File): boolean {
@@ -31,7 +35,7 @@ function firstVideo(files: FileList | File[] | null | undefined): File | null {
   return list.find(isVideo) ?? list[0] ?? null;
 }
 
-export function VideoDrop({ onLoad, loaded, fileName }: Props) {
+export function VideoDrop({ onLoad, loaded, fileName, ffmpegOnly }: Props) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [dragOver, setDragOver] = React.useState(false);
@@ -48,9 +52,16 @@ export function VideoDrop({ onLoad, loaded, fileName }: Props) {
       const { info, video, url } = await getVideoInfo(file);
       onLoad({ file, video, url, info });
     } catch (e) {
-      setError((e as Error).message);
+      if (!ffmpegOnly) { setError((e as Error).message); return; }
+      // No preview/metadata from the browser — ffmpeg reads the file itself.
+      onLoad({
+        file,
+        video: document.createElement('video'),
+        url: URL.createObjectURL(file),
+        info: { duration: 0, width: 0, height: 0, aspectRatio: '—', hasAudio: true, fileSize: file.size, mimeType: file.type || 'video/*', framerate: null },
+      });
     } finally { setBusy(false); }
-  }, [onLoad]);
+  }, [onLoad, ffmpegOnly]);
 
   // Pick up a file the AI staged before navigating here.
   useStagedInput((f) => { void handle(f); });

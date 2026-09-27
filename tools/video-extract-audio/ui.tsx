@@ -37,7 +37,7 @@ export default function Tool() {
 
   return (
     <div className="space-y-4">
-      {!item && <VideoDrop loaded={false} onLoad={setItem} />}
+      {!item && <VideoDrop loaded={false} onLoad={setItem} ffmpegOnly />}
 
       {item && (
         <>

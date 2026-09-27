@@ -23,7 +23,7 @@ export const metadata: Metadata = buildMeta({
 const FAQ: { q: string; a: React.ReactNode }[] = [
   {
     q: `Is ${BRAND} free?`,
-    a: <>Yes. Most tools are free to use. Some heavier categories (image, audio, video, PDF, convert) give you a free action per day, then a short wait for one more — or upgrade to <Link href="/pricing" className="text-[var(--brand-1)] hover:underline">Pro</Link> for unlimited use across everything.</>,
+    a: <>Yes. Most tools are free to use. Format conversion is unlimited. Image, PDF and audio tools allow 10 free jobs a day and video 3, plus one more after a short wait — or upgrade to <Link href="/pricing" className="text-[var(--brand-1)] hover:underline">Pro</Link> for unlimited use across everything.</>,
   },
   {
     q: 'Are my files uploaded to your servers?',
@@ -35,7 +35,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: 'How do the free limits work?',
-    a: <>For metered categories you get one free action per day. After that, you can wait ~30 seconds for another, or go Pro for unlimited use. Limits reset daily.</>,
+    a: <>Conversion is unlimited. Image, PDF and audio tools allow 10 free jobs a day and video tools 3. After that, a ~30-second wait unlocks one more, or go Pro for no limits. Limits reset daily.</>,
   },
   {
     q: 'What does Pro include?',
@@ -68,10 +68,10 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
 ];
 
 const FAQ_PLAIN: { q: string; a: string }[] = [
-  { q: `Is ${BRAND} free?`, a: `Yes. Most tools are free to use. Heavier categories (image, audio, video, PDF, convert) give you a free action per day, then a short wait — or upgrade to Pro for unlimited use across everything.` },
+  { q: `Is ${BRAND} free?`, a: `Yes. Most tools are free to use. Format conversion is unlimited; image, PDF and audio tools allow 10 free jobs a day and video 3 — or upgrade to Pro for unlimited use across everything.` },
   { q: 'Are my files uploaded to your servers?', a: `No. ${BRAND} processes your files entirely in your browser — they never leave your device. The only exception is the optional "Pro Quality" feature for heavy jobs, which you turn on explicitly.` },
   { q: 'Do I need an account?', a: `No account is needed for the everyday tools. You only need to sign up to subscribe to Pro or manage billing.` },
-  { q: 'How do the free limits work?', a: `For metered categories you get one free action per day. After that, you can wait ~30 seconds for another, or go Pro for unlimited use. Limits reset daily.` },
+  { q: 'How do the free limits work?', a: `Conversion is unlimited. Image, PDF and audio tools allow 10 free jobs a day and video tools 3. After that, a ~30-second wait unlocks one more, or go Pro for no limits. Limits reset daily.` },
   { q: 'What does Pro include?', a: `Unlimited use of every tool with no waits, across the whole platform.` },
   { q: 'How do I cancel my subscription?', a: `Open your account and use "Manage billing". You keep Pro until the end of the period you've paid for. Refunds follow our refund policy.` },
   { q: 'Which file formats are supported?', a: `Hundreds — across images, audio, video, PDF, documents, and more. Browse all tools or the converter to see what a given file can become.` },

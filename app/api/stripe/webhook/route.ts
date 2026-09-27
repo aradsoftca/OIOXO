@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import type Stripe from 'stripe';
-import { getStripe } from '@/lib/stripe';
+import { getStripe, STRIPE_PRODUCT } from '@/lib/stripe';
 import { prisma } from '@/lib/db';
 
 export const runtime = 'nodejs';
@@ -30,6 +30,8 @@ export async function POST(req: Request) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const cs = event.data.object as Stripe.Checkout.Session;
+      // Shared Stripe account: only act on this product's checkouts.
+      if (cs.metadata?.product !== STRIPE_PRODUCT) break;
       if (cs.customer && cs.subscription) {
         // Prefer the user id stamped into the session metadata at checkout
         // creation; fall back to client_reference_id; fall back to email.

@@ -29,3 +29,8 @@ export const OIOXO_PRO_PRICING = { monthly: 9.99, yearly: 99.99 } as const;
 
 /** The prices to display for the current brand. */
 export const DISPLAY_PRICING = IS_OIOXO ? OIOXO_PRO_PRICING : PRO_PRICING;
+
+/** Stamped on every checkout. xonvert + oioxo share one Stripe account, so each
+ *  webhook ignores sessions from the other product (else the email fallback
+ *  could grant Pro here for a purchase made there). */
+export const STRIPE_PRODUCT = (process.env.NEXT_PUBLIC_BRAND || 'Xonvert').toLowerCase() === 'oioxo' ? 'oioxo' : 'xonvert';

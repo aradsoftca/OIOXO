@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { getStripe, priceIdForBilling } from '@/lib/stripe';
+import { getStripe, priceIdForBilling, STRIPE_PRODUCT } from '@/lib/stripe';
 import { prisma } from '@/lib/db';
 import { take, type Bucket } from '@/lib/rate-limit';
 
@@ -54,8 +54,8 @@ export async function POST(req: Request) {
     // (previously the webhook keyed off `cs.customer_email` and would lose
     // the user on email change).
     client_reference_id: user.id,
-    metadata: { userId: user.id },
-    subscription_data: { metadata: { userId: user.id } },
+    metadata: { userId: user.id, product: STRIPE_PRODUCT },
+    subscription_data: { metadata: { userId: user.id, product: STRIPE_PRODUCT } },
   });
 
   return NextResponse.json({ url: checkout.url });

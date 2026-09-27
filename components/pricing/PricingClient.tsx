@@ -16,11 +16,13 @@ const FREE_FEATURES = IS_OIOXO
       'No account required to start',
     ]
   : [
-      'All 400+ tools, unlocked',
-      'Everything runs on your device — files never leave',
-      'One free action per category each day',
-      'A short wait unlocks a second action',
-      'No account required',
+      // Must match lib/usage/config.ts GATED_LIMITS — the old list ("one free
+      // action per category") undersold the free tier by 10x.
+      'Every tool — no account needed',
+      'Files are processed on your device, never uploaded',
+      'Unlimited format conversion',
+      '10 image, PDF and audio jobs a day, 3 videos',
+      'A small brand mark on some exports',
     ];
 
 const PRO_FEATURES = IS_OIOXO
@@ -33,12 +35,12 @@ const PRO_FEATURES = IS_OIOXO
       'One account unlocks coding, AI, and every tool',
     ]
   : [
-      'Unlimited use of every tool — no daily caps',
-      'No waits, ever',
-      'Batch processing across files',
-      'Cloud history & saved presets, synced',
+      // Only what ships (checked 2026-09-27): no "cloud presets" — that lived in the hidden studios.
+      'No daily limits on any tool',
+      'No watermark or brand mark on any export',
+      'Bigger batches — merge up to 100 PDFs',
+      'Higher quality — 320 kbps audio, no video length limit',
       'Priority support',
-      'One account unlocks the whole platform',
     ];
 
 export function PricingClient({

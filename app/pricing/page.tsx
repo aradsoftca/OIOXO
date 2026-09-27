@@ -36,7 +36,7 @@ function buildProductJsonLd() {
     name: `${BRAND} Pro`,
     description: IS_OIOXO
       ? `Unlimited access to the on-device AI: bigger models, coding agent, web search, sync.`
-      : `Unlimited access to ${BRAND}'s 400+ browser tools with no daily caps, no watermark.`,
+      : `Unlimited access to every ${BRAND} browser tool — no daily caps, no watermark.`,
     brand: { '@type': 'Brand', name: BRAND },
     offers: [
       {

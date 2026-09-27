@@ -53,6 +53,8 @@ check "tool page: no AI-hardware FAQ"  "0" "$(echo "$TP" | grep -c 'What hardwar
 check "tool page: no fake undo/redo"   "0" "$(echo "$TP" | grep -c 'Undo and redo are local')"
 check "tool page: hand-written copy"   "1" "$( echo "$TP" | grep -q 'can no longer be selected' && echo 1 || echo 0)"
 check "tool page: honest free answer"  "1" "$( echo "$TP" | grep -q 'daily free allowance' && echo 1 || echo 0)"
+check "format page /formats/dwg"      "200 " "$(st $B/formats/dwg)"
+check "no bulk format pages"          "404 " "$(st $B/formats/mobi)"
 check "legacy /mp4-to-mp3"            "308 https://xonvert.com/convert/mp4-to-mp3" "$(st $B/mp4-to-mp3)"
 check "png-to-jpg has real copy"       "1" "$( curl -s $B/convert/png-to-jpg | grep -q 'cannot store transparency' && echo 1 || echo 0)"
 check "legacy /png-to-jpg"            "308 https://xonvert.com/convert/png-to-jpg" "$(st $B/png-to-jpg)"

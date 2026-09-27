@@ -22,7 +22,7 @@ export const metadata: Metadata = buildMeta({
 const PRICING_FAQS = [
   { q: 'Is there a free tier?', a: `Yes — every core tool is free to use. Pro removes the small export watermark, lifts daily quotas on heavier operations, and unlocks higher-quality specialist features.` },
   { q: 'Can I cancel anytime?', a: 'Yes. Cancellation takes effect at the end of your current billing period; you keep Pro until then with no further charges.' },
-  { q: 'Do you offer refunds?', a: 'Yes — see the refund page for the policy. In short: contact support and we will make it right.' },
+  { q: 'Do you offer refunds?', a: 'No. Pro is non-refundable, so please try the free tier first. You can cancel anytime and keep Pro until the end of the period you paid for — see the cancellation policy.' },
   { q: 'Do you accept crypto?', a: 'Yes. Both credit card (via Stripe) and crypto payment options are available at checkout.' },
   { q: 'Is the price the same in every country?', a: 'The displayed prices are in USD. Stripe converts at checkout to your local currency.' },
 ];

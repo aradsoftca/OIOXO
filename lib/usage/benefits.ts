@@ -12,7 +12,8 @@ export const PRO_BENEFITS: Partial<Record<Category, string[]>> & { default: stri
   audio:    ['Unlimited audio exports', 'No 30-second waits', 'Batch processing', 'Longer files, all formats', 'No brand tag in the filename'],
   video:    ['Unlimited video exports', 'No 30-second waits', 'No “powered by” overlay on your video', 'Bigger files, priority'],
   pdf:      ['Unlimited PDF operations', 'No 30-second waits', 'No “Made with” footer on pages', 'Bigger documents'],
-  convert:  ['Unlimited conversions', 'No 30-second waits', 'Bigger files, every format', 'No watermark'],
+  // Conversion is already unlimited on free — Pro sells what free lacks.
+  convert:  ['Bigger files — up to what your device can handle', 'Batch many files at once', 'No watermark on your files', 'Higher quality output'],
   font:     ['Unlimited font exports', 'No 30-second waits', 'No watermark'],
   subtitle: ['Unlimited subtitle exports', 'No 30-second waits', 'No watermark'],
   default:  ['Unlimited use — no daily caps', 'No 30-second waits', 'No watermark on your files', 'Batch processing & priority'],

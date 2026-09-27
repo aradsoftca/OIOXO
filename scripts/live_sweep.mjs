@@ -48,7 +48,7 @@ const SAMPLE_TYPES = [
 
 const ACTION_RE = /^(convert|compress|apply|extract|merge|export|process|download|save|generate|render|resize|crop|rotate|split|encode|run|start|create|make|optimi[sz]e|remove|flip|trim|cut|join|combine|enhance|upscale|blur|sharpen|protect|unlock|sign|watermark|reverse|normalize|mix|denoise)/i;
 // Never press anything that starts an account, a purchase or a share.
-const NOT_ACTION_RE = /change file|replace|add more|clear|reset|remove file|pin|search|upgrade|sign in|sign up|log in|register|subscribe|buy|checkout|pay|pro|share|invite|cancel|back/i;
+const NOT_ACTION_RE = /change file|replace|add more|clear|reset|remove file|pin|search|upgrade|sign in|sign up|log in|register|subscribe|buy|checkout|pay|pro\b|share|invite|cancel|back/i;
 const HW_RE = /\b(camera|webcam|microphone|record (your|from)|mic\b|screen record)/i;
 
 // Studios intentionally disabled on this brand (they 307 to /tools); stale CDN sitemaps still list them.

@@ -2,7 +2,7 @@
 # Build (and optionally deploy) newxonvert on arad's WSL — the same steps as
 # .github/workflows/deploy.yml, on the 3070 box instead of a GitHub runner.
 #
-#   bash scripts/arad_build_deploy.sh [branch]            # typecheck + build + package
+#   bash scripts/arad_build_deploy.sh [branch]            # build (type-checked by next) + package
 #   DEPLOY=1 bash scripts/arad_build_deploy.sh [branch]   # ...then ship to Iceland
 #
 # Checkout: /root/newxonvert (WSL ext4, origin = GitHub). Builds exactly the
@@ -29,8 +29,8 @@ if ! cmp -s package-lock.json .built-lock 2>/dev/null; then
   cp package-lock.json .built-lock
 fi
 
-echo "== typecheck"
-npx tsc --noEmit -p tsconfig.json
+# No separate tsc: `next build` already type-checks ("Checking validity of
+# types") and fails the build on errors — running both cost ~1-2 min per deploy.
 
 service postgresql start >/dev/null
 KEY=$(openssl rand -base64 32)
@@ -55,7 +55,9 @@ DATABASE_URL='postgresql://newxonvert:nx_pw_change_me@127.0.0.1:5432/newxonvert?
 npx prisma generate
 
 echo "== build"
-rm -rf .next
+# Keep .next/cache: webpack reuses it, so only changed modules recompile.
+# (rm -rf .next threw it away every deploy.) Clear the build OUTPUT only.
+mkdir -p .next && find .next -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf {} +
 OBFUSCATE=1 NEXT_BASE_PATH='' TOOL_WASM_KEY="$KEY" \
   DATABASE_URL='postgresql://newxonvert:nx_pw_change_me@127.0.0.1:5432/newxonvert?schema=public' \
   npm run build
@@ -74,6 +76,8 @@ tar -czf "$ART" --exclude='*.gguf' --exclude='*.onnx' --exclude='*.bin' \
   .next public prisma .tool_wasm_key
 rm -f .tool_wasm_key public/build-commit.txt
 ls -la "$ART"
+# Keep the last 3 artifacts (139 MB each) so /root doesn't fill up.
+ls -t /root/nx-build-*.tgz 2>/dev/null | tail -n +4 | xargs -r rm -f
 
 echo "== smoke"
 bash scripts/arad_smoke.sh

@@ -74,6 +74,9 @@ tar -czf "$ART" --exclude='*.gguf' --exclude='*.onnx' --exclude='*.bin' \
 rm -f .tool_wasm_key public/build-commit.txt
 ls -la "$ART"
 
+echo "== smoke"
+bash scripts/arad_smoke.sh
+
 if [ "${DEPLOY:-0}" = "1" ]; then
   echo "== deploy $COMMIT"
   TOOL_WASM_KEY="$KEY" BRAIN_WASM_KEY="$BRAIN_KEY" ICELAND_KEY=/root/.ssh/id_oioxo_deploy \

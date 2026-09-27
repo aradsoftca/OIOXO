@@ -58,10 +58,13 @@ export function loadVideoElement(file: File): Promise<{ video: HTMLVideoElement;
 
 export async function getVideoInfo(file: File): Promise<{ info: VideoInfo; video: HTMLVideoElement; url: string }> {
   const { video, url } = await loadVideoElement(file);
-  const hasAudio = (video as unknown as { mozHasAudio?: boolean; webkitAudioDecodedByteCount?: number; audioTracks?: { length: number } }).audioTracks?.length
-    ? true
-    : (video as unknown as { mozHasAudio?: boolean }).mozHasAudio
-    ?? ((video as unknown as { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0) > 0;
+  // Only trust an API that can actually answer at loadedmetadata. Chrome has no
+  // audioTracks (flagged off) and webkitAudioDecodedByteCount is 0 before any
+  // playback, so the old check called EVERY video silent in Chrome and disabled
+  // audio tools for all Chrome users. Unknown → assume audio; ffmpeg reports
+  // a missing stream if there really is none.
+  const v = video as unknown as { mozHasAudio?: boolean; audioTracks?: { length: number } };
+  const hasAudio = v.audioTracks ? v.audioTracks.length > 0 : v.mozHasAudio ?? true;
   const info: VideoInfo = {
     duration: video.duration,
     width: video.videoWidth,

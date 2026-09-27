@@ -2,7 +2,8 @@
 import * as React from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
-import { recordRange, downloadBlob, fmtDuration } from '@/engines/video';
+import { downloadBlob, fmtDuration } from '@/engines/video';
+import { runFfmpeg } from '@/engines/ffmpeg';
 
 export default function Tool() {
   const [item, setItem] = React.useState<VideoFileItem | null>(null);
@@ -16,15 +17,21 @@ export default function Tool() {
     if (!item) return;
     setBusy(true); setError(''); setProgress(0);
     try {
-      const blob = await recordRange(item.video, 0, item.info.duration, {
-        withVideo: false,
-        withAudio: true,
-        mimeType: 'audio/webm;codecs=opus',
-        onProgress: (t) => setProgress(Math.round((t / item.info.duration) * 100)),
+      // ffmpeg decodes the file directly: real MP3 (what /mp4-to-mp3 visitors
+      // want), and seconds instead of the old real-time playback recording.
+      const ext = (item.file.name.match(/\.([^.]+)$/)?.[1] || 'mp4').toLowerCase();
+      const blob = await runFfmpeg({
+        input: item.file, inputName: `in.${ext}`, outputName: 'out.mp3',
+        args: (i, o) => ['-i', i, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', o],
+        mimeType: 'audio/mpeg',
+        onProgress: (r) => setProgress(Math.round(r * 100)),
       });
-      downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '-audio.webm');
+      if (!blob.size) throw new Error('This video has no audio track to extract.');
+      downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '-audio.mp3');
     } catch (e) {
-      setError((e as Error).message);
+      const msg = (e as Error).message || '';
+      setError(/does not contain any stream|Output file #0 does not contain|no audio/i.test(msg)
+        ? 'This video has no audio track to extract.' : msg);
     } finally { setBusy(false); }
   };
 
@@ -44,13 +51,10 @@ export default function Tool() {
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-6">
               <div className="text-[12px] text-[var(--color-fg-muted)]">
-                Pulls the audio track into an Opus-encoded WebM container. To get MP3, run the output through Audio → Convert Format.
+                Extracts the audio track as a 192 kbps MP3.
                 {!item.info.hasAudio && (
                   <div className="mt-2 text-amber-600">This file has no audio track to extract.</div>
                 )}
-              </div>
-              <div className="mt-4 text-[11px] text-[var(--color-fg-muted)]">
-                Processing runs at playback speed — a 60-second clip takes ~60 seconds.
               </div>
             </div>
             <aside>

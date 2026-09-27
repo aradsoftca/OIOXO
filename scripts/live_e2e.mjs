@@ -98,7 +98,7 @@ const CASES = [
   { name: 'audio-volume',    url: '/tools/audio-volume',     file: 'tone.wav',         check: isWav,  click: /^(apply|convert|export|process)/i },
   { name: 'pdf-compress',    url: '/tools/pdf-compress',     file: 'two-page.pdf',     check: isPdf(2), click: /^compress$/i },
   { name: 'pdf-merge',       url: '/tools/pdf-merge',        file: ['two-page.pdf', 'one-page.pdf'], check: isPdf(3), click: /^merge/i },
-  { name: 'video-extract-audio', url: '/tools/video-extract-audio', file: 'clip.mp4',  check: isAudio, click: /^extract/i },
+  { name: 'video-extract-audio', url: '/tools/video-extract-audio', file: 'clip.mp4',  check: isMp3, click: /^extract/i },
   // image-resize renders the result on upload; the runner then presses its Download button.
   // Goes through the ffmpeg worker — broken in prod by the obfuscator's domainLock until 2026-09-27.
   { name: 'wav-to-mp3',      url: '/convert/wav-to-mp3',     file: 'tone.wav',         check: isMp3,  click: /^convert/i },

@@ -2,8 +2,8 @@
 # Build (and optionally deploy) newxonvert on arad's WSL — the same steps as
 # .github/workflows/deploy.yml, on the 3070 box instead of a GitHub runner.
 #
-#   bash scripts/arad_build_deploy.sh <branch>            # typecheck + build + package
-#   DEPLOY=1 bash scripts/arad_build_deploy.sh <branch>   # ...then ship to Iceland
+#   bash scripts/arad_build_deploy.sh [branch]            # typecheck + build + package
+#   DEPLOY=1 bash scripts/arad_build_deploy.sh [branch]   # ...then ship to Iceland
 #
 # Checkout: /root/newxonvert (WSL ext4, origin = GitHub). Builds exactly the
 # pushed commit — a dirty tree is refused, so what ships is what GitHub has.
@@ -11,7 +11,8 @@ set -euo pipefail
 # arad's WSL has no working IPv6 route; next/font's Google Fonts fetch times
 # out trying it first ("Failed to fetch `Geist`") unless IPv4 is preferred.
 export NODE_OPTIONS="${NODE_OPTIONS:-} --dns-result-order=ipv4first"
-BRANCH="${1:?usage: arad_build_deploy.sh <branch>}"
+# xonvert-main = what xonvert.com runs (the repo default branch belongs to oioxo).
+BRANCH="${1:-xonvert-main}"
 cd /root/newxonvert
 
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then

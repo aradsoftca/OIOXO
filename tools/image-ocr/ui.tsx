@@ -211,7 +211,8 @@ export default function ImageOcrTool() {
               <button
                 type="button"
                 onClick={() => download('txt')}
-                disabled={!result}
+                // No text read → nothing to download (it used to save an empty .txt).
+                disabled={!result || !result.text.trim()}
                 className={cn(
                   'flex items-center gap-1.5 border border-black/[0.08] px-2.5 py-1 text-[11px] font-medium transition',
                   result ? 'text-[var(--color-fg)] hover:bg-[var(--color-surface-2)]' : 'text-[var(--color-fg-subtle)]',
@@ -225,7 +226,11 @@ export default function ImageOcrTool() {
           <textarea
             readOnly
             value={result?.text ?? ''}
-            placeholder={file ? 'Reading…' : 'Drop an image to read the text inside.'}
+            placeholder={
+              result && !result.text.trim()
+                ? 'No text found in this image. Try a sharper, straighter photo, or pick the document’s language.'
+                : file ? 'Reading…' : 'Drop an image to read the text inside.'
+            }
             className="block h-64 w-full resize-y bg-transparent p-4 font-mono text-[13px] leading-relaxed text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:outline-none"
           />
         </div>

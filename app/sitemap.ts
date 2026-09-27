@@ -4,6 +4,7 @@ import { CONVERT_PAIRS } from '@/lib/convert/pairs';
 import { POSTS } from '@/lib/blog/posts';
 import { BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
 import { isStudioDisabled } from '@/lib/studios/disabled';
+import { CAD3D_FORMATS } from '@/lib/convert/cad3d';
 
 const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -98,6 +99,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'weekly',
       priority: IS_OIOXO ? 0.8 : 0.7,
     });
+  }
+
+  // Format encyclopedia entries (hand-written profiles only).
+  if (!IS_OIOXO) {
+    for (const fmt of Object.keys(CAD3D_FORMATS)) {
+      entries.push({ url: url(`/formats/${fmt}`), lastModified: now, changeFrequency: 'monthly', priority: 0.6 });
+    }
   }
 
   for (const post of POSTS) {

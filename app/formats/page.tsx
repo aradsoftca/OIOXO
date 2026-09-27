@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { BRAND } from '@/lib/brand';
 import { buildMeta } from '@/lib/seo/meta';
+import { CAD3D_FORMATS } from '@/lib/convert/cad3d';
 
 export const metadata: Metadata = buildMeta({
   path: '/formats',
@@ -22,9 +23,9 @@ const GROUPS: { cat: string; colorVar: string; note: string; formats: string[] }
   { cat: 'Audio', colorVar: '--color-cat-audio', note: 'Convert, trim, merge, normalize.', formats: ['MP3', 'WAV', 'OGG', 'FLAC', 'M4A', 'AAC', 'OPUS'] },
   { cat: 'Video', colorVar: '--color-cat-video', note: 'Transcode, trim, extract audio, to-GIF.', formats: ['MP4', 'WEBM', 'MOV', 'MKV', 'GIF'] },
   { cat: 'Documents', colorVar: '--color-cat-pdf', note: 'Merge, split, convert, view.', formats: ['PDF', 'DOCX', 'XLSX', 'PPTX', 'ODT', 'CSV', 'TXT', 'MD'] },
-  { cat: 'Ebooks', colorVar: '--color-cat-text', note: 'Convert between reader formats.', formats: ['EPUB', 'MOBI', 'AZW3', 'FB2'] },
-  { cat: 'Archives', colorVar: '--color-cat-convert', note: 'Create and extract.', formats: ['ZIP', 'TAR', '7Z', 'GZ', 'RAR'] },
-  { cat: '3D & CAD', colorVar: '--color-cat-gis', note: 'Convert and inspect models.', formats: ['STL', 'OBJ', 'GLTF', 'GLB', 'STEP', 'DXF'] },
+  { cat: 'Ebooks', colorVar: '--color-cat-text', note: 'Convert EPUB to PDF, HTML or text.', formats: ['EPUB'] },
+  { cat: 'Archives', colorVar: '--color-cat-convert', note: 'Extract ZIP, 7Z, RAR, TAR and GZ; create ZIP.', formats: ['ZIP', 'TAR', '7Z', 'GZ', 'RAR'] },
+  { cat: '3D & CAD', colorVar: '--color-cat-gis', note: 'Open AutoCAD drawings, mesh CAD solids, convert models to GLB/glTF.', formats: ['DWG', 'DXF', 'STEP', 'IGES', 'BREP', 'STL', 'OBJ', 'FBX', 'DAE', 'PLY', '3DS', '3MF', 'GLTF', 'GLB'] },
   { cat: 'Fonts', colorVar: '--color-cat-font', note: 'Convert, subset, inspect.', formats: ['TTF', 'OTF', 'WOFF', 'WOFF2'] },
   { cat: 'Subtitles', colorVar: '--color-cat-subtitle', note: 'Convert, sync, clean.', formats: ['SRT', 'VTT', 'ASS', 'SUB'] },
 ];
@@ -49,8 +50,10 @@ export default function FormatsPage() {
             </div>
             <p className="mt-1 text-[12px] text-[var(--color-fg-muted)]">{g.note}</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {g.formats.map((f) => (
-                <span key={f} className="border border-black/[0.08] bg-[var(--color-canvas)] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--color-fg)]">{f}</span>
+              {g.formats.map((f) => CAD3D_FORMATS[f.toLowerCase()] ? (
+                <Link key={f} href={`/formats/${f.toLowerCase()}`} className="inline-flex min-h-[32px] items-center border border-black/[0.08] bg-[var(--color-canvas)] px-2 font-mono text-[12px] font-semibold text-[var(--brand-1)] hover:underline">{f}</Link>
+              ) : (
+                <span key={f} className="inline-flex min-h-[32px] items-center border border-black/[0.08] bg-[var(--color-canvas)] px-2 font-mono text-[12px] font-semibold text-[var(--color-fg)]">{f}</span>
               ))}
             </div>
           </div>

@@ -189,21 +189,21 @@ export function AppShell({ children }: AppShellProps) {
         <footer className={`border-t border-[var(--color-stroke)] py-8 ${studioTakeover ? 'hidden' : ''}`}>
           <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-3 px-4 text-[12px] text-[var(--color-fg-subtle)] sm:px-6 md:flex-row">
             <div>{IS_OIOXO ? 'oioxo — all-in-one AI, on your device.' : 'Xonvert 2026 — every file. every tool.'}</div>
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
-              <Link href="/blog" className="transition hover:text-[var(--color-fg)]">Blog</Link>
-              <Link href="/formats" className="transition hover:text-[var(--color-fg)]">Formats</Link>
-              <Link href="/help" className="transition hover:text-[var(--color-fg)]">Help</Link>
-              <Link href="/support" className="transition hover:text-[var(--color-fg)]">Support</Link>
-              <Link href="/viewer" className="transition hover:text-[var(--color-fg)]">Viewer</Link>
-              <Link href="/send" className="transition hover:text-[var(--color-fg)]">Send</Link>
-              <Link href="/privacy" className="transition hover:text-[var(--color-fg)]">Privacy</Link>
-              <Link href="/terms" className="transition hover:text-[var(--color-fg)]">Terms</Link>
-              <Link href="/cookies" className="transition hover:text-[var(--color-fg)]">Cookies</Link>
-              <Link href="/refund" className="transition hover:text-[var(--color-fg)]">Refund</Link>
-              <Link href="/security" className="transition hover:text-[var(--color-fg)]">Security</Link>
-              <Link href="/acceptable-use" className="transition hover:text-[var(--color-fg)]">Use policy</Link>
-              <Link href="/dmca" className="transition hover:text-[var(--color-fg)]">DMCA</Link>
-              <Link href="/subprocessors" className="transition hover:text-[var(--color-fg)]">Subprocessors</Link>
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0">
+              <Link href="/blog" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Blog</Link>
+              <Link href="/formats" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Formats</Link>
+              <Link href="/help" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Help</Link>
+              <Link href="/support" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Support</Link>
+              <Link href="/viewer" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Viewer</Link>
+              <Link href="/send" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Send</Link>
+              <Link href="/privacy" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Privacy</Link>
+              <Link href="/terms" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Terms</Link>
+              <Link href="/cookies" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Cookies</Link>
+              <Link href="/refund" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Refund</Link>
+              <Link href="/security" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Security</Link>
+              <Link href="/acceptable-use" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Use policy</Link>
+              <Link href="/dmca" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">DMCA</Link>
+              <Link href="/subprocessors" className="inline-flex min-h-[44px] items-center px-1 transition hover:text-[var(--color-fg)]">Subprocessors</Link>
               <span className="font-mono">v0.3</span>
             </div>
           </div>
@@ -234,7 +234,7 @@ function MobileMenu({ open, onClose }: { open: boolean; onClose: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Menu"
-        className={`absolute right-0 top-0 flex h-full w-[84%] max-w-sm flex-col bg-[var(--color-canvas)] shadow-2xl transition-transform duration-250 ease-out ${open ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute right-0 top-0 flex h-full w-[84%] max-w-sm flex-col bg-[var(--color-canvas)] transition-transform duration-250 ease-out ${open ? 'translate-x-0 shadow-2xl' : 'translate-x-full invisible'}`}
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--color-stroke)] px-4">
           <span className="text-[13px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Menu</span>

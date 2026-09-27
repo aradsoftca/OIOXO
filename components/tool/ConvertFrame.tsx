@@ -49,7 +49,7 @@ export function ConvertFrame({ pair, children }: Props) {
               <TileIcon name="replace" size={24} strokeWidth={1.75} />
             </div>
             <div>
-              <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.22em] text-white/80">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-white/80">
                 <span className="section-dot" style={{ ['--dot-color' as string]: 'rgba(255,255,255,0.85)' }} />
                 Convert
               </div>

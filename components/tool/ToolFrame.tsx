@@ -78,11 +78,11 @@ export function ToolFrame({ tool, children }: ToolFrameProps) {
               <TileIcon name={tool.icon} size={24} strokeWidth={1.75} />
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2 text-[9px] font-bold uppercase tracking-[0.22em] text-white/80">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.22em] text-white/80">
                 <span className="section-dot" style={{ ['--dot-color' as string]: 'rgba(255,255,255,0.85)' }} />
                 {cat.name}
                 {tool.compute === 'pro' && (
-                  <span className="bg-white/20 px-1.5 py-0.5 text-[9px]">Pro option</span>
+                  <span className="bg-white/20 px-1.5 py-0.5 text-[11px]">Pro option</span>
                 )}
               </div>
               <h1 className="mt-0.5 truncate text-[19px] font-semibold tracking-tight text-white sm:text-[26px]">

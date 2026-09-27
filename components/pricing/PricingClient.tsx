@@ -134,7 +134,8 @@ export function PricingClient({
             ))}
           </ul>
           <div className="mt-7 w-full border border-black/[0.1] py-3 text-center text-[12px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)]">
-            {isPro ? 'Included' : 'Your current plan'}
+            {/* Signed-out visitors have no plan yet — "Your current plan" read as if they had an account. */}
+            {isPro ? 'Included' : authed ? 'Your current plan' : 'No account needed'}
           </div>
         </div>
 

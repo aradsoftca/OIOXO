@@ -49,10 +49,10 @@ export function PolicyHint({ toolKey, fallbackKey, compact }: { toolKey: string;
     }
   }
   return (
-    <div className={`flex items-center gap-2 border border-black/[0.06] bg-black/[0.02] px-3 ${compact ? 'py-1' : 'py-1.5'} text-[11px] text-[var(--color-fg-muted)]`}>
+    <div className={`flex items-center gap-2 border border-black/[0.06] bg-black/[0.02] px-3 ${compact ? 'py-1' : 'py-1.5'} text-[12px] text-[var(--color-fg-muted)]`}>
       <span className="text-[var(--color-fg-subtle)]">Free plan limits:</span>
       <span>{items.join(' · ')}</span>
-      <Link href="/pricing" className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white" style={{ background: 'var(--brand-gradient)' }}>
+      <Link href="/pricing" className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-bold uppercase tracking-wider text-white" style={{ background: 'var(--brand-gradient)' }}>
         <Crown className="h-2.5 w-2.5" /> Upgrade
       </Link>
     </div>

@@ -155,7 +155,10 @@ async function execGuarded(ff: FFmpeg, args: string[]): Promise<ExecResult> {
   ff.on('progress', bump);
   ff.on('log', onLog);
   let timer: ReturnType<typeof setInterval> | undefined;
-  const tail = () => lines.filter((l) => /error|invalid|failed|not |unable|abort/i.test(l)).slice(-2).join(' ') || lines.slice(-1).join('');
+  // Prefer ffmpeg's own error lines; never report a progress line ("frame= 1 fps=…")
+  // as the reason, which is what the first WebM failure showed users.
+  const tail = () => lines.filter((l) => /error|invalid|failed|not |unable|abort|unsupported/i.test(l)).slice(-2).join(' ')
+    || lines.filter((l) => !/^\s*(frame|size)=/.test(l)).slice(-1).join('');
   try {
     const run = ff.exec(args).then(
       (code) => ({ status: code === 0 ? 'ok' : 'failed', tail: tail() }) as ExecResult,

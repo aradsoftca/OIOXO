@@ -76,15 +76,29 @@ export default function Tool() {
       const inputName = 'in.' + (item.file.name.match(/\.([a-z0-9]+)$/i)?.[1] || 'mp4');
       const outputName = 'out.' + target;
       const codecArgs = argsFor(target, quality.crf);
-      const blob = await runFfmpeg({
+      const mimeType = TARGETS.find((t) => t.id === target)!.mime;
+      const run = (args: string[], perm: typeof permission) => runFfmpeg({
         input: item.file,
         inputName,
         outputName,
-        args: (i, o) => ['-i', i, ...codecArgs, o],
-        mimeType: TARGETS.find((t) => t.id === target)!.mime,
+        args: (i, o) => ['-i', i, ...args, o],
+        mimeType,
         onProgress: (p) => setProgress(Math.round(p * 100)),
-        permission, toolKey: POLICY_KEY, inputHash,
+        permission: perm, toolKey: POLICY_KEY, inputHash,
       });
+      let blob: Blob;
+      try {
+        blob = await run(codecArgs, permission);
+      } catch (e) {
+        // The wasm VP9 encoder dies after the first frame (live, 2026-09-27, on
+        // both MT and ST cores). Fall back to VP8 + Vorbis, which the same core
+        // encodes reliably. Fresh ticket: the first one is bound to that run.
+        if (target !== 'webm' || /permission/i.test((e as Error)?.message || '')) throw e;
+        const again = await requestPermission(POLICY_KEY, inputHash, specs);
+        if (again.denial) throw e;
+        setProgress(0);
+        blob = await run(['-c:v', 'libvpx', '-b:v', '1M', '-deadline', 'realtime', '-cpu-used', '8', '-c:a', 'libvorbis'], again.permission);
+      }
       downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '.' + target);
     } catch (e) {
       setError((e as Error)?.message || 'Conversion failed. Please try again.');

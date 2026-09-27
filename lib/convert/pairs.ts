@@ -89,13 +89,12 @@ function buildVideoPairs(): ConvertPair[] {
       popular: from === 'mp4',
     });
   }
-  // Video → Audio (extract). Until ffmpeg.wasm lands, output is WebM/Opus — note it.
+  // Video → Audio (extract): video-extract-audio writes a 192 kbps MP3 via ffmpeg.
   for (const from of VIDEO_INPUTS) {
     out.push({
       from, to: 'audio', toolId: 'video-extract-audio', category: 'video',
       title: `${upper(from)} → Audio`,
       blurb: `Pull just the audio track from a ${upper(from)} file.`,
-      note: 'Audio is exported as WebM/Opus. To get MP3, follow up with Audio → Convert Format.',
       popular: from === 'mp4',
     });
   }
@@ -196,9 +195,18 @@ const BASE_PAIRS: ConvertPair[] = [
   ...buildTextExtractPairs(),
 ];
 
+// The most-searched video→audio pages ("mp4 to mp3" led the old site's traffic).
+const MP3_PAIRS: ConvertPair[] = (['mp4', 'mov'] as const).map((from) => ({
+  from, to: 'mp3', toolId: 'video-extract-audio', category: 'video' as const,
+  title: `${from.toUpperCase()} → MP3`,
+  blurb: `Extract the audio of a ${from.toUpperCase()} video as an MP3, in your browser.`,
+  popular: true,
+}));
+
 // CAD & 3D flagship pairs (lib/convert/cad3d.ts) — hand-written, engine-verified.
 export const CONVERT_PAIRS: ConvertPair[] = [
   ...BASE_PAIRS,
+  ...MP3_PAIRS,
   ...CAD3D_PAIRS.filter((c) => !BASE_PAIRS.some((b) => b.from === c.from && b.to === c.to)),
 ];
 

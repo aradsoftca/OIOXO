@@ -386,7 +386,10 @@ function IconBtn({
       type="button"
       onClick={onClick}
       title={title}
-      className="flex h-7 w-7 items-center justify-center text-[var(--color-fg-subtle)] transition hover:bg-black/[0.06] hover:text-[var(--color-fg)]"
+      // Icon-only: give it an accessible name (screen readers, voice control) and
+      // a >=36px target on touch screens (was 28px).
+      aria-label={title}
+      className="flex h-9 w-9 items-center justify-center text-[var(--color-fg-subtle)] transition hover:bg-black/[0.06] hover:text-[var(--color-fg)]"
     >
       {children}
     </button>

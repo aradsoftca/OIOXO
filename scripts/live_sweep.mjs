@@ -257,7 +257,10 @@ async function runPage(browser, url) {
       const texts = [];
       for (let i = 0; i < n; i++) texts.push((await btns.nth(i).innerText().catch(() => '')).replace(/\s+/g, ' ').trim());
       const pendingAction = texts.some((t) => isAction(t) && !/^download/i.test(t) && !clicked.has(t));
-      const dlFirst = page.locator('button:visible, a:visible', { hasText: /^\s*(download|m4r|\.(srt|vtt|txt)\b)/i }).first();
+      // Text label first; else an icon-only button named by aria-label/title (TextTool's Download).
+      const dlText = page.locator('button:visible, a:visible', { hasText: /^\s*(download|m4r|\.(srt|vtt|txt)\b)/i }).first();
+      const dlIcon = page.locator('button:visible[aria-label^="Download" i], button:visible[title^="Download" i]').first();
+      const dlFirst = (await dlText.count()) ? dlText : dlIcon;
       if ((clicked.size > 0 || !pendingAction) && await dlFirst.count() && !(await dlFirst.isDisabled().catch(() => true))) {
         clicked.add('Download'); await dlFirst.click({ timeout: 3000 }).catch(() => {}); acted = true;
       }

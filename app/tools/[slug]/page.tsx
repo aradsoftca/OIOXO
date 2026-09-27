@@ -9,6 +9,7 @@ import { buildMeta } from '@/lib/seo/meta';
 import { buildRichPage } from '@/lib/seo/content';
 import { RichToolSection } from '@/components/seo/RichToolSection';
 import { PolicyHint } from '@/components/limits/PolicyHint';
+import { UsageMeter } from '@/components/usage/UsageMeter';
 import { ClientOnly } from '@/components/tool/ClientOnly';
 import { ChunkErrorBoundary } from '@/components/tool/ChunkErrorBoundary';
 import { FULLSCREEN_STUDIO_IDS } from '@/lib/studios/fullscreen';
@@ -614,12 +615,14 @@ export default async function ToolPage({ params }: Props) {
 
   return (
     <ToolFrame tool={tool}>
-      <PolicyHint toolKey={tool.id} fallbackKey={tool.category} />
       <ClientOnly>
         <ChunkErrorBoundary>
           <ToolUI />
         </ChunkErrorBoundary>
       </ClientOnly>
+      {/* Limits + upsell after the tool, not before it: the drop zone comes first. */}
+      <PolicyHint toolKey={tool.id} fallbackKey={tool.category} />
+      <UsageMeter category={tool.category} toolId={tool.id} />
       <RichToolSection tool={tool} page={page} related={related} />
       {jsonLd}
     </ToolFrame>

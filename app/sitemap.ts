@@ -5,6 +5,7 @@ import { POSTS } from '@/lib/blog/posts';
 import { BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
 import { isStudioDisabled } from '@/lib/studios/disabled';
 import { CAD3D_FORMATS } from '@/lib/convert/cad3d';
+import { FORMAT_PROFILES } from '@/lib/convert/format-profiles';
 
 const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -103,7 +104,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   // Format encyclopedia entries (hand-written profiles only).
   if (!IS_OIOXO) {
-    for (const fmt of Object.keys(CAD3D_FORMATS)) {
+    for (const fmt of [...Object.keys(FORMAT_PROFILES), ...Object.keys(CAD3D_FORMATS)]) {
       entries.push({ url: url(`/formats/${fmt}`), lastModified: now, changeFrequency: 'monthly', priority: 0.6 });
     }
   }

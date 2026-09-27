@@ -103,12 +103,13 @@ export default async function ConvertPairPage({ params }: Props) {
   return (
     <ConvertFrame pair={pair}>
       <div className="space-y-6">
-        {pair.toolId && <PolicyHint toolKey={pair.toolId} fallbackKey="convert" />}
         {ToolUI ? <ConvertTargetProvider to={pair.to}><ToolUI /></ConvertTargetProvider> : (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-8 text-center text-[var(--color-fg-muted)]">
             This conversion is registered but the underlying tool isn&apos;t wired yet.
           </div>
         )}
+
+        {pair.toolId && <PolicyHint toolKey={pair.toolId} fallbackKey="convert" />}
 
         {tool && (
           <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4 text-[12px] text-[var(--color-fg-muted)]">

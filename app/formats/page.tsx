@@ -3,6 +3,9 @@ import Link from 'next/link';
 import { BRAND } from '@/lib/brand';
 import { buildMeta } from '@/lib/seo/meta';
 import { CAD3D_FORMATS } from '@/lib/convert/cad3d';
+import { FORMAT_PROFILES } from '@/lib/convert/format-profiles';
+
+const HAS_PAGE = (f: string) => !!(CAD3D_FORMATS[f] || FORMAT_PROFILES[f]);
 
 export const metadata: Metadata = buildMeta({
   path: '/formats',
@@ -50,7 +53,7 @@ export default function FormatsPage() {
             </div>
             <p className="mt-1 text-[12px] text-[var(--color-fg-muted)]">{g.note}</p>
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {g.formats.map((f) => CAD3D_FORMATS[f.toLowerCase()] ? (
+              {g.formats.map((f) => HAS_PAGE(f.toLowerCase()) ? (
                 <Link key={f} href={`/formats/${f.toLowerCase()}`} className="inline-flex min-h-[32px] items-center border border-black/[0.08] bg-[var(--color-canvas)] px-2 font-mono text-[12px] font-semibold text-[var(--brand-1)] hover:underline">{f}</Link>
               ) : (
                 <span key={f} className="inline-flex min-h-[32px] items-center border border-black/[0.08] bg-[var(--color-canvas)] px-2 font-mono text-[12px] font-semibold text-[var(--color-fg)]">{f}</span>

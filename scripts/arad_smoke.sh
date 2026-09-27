@@ -60,6 +60,7 @@ SM=$(curl -s $B/sitemap.xml)
 check "sitemap has no studios"        "0" "$(echo "$SM" | grep -cE '/(studios|tools/(image-studio|video-studio|pdf-studio|office-docs))<')"
 check "sitemap still has tools"       "yes" "$( [ $(echo "$SM" | grep -c '<loc>') -gt 300 ] && echo yes || echo no)"
 HOME_HTML=$(curl -s $B/)
+check "home HTML under 400 KB"         "yes" "$( [ $(echo "$HOME_HTML" | wc -c) -lt 400000 ] && echo yes || echo no)"
 check "home links no studio"          "0" "$(echo "$HOME_HTML" | grep -cE 'href="/(studios|tools/image-studio)"')"
 
 [ $FAIL = 0 ] && echo "SMOKE_PASS" || { echo "SMOKE_FAIL"; tail -20 /root/nx_smoke_server.log; exit 1; }

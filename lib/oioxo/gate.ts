@@ -30,7 +30,11 @@ function hostOf(value: string | null): string | null {
  *  lives in lib/rate-limit so all six rate-limited endpoints share the same
  *  OOM-safe implementation. */
 const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 60;
+// 240, not 60: one page load calls /api/entitlement + /api/tool-key per worker
+// asset, and many real users share one IP (mobile CGNAT, offices, schools). At
+// 60 a live sweep hit 429 on 15 pages ("unlock unavailable (429)"). Unlocks still
+// require a valid signed entitlement, so this only relaxes burst tolerance.
+const RATE_MAX = 240;
 const RATE_BUCKETS = new Map<string, Bucket>();
 
 function rateLimit(ip: string): boolean {

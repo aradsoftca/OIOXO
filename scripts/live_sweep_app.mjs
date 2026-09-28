@@ -400,7 +400,8 @@ async function runPage(browser, url) {
     return rec;
   } finally {
     rec.ms = Date.now() - t0;
-    // one WebView: nothing to close
+    // one WebView: close any native Save/Share sheet a skipped/failed page left open
+    if (!download) { const late = await appSaved(page); if (late) closeSheet(); }
   }
 }
 // A page that "works" but threw is still reported, as OK-with-errors -> LOAD-ERROR only when it has a pageerror.
@@ -450,10 +451,14 @@ if (qa) {
 }
 const results = [];
 let next = 0;
+let hung = false;
 async function worker() {
   while (next < urls.length) {
     const u = urls[next++];
-    const r = await runPage(browser, u);
+    // A crashed WebView renderer makes CDP calls hang: cap each page, and on a hang
+    // save what we have and exit 3 so the runner can restart the app and resume.
+    const r = await Promise.race([runPage(browser, u), new Promise((res) => setTimeout(() => res(null), 150_000))]);
+    if (!r) { console.log(`HUNG        ${u} - page did not finish in 150s (WebView renderer likely crashed)`); results.push({ url: u, status: 'HUNG', reasons: ['hung'], pageErrors: [], http: [], red: [] }); hung = true; break; }
     results.push(r);
     const why = r.reasons[0] ? ' - ' + r.reasons[0] : '';
     const out = r.output ? ` ${r.output.kind} ${r.output.bytes}B` : '';
@@ -461,6 +466,7 @@ async function worker() {
   }
 }
 await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+if (hung) console.error('stopping after a hung page: restart the app and resume with ONLY=<remaining>');
 let endSession = null;
 await browser.close().catch(() => {});
 

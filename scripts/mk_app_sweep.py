@@ -76,7 +76,16 @@ rep("""    const out = path.join(DL_DIR, url.replace(/\\W+/g, '_') + '-' + downl
     const b = download.buf;
     closeSheet();""")
 rep("""    if (SHARED_CTX) await page.close().catch(() => {});
-    else await ctx.close().catch(() => {});""", """    // one WebView: nothing to close""")
+    else await ctx.close().catch(() => {});""", """    // one WebView: close any native Save/Share sheet a skipped/failed page left open
+    if (!download) { const late = await appSaved(page); if (late) closeSheet(); }""")
+rep("""    const r = await runPage(browser, u);""", """    // A crashed WebView renderer makes CDP calls hang: cap each page, and on a hang
+    // save what we have and exit 3 so the runner can restart the app and resume.
+    const r = await Promise.race([runPage(browser, u), new Promise((res) => setTimeout(() => res(null), 150_000))]);
+    if (!r) { console.log(`HUNG        ${u} - page did not finish in 150s (WebView renderer likely crashed)`); results.push({ url: u, status: 'HUNG', reasons: ['hung'], pageErrors: [], http: [], red: [] }); hung = true; break; }""")
+rep("""let next = 0;""", """let next = 0;
+let hung = false;""")
+rep("""await Promise.all(Array.from({ length: CONCURRENCY }, worker));""", """await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+if (hung) console.error('stopping after a hung page: restart the app and resume with ONLY=<remaining>');""")
 rep("""const browser = await chromium.launch({ executablePath: CHROME, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
   // video-mute & co. record by real-time playback; headless blocks unmuted autoplay without this.
   '--autoplay-policy=no-user-gesture-required'] });

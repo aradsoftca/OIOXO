@@ -267,6 +267,29 @@ export function UsageGateProvider() {
     })();
   }, []);
 
+  // ---- "Remove the brand mark with Pro" nudge ------------------------------
+  // Shown after a free download that got the brand (renamed file / stamped
+  // output), at most once a day per browser: the one upgrade moment every
+  // free user reaches, and until now nothing pointed at it.
+  const [brandNudge, setBrandNudge] = React.useState(false);
+  const nudgeBrand = React.useCallback(() => {
+    try {
+      const k = 'xv-brand-nudge';
+      const day = new Date().toISOString().slice(0, 10);
+      if (localStorage.getItem(k) === day) return;
+      localStorage.setItem(k, day);
+    } catch { /* storage blocked: still show once this page view */ }
+    setBrandNudge(true);
+  }, []);
+  const brandRename = React.useCallback((a: HTMLAnchorElement) => {
+    try {
+      const before = a.download || 'download';
+      const after = brandedNameSync(before);
+      a.download = after;
+      if (after !== before) nudgeBrand();
+    } catch { /* */ }
+  }, [nudgeBrand]);
+
   // ---- Global download interceptor -------------------------------------
   React.useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -281,9 +304,7 @@ export function UsageGateProvider() {
           // An explicit gate (e.g. the converter, image filters) already metered
           // this action and armed a bypass so we don't double-charge — but the
           // brand filename must STILL apply (unless this tool is clean-intent).
-          if (!isCleanIntentPath(pathRef.current)) {
-            try { a.download = brandedNameSync(a.download || 'download'); } catch { /* */ }
-          }
+          if (!isCleanIntentPath(pathRef.current)) brandRename(a);
           return;
         }
         const gt = gateTargetForPath(pathRef.current);
@@ -294,7 +315,7 @@ export function UsageGateProvider() {
           // filename. Rename in place (sync) and let the native download proceed.
           const p = pathRef.current || '';
           if ((/^\/tools\//.test(p) || /^\/(convert|board|send|chat|clipboard|note|viewer|call|watch)\b/.test(p)) && !isCleanIntentPath(p)) {
-            try { a.download = brandedNameSync(a.download || 'download'); } catch { /* */ }
+            brandRename(a);
           }
           return;
         }
@@ -314,6 +335,7 @@ export function UsageGateProvider() {
           el.href = url;
           // free → photo-xonvert.webp, unless the tool is clean-intent (watermarkFree:false)
           el.download = isCleanIntentPath(pathRef.current) ? name : await brandedName(name);
+          if (el.download !== name) nudgeBrand();
           el.dataset.xgatePass = '1';
           document.body.appendChild(el);
           el.click();
@@ -329,7 +351,7 @@ export function UsageGateProvider() {
     };
     document.addEventListener('click', onClick, true);
     return () => document.removeEventListener('click', onClick, true);
-  }, [guard]);
+  }, [guard, brandRename, nudgeBrand]);
 
   // "Powered by" badge on the live P2P apps (free only) — the session brand the
   // guest and the people they invite both see.
@@ -349,11 +371,13 @@ export function UsageGateProvider() {
     />
   ) : null;
 
-  if (phase === 'idle' || !activeCat) return <>{badge}{sizeModal}</>;
+  const nudge = brandNudge ? <BrandNudge onClose={() => setBrandNudge(false)} /> : null;
+  if (phase === 'idle' || !activeCat) return <>{badge}{sizeModal}{nudge}</>;
   return (
     <>
       {badge}
       {sizeModal}
+      {nudge}
       <GateModal
         phase={phase}
         seconds={seconds}
@@ -362,6 +386,16 @@ export function UsageGateProvider() {
         onCancel={cancel}
       />
     </>
+  );
+}
+
+function BrandNudge({ onClose }: { onClose: () => void }) {
+  return (
+    <div role="status" className="fixed bottom-4 left-1/2 z-[95] flex w-[min(460px,calc(100vw-24px))] -translate-x-1/2 items-center gap-3 border border-black/[0.1] bg-[var(--color-canvas)] px-4 py-3 text-[13px] text-[var(--color-fg)] shadow-xl">
+      <span className="flex-1">Saved with a small {WM_DOMAIN} mark. Remove it — and every daily limit — with Pro, $4.99/mo.</span>
+      <a href="/pricing" className="inline-flex min-h-[40px] shrink-0 items-center bg-[var(--color-fg)] px-3 text-[12px] font-bold uppercase tracking-wider text-[var(--color-canvas)]">Go Pro</a>
+      <button type="button" onClick={onClose} aria-label="Dismiss" className="grid h-10 w-10 shrink-0 place-items-center text-[18px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">×</button>
+    </div>
   );
 }
 

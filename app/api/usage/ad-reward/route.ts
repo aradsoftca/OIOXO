@@ -17,7 +17,10 @@ export async function GET(req: Request) {
   if (!raw.includes('signature=')) return new NextResponse('ok');
   if (!params) return new NextResponse('bad signature', { status: 400 });
   const ticket = verifyTicket(params.get('custom_data') || '');
-  if (!ticket) return new NextResponse('bad ticket', { status: 400 });
+  // Genuinely Google-signed but no usable ticket: AdMob's own "Verify URL" test (it
+  // sends a signed sample with no custom_data), or a ticket that expired while the
+  // ad played. Nothing to grant; 200 so AdMob neither fails setup nor retries.
+  if (!ticket) return new NextResponse('ignored');
   await grantUses(ticket.fps, ticket.category, AD_REWARD_USES);
   return new NextResponse('ok');
 }

@@ -3,7 +3,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { Check, Crown, Gift, Loader2, Lock, X } from 'lucide-react';
-import { gateMetaForKey, isGatedKey, maxBytesForKey, formatBytes } from '@/lib/usage/config';
+import { gateMetaForKey, isGatedKey, maxBytesForKey, formatBytes, AD_REWARD_USES } from '@/lib/usage/config';
 import { benefitsForKey } from '@/lib/usage/benefits';
 import { DISPLAY_PRICING } from '@/lib/stripe';
 import { armDownloadBypass } from '@/lib/usage/gate-bridge';
@@ -259,6 +259,7 @@ export function GateModal({
   category,
   sizeCtx,
   onCancel,
+  onWatchAd,
 }: {
   phase: Phase;
   seconds: number;
@@ -267,6 +268,8 @@ export function GateModal({
   category: string;
   sizeCtx?: SizeContext | null;
   onCancel: () => void;
+  /** Inside the mobile app: watch a rewarded ad for more uses (lib/app-bridge.ts). */
+  onWatchAd?: () => void;
 }) {
   React.useEffect(() => { funnel(phase === 'size' ? 'size_hit' : 'limit_hit'); }, [phase]);
   const meta = gateMetaForKey(category);
@@ -397,6 +400,17 @@ export function GateModal({
               <Crown className="h-3.5 w-3.5" /> Upgrade to Pro
             </Link>
             <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            {onWatchAd && (
+              <button
+                type="button"
+                onClick={onWatchAd}
+                disabled={claiming}
+                className="mt-3 flex w-full items-center justify-center gap-2 border border-[var(--color-stroke)] py-3 text-[12px] font-bold uppercase tracking-wider text-[var(--color-fg)] transition hover:bg-[var(--color-surface-2)] disabled:opacity-60"
+              >
+                {claiming ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Gift className="h-3.5 w-3.5" />}
+                {claiming ? 'Unlocking…' : `Watch a short ad — ${AD_REWARD_USES} more free`}
+              </button>
+            )}
             <button
               type="button"
               onClick={onCancel}

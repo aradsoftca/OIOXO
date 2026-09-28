@@ -82,8 +82,11 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} ${jetbrains.variable}${IS_OIOXO ? ' brand-oioxo' : ''}`}>
+    <html lang="en" suppressHydrationWarning className={`${geist.variable} ${jetbrains.variable}${IS_OIOXO ? ' brand-oioxo' : ''}`}>
       <head>
+        {/* Inside the Xonvert mobile app (lib/app-bridge.ts) the app draws its own
+            navigation: flag it before first paint so the site chrome never flashes. */}
+        <script dangerouslySetInnerHTML={{ __html: "if(navigator.userAgent.indexOf('XonvertApp/')>=0)document.documentElement.dataset.app='1'" }} />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: structuredDataToScript(organizationJsonLd()) }}

@@ -94,7 +94,7 @@ export function AppShell({ children }: AppShellProps) {
         <div
           onMouseEnter={() => setNavHover(true)}
           onMouseLeave={() => setNavHover(false)}
-          className={studioTakeover ? 'hidden' : undefined}
+          className={studioTakeover ? 'hidden' : 'site-chrome'}
         >
         <header
           className="sticky top-0 z-40 border-b border-[var(--color-stroke)] bg-[var(--color-canvas)]/80 backdrop-blur-xl"
@@ -186,7 +186,7 @@ export function AppShell({ children }: AppShellProps) {
           {children}
         </main>
 
-        <footer className={`border-t border-[var(--color-stroke)] py-8 ${studioTakeover ? 'hidden' : ''}`}>
+        <footer className={`site-chrome border-t border-[var(--color-stroke)] py-8 ${studioTakeover ? 'hidden' : ''}`}>
           <div className="mx-auto flex max-w-[1440px] flex-col items-center justify-between gap-3 px-4 text-[12px] text-[var(--color-fg-subtle)] sm:px-6 md:flex-row">
             <div>{IS_OIOXO ? 'oioxo — all-in-one AI, on your device.' : 'Xonvert 2026 — every file. every tool.'}</div>
             <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-0">

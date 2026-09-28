@@ -13,6 +13,7 @@ import { getPolicy } from '@/lib/limits/policy';
 import { installCanvasWatermark, setCanvasWatermarkEnabled, installAnchorBrand } from '@/lib/watermark/canvas-patch';
 import { GateModal } from './use-usage-gate';
 import { funnel } from '@/lib/funnel';
+import { installAppBridge, isInApp, requestRewardedAd } from '@/lib/app-bridge';
 
 /**
  * Global usage gate.
@@ -220,7 +221,9 @@ export function UsageGateProvider() {
       }
     }
     if (r.allowed) return true;
-    if (r.gate === 'rewarded') {
+    // Inside the mobile app the unlock is a rewarded ad (the paywall shows the
+    // "watch an ad" button), not the web's 30-second countdown.
+    if (r.gate === 'rewarded' && !isInApp()) {
       try { await postJson('/api/usage/reward', { category: key, action: 'start' }); } catch { /* ignore */ }
       return new Promise<boolean>((resolve) => {
         resolver.current = resolve;
@@ -237,6 +240,28 @@ export function UsageGateProvider() {
       setPhase('paywall');
     });
   }, [startCountdown]);
+
+  // Mobile app: finished ad → AdMob's server callback adds the uses; re-check the
+  // meter a few times while that callback lands, then let the held download through.
+  const watchAd = React.useCallback(async () => {
+    const key = activeKeyRef.current;
+    if (!key) return;
+    setClaiming(true);
+    cancelled.current = false;
+    const watched = await requestRewardedAd(key).catch(() => false);
+    if (!watched || cancelled.current) { setClaiming(false); return; }
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (cancelled.current) return;
+      try {
+        const r = await postJson<UsageResponse>('/api/usage', { category: key, action: 'consume' });
+        if (r.allowed) { funnel('ad_reward'); return settle(true); }
+      } catch { /* retry */ }
+    }
+    setClaiming(false);
+  }, [settle]);
+
+  React.useEffect(() => { installAppBridge(); }, []);
 
   // ---- Brand watermark wiring ------------------------------------------
   // Patch canvas exports immediately (covers the ~40 tools that toBlob/toDataURL
@@ -385,6 +410,7 @@ export function UsageGateProvider() {
         claiming={claiming}
         category={activeCat}
         onCancel={cancel}
+        onWatchAd={phase === 'paywall' && isInApp() ? watchAd : undefined}
       />
     </>
   );

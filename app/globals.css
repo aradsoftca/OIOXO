@@ -473,3 +473,6 @@ body[data-dragging="true"] .tile-surface[data-accepts-drop="true"] {
   height: 4px;
   background: var(--color-surface-2, oklch(95% 0 0));
 }
+
+/* Xonvert mobile app (lib/app-bridge.ts): the app has its own navigation. */
+html[data-app] .site-chrome { display: none !important; }

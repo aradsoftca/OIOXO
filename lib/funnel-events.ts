@@ -7,5 +7,6 @@ export const FUNNEL_EVENTS = [
   'pricing_view',    // /pricing opened
   'checkout_start',  // Stripe or crypto checkout started
   'paid',            // payment confirmed (server-side, from the webhooks)
+  'ad_reward',       // mobile app: rewarded ad watched and the uses granted
 ] as const;
 export type FunnelEvent = (typeof FUNNEL_EVENTS)[number];

@@ -41,6 +41,19 @@ export async function incrementUsage(
   );
 }
 
+/** Give back N uses of today's count (a verified rewarded ad). Never below zero. */
+export async function grantUses(fps: string[], category: string, n: number): Promise<void> {
+  const date = utcToday();
+  await prisma.categoryUsage.updateMany({
+    where: { fingerprint: { in: fps }, category, date },
+    data: { count: { decrement: n } },
+  });
+  await prisma.categoryUsage.updateMany({
+    where: { fingerprint: { in: fps }, category, date, count: { lt: 0 } },
+    data: { count: 0 },
+  });
+}
+
 /**
  * Add N seconds of usage to a TIME-metered category (e.g. the OIOXO coding agent).
  * Reuses categoryUsage.count as accumulated seconds for the day. Clamps the per-call

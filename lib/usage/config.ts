@@ -14,6 +14,8 @@ import type { Category } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
 
 export const REWARD_WAIT_SECONDS = 30;
+/** Uses one finished rewarded ad (mobile app, AdMob) gives back — see lib/usage/ad-reward.ts. */
+export const AD_REWARD_USES = 3;
 
 /**
  * Free daily uses per gated CATEGORY. N ⇒ N free → 30s reward earns +1 → paywall.

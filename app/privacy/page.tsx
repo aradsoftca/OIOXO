@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalShell title="Privacy Policy" updated="May 28, 2026">
+    <LegalShell title="Privacy Policy" updated="September 28, 2026">
       <p>
         {BRAND} (&ldquo;we&rdquo;, &ldquo;us&rdquo;) operates {BRAND_DOMAIN}. This Privacy Policy explains what
         we collect, why, how we use and protect it, and the rights you have. The short version:{' '}
@@ -165,10 +165,49 @@ export default function PrivacyPage() {
       <H2>13. Cookies</H2>
       <p>
         See our <Link className="text-[var(--brand-1)] hover:underline" href="/cookies">Cookie Policy</Link>{' '}
-        for the small functional set we use. No advertising or cross-site tracking cookies.
+        for the small functional set we use. The website shows no advertising and sets no cross-site
+        tracking cookies.
       </p>
 
-      <H2>14. Changes to this policy</H2>
+      <H2>14. Mobile app (Android and iOS)</H2>
+      <p>
+        The {BRAND} app runs the same tools as the website, on your phone. Everything above applies, plus:
+      </p>
+      <UL>
+        <li>
+          <strong>Files</strong> you pick in the app or share into it from another app are processed on your
+          phone and never uploaded. Results are saved or shared only where you choose. The app keeps a list of
+          your recent tools and results on the phone only.
+        </li>
+        <li>
+          <strong>Rewarded ads.</strong> When a free daily limit is reached, you may choose to watch a short ad to
+          unlock more uses. Ads are provided by Google AdMob and are <em>non-personalised</em>: we do not ask for
+          tracking permission and do not use your activity to target ads. To show and measure an ad, Google AdMob
+          may process your device&apos;s advertising identifier, IP address, and basic device and app
+          information, as described in{' '}
+          <a className="text-[var(--brand-1)] hover:underline" href="https://policies.google.com/technologies/partner-sites" rel="noopener noreferrer" target="_blank">
+            how Google uses information from apps that use its services
+          </a>
+          . Ads are only shown when you tap to watch one; Pro subscribers see no ads.
+        </li>
+        <li>
+          <strong>Unlocking the extra uses.</strong> When you watch an ad, the app passes Google a short-lived,
+          signed ticket; Google&apos;s servers then confirm the completed ad to us so we can add the uses to your
+          daily allowance. The ticket contains only the usage-metering fingerprint described in section 3 — no
+          file contents and nothing about the ad.
+        </li>
+        <li>
+          <strong>Sign-in</strong> is optional. With Google sign-in on Android, Google shares your name and email
+          address with us to create or open your account.
+        </li>
+        <li>
+          <strong>Camera and microphone</strong> are used only by the tools that need them (video call, voice
+          recorder, QR scanner), only after you allow it, and the stream stays on your device or goes directly to
+          the person you are calling.
+        </li>
+      </UL>
+
+      <H2>15. Changes to this policy</H2>
       <p>
         We may update this Policy as the Service evolves. Material changes will be highlighted, and the
         &ldquo;Last updated&rdquo; date above will change. Continued use after a change means you accept the

@@ -12,6 +12,7 @@ import { WM_DOMAIN } from '@/lib/watermark/config';
 import { getPolicy } from '@/lib/limits/policy';
 import { installCanvasWatermark, setCanvasWatermarkEnabled, installAnchorBrand } from '@/lib/watermark/canvas-patch';
 import { GateModal } from './use-usage-gate';
+import { funnel } from '@/lib/funnel';
 
 /**
  * Global usage gate.
@@ -390,10 +391,11 @@ export function UsageGateProvider() {
 }
 
 function BrandNudge({ onClose }: { onClose: () => void }) {
+  React.useEffect(() => { funnel('nudge_shown'); }, []);
   return (
     <div role="status" className="fixed bottom-4 left-1/2 z-[95] flex w-[min(460px,calc(100vw-24px))] -translate-x-1/2 items-center gap-3 border border-black/[0.1] bg-[var(--color-canvas)] px-4 py-3 text-[13px] text-[var(--color-fg)] shadow-xl">
       <span className="flex-1">Saved with a small {WM_DOMAIN} mark. Remove it — and every daily limit — with Pro, $4.99/mo.</span>
-      <a href="/pricing" className="inline-flex min-h-[40px] shrink-0 items-center bg-[var(--color-fg)] px-3 text-[12px] font-bold uppercase tracking-wider text-[var(--color-canvas)]">Go Pro</a>
+      <a href="/pricing" onClick={() => funnel('nudge_click')} className="inline-flex min-h-[40px] shrink-0 items-center bg-[var(--color-fg)] px-3 text-[12px] font-bold uppercase tracking-wider text-[var(--color-canvas)]">Go Pro</a>
       <button type="button" onClick={onClose} aria-label="Dismiss" className="grid h-10 w-10 shrink-0 place-items-center text-[18px] text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">×</button>
     </div>
   );

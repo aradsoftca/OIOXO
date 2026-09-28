@@ -3,6 +3,7 @@ import { headers } from 'next/headers';
 import type Stripe from 'stripe';
 import { getStripe, STRIPE_PRODUCT } from '@/lib/stripe';
 import { prisma } from '@/lib/db';
+import { countFunnel } from '@/lib/funnel-server';
 
 export const runtime = 'nodejs';
 
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
         if (!updated && cs.customer_email) {
           await prisma.user.updateMany({ where: { email: cs.customer_email }, data });
         }
+        await countFunnel('paid');
       }
       break;
     }

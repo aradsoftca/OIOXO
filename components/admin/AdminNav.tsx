@@ -9,6 +9,7 @@ const LINKS = [
   { href: '/admin/tickets', label: 'Tickets' },
   { href: '/admin/contact', label: 'Contact' },
   { href: '/admin/limits', label: 'Limits' },
+  { href: '/admin/funnel', label: 'Funnel' },
 ];
 
 export function AdminNav() {

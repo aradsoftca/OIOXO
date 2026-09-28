@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { prisma } from '@/lib/db';
+import { countFunnel } from '@/lib/funnel-server';
 import { BRAND } from '@/lib/brand';
 
 export const runtime = 'nodejs';
@@ -120,4 +121,5 @@ async function activate(orderId: string, payload: Record<string, unknown>) {
       },
     }),
   ]);
+  await countFunnel('paid');
 }

@@ -7,6 +7,7 @@ import { gateMetaForKey, isGatedKey, maxBytesForKey, formatBytes } from '@/lib/u
 import { benefitsForKey } from '@/lib/usage/benefits';
 import { DISPLAY_PRICING } from '@/lib/stripe';
 import { armDownloadBypass } from '@/lib/usage/gate-bridge';
+import { funnel } from '@/lib/funnel';
 
 type Phase = 'idle' | 'reward' | 'paywall' | 'size' | 'error';
 
@@ -267,6 +268,7 @@ export function GateModal({
   sizeCtx?: SizeContext | null;
   onCancel: () => void;
 }) {
+  React.useEffect(() => { funnel(phase === 'size' ? 'size_hit' : 'limit_hit'); }, [phase]);
   const meta = gateMetaForKey(category);
   const color = `var(${meta.colorVar})`;
   const benefits = benefitsForKey(category);

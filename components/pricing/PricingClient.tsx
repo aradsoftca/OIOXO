@@ -4,6 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Check, Crown, Loader2, Bitcoin, CreditCard } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { funnel } from '@/lib/funnel';
 import { IS_OIOXO } from '@/lib/brand';
 
 type Billing = 'monthly' | 'yearly';
@@ -54,6 +55,7 @@ export function PricingClient({
 }) {
   const router = useRouter();
   const [billing, setBilling] = React.useState<Billing>('monthly');
+  React.useEffect(() => { funnel('pricing_view'); }, []);
   const [loading, setLoading] = React.useState<'' | 'stripe' | 'crypto'>('');
   const [error, setError] = React.useState('');
   const isPro = currentPlan === 'PRO' || currentPlan === 'BUSINESS';
@@ -62,6 +64,7 @@ export function PricingClient({
   const perMonth = billing === 'yearly' ? prices.yearly / 12 : prices.monthly;
 
   const checkout = async (method: 'stripe' | 'crypto') => {
+    funnel('checkout_start');
     setError('');
     if (!authed) {
       router.push('/auth/sign-in?callbackUrl=/pricing');

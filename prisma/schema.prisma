@@ -550,3 +550,14 @@ enum TicketPriority {
   HIGH
   URGENT
 }
+
+/// Anonymous daily funnel counters (no user id, IP or cookie) — how many
+/// limit hits, pricing views, checkouts and payments happened each day.
+/// Written by /api/funnel and the payment webhooks; read by admins.
+model FunnelDay {
+  date  String // YYYY-MM-DD (UTC)
+  event String
+  count Int    @default(0)
+
+  @@id([date, event])
+}

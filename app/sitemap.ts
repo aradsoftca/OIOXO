@@ -63,7 +63,7 @@ const APP_PAGES: string[] = [
   '/ai',
 ];
 
-const POLICY_PAGES = ['/privacy', '/terms', '/cookies', '/refund'];
+const POLICY_PAGES = ['/privacy', '/terms', '/cookies', '/refund', '/delete-account'];
 
 // Indexable pairs: flagged popular (CAD/3D, MP3, HEIC…) or given hand-written copy.
 const COPY = new Set(PAIR_COPY_SLUGS);

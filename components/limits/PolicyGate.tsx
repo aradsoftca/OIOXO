@@ -54,7 +54,7 @@ export function PolicyGate({ hit, onClose }: Props) {
           <div className="rounded border border-black/[0.06] bg-black/[0.03] p-3 text-[12px]">
             <div className="flex items-center justify-between">
               <span className="font-semibold">Pro</span>
-              <span className="font-mono">
+              <span className="app-hide font-mono">
                 ${DISPLAY_PRICING.monthly}/mo · ${DISPLAY_PRICING.yearly}/yr
               </span>
             </div>

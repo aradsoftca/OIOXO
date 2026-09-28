@@ -476,3 +476,6 @@ body[data-dragging="true"] .tile-surface[data-accepts-drop="true"] {
 
 /* Xonvert mobile app (lib/app-bridge.ts): the app has its own navigation. */
 html[data-app] .site-chrome { display: none !important; }
+/* Store rules (Apple 3.1.1, Google Play payments): the app must not link to or advertise web purchases.
+   Pro bought elsewhere still applies once signed in. */
+html[data-app] a[href^="/pricing"], html[data-app] a[href*="/checkout"], html[data-app] .app-hide { display: none !important; }

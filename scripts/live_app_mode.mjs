@@ -46,6 +46,11 @@ check('shared file went in and came back converted', saved.some((s) => s.name.st
 check('JPEG bytes in the message', saved.some((s) => /jpe?g/.test(s.mime) && s.len > 100));
 check('no browser download fired', nativeDownloads === 0, String(nativeDownloads));
 
+// 3b. no visible path to buying on the web (Apple 3.1.1 / Google Play payments)
+await p.goto(BASE + '/tools/image-compress', { waitUntil: 'networkidle' });
+const buyLinks = await p.evaluate(() => [...document.querySelectorAll('a[href^="/pricing"], .app-hide')].filter((e) => e.getClientRects().length > 0).length);
+check('no visible pricing/upgrade links in app mode', buyLinks === 0, String(buyLinks));
+
 // 4. tool manifest for the app's home screen
 const man = await (await ctx.request.get(BASE + '/app-manifest.json')).json();
 const nTools = man.categories.reduce((n, c) => n + c.tools.length, 0);

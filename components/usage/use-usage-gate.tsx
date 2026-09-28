@@ -277,7 +277,7 @@ export function GateModal({
   const benefits = benefitsForKey(category);
   const priceLine = `$${DISPLAY_PRICING.monthly}/mo · cancel anytime`;
   const Benefits = () => (
-    <ul className="mt-4 space-y-1.5 border-t border-black/[0.06] pt-4">
+    <ul className="app-hide mt-4 space-y-1.5 border-t border-black/[0.06] pt-4">
       <li className="mb-1 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-subtle)]">With Pro you get</li>
       {benefits.map((b) => (
         <li key={b} className="flex items-start gap-2 text-[12.5px] text-[var(--color-fg)]">
@@ -327,7 +327,7 @@ export function GateModal({
             >
               <Crown className="h-3.5 w-3.5" /> Go Pro — no quota checks
             </Link>
-            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            <p className="app-hide mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
             <button
               type="button"
               onClick={onCancel}
@@ -352,7 +352,7 @@ export function GateModal({
             >
               <Crown className="h-3.5 w-3.5" /> Upgrade for larger files
             </Link>
-            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            <p className="app-hide mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
             <button
               type="button"
               onClick={onCancel}
@@ -383,7 +383,7 @@ export function GateModal({
             >
               <Crown className="h-3.5 w-3.5" /> Skip the wait — go Pro
             </Link>
-            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            <p className="app-hide mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
           </div>
         ) : (
           <div className="px-6 py-5">
@@ -399,7 +399,7 @@ export function GateModal({
             >
               <Crown className="h-3.5 w-3.5" /> Upgrade to Pro
             </Link>
-            <p className="mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
+            <p className="app-hide mt-2 text-center text-[11px] text-[var(--color-fg-subtle)]">{priceLine}</p>
             {onWatchAd && (
               <button
                 type="button"

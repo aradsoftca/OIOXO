@@ -154,6 +154,12 @@ const nextConfig = {
       ...wasmDirs.map((source) => ({ source, headers: immutable })),
       { source: '/pdf.worker.min.mjs', headers: immutable },
       { source: '/gif.worker.js', headers: immutable },
+      // Cloudflare's edge kept a day-old sitemap after a deploy (Age 82592s), so Google
+      // fetched URLs we had just redirected. Crawl files must follow each deploy fast.
+      ...['/sitemap.xml', '/robots.txt'].map((source) => ({
+        source,
+        headers: [{ key: 'Cloudflare-CDN-Cache-Control', value: 'max-age=600' }],
+      })),
     ];
   },
   // Pin the workspace root so the unrelated D:\appz project can't hijack module

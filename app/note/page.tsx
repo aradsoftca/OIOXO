@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { Metadata } from 'next';
 import NoteApp from './NoteApp';
 import { BRAND } from '@/lib/brand';
+import { AppSteps, AppAbout } from '@/components/apps/AppGuide';
 
 export const metadata: Metadata = {
   title: 'Encrypted Note — share a secret with a self-destructing link',
@@ -14,8 +15,12 @@ export const metadata: Metadata = {
 
 export default function NotePage() {
   return (
-    <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
-      <NoteApp />
-    </React.Suspense>
+    <>
+      <AppSteps app="note" />
+      <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
+        <NoteApp />
+      </React.Suspense>
+      <AppAbout app="note" />
+    </>
   );
 }

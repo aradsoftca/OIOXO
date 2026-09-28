@@ -103,7 +103,8 @@ export function FreeCapHint({ toolKey, lever, isPro }: { toolKey: string; lever:
   return (
     <span className="ml-1 inline-flex items-center gap-0.5 text-[11px] text-[var(--color-fg-subtle)]" title={`Pro: up to ${l.pro ?? 'unlimited'}${l.unit ? ' ' + l.unit : ''}`}>
       <Lock className="h-2.5 w-2.5" />
-      free max {l.free}{l.unit ? ' ' + l.unit : ''}
+      {/* "free max 3" read as jargon on the apps; say what the number counts. */}
+      Free: up to {l.free}{l.unit ? ' ' + l.unit : lever === 'participants' ? ' people' : ''}
     </span>
   );
 }

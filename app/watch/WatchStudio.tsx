@@ -406,7 +406,7 @@ function Host() {
 
   return (
     <Shell
-      title="Watch Studio"
+      title="Live Screen Share"
       subtitle={`Sync watch · ${sharing ? `Live · ${state}` : 'Not started'}${filename ? ` · ${filename}` : ''}`}
       badge={<StatusPill state={state} source={source === 'file' ? 'video' : source} />}
     >
@@ -673,7 +673,7 @@ function Viewer({ code }: { code: string }) {
   }, [state, handUp, muted]);
 
   return (
-    <Shell title="Watch Studio" subtitle={`Watching · ${state === 'connected' ? 'Live' : state}`} badge={<StatusPill state={state} />}>
+    <Shell title="Live Screen Share" subtitle={`Watching · ${state === 'connected' ? 'Live' : state}`} badge={<StatusPill state={state} />}>
       <div className="grid flex-1 min-h-0 gap-3 lg:grid-cols-[1fr_320px]">
         <div ref={wrapRef} className="relative aspect-video min-h-0 overflow-hidden border border-black/[0.08] bg-black">
           <video ref={videoRef} className="absolute inset-0 h-full w-full object-contain" playsInline controls={false} />

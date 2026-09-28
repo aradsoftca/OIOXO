@@ -760,7 +760,7 @@ export default function CallStudio() {
           {audioOnly ? <Phone className="h-5 w-5" /> : <Video className="h-5 w-5" />}
         </div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-[18px] font-extrabold tracking-tight">Call Studio</h1>
+          <h1 className="text-[18px] font-extrabold tracking-tight">Video Call</h1>
           <p className="truncate text-[11px] text-[var(--color-fg-muted)]">
             {audioOnly ? 'Voice call' : 'Video call'} · End-to-end encrypted · {state === 'connected' ? `Connected · ${elapsedLabel}` : state === 'connecting' ? 'Connecting…' : state === 'failed' ? 'Connection failed' : 'Idle'}
             {' '}<FreeCapHint toolKey={POLICY_KEY} lever="participants" isPro={isPro} />

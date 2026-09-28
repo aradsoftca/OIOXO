@@ -560,7 +560,7 @@ export default function ChatStudio() {
       <header className="flex shrink-0 items-center gap-3 border-b border-[var(--color-stroke)] pb-3">
         <div className="grid h-10 w-10 place-items-center bg-[var(--color-cat-convert)] text-white"><MessageSquare className="h-5 w-5" /></div>
         <div className="flex-1 min-w-0">
-          <h1 className="text-[18px] font-extrabold tracking-tight">Chat Studio</h1>
+          <h1 className="text-[18px] font-extrabold tracking-tight">Private Chat</h1>
           <p className="truncate text-[11px] text-[var(--color-fg-muted)]">
             {connected ? `${roster} ${roster === 1 ? 'person' : 'people'}` : failed ? 'Not connected' : reconnecting ? 'Reconnecting' : 'Connecting'} · Threads · Reactions · Voice · AI · Slash
             {' '}<FreeCapHint toolKey={POLICY_KEY} lever="participants" isPro={isPro} />

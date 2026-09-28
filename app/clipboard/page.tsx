@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { Metadata } from 'next';
 import ClipboardApp from './ClipboardApp';
 import { BRAND } from '@/lib/brand';
+import { AppSteps, AppAbout } from '@/components/apps/AppGuide';
 
 export const metadata: Metadata = {
   title: 'Universal Clipboard — copy on one device, paste on another',
@@ -14,8 +15,12 @@ export const metadata: Metadata = {
 
 export default function ClipboardPage() {
   return (
-    <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
-      <ClipboardApp />
-    </React.Suspense>
+    <>
+      <AppSteps app="clipboard" />
+      <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
+        <ClipboardApp />
+      </React.Suspense>
+      <AppAbout app="clipboard" />
+    </>
   );
 }

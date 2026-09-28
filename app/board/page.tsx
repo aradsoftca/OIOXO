@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { Metadata } from 'next';
 import BoardApp from './BoardApp';
 import { BRAND } from '@/lib/brand';
+import { AppSteps, AppAbout } from '@/components/apps/AppGuide';
 
 export const metadata: Metadata = {
   title: 'Collaborative Whiteboard — draw together, no sign-up',
@@ -14,8 +15,12 @@ export const metadata: Metadata = {
 
 export default function BoardPage() {
   return (
-    <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
-      <BoardApp />
-    </React.Suspense>
+    <>
+      <AppSteps app="board" />
+      <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
+        <BoardApp />
+      </React.Suspense>
+      <AppAbout app="board" />
+    </>
   );
 }

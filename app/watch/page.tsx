@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { Metadata } from 'next';
 import WatchStudio from './WatchStudio';
 import { BRAND } from '@/lib/brand';
+import { AppSteps, AppAbout } from '@/components/apps/AppGuide';
 
 export const metadata: Metadata = {
   title: 'Live Screen Share — show your screen, no install',
@@ -14,8 +15,12 @@ export const metadata: Metadata = {
 
 export default function WatchPage() {
   return (
-    <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
-      <WatchStudio />
-    </React.Suspense>
+    <>
+      <AppSteps app="watch" />
+      <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
+        <WatchStudio />
+      </React.Suspense>
+      <AppAbout app="watch" />
+    </>
   );
 }

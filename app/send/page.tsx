@@ -2,6 +2,7 @@ import * as React from 'react';
 import type { Metadata } from 'next';
 import SendApp from './SendApp';
 import { BRAND } from '@/lib/brand';
+import { AppSteps, AppAbout } from '@/components/apps/AppGuide';
 
 export const metadata: Metadata = {
   title: 'Send — beam files device to device',
@@ -14,8 +15,12 @@ export const metadata: Metadata = {
 
 export default function SendPage() {
   return (
-    <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
-      <SendApp />
-    </React.Suspense>
+    <>
+      <AppSteps app="send" />
+      <React.Suspense fallback={<div className="h-96 animate-pulse bg-[var(--color-surface-1)]" />}>
+        <SendApp />
+      </React.Suspense>
+      <AppAbout app="send" />
+    </>
   );
 }

@@ -22,7 +22,7 @@ export interface AppEntry {
 }
 
 export const APPS: AppEntry[] = [
-  { href: '/send', name: 'Send', short: 'Send', blurb: 'Beam files device to device over an encrypted P2P link. No upload, no size cap.', icon: 'send', colorVar: '--color-cat-convert', tag: 'Peer-to-peer' },
+  { href: '/send', name: 'Send', short: 'Send', blurb: 'Beam files device to device over an encrypted P2P link. No upload — files go straight to the other device.', icon: 'send', colorVar: '--color-cat-convert', tag: 'Peer-to-peer' },
   { href: '/clipboard', name: 'Universal Clipboard', short: 'Clipboard', blurb: 'Copy on your phone, paste on your laptop. Text & links sync instantly across devices.', icon: 'clipboard-copy', colorVar: '--color-cat-convert', tag: 'Peer-to-peer' },
   { href: '/chat', name: 'Private Chat', short: 'Chat', blurb: 'Secure, encrypted messaging — text, emoji, photos & files — from one link. No sign-up.', icon: 'message-square', colorVar: '--color-cat-convert', tag: 'Peer-to-peer' },
   { href: '/board', name: 'Whiteboard', short: 'Board', blurb: 'Draw together in real time from one link. Everyone’s strokes sync peer-to-peer.', icon: 'pencil', colorVar: '--color-cat-image', tag: 'Peer-to-peer' },

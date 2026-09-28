@@ -73,14 +73,23 @@ export async function htmlToPdf(html: string, title = 'document'): Promise<Blob>
   holder.innerHTML = sanitizeHtml(html);
   fdoc.body.appendChild(holder);
   try {
+    // html2canvas directly on the frame's node — jsPDF.html() clones it back into the
+    // MAIN document, where the oklch() palette applies again (the iframe alone didn't help).
+    const html2canvas = (await import('html2canvas')).default;
+    const canvas = await html2canvas(holder, { scale: 1.5, useCORS: true, backgroundColor: '#ffffff', windowWidth: 794 });
     const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-    await pdf.html(holder, {
-      autoPaging: 'text',
-      margin: [24, 24, 24, 24],
-      width: 547,        // A4 content width in pt (595 - 48 margins)
-      windowWidth: 794,  // CSS px width of the source
-      html2canvas: { scale: 0.72, useCORS: true, backgroundColor: '#ffffff' },
-    });
+    const margin = 24;
+    const pageW = pdf.internal.pageSize.getWidth() - margin * 2;
+    const pageH = pdf.internal.pageSize.getHeight() - margin * 2;
+    const slicePx = Math.floor((pageH / pageW) * canvas.width); // canvas px per PDF page
+    for (let y = 0, page = 0; y < canvas.height; y += slicePx, page++) {
+      const h = Math.min(slicePx, canvas.height - y);
+      const part = document.createElement('canvas');
+      part.width = canvas.width; part.height = h;
+      part.getContext('2d')!.drawImage(canvas, 0, y, canvas.width, h, 0, 0, canvas.width, h);
+      if (page) pdf.addPage();
+      pdf.addImage(part.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, pageW, (h / canvas.width) * pageW);
+    }
     try { const { brandJsPdf } = await import('@/lib/watermark/download'); brandJsPdf(pdf); } catch { /* never break export */ }
     return pdf.output('blob');
   } finally {

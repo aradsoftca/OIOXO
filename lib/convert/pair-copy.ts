@@ -256,6 +256,182 @@ const COPY: Record<string, Copy> = {
       PRIVATE,
     ],
   },
+  'heic-to-jpg': {
+    why: 'iPhones save photos as HEIC, which many Windows programs, websites and upload forms reject. JPG opens everywhere.',
+    how: 'Drop one or more HEIC photos and download JPGs. The photos are decoded and re-encoded in your browser; quality defaults to 90%.',
+    quality: 'At 90% the JPG looks the same as the original. JPG files are usually somewhat larger than HEIC — that is the price of compatibility.',
+    uses: 'Uploading iPhone photos to websites and forms; opening them on Windows; sending them to people on Android.',
+    faq: [
+      { question: 'Can I convert many photos at once?', answer: 'Yes — drop several HEIC files together.' },
+      { question: 'How do I stop my iPhone saving HEIC?', answer: 'Settings → Camera → Formats → “Most Compatible”. Existing photos stay HEIC.' },
+      PRIVATE,
+    ],
+  },
+  'heic-to-png': {
+    why: 'Get a lossless copy of an iPhone HEIC photo in PNG, which every editor and app opens.',
+    how: 'Drop the HEIC photos and download PNGs, converted in your browser.',
+    quality: 'PNG is lossless, so nothing more is lost — but files are several times larger than HEIC or JPG. Use JPG for sharing, PNG for editing.',
+    uses: 'Editing iPhone photos in software without HEIC support; keeping a lossless master copy.',
+    faq: [
+      { question: 'JPG or PNG?', answer: 'JPG for sharing and uploads (small), PNG for editing (lossless, large).' },
+      { question: 'Does it keep the photo’s quality?', answer: 'Yes — PNG stores exactly what was decoded from the HEIC.' },
+      PRIVATE,
+    ],
+  },
+  'jpg-to-png': {
+    why: 'Some apps and design tools want PNG, and PNG stops any further quality loss while you edit.',
+    how: `Drop the JPG and download a PNG. ${IMG}`,
+    quality: 'Converting to PNG does not remove existing JPG artefacts and does not add transparency; it only stops further loss. The PNG will be larger.',
+    uses: 'Editing a photo repeatedly without extra loss; uploading where PNG is required.',
+    faq: [
+      { question: 'Will the PNG have a transparent background?', answer: 'No — the JPG had none. Use the Remove Background tool for that.' },
+      { question: 'Why is the PNG bigger?', answer: 'PNG is lossless, so photos take much more space than JPG.' },
+      PRIVATE,
+    ],
+  },
+  'png-to-webp': {
+    why: 'WebP images are much smaller than PNG and keep transparency, so web pages load faster.',
+    how: `Drop the PNG and download a WebP. ${IMG}`,
+    quality: 'Transparency is kept. At high quality settings the difference is invisible for photos; for sharp graphics, check text edges.',
+    uses: 'Speeding up website images and icons with transparency.',
+    faq: [
+      { question: 'Is transparency kept?', answer: 'Yes, WebP supports transparent backgrounds.' },
+      { question: 'Do all browsers show WebP?', answer: 'Yes, every current browser does.' },
+      PRIVATE,
+    ],
+  },
+  'webp-to-png': {
+    why: 'Images saved from websites are often WebP, which older editors and apps cannot open. PNG works everywhere and keeps transparency.',
+    how: `Drop the WebP and download a PNG. ${IMG}`,
+    quality: 'Transparency is kept. The PNG is lossless, so it is usually larger than the WebP. An animated WebP becomes a single frame.',
+    uses: 'Editing images saved from the web; using web graphics in documents and older software.',
+    faq: [
+      { question: 'Is transparency kept?', answer: 'Yes.' },
+      { question: 'Is an animated WebP kept?', answer: 'No — you get one still frame.' },
+      PRIVATE,
+    ],
+  },
+  'avif-to-jpg': {
+    why: 'AVIF images are tiny but still unsupported by many apps and upload forms. JPG opens everywhere.',
+    how: `Drop the AVIF and download a JPG. ${IMG}`,
+    quality: 'Transparency becomes a solid background. At the default 90% quality the JPG looks like the original, but is larger.',
+    uses: 'Opening AVIF images saved from the web in older software; uploading where AVIF is rejected.',
+    faq: [
+      { question: 'What is AVIF?', answer: 'A newer, very efficient image format based on the AV1 video codec.' },
+      { question: 'Why is the JPG bigger?', answer: 'JPG compresses less efficiently than AVIF.' },
+      PRIVATE,
+    ],
+  },
+  'jpg-to-avif': {
+    why: 'AVIF is often much smaller than JPG at the same visible quality — ideal for fast websites.',
+    how: `Drop the JPG and download an AVIF. ${IMG} AVIF encoding is slower than other formats.`,
+    quality: 'Re-encoding adds a little loss; at a high setting it is not visible. Current Chrome, Firefox and Safari display AVIF.',
+    uses: 'Shrinking website photos; saving storage for image archives.',
+    faq: [
+      { question: 'AVIF or WebP?', answer: 'AVIF is usually smaller; WebP encodes faster and is supported slightly more widely.' },
+      { question: 'Why is it slow?', answer: 'AVIF’s encoder does much more work per image than JPG or WebP.' },
+      PRIVATE,
+    ],
+  },
+  'bmp-to-jpg': {
+    why: 'BMP images are uncompressed and huge. JPG makes them a small fraction of the size and opens everywhere.',
+    how: `Drop the BMP and download a JPG. ${IMG}`,
+    quality: 'For photos the JPG looks the same at 90% quality; for pixel art or screenshots, choose PNG instead to keep sharp edges.',
+    uses: 'Shrinking old Windows screenshots and scanner output; sharing BMP images by email.',
+    faq: [
+      { question: 'How much smaller is the JPG?', answer: 'Usually dramatically — BMP stores every pixel uncompressed.' },
+      { question: 'When should I use PNG instead?', answer: 'For screenshots, diagrams and pixel art, where JPG blurs edges.' },
+      PRIVATE,
+    ],
+  },
+  'pdf-to-png': {
+    why: 'Turn PDF pages into sharp PNG images — the best choice for pages with text and diagrams.',
+    how: 'Every page is rendered with pdf.js at Web (1200 px), Standard (1600 px) or Print (2400 px) size and downloaded together as a ZIP.',
+    quality: 'PNG keeps text crisp but files are larger than JPG. Text in the images is no longer selectable.',
+    uses: 'Putting slides or diagrams into presentations and docs; sharing a page as an image.',
+    faq: [
+      { question: 'PNG or JPG?', answer: 'PNG for text and diagrams, JPG for photo-heavy pages.' },
+      { question: 'Are all pages converted?', answer: 'Yes, numbered page-001, page-002 … in one ZIP.' },
+      PRIVATE,
+    ],
+  },
+  'png-to-pdf': {
+    why: 'Combine screenshots or images into one PDF document to share, print or submit.',
+    how: 'Drop one or more PNGs, set the order and paper size (fit to image, A4, Letter, Legal or A3), and download the PDF — built with pdf-lib in your browser.',
+    quality: 'PNG images are embedded as they are, without recompression.',
+    uses: 'Turning a set of screenshots into one document; submitting image scans as a single PDF.',
+    faq: [
+      { question: 'Can I combine several PNGs?', answer: 'Yes — drop them all and drag them into order.' },
+      { question: 'Is transparency kept?', answer: 'Transparent areas show the page colour (white).' },
+      PRIVATE,
+    ],
+  },
+  'gif-to-mp4': {
+    why: 'MP4 is far smaller than GIF for the same animation and plays everywhere — social sites often require video instead of GIF.',
+    how: `The GIF is re-encoded to H.264 MP4 (even dimensions, web-optimised). ${FFMPEG}`,
+    quality: 'MP4 is usually a fraction of the GIF’s size, and colours are no longer limited to 256. There is no sound, as GIFs have none.',
+    uses: 'Posting animations to Instagram, X or TikTok; shrinking GIFs for websites and chats.',
+    faq: [
+      { question: 'Why is the MP4 so much smaller?', answer: 'Video codecs compress motion far better than GIF.' },
+      { question: 'Does it loop?', answer: 'The MP4 plays once; most players and social sites can loop it.' },
+      PRIVATE,
+    ],
+  },
+  'mov-to-gif': {
+    why: 'Turn a short iPhone or screen-recording clip into a GIF that plays anywhere — chats, docs and READMEs.',
+    how: 'Pick the start and end, frame rate (15 fps default) and width (480 px default); the GIF is built in your browser.',
+    quality: 'GIF is limited to 256 colours and has no sound; keep clips short and small or the file grows quickly.',
+    uses: 'Reaction GIFs from iPhone videos; product demos and bug reports.',
+    faq: [
+      { question: 'Why is my GIF large?', answer: 'Lower the width, frame rate or length.' },
+      { question: 'Is sound kept?', answer: 'No, GIF has no audio.' },
+      PRIVATE,
+    ],
+  },
+  'webm-to-mp4': {
+    why: 'WebM videos (from browsers and screen recorders) often will not play on iPhones, TVs, editors or social sites. MP4 plays everywhere.',
+    how: `The video is re-encoded to H.264 with AAC audio in an MP4 container. ${FFMPEG}`,
+    quality: 'Choose a quality level; the High Quality setting keeps it visually identical.',
+    uses: 'Sharing screen recordings; uploading to sites that reject WebM; editing in software without WebM support.',
+    faq: [
+      { question: 'Why won’t my WebM play on iPhone?', answer: 'Older iOS versions and many apps do not support WebM; H.264 MP4 plays everywhere.' },
+      { question: 'How long does it take?', answer: 'It encodes on your device — seconds for short clips, longer for long ones.' },
+      PRIVATE,
+    ],
+  },
+  'm4a-to-mp3': {
+    why: 'M4A (AAC) is Apple’s audio format; some players, car stereos and apps only accept MP3.',
+    how: 'The audio is decoded in your browser and encoded to MP3 with LAME at the bitrate you choose (192 kbps by default).',
+    quality: 'Converting between two lossy formats loses a little quality; at 192 kbps it is not audible to most listeners.',
+    uses: 'Playing iPhone voice memos and iTunes audio on any device; older MP3-only players.',
+    faq: [
+      { question: 'Which bitrate?', answer: '192 kbps for general listening; Pro allows 320 kbps.' },
+      { question: 'Does it work with iPhone voice memos?', answer: 'Yes, they are M4A files.' },
+      PRIVATE,
+    ],
+  },
+  'flac-to-mp3': {
+    why: 'FLAC is lossless but large. MP3 is a fraction of the size and plays on every device.',
+    how: 'The audio is decoded in your browser and encoded to MP3 with LAME (192 kbps by default).',
+    quality: 'MP3 is lossy: keep the FLAC as your archive and use MP3 for phones and players. 192 kbps sounds transparent to most listeners.',
+    uses: 'Putting a lossless music collection on a phone or car stereo.',
+    faq: [
+      { question: 'Should I delete the FLAC?', answer: 'No — keep it as the lossless master; MP3 is for playback.' },
+      { question: 'Best bitrate for music?', answer: '192–320 kbps (320 with Pro).' },
+      PRIVATE,
+    ],
+  },
+  'ogg-to-mp3': {
+    why: 'OGG (Vorbis) files are common in games and Linux apps but many players and devices only accept MP3.',
+    how: 'The audio is decoded in your browser and encoded to MP3 with LAME (192 kbps by default).',
+    quality: 'Lossy to lossy loses a little quality; at 192 kbps it is not audible for most listening.',
+    uses: 'Playing game soundtracks and recordings on MP3-only devices.',
+    faq: [
+      { question: 'What is OGG?', answer: 'An open container usually holding Vorbis audio.' },
+      { question: 'Can I pick the bitrate?', answer: 'Yes, 96–192 kbps free, up to 320 kbps with Pro.' },
+      PRIVATE,
+    ],
+  },
 };
 
 export const PAIR_COPY_SLUGS = Object.keys(COPY);

@@ -203,10 +203,20 @@ const MP3_PAIRS: ConvertPair[] = (['mp4', 'mov'] as const).map((from) => ({
   popular: true,
 }));
 
+// iPhone photos: "heic to jpg" is one of the biggest conversion searches and had no page.
+const HEIC_PAIRS: ConvertPair[] = (['jpg', 'png'] as const).map((to) => ({
+  from: 'heic', to, toolId: 'image-heic-convert', category: 'image' as const,
+  title: `HEIC → ${to.toUpperCase()}`,
+  blurb: `Convert iPhone HEIC photos to ${to.toUpperCase()} in your browser.`,
+  popular: true,
+}));
+
 // CAD & 3D flagship pairs (lib/convert/cad3d.ts) — hand-written, engine-verified.
 export const CONVERT_PAIRS: ConvertPair[] = [
-  ...BASE_PAIRS,
+  // GIF -> MP4 must keep the animation: video-gif-to-video, not the still-image slideshow.
+  ...BASE_PAIRS.map((p) => (p.from === 'gif' && p.to === 'mp4' ? { ...p, toolId: 'video-gif-to-video', title: 'GIF → MP4', blurb: 'Turn an animated GIF into a small MP4 video that plays everywhere.' } : p)),
   ...MP3_PAIRS,
+  ...HEIC_PAIRS,
   ...CAD3D_PAIRS.filter((c) => !BASE_PAIRS.some((b) => b.from === c.from && b.to === c.to)),
 ];
 

@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useConvertTarget } from '@/lib/convert/target-context';
 import * as Slider from '@radix-ui/react-slider';
 import { Upload, Download, Loader2, FileImage, X, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
@@ -39,7 +40,7 @@ export default function HeicConvertTool() {
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
   const [items, setItems] = React.useState<Item[]>([]);
-  const [target, setTarget] = React.useState<Target>('image/jpeg');
+  const [target, setTarget] = React.useState<Target>(useConvertTarget<Target>(['image/jpeg', 'image/png', 'image/webp'], 'image/jpeg', { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }));
   const [quality, setQuality] = React.useState(90);
   const [busy, setBusy] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);

@@ -5,6 +5,7 @@ import { POSTS } from '@/lib/blog/posts';
 import { BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
 import { isStudioDisabled } from '@/lib/studios/disabled';
 import { CAD3D_FORMATS } from '@/lib/convert/cad3d';
+import { PAIR_COPY_SLUGS } from '@/lib/convert/pair-copy';
 import { FORMAT_PROFILES } from '@/lib/convert/format-profiles';
 
 const SITE = `https://${BRAND_DOMAIN}`;
@@ -64,8 +65,10 @@ const APP_PAGES: string[] = [
 
 const POLICY_PAGES = ['/privacy', '/terms', '/cookies', '/refund'];
 
-function isHighQualityPair(p: { popular?: boolean }): boolean {
-  return !!p.popular;
+// Indexable pairs: flagged popular (CAD/3D, MP3, HEIC…) or given hand-written copy.
+const COPY = new Set(PAIR_COPY_SLUGS);
+function isHighQualityPair(p: { popular?: boolean; from: string; to: string }): boolean {
+  return !!p.popular || COPY.has(`${p.from}-to-${p.to}`);
 }
 
 export default function sitemap(): MetadataRoute.Sitemap {

@@ -112,7 +112,8 @@ const CASES = [
   // AVI is not decodable by Chrome's <video>; VideoDrop used to reject it before ffmpeg ran.
   { name: 'avi-to-mp4',      url: '/convert/avi-to-mp4',     file: 'clip.avi',         check: isVideo, click: /^convert/i },
   // HEIC page added 2026-09-28; the tool must preselect JPEG from the pair.
-  { name: 'heic-to-jpg',     url: '/convert/heic-to-jpg',    file: 'example.heic',     check: isJpeg, click: /^convert/i },
+  // Converts on drop (JPG preselected) — no action button; the runner presses "Download all".
+  { name: 'heic-to-jpg',     url: '/convert/heic-to-jpg',    file: 'example.heic',     check: isJpeg },
   { name: 'image-resize',    url: '/tools/image-resize',     file: 'test.png',         check: isSmallImage },
   // Whisper on transformers v3 (input shape fixed 2026-09-27). A tone has no speech,
   // so the SRT is tiny — the check is that a well-formed cue comes out at all.

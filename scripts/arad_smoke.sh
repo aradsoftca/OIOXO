@@ -53,6 +53,7 @@ check "tool page: no AI-hardware FAQ"  "0" "$(echo "$TP" | grep -c 'What hardwar
 check "tool page: no fake undo/redo"   "0" "$(echo "$TP" | grep -c 'Undo and redo are local')"
 check "tool page: hand-written copy"   "1" "$( echo "$TP" | grep -q 'can no longer be selected' && echo 1 || echo 0)"
 check "tool page: honest free answer"  "1" "$( echo "$TP" | grep -q 'daily free allowance' && echo 1 || echo 0)"
+check "heic-to-jpg page indexable"  "0" "$(curl -s $B/convert/heic-to-jpg | grep -c 'content="noindex')"
 check "format page /formats/dwg"      "200 " "$(st $B/formats/dwg)"
 check "no bulk format pages"          "404 " "$(st $B/formats/mobi)"
 check "PWA manifest is Xonvert's"     "1" "$(curl -s $B/ | grep -c 'href="/xonvert.webmanifest"')"

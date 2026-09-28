@@ -68,6 +68,9 @@ check "/pricing untouched by legacy"  "200 " "$(st $B/pricing)"
 SM=$(curl -s $B/sitemap.xml)
 check "sitemap has no studios"        "0" "$(echo "$SM" | grep -cE '/(studios|tools/(image-studio|video-studio|pdf-studio|office-docs))<')"
 check "sitemap still has tools"       "yes" "$( [ $(echo "$SM" | grep -c '<loc>') -gt 300 ] && echo yes || echo no)"
+for a in send:Send chat:Private.Chat call:Video.Call watch:Live.Screen.Share; do
+  check "/${a%%:*} explains itself (SSR)" "1" "$(curl -s $B/${a%%:*} | grep -c "What is ${a#*:}?")"
+done
 HOME_HTML=$(curl -s $B/)
 check "home HTML under 400 KB"         "yes" "$( [ $(echo "$HOME_HTML" | wc -c) -lt 400000 ] && echo yes || echo no)"
 check "home links no studio"          "0" "$(echo "$HOME_HTML" | grep -cE 'href="/(studios|tools/image-studio)"')"

@@ -99,6 +99,7 @@ const PREP = {
   },
 };
 // alert()/confirm() text that means the action failed (tools that report errors by dialog).
+const RED_ERR_RE = /fail|error|could not|couldn't|unable|unsupported|invalid|too (large|big)|not supported/i;
 const DIALOG_FAIL_RE = /fail|error|could not|couldn't|unable/i;
 // Labels seen on the live pages that ACTION_RE misses ("MUTE & DOWNLOAD", "BUILD PDF", "ADD ECHO",
 // "SHIFT PITCH", "RE-ENCODE", "Transcribe", ...). Checked in addition to ACTION_RE.
@@ -319,7 +320,7 @@ async function runPage(browser, url) {
       await page.waitForTimeout(acted ? 1500 : 750);
       // The daily free-export quota is enforced per visitor server-side; a fresh context does not reset it.
       if (await page.getByText(/free limit reached/i).first().isVisible().catch(() => false)) { rec.quota = true; break; }
-      const red = (await page.locator('.text-red-600:visible, [role=alert]:visible').allInnerTexts().catch(() => [])).map((x) => x.trim()).filter(Boolean);
+      const red = (await page.locator('.text-red-600:visible, [role=alert]:visible').allInnerTexts().catch(() => [])).map((x) => x.trim()).filter((x) => x && RED_ERR_RE.test(x)); // red styling alone (an invoice 'Discount' line) is not an error
       if (red.length && !download) { rec.red = red.slice(0, 3); break; }
       const badDialog = (rec.dialogs || []).find((m) => DIALOG_FAIL_RE.test(m));
       if (badDialog && !download) { rec.dialogFail = badDialog; break; }

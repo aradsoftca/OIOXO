@@ -1081,7 +1081,8 @@ function GreenRoom({
               </div>
             )}
             {lobbyErr && (
-              <div className="absolute inset-0 grid place-items-center p-6 text-center text-white/80">
+              // pb-16 keeps Retry clear of the mic/camera bar at the bottom (they overlapped on phones).
+              <div className="absolute inset-0 grid place-items-center px-6 pb-16 pt-4 text-center text-white/80">
                 <div className="max-w-xs">
                   <MicOff className="mx-auto mb-2 h-7 w-7 text-red-400" />
                   <p className="text-[13px]">

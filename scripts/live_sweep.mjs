@@ -128,7 +128,11 @@ function acceptsSample(accepts, s) {
     return a === s.mime || (s.alt || []).includes(a) || s.exts.some((e) => a.endsWith('/' + e));
   });
 }
+// Tools that need specific content, not just the right type (OCR finds nothing in test.png).
+const SAMPLE_OVERRIDE = { '/tools/image-ocr': { file: 'ocr.png', mime: 'image/png', exts: ['png'] } };
 function pickSample(url, accepts) {
+  const o = SAMPLE_OVERRIDE[url];
+  if (o && fs.existsSync(path.join(SAMPLES, o.file))) return o;
   const pair = url.match(/^\/convert\/([a-z0-9]+)-to-([a-z0-9]+)$/);
   if (pair) return SAMPLE_TYPES.find((s) => s.exts.includes(pair[1])) || null;
   if (!accepts || !accepts.length) return null;

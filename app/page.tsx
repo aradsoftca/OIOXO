@@ -250,7 +250,7 @@ export default function HomePage() {
                 Files stay yours
               </div>
               <div className="mt-1 text-[12px] text-white/55">
-                No signup. No tracking. Your files stay private. Pro Quality is the only opt-in exception.
+                No signup. No tracking. Every file is processed on your device — no exceptions.
               </div>
             </div>
           </Tile>
@@ -283,10 +283,10 @@ export default function HomePage() {
             <TileIcon name="sparkles" size={22} className="text-[var(--color-cat-convert)]" />
             <div>
               <div className="text-[14px] font-semibold tracking-tight text-white">
-                Pro Quality, on demand
+                Pro: no limits, no marks
               </div>
               <div className="mt-1 text-[12px] text-white/55">
-                Tap into a shared GPU for the heaviest jobs — opt-in, transparent, optional.
+                Big files, batches and no brand mark on exports — still 100% on your device. $4.99/mo.
               </div>
             </div>
           </Tile>

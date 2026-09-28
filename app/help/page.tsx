@@ -27,7 +27,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
   },
   {
     q: 'Are my files uploaded to your servers?',
-    a: <>No. {BRAND} processes your files <strong>entirely in your browser</strong> — they never leave your device. The only exception is the optional &ldquo;Pro Quality&rdquo; feature for heavy jobs, which you turn on explicitly; that file is sent over an encrypted connection, used once, and discarded.</>,
+    a: <>No. {BRAND} processes your files <strong>entirely in your browser</strong> — they never leave your device. There is no server-processing mode, for free or Pro users.</>,
   },
   {
     q: 'Do I need an account?',
@@ -69,7 +69,7 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
 
 const FAQ_PLAIN: { q: string; a: string }[] = [
   { q: `Is ${BRAND} free?`, a: `Yes. Most tools are free to use. Format conversion is unlimited; image, PDF and audio tools allow 10 free jobs a day and video 3 — or upgrade to Pro for unlimited use across everything.` },
-  { q: 'Are my files uploaded to your servers?', a: `No. ${BRAND} processes your files entirely in your browser — they never leave your device. The only exception is the optional "Pro Quality" feature for heavy jobs, which you turn on explicitly.` },
+  { q: 'Are my files uploaded to your servers?', a: `No. ${BRAND} processes your files entirely in your browser — they never leave your device. There is no server-processing mode, for free or Pro users.` },
   { q: 'Do I need an account?', a: `No account is needed for the everyday tools. You only need to sign up to subscribe to Pro or manage billing.` },
   { q: 'How do the free limits work?', a: `Conversion is unlimited. Image, PDF and audio tools allow 10 free jobs a day and video tools 3. After that, a ~30-second wait unlocks one more, or go Pro for no limits. Limits reset daily.` },
   { q: 'What does Pro include?', a: `Unlimited use of every tool with no waits, across the whole platform.` },

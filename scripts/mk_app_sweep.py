@@ -27,11 +27,14 @@ import { execFileSync } from 'node:child_process';
 // ---- app bridge helpers ----
 const hookBridge = (page) => page.evaluate(() => {
   if (window.__xvHooked || !window.XonvertBridge) return !!window.XonvertBridge;
-  const orig = window.XonvertBridge.postMessage.bind(window.XonvertBridge);
+  // On Android XonvertBridge is a Java-bound object: assigning over its method is silently
+  // ignored, so replace the whole object with a recording proxy.
+  const real = window.XonvertBridge;
   window.__msgs = [];
-  try { window.XonvertBridge.postMessage = (m) => { window.__msgs.push(m); return orig(m); }; } catch (e) { return 'readonly'; }
+  const proxy = { postMessage: (m) => { window.__msgs.push(m); return real.postMessage(m); } };
+  try { window.XonvertBridge = proxy; } catch (e) { return 'readonly'; }
   window.__xvHooked = true;
-  return true;
+  return window.XonvertBridge === proxy ? true : 'not-replaced';
 }).catch(() => false);
 const appDeliver = async (page, files) => {
   const payload = files.map((f) => ({ name: path.basename(f), mime: mimeOf(f), data: fs.readFileSync(f).toString('base64') }));

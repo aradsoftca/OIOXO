@@ -148,7 +148,7 @@ async function runCase(browser, c) {
       const red = (await page.locator('.text-red-600:visible').allInnerTexts().catch(() => [])).filter(Boolean);
       if (red.length) throw new Error('page error: ' + red[0].slice(0, 200));
       // Subtitle downloads are labelled ".srt" / ".vtt" / ".txt".
-      const dl = page.locator('button:visible, a:visible', { hasText: /^\s*(download|\.(srt|vtt|txt)\b)/i }).first();
+      const dl = page.locator('button:visible, a:visible', { hasText: /^\s*(download|\.(srt|vtt|txt|jpg|png|webp)\b)/i }).first();
       if (await dl.count()) { await dl.click({ timeout: 5000 }).catch(() => {}); await page.waitForTimeout(1500); }
       else await page.waitForTimeout(500);
     }

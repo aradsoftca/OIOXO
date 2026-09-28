@@ -36,7 +36,8 @@ check "robots no Disallow /_next/"    "0" "$(echo "$ROBOTS" | grep -cx 'Disallow
 check "/tools self-canonical"         "https://xonvert.com/tools" "$(canon /tools)"
 check "/convert self-canonical"       "https://xonvert.com/convert" "$(canon /convert)"
 check "/tools links uncatalogued tool" "1" "$(curl -s $B/tools | grep -c 'href="/tools/video-info"')"
-check "thin pair is noindex,follow"   "1" "$(curl -s $B/convert/avif-to-jpg | grep -c 'content="noindex, follow"')"
+# png-to-avif has no hand-written copy (avif-to-jpg got some on 2026-09-28, so it is indexable now).
+check "thin pair is noindex,follow"   "1" "$(curl -s $B/convert/png-to-avif | grep -c 'content="noindex, follow"')"
 check "no SearchAction"               "0" "$(curl -s $B/ | grep -c 'SearchAction')"
 check "/cad-3d hub 200 + canonical"   "https://xonvert.com/cad-3d" "$(canon /cad-3d)"
 CAD=$(curl -s $B/convert/step-to-stl)

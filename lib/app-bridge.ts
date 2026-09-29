@@ -55,11 +55,15 @@ const pendingAds = new Map<string, (ok: boolean) => void>();
  * should re-check /api/usage afterwards (give the callback a moment to land).
  */
 export async function requestRewardedAd(category: string): Promise<boolean> {
-  const res = await fetch('/api/usage/ad-ticket', {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category }),
-  });
-  if (!res.ok) return false;
-  const { ticket } = (await res.json()) as { ticket: string };
+  // The ticket only feeds AdMob's server-side verification; a failed ticket
+  // request must not stop the ad from showing.
+  let ticket = '';
+  try {
+    const res = await fetch('/api/usage/ad-ticket', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ category }),
+    });
+    if (res.ok) ticket = ((await res.json()) as { ticket?: string }).ticket || '';
+  } catch { /* show the ad anyway */ }
   const id = Math.random().toString(36).slice(2);
   return new Promise<boolean>((resolve) => {
     pendingAds.set(id, resolve);
@@ -67,6 +71,28 @@ export async function requestRewardedAd(category: string): Promise<boolean> {
     // An ad that never reports back must not hang the tool forever.
     setTimeout(() => { if (pendingAds.delete(id)) resolve(false); }, 5 * 60_000);
   });
+}
+
+/**
+ * The app's free tier (owner decision 2026-09-29): no daily limits — an ad
+ * before an export instead. Pro never sees ads. Free users get a rewarded ad
+ * (at most one per AD_COOLDOWN_MS so batch tools don't show one per file) and
+ * the export ALWAYS goes ahead afterwards, whether the ad was watched, closed,
+ * or had no fill. Size limits, the watermark and branded file names stay.
+ */
+const AD_COOLDOWN_MS = 60_000;
+const AD_LAST_KEY = 'xv:app-ad-last';
+export async function appAdGate(category: string): Promise<boolean> {
+  try {
+    const { isWatermarkOn } = await import('@/lib/watermark/config');
+    if (!(await isWatermarkOn())) return true; // Pro
+  } catch { /* unknown → treat as free */ }
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(AD_LAST_KEY) || 0); } catch { /* ignore */ }
+  if (Date.now() - last < AD_COOLDOWN_MS) return true;
+  try { sessionStorage.setItem(AD_LAST_KEY, String(Date.now())); } catch { /* ignore */ }
+  await requestRewardedAd(category).catch(() => false);
+  return true;
 }
 
 function b64ToFile(f: { name: string; mime: string; data: string }): File {

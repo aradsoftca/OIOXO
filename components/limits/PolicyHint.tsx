@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import { getPolicy } from '@/lib/limits/policy';
 import { limitForKey, isGatedKey } from '@/lib/usage/config';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { isInApp } from '@/lib/app-bridge';
 
 /**
  * Small "Free plan: …" banner shown above a tool. Reads the policy and lists
@@ -20,6 +21,8 @@ import { useIsPro } from '@/lib/limits/use-is-pro';
 export function PolicyHint({ toolKey, fallbackKey, compact }: { toolKey: string; fallbackKey?: string; compact?: boolean }) {
   const { status } = useSession();
   const isPro = useIsPro();
+  const [inApp, setInApp] = React.useState(false);
+  React.useEffect(() => setInApp(isInApp()), []);
   const policy = getPolicy(toolKey) ?? (fallbackKey ? getPolicy(fallbackKey) : undefined);
   if (status === 'loading') return null;
   if (!policy || isPro) return null;
@@ -27,7 +30,8 @@ export function PolicyHint({ toolKey, fallbackKey, compact }: { toolKey: string;
   // COUNT comes from config.ts (the runtime authority), NOT policy.count-day
   // (which is never enforced). Show the real per-key daily cap; 9999+ = no limit.
   const countKey = isGatedKey(toolKey) ? toolKey : (fallbackKey && isGatedKey(fallbackKey) ? fallbackKey : null);
-  if (countKey) {
+  // Mobile app: no daily count there (an ad before an export instead).
+  if (countKey && !inApp) {
     const n = limitForKey(countKey);
     if (Number.isFinite(n) && n < 9999) items.push(`${n}/day`);
   }

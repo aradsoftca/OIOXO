@@ -11,6 +11,7 @@ import { Crown } from 'lucide-react';
 import type { Category } from '@/lib/registry/types';
 import { gateKeyForTool, gateMetaForKey } from '@/lib/usage/config';
 import { benefitsForKey, freeSizeLabel } from '@/lib/usage/benefits';
+import { isInApp } from '@/lib/app-bridge';
 
 interface Status { used: number; limit: number; unlimited?: boolean }
 
@@ -49,6 +50,9 @@ export function UsageMeter({ category, toolId }: { category: Category; toolId?: 
       </div>
     );
   }
+
+  // Mobile app: no daily limits there (an ad before an export instead), so no count to show.
+  if (isInApp()) return null;
 
   const remaining = Math.max(0, s.limit - s.used);
   const topBenefit = benefitsForKey(key)[0];

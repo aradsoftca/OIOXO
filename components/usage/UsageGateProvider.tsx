@@ -13,7 +13,7 @@ import { getPolicy } from '@/lib/limits/policy';
 import { installCanvasWatermark, setCanvasWatermarkEnabled, installAnchorBrand } from '@/lib/watermark/canvas-patch';
 import { GateModal } from './use-usage-gate';
 import { funnel } from '@/lib/funnel';
-import { installAppBridge, isInApp, requestRewardedAd } from '@/lib/app-bridge';
+import { appAdGate, installAppBridge, isInApp, requestRewardedAd } from '@/lib/app-bridge';
 
 /**
  * Global usage gate.
@@ -204,6 +204,8 @@ export function UsageGateProvider() {
       clearTimer();
       prior(false);
     }
+    // Mobile app: an ad instead of the daily meter (lib/app-bridge.ts appAdGate).
+    if (isInApp()) return appAdGate(key);
     let r: UsageResponse;
     try {
       r = await postJson<UsageResponse>('/api/usage', { category: key, action: 'consume' });

@@ -194,6 +194,11 @@ export function useUsageGate(key: string) {
         }
       }
     }
+    // Mobile app: an ad instead of the daily meter (lib/app-bridge.ts appAdGate).
+    {
+      const { isInApp, appAdGate } = await import('@/lib/app-bridge');
+      if (isInApp()) { armDownloadBypass(); return appAdGate(key); }
+    }
     let r: UsageResponse;
     try {
       r = await postJson<UsageResponse>('/api/usage', { category: key, action: 'consume' });

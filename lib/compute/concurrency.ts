@@ -54,6 +54,9 @@ export function niceThreadCount(): number {
  * Pass the imported `@xenova/transformers` module. Best-effort: never throws.
  */
 export function configureOnnxRuntime(lib: unknown): void {
+  // A model is (about to be) resident: lib/app-bridge.ts skips the in-app ad on
+  // memory-constrained devices so the ad's web view doesn't get this page killed.
+  (globalThis as { __xvHeavyModel?: boolean }).__xvHeavyModel = true;
   try {
     const wasm = (lib as { env?: { backends?: { onnx?: { wasm?: Record<string, unknown> } } } })
       ?.env?.backends?.onnx?.wasm;

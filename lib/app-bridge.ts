@@ -82,11 +82,21 @@ export async function requestRewardedAd(category: string): Promise<boolean> {
  */
 const AD_COOLDOWN_MS = 60_000;
 const AD_LAST_KEY = 'xv:app-ad-last';
+/** Tool pages that keep a large AI model (or OCR engine) in memory at export time. */
+const HEAVY_AI_PATH = /\/(tools\/(image-(upscale|enhance|remove-bg|colorize|inpaint|object-remove|ocr)|audio-(to-text|stem|vocal-remover|remove-noise)|subtitle-generate|video-auto-dub|text-translate|pdf-ocr|studio-[a-z-]*ai[a-z-]*)|convert\/[a-z0-9]+-to-txt)\b/;
 export async function appAdGate(category: string): Promise<boolean> {
   try {
     const { isWatermarkOn } = await import('@/lib/watermark/config');
     if (!(await isWatermarkOn())) return true; // Pro
   } catch { /* unknown → treat as free */ }
+  // iPhone: an AI model still in memory + the ad SDK's own web view is more than
+  // iOS allows — it kills this page (measured: upscale crashed only when the ad
+  // loaded). On memory-constrained devices, AI tools export without an ad.
+  try {
+    const { isMemoryConstrained } = await import('@/lib/compute/device-profile');
+    const heavy = !!(globalThis as { __xvHeavyModel?: boolean }).__xvHeavyModel || HEAVY_AI_PATH.test(location.pathname);
+    if (heavy && isMemoryConstrained()) return true;
+  } catch { /* fall through to the ad */ }
   let last = 0;
   try { last = Number(sessionStorage.getItem(AD_LAST_KEY) || 0); } catch { /* ignore */ }
   if (Date.now() - last < AD_COOLDOWN_MS) return true;

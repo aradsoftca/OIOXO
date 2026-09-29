@@ -462,8 +462,8 @@ async function worker() {
     const u = urls[next++];
     // A crashed WebView renderer makes CDP calls hang: cap each page, and on a hang
     // save what we have and exit 3 so the runner can restart the app and resume.
-    const r = await Promise.race([runPage(browser, u), new Promise((res) => setTimeout(() => res(null), 150_000))]);
-    if (!r) { console.log(`HUNG        ${u} - page did not finish in 150s (WebView renderer likely crashed)`); results.push({ url: u, status: 'HUNG', reasons: ['hung'], pageErrors: [], http: [], red: [] }); hung = true; break; }
+    const r = await Promise.race([runPage(browser, u), new Promise((res) => setTimeout(() => res(null), DL_TIMEOUT + 60_000))]);
+    if (!r) { console.log(`HUNG        ${u} - page did not finish in ${(DL_TIMEOUT + 60_000) / 1000}s (WebView renderer likely crashed)`); results.push({ url: u, status: 'HUNG', reasons: ['hung'], pageErrors: [], http: [], red: [] }); hung = true; break; }
     results.push(r);
     const why = r.reasons[0] ? ' - ' + r.reasons[0] : '';
     const out = r.output ? ` ${r.output.kind} ${r.output.bytes}B` : '';

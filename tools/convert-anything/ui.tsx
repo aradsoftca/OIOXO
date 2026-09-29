@@ -16,7 +16,7 @@ import { freeSizeLabel } from '@/lib/usage/benefits';
 import { usePageTarget } from '@/lib/convert/target-context';
 
 const CAT_LABEL: Record<ConvCategory, string> = {
-  image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation', text: 'text file', archive: 'archive', calendar: 'calendar / contacts', email: 'email', certificate: 'certificate / key',
+  image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation', text: 'text file', archive: 'archive', calendar: 'calendar / contacts', email: 'email', certificate: 'certificate / key', structured: 'data file', binary: 'binary data',
 };
 
 const fmtSize = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);

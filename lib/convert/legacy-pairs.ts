@@ -11,8 +11,9 @@
  * page's target, so it backs all of them.
  *
  * Deliberately NOT here although the matrix lists them (LEGACY_EXCLUDED):
- *   - fonts: targetsFor offers ttf/otf/woff/woff2 but convertFile has no
- *     'font' case (it throws), and font-convert only writes opentype.js output.
+ *   - X → zip for single files: the matrix offers it for every format, but one
+ *     page (json-to-zip, the most searched) is enough; the rest redirect to
+ *     convert-anything, which does it.
  *   - html/md/tex → image/pdf: the text renderer strips tags and draws the
  *     SOURCE text; people searching these want the rendered page/formula.
  *   - ts: the matrix treats .ts as TypeScript text, the searches mean MPEG-TS.
@@ -20,6 +21,7 @@
  */
 import type { ConvertPair } from '@/lib/convert/pairs';
 import type { Category } from '@/lib/registry/types';
+import { FORMAT_CATEGORY } from '@/lib/convert/matrix';
 
 /** Human name of each format, used in titles and descriptions. */
 const NAMES: Record<string, string> = {
@@ -38,6 +40,10 @@ const NAMES: Record<string, string> = {
   docx: 'Word document', odt: 'OpenDocument text', xlsx: 'Excel spreadsheet', eml: 'email message',
   ics: 'iCalendar file', vcs: 'vCalendar file', vcf: 'vCard contacts', vcard: 'vCard contacts',
   ldif: 'LDIF directory export',
+  ani: 'Windows animated cursor', cur: 'Windows cursor', sbv: 'YouTube SBV subtitles',
+  srt: 'SRT subtitles', vtt: 'WebVTT subtitles', ssa: 'SubStation Alpha subtitles',
+  plist: 'Apple property list', xml: 'XML', stl: 'STL 3D model', scad: 'OpenSCAD file',
+  dat: 'DAT data file', woff: 'WOFF web font', otf: 'OpenType font',
 };
 
 const IMAGE = new Set(['ai', 'psb', 'ico', 'tiff', 'png', 'avif']);
@@ -64,12 +70,37 @@ export const LEGACY_PAIR_LIST: ReadonlyArray<readonly [string, string]> = [
   ['docx', 'pdf'], ['odt', 'pdf'], ['xlsx', 'csv'], ['eml', 'txt'],
   ['ics', 'csv'], ['ics', 'json'], ['ics', 'txt'], ['vcs', 'csv'], ['vcs', 'txt'],
   ['vcard', 'json'], ['vcard', 'txt'], ['vcf', 'json'], ['vcf', 'txt'], ['ldif', 'csv'], ['ldif', 'json'],
+  // Converters added for the top unserved searches (lib/convert/formats/*).
+  ['ani', 'png'], ['ani', 'gif'], ['ani', 'cur'], ['ani', 'ico'],
+  ['sbv', 'txt'], ['sbv', 'srt'], ['sbv', 'vtt'], ['srt', 'sbv'], ['vtt', 'txt'], ['ssa', 'txt'],
+  ['plist', 'txt'], ['plist', 'json'], ['plist', 'xml'],
+  ['mp3', 'jpg'], ['mp3', 'png'],
+  ['json', 'zip'], ['stl', 'scad'], ['dat', 'txt'], ['woff', 'otf'],
 ];
+
+/** Pages whose generic "Convert X to Y" wording would mislead. */
+const OVERRIDES: Record<string, Partial<Pick<ConvertPair, 'title' | 'metaTitle' | 'blurb' | 'note' | 'category'>>> = {
+  'ani-to-png': { category: 'image', blurb: 'Turn a Windows animated cursor (.ani) into a transparent PNG of its first frame — right in your browser, no upload.' },
+  'ani-to-gif': { category: 'image', title: 'Convert ANI to animated GIF', blurb: 'Turn a Windows animated cursor (.ani) into a looping animated GIF with every frame and its original timing — no upload.', note: 'GIF transparency is on/off, so soft cursor shadows become hard edges.' },
+  'ani-to-cur': { category: 'image', blurb: 'Save the first frame of a Windows animated cursor (.ani) as a static .cur cursor, hotspot kept — no upload.' },
+  'ani-to-ico': { category: 'image', blurb: 'Save the first frame of a Windows animated cursor (.ani) as a .ico icon — no upload.' },
+  'mp3-to-jpg': { category: 'audio', title: 'Extract MP3 cover art as JPG', metaTitle: 'MP3 to JPG — extract the album cover art from an MP3, free in your browser', blurb: 'Save the album art embedded in an MP3’s ID3 tag as a JPG image. Nothing is uploaded.', note: 'Works when the MP3 has cover art embedded; an MP3 without a picture has nothing to extract.' },
+  'mp3-to-png': { category: 'audio', title: 'Extract MP3 cover art as PNG', metaTitle: 'MP3 to PNG — extract the album cover art from an MP3, free in your browser', blurb: 'Save the album art embedded in an MP3’s ID3 tag as a PNG image. Nothing is uploaded.', note: 'Works when the MP3 has cover art embedded; an MP3 without a picture has nothing to extract.' },
+  'plist-to-txt': { blurb: 'Read an Apple .plist — XML or binary (bplist) — as a clean indented text outline, in your browser.' },
+  'plist-to-json': { blurb: 'Convert an Apple .plist — XML or binary (bplist) — to pretty JSON. Dates become ISO strings, data becomes Base64.' },
+  'plist-to-xml': { title: 'Convert binary PLIST to XML', metaTitle: 'PLIST to XML — decode a binary plist to readable XML, free in your browser', blurb: 'Decode a binary .plist (bplist00) into the standard XML plist format Xcode reads — no Mac or plutil needed.' },
+  'stl-to-scad': { blurb: 'Turn an STL mesh (ASCII or binary) into an OpenSCAD polyhedron() you can open, transform and combine in OpenSCAD.', note: 'The result is the mesh as a polyhedron, not editable parametric CSG.' },
+  'dat-to-txt': { title: 'Open a DAT file as text', metaTitle: 'DAT to TXT — view any .dat file as text or a hex dump, free in your browser', blurb: '.dat is a generic extension any program can use. See what is inside: text is shown as text, binary data as a readable hex dump.', note: 'A .dat file has no single format, so nothing is “converted” — you see the actual contents.' },
+  'json-to-zip': { title: 'Compress JSON to ZIP', blurb: 'Pack a .json file into a .zip archive in your browser — JSON typically shrinks by 80–90%.', note: 'Compresses the file into a standard .zip.' },
+  'woff-to-otf': { blurb: 'Unpack a WOFF web font back into an installable OpenType font. The font tables are restored exactly — no re-drawing of glyphs.', note: 'WOFF2 fonts are not supported yet.' },
+  'sbv-to-txt': { blurb: 'Turn YouTube .sbv captions into plain text — just the lines, no timestamps — in your browser.' },
+  'vtt-to-txt': { blurb: 'Turn WebVTT captions into plain text — just the lines, no timestamps — in your browser.' },
+  'ssa-to-txt': { blurb: 'Turn SubStation Alpha (.ssa/.ass) subtitles into plain text, styling codes removed.' },
+};
 
 /** Matrix routes kept OUT on purpose (reason shown by scripts/legacy_pair_plan.ts). */
 export function legacyExclusion(from: string, to: string): string | null {
-  const font = ['ttf', 'otf', 'woff', 'woff2'];
-  if (font.includes(from) || font.includes(to)) return 'font: convertFile has no font handler';
+  if (to === 'zip' && from !== 'json' && FORMAT_CATEGORY[from] !== 'archive') return 'single-file zip: only json-to-zip gets a page, the rest land on convert-anything';
   if (['html', 'htm', 'md', 'markdown', 'tex'].includes(from)) return 'markup rendered as source text, not as a page';
   if (from === 'ts') return '.ts is read as TypeScript text, the search means MPEG-TS video';
   if (from === 'key') return '"key" searches mean Keynote';
@@ -102,4 +133,5 @@ export const LEGACY_PAIRS: ConvertPair[] = LEGACY_PAIR_LIST.map(([from, to]) => 
   blurb: `Convert ${name(from)} (.${from}) files to ${name(to)} (.${to}) right in your browser — no upload, no signup.`,
   note: note(from, to),
   popular: true,
+  ...OVERRIDES[`${from}-to-${to}`],
 }));

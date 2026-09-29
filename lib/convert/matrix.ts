@@ -11,7 +11,7 @@
 
 import { startJob, updateJob, endJob } from '@/lib/compute/progressBus';
 
-export type ConvCategory = 'image' | 'audio' | 'video' | 'pdf' | 'subtitle' | 'font' | 'data' | 'model3d' | 'document' | 'ebook' | 'cad' | 'presentation' | 'text' | 'archive' | 'calendar' | 'email' | 'certificate';
+export type ConvCategory = 'image' | 'audio' | 'video' | 'pdf' | 'subtitle' | 'font' | 'data' | 'model3d' | 'document' | 'ebook' | 'cad' | 'presentation' | 'text' | 'archive' | 'calendar' | 'email' | 'certificate' | 'structured' | 'binary';
 
 /** Which engine performs a given conversion. */
 export type HandlerId =
@@ -45,7 +45,13 @@ export type HandlerId =
   | 'msg'          // outlook .msg → eml/txt/html
   | 'email'        // .eml / .mbox → html/txt/eml
   | 'cert'         // x.509 cert/key pem↔der
-  | 'dwg';         // autocad .dwg → .dxf (libredwg wasm)
+  | 'dwg'          // autocad .dwg → .dxf (libredwg wasm)
+  | 'ani'          // windows animated cursor → png/gif/ico/cur
+  | 'cover-art'    // mp3 ID3 APIC picture → jpg/png
+  | 'plist'        // apple property list (xml/binary) → json/txt/xml
+  | 'stl-scad'     // stl → openscad polyhedron()
+  | 'dat-text'     // unknown .dat → text, or a hex dump
+  | 'zip';         // any single file → .zip
 
 export interface Target {
   to: string;
@@ -96,7 +102,11 @@ const VIDEO_CODEC: Record<string, string[]> = {
   webm: ['-c:v', 'libvpx-vp9', '-b:v', '1M', '-c:a', 'libopus'],
   avi: ['-c:v', 'mpeg4', '-vtag', 'xvid', '-q:v', '5', '-c:a', 'libmp3lame', '-b:a', '192k'],
 };
-const SUBTITLE = ['srt', 'vtt'];
+// Subtitles: srt/vtt/sbv/ass/ssa in (lib/convert/formats/subtitle); ass/ssa are read-only.
+const SUBTITLE = ['srt', 'vtt', 'sbv', 'ass', 'ssa'];
+const SUBTITLE_OUT = ['srt', 'vtt', 'sbv', 'txt'];
+// Fonts: WOFF 1.0 ⇄ TTF/OTF is a lossless table (de)compression (lib/convert/formats/woff).
+// WOFF2 needs Brotli + glyf transforms we don't ship, so .woff2 has no conversion targets.
 const FONT = ['ttf', 'otf', 'woff', 'woff2'];
 const MODEL3D = ['obj', 'stl', 'fbx', 'dae', 'ply', '3ds', 'gltf', 'glb', '3mf'];
 const MODEL3D_OUT = ['glb', 'gltf'];
@@ -143,6 +153,10 @@ for (const f of CERT_IN) FORMAT_CATEGORY[f] = 'certificate';
 FORMAT_CATEGORY['ai'] = 'image';   // Illustrator (pdf-compatible) → rasterized in targetsFor
 FORMAT_CATEGORY['pdf'] = 'pdf';
 FORMAT_CATEGORY['epub'] = 'ebook';
+FORMAT_CATEGORY['ani'] = 'image';        // animated cursor → special-cased in targetsFor
+FORMAT_CATEGORY['json'] = 'structured';
+FORMAT_CATEGORY['plist'] = 'structured';
+FORMAT_CATEGORY['dat'] = 'binary';
 // 'webm' is both audio and video; treat as video by default (above loop order keeps video).
 
 export function extOf(name: string): string {
@@ -159,7 +173,24 @@ export function detectFormat(file: { name: string; type?: string }): { ext: stri
 /** Every conversion this source format can undergo in the browser. */
 export function targetsFor(ext: string): Target[] {
   const cat = FORMAT_CATEGORY[ext];
+  const out = routesFor(ext);
+  // Any single recognised file can be zipped (archives are handled by archive-repack).
+  if (cat && cat !== 'archive' && !out.some((t) => t.to === 'zip')) {
+    out.push({ to: 'zip', handler: 'zip', toolId: 'convert-anything', note: 'Compresses the file into a .zip' });
+  }
+  return out;
+}
+
+function routesFor(ext: string): Target[] {
+  const cat = FORMAT_CATEGORY[ext];
   const out: Target[] = [];
+  if (ext === 'ani') {
+    out.push({ to: 'png', handler: 'ani', toolId: 'convert-anything', note: 'First frame of the animated cursor' });
+    out.push({ to: 'gif', handler: 'ani', toolId: 'convert-anything', note: 'Every frame, with the cursor’s own timing' });
+    out.push({ to: 'cur', handler: 'ani', toolId: 'convert-anything', note: 'First frame as a static cursor' });
+    out.push({ to: 'ico', handler: 'ani', toolId: 'convert-anything', note: 'First frame as an icon' });
+    return out;
+  }
   if (cat === 'image') {
     // Photoshop: composite via ag-psd, then any raster + pdf.
     if (ext === 'psd' || ext === 'psb') {
@@ -181,6 +212,10 @@ export function targetsFor(ext: string): Target[] {
   } else if (cat === 'audio') {
     for (const to of AUDIO_OUT) if (to !== ext) out.push({ to, handler: 'audio', toolId: 'audio-convert-format' });
     out.push({ to: 'txt', handler: 'transcribe', toolId: 'audio-to-text', note: 'Transcribes speech' });
+    if (ext === 'mp3') {
+      out.push({ to: 'jpg', handler: 'cover-art', toolId: 'convert-anything', note: 'Extracts the embedded cover art' });
+      out.push({ to: 'png', handler: 'cover-art', toolId: 'convert-anything', note: 'Extracts the embedded cover art' });
+    }
   } else if (cat === 'video') {
     for (const to of VIDEO_OUT) if (to !== ext) out.push({ to, handler: 'video', toolId: 'video-convert-format' });
     out.push({ to: 'gif', handler: 'video-gif', toolId: 'video-to-gif' });
@@ -193,11 +228,28 @@ export function targetsFor(ext: string): Target[] {
     out.push({ to: 'png', handler: 'pdf-img', toolId: 'pdf-to-images' });
     out.push({ to: 'txt', handler: 'pdf-txt', toolId: 'pdf-to-text' });
   } else if (cat === 'subtitle') {
-    for (const to of SUBTITLE) if (to !== ext) out.push({ to, handler: 'subtitle', toolId: 'subtitle-cleaner' });
+    for (const to of SUBTITLE_OUT) if (to !== ext) {
+      const plain = ext === 'srt' || ext === 'vtt';
+      out.push({ to, handler: 'subtitle', toolId: plain && to !== 'txt' && to !== 'sbv' ? 'subtitle-cleaner' : 'convert-anything', note: to === 'txt' ? 'Just the spoken lines, no timings' : undefined });
+    }
   } else if (cat === 'font') {
-    for (const to of FONT) if (to !== ext) out.push({ to, handler: 'font', toolId: 'font-convert' });
+    if (ext === 'woff') {
+      out.push({ to: 'ttf', handler: 'font', toolId: 'convert-anything', note: 'Unpacks the WOFF tables losslessly' });
+      out.push({ to: 'otf', handler: 'font', toolId: 'convert-anything', note: 'Unpacks the WOFF tables losslessly' });
+    } else if (ext === 'ttf' || ext === 'otf') {
+      out.push({ to: 'woff', handler: 'font', toolId: 'convert-anything', note: 'Compresses the font tables (WOFF 1.0)' });
+    }
   } else if (cat === 'model3d') {
     for (const to of MODEL3D_OUT) if (to !== ext) out.push({ to, handler: 'model3d', toolId: 'model-3d-convert' });
+    if (ext === 'stl') out.push({ to: 'scad', handler: 'stl-scad', toolId: 'convert-anything', note: 'OpenSCAD polyhedron() of the mesh' });
+  } else if (cat === 'structured') {
+    if (ext === 'plist') {
+      out.push({ to: 'json', handler: 'plist', toolId: 'convert-anything', note: 'XML or binary plist → JSON' });
+      out.push({ to: 'txt', handler: 'plist', toolId: 'convert-anything', note: 'Readable indented outline' });
+      out.push({ to: 'xml', handler: 'plist', toolId: 'convert-anything', note: 'XML plist (decodes binary plists)' });
+    }
+  } else if (cat === 'binary') {
+    out.push({ to: 'txt', handler: 'dat-text', toolId: 'convert-anything', note: 'Shows the contents as text, or a hex dump if binary' });
   } else if (cat === 'data') {
     for (const to of SHEET_OUT) if (to !== ext) out.push({ to, handler: 'sheet', toolId: 'sheet-convert' });
   } else if (cat === 'document') {
@@ -267,6 +319,9 @@ const mimeOf: Record<string, string> = {
   html: 'text/html', json: 'application/json', csv: 'text/csv',
   eml: 'message/rfc822', pem: 'application/x-pem-file', crt: 'application/x-pem-file',
   der: 'application/pkix-cert', cer: 'application/pkix-cert',
+  srt: 'application/x-subrip', vtt: 'text/vtt', sbv: 'text/plain', xml: 'application/xml',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', zip: 'application/zip',
+  ico: 'image/x-icon', cur: 'image/x-win-bitmap', scad: 'text/plain',
 };
 
 export async function convertFile(file: File, target: Target, opts: ConvertOpts = {}): Promise<ConvertOutput> {
@@ -296,9 +351,12 @@ async function brandConvertOutput(out: ConvertOutput): Promise<ConvertOutput> {
   try {
     if (!out.blob) return out;
     const type = out.blob.type || '';
-    if (type.startsWith('image/')) {
+    // Only formats the canvas can re-encode as themselves: stamping a GIF, ICO,
+    // CUR, TIFF… would silently turn it into a PNG under the original filename
+    // (and flatten an animated GIF to one frame).
+    if (type === 'image/png' || type === 'image/jpeg' || type === 'image/webp') {
       const { stampImageBlob } = await import('@/lib/watermark/download');
-      return { ...out, blob: await stampImageBlob(out.blob) };
+      return { ...out, blob: await stampImageBlob(out.blob, { format: type }) };
     }
     if (type === 'application/pdf') {
       const { shouldWatermarkHere } = await import('@/lib/watermark/config');
@@ -316,6 +374,21 @@ async function brandConvertOutput(out: ConvertOutput): Promise<ConvertOutput> {
     }
   } catch { /* never break a conversion over branding */ }
   return out;
+}
+
+/**
+ * createImageBitmap cannot decode TIFF outside Safari, so every canvas path
+ * (re-encode, → PDF, → MP4) failed on Chrome/Firefox for .tif/.tiff input.
+ * Decode those to PNG with ffmpeg.wasm first; everything else passes through.
+ */
+async function browserDecodable(file: File): Promise<Blob> {
+  const ext = extOf(file.name);
+  if (ext !== 'tiff' && ext !== 'tif') return file;
+  const { runFfmpeg } = await import('@/engines/ffmpeg');
+  return runFfmpeg({
+    input: file, inputName: `in.${ext}`, outputName: 'out.png',
+    args: (i, o) => ['-i', i, '-frames:v', '1', o], mimeType: 'image/png',
+  });
 }
 
 async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): Promise<ConvertOutput> {
@@ -337,7 +410,7 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       }
       // Decode → encode via the jsquash codec (runs in the codec worker): wider
       // format support (incl. AVIF) and off the main thread vs canvas.toBlob.
-      const bm = await createImageBitmap(file);
+      const bm = await createImageBitmap(await browserDecodable(file));
       const canvas = document.createElement('canvas');
       canvas.width = bm.width; canvas.height = bm.height;
       const ctx = canvas.getContext('2d')!;
@@ -413,7 +486,7 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       if (isPng) img = await doc.embedPng(bytes);
       else if (['jpg', 'jpeg'].includes(extOf(file.name))) img = await doc.embedJpg(bytes);
       else {
-        const bm = await createImageBitmap(file);
+        const bm = await createImageBitmap(await browserDecodable(file));
         const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height;
         c.getContext('2d')!.drawImage(bm, 0, 0); bm.close();
         const png: Blob = await new Promise((r, j) => c.toBlob((b) => b ? r(b) : j(new Error('e')), 'image/png'));
@@ -426,7 +499,7 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
     }
     case 'img-video': {
       const { runFfmpegMulti } = await import('@/engines/ffmpeg');
-      const bm = await createImageBitmap(file);
+      const bm = await createImageBitmap(await browserDecodable(file));
       const W = bm.width % 2 ? bm.width - 1 : bm.width;
       const H = bm.height % 2 ? bm.height - 1 : bm.height;
       const c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -607,6 +680,78 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       if (!kind) throw new Error('Unsupported CAD format');
       const { text } = await convertCadInWorker(file, kind, target.to === 'obj' ? 'obj' : 'stl');
       return { blob: new Blob([text], { type: 'text/plain' }), filename: `${base}.${target.to}` };
+    }
+    case 'subtitle': {
+      const { convertSubtitle } = await import('@/lib/convert/formats/subtitle');
+      const from = extOf(file.name) as 'srt' | 'vtt' | 'sbv' | 'ass' | 'ssa';
+      const to = target.to as 'srt' | 'vtt' | 'sbv' | 'txt';
+      const text = convertSubtitle(await file.text(), from, to);
+      if (to === 'txt') return { text, filename: `${base}.txt` };
+      return { blob: new Blob([text], { type: mimeOf[to] }), filename: `${base}.${to}` };
+    }
+    case 'font': {
+      const { woffToSfnt, sfntToWoff } = await import('@/lib/convert/formats/woff');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (target.to === 'woff') {
+        return { blob: new Blob([sfntToWoff(bytes) as BlobPart], { type: 'font/woff' }), filename: `${base}.woff` };
+      }
+      // An OpenType file may hold TrueType or CFF outlines under either extension;
+      // the tables are returned exactly as the WOFF wrapped them.
+      const { font } = woffToSfnt(bytes);
+      return { blob: new Blob([font as BlobPart], { type: mimeOf[target.to] }), filename: `${base}.${target.to}` };
+    }
+    case 'ani': {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (target.to === 'gif') {
+        const { aniToGif } = await import('@/lib/convert/formats/ani-browser');
+        return { blob: await aniToGif(bytes), filename: `${base}.gif` };
+      }
+      if (target.to === 'png') {
+        const { aniToPng } = await import('@/lib/convert/formats/ani-browser');
+        return { blob: await aniToPng(bytes), filename: `${base}.png` };
+      }
+      const { parseAni, frameToIcoCur } = await import('@/lib/convert/formats/ani');
+      const ani = parseAni(bytes);
+      const as = target.to === 'ico' ? 'ico' : 'cur';
+      const out = frameToIcoCur(ani.frames[ani.sequence[0] ?? 0], as);
+      return { blob: new Blob([out as BlobPart], { type: mimeOf[as] }), filename: `${base}.${as}` };
+    }
+    case 'cover-art': {
+      const { extractPictures } = await import('@/lib/convert/formats/id3');
+      const pics = extractPictures(new Uint8Array(await file.arrayBuffer()));
+      if (!pics.length) throw new Error('This MP3 has no embedded cover art (no picture in its ID3 tag).');
+      const pic = pics[0];
+      const want = mimeOf[target.to];
+      if (pic.mime === want) return { blob: new Blob([pic.data as BlobPart], { type: want }), filename: `${base}.${target.to}` };
+      // Stored in another format (e.g. PNG art, JPG wanted) → re-encode on a canvas.
+      const bm = await createImageBitmap(new Blob([pic.data as BlobPart], { type: pic.mime }));
+      const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height;
+      const ctx = c.getContext('2d')!;
+      if (target.to === 'jpg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); }
+      ctx.drawImage(bm, 0, 0); bm.close();
+      const blob: Blob = await new Promise((r, j) => c.toBlob((b) => b ? r(b) : j(new Error('Image encode failed')), want, q));
+      return { blob, filename: `${base}.${target.to}` };
+    }
+    case 'plist': {
+      const p = await import('@/lib/convert/formats/plist');
+      const v = p.parsePlist(new Uint8Array(await file.arrayBuffer()));
+      if (target.to === 'json') return { text: p.plistToJson(v), filename: `${base}.json` };
+      if (target.to === 'xml') return { blob: new Blob([p.plistToXml(v)], { type: 'application/xml' }), filename: `${base}.xml` };
+      return { text: p.plistToText(v), filename: `${base}.txt` };
+    }
+    case 'stl-scad': {
+      const { stlToScad } = await import('@/lib/convert/formats/stl-scad');
+      const scad = stlToScad(new Uint8Array(await file.arrayBuffer()), base);
+      return { blob: new Blob([scad], { type: 'text/plain' }), filename: `${base}.scad` };
+    }
+    case 'dat-text': {
+      const { datToText } = await import('@/lib/convert/formats/dat');
+      return { text: datToText(new Uint8Array(await file.arrayBuffer())).text, filename: `${base}.txt` };
+    }
+    case 'zip': {
+      const { zipSync } = await import('fflate');
+      const data = zipSync({ [file.name]: [new Uint8Array(await file.arrayBuffer()), { level: 6, mtime: new Date(file.lastModified || Date.now()) }] });
+      return { blob: new Blob([data as BlobPart], { type: 'application/zip' }), filename: `${base}.zip` };
     }
     default:
       throw new Error(`No browser converter for ${target.handler}`);

@@ -361,8 +361,8 @@ export function UsageGateProvider() {
           const url = URL.createObjectURL(blob);
           const el = document.createElement('a');
           el.href = url;
-          // free → photo-xonvert.webp, unless the tool is clean-intent (watermarkFree:false)
-          el.download = isCleanIntentPath(pathRef.current) ? name : await brandedName(name);
+          // free → photo-xonvert.webp (clean-intent tools skip the in-file stamp, not the name)
+          el.download = await brandedName(name);
           if (el.download !== name) nudgeBrand();
           el.dataset.xgatePass = '1';
           document.body.appendChild(el);

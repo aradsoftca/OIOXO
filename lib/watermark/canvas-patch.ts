@@ -60,8 +60,9 @@ export function installAnchorBrand(): void {
   const patched = function (this: HTMLAnchorElement) {
     try {
       if (this.download) {
-        const tk = toolKeyForCurrentRoute();
-        if (shouldWatermark(tk)) this.download = brandedNameSync(this.download);
+        // Filename branding applies to every free download, including clean-intent
+        // tools (watermarkFree:false only turns off the in-file stamp).
+        this.download = brandedNameSync(this.download);
       }
     } catch { /* never break a download */ }
     return orig.call(this);

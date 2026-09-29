@@ -19,7 +19,7 @@
  *      never opaque/partial/error responses (prevents caching a truncated chunk).
  *   4. VERSION bump evicts the poisoned v97 cache on activate.
  */
-const VERSION = 'oioxo-v98';
+const VERSION = 'oioxo-v99';
 const SHELL = [
   '/search.html',
   '/manifest.webmanifest',
@@ -35,7 +35,13 @@ function isAppPath(pathname) {
     pathname.startsWith('/studios') ||
     pathname.startsWith('/pricing') ||
     pathname.startsWith('/account') ||
-    pathname.startsWith('/auth')
+    pathname.startsWith('/auth') ||
+    // Encrypted engines + their wasm change with every deploy (new key); a cached copy
+    // stops decrypting and breaks the tool for returning visitors.
+    pathname.startsWith('/protected/') ||
+    pathname.startsWith('/jsquash/') ||
+    pathname.startsWith('/vendor/') ||
+    pathname.startsWith('/convert')
   );
 }
 

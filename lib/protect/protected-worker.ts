@@ -155,9 +155,6 @@ async function recoverKey(assetId: string): Promise<{ key: Uint8Array; pro: bool
 }
 
 async function decryptBundle(assetId: string, key: Uint8Array): Promise<string> {
-  const enc = new Uint8Array(await (await fetch(assetUrl(assetId), { cache: 'force-cache' })).arrayBuffer());
-  const iv = enc.slice(0, 12);
-  const ct = enc.slice(12);
   // Import as a NON-extractable CryptoKey so the raw key bytes can't be read
   // back out via exportKey('raw', ...) by hostile code — the bytes live in
   // the WebCrypto sandbox, not the JS heap, from this point on.
@@ -165,7 +162,14 @@ async function decryptBundle(assetId: string, key: Uint8Array): Promise<string> 
   // Overwrite the input key bytes immediately — the CryptoKey is the only
   // copy we keep alive (and it's non-extractable).
   key.fill(0);
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv as unknown as BufferSource }, ck, ct as unknown as BufferSource);
+  const open = async (cache: RequestCache) => {
+    const enc = new Uint8Array(await (await fetch(assetUrl(assetId), { cache })).arrayBuffer());
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: enc.slice(0, 12) as unknown as BufferSource }, ck, enc.slice(12) as unknown as BufferSource);
+  };
+  // A deploy re-encrypts every bundle with a new key, so a cached .enc from the
+  // previous build no longer decrypts (OperationError). Refetch from the network once.
+  let plain: ArrayBuffer;
+  try { plain = await open('force-cache'); } catch { plain = await open('reload'); }
   // A blob: worker has no usable import.meta.url, so jsquash's
   // `new URL("x.wasm", import.meta.url)` would throw. encrypt-workers.mjs maps
   // import.meta.url → globalThis.__XW_BASE__; set it here to the real same-origin

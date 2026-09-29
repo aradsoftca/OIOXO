@@ -17,6 +17,16 @@ const ALIASES: Record<string, string[]> = {
   yaml: ['yml', 'yaml'], mpg: ['mpg', 'mpeg'], txt: ['txt', 'plain'],
 };
 
+/** Spelling the /convert pages use for an aliased extension (jpeg-to-png → jpg-to-png). */
+const CANONICAL: Record<string, string> = { jpeg: 'jpg', tif: 'tiff', htm: 'html', mpeg: 'mpg', yml: 'yaml', markdown: 'md' };
+
+/** Old slugs that are not `{ext}-to-{ext}`. No tool writes .docx, so pdf-to-word gets the
+ *  closest honest page (editable text out of the PDF), not a page promising Word. */
+const SPECIAL: Record<string, string> = {
+  'word-to-pdf': '/convert/docx-to-pdf',
+  'pdf-to-word': '/convert/pdf-to-txt',
+};
+
 function names(ext: string): string[] {
   return ALIASES[ext] ?? [ext];
 }
@@ -34,8 +44,12 @@ function handles(list: string[] | undefined, ext: string): boolean {
 export function legacyDestination(slug: string): string {
   const m = LEGACY_PAIR_RE.exec(slug.toLowerCase());
   if (!m) return '/convert';
+  const special = SPECIAL[slug.toLowerCase()];
+  if (special) return special;
   const [, from, to] = m;
   if (getPair(`${from}-to-${to}`)) return `/convert/${from}-to-${to}`;
+  const canon = `${CANONICAL[from] ?? from}-to-${CANONICAL[to] ?? to}`;
+  if (getPair(canon)) return `/convert/${canon}`;
   const live = (id: string) => TOOLS.some((t) => t.id === id);
   const routes = targetsFor(from).filter((t) => live(t.toolId));
   const direct = routes.find((t) => names(to).includes(t.to));

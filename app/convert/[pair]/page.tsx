@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     path: `/convert/${slug}`,
     title: content?.title
       ? content.title
-      : `Convert ${pair.from.toUpperCase()} to ${pair.to.toUpperCase()} — free, no upload`,
+      : pair.metaTitle ?? `Convert ${pair.from.toUpperCase()} to ${pair.to.toUpperCase()} — free, no upload`,
     description: content?.metaDescription || blurb,
     keywords: [
       `${pair.from} to ${pair.to}`,

@@ -11,6 +11,7 @@
  *   3. Optionally override `title`, `blurb` for more specific copy.
  */
 import { CAD3D_PAIRS } from '@/lib/convert/cad3d';
+import { LEGACY_PAIRS } from '@/lib/convert/legacy-pairs';
 import type { Category } from '@/lib/registry/types';
 
 export interface ConvertPair {
@@ -23,6 +24,8 @@ export interface ConvertPair {
   title?: string;
   /** Optional 1-liner override */
   blurb?: string;
+  /** Optional <title> override (else "Convert FROM to TO — free, no upload") */
+  metaTitle?: string;
   /** Optional note shown on the page (e.g. "Output is WebM Opus") */
   note?: string;
   /** Mark as commonly searched — used to surface on the hub */
@@ -219,6 +222,8 @@ export const CONVERT_PAIRS: ConvertPair[] = [
   ...HEIC_PAIRS,
   ...CAD3D_PAIRS.filter((c) => !BASE_PAIRS.some((b) => b.from === c.from && b.to === c.to)),
 ];
+// Old-site root URLs we really perform (lib/convert/legacy-pairs.ts); never shadow a pair above.
+CONVERT_PAIRS.push(...LEGACY_PAIRS.filter((l) => !CONVERT_PAIRS.some((p) => p.from === l.from && p.to === l.to)));
 
 export const CONVERT_PAIRS_BY_SLUG = new Map(
   CONVERT_PAIRS.map((p) => [`${p.from}-to-${p.to}`, p]),

@@ -20,3 +20,8 @@ export function useConvertTarget<T extends string>(allowed: readonly T[], fallba
   const v = (aliases[to] ?? to) as T;
   return allowed.includes(v) ? v : fallback;
 }
+
+/** The page's raw target (e.g. 'pem'), for tools whose outputs depend on the dropped file. */
+export function usePageTarget(): string | undefined {
+  return React.useContext(Ctx);
+}

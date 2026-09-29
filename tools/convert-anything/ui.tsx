@@ -13,6 +13,7 @@ import { TileIcon } from '@/components/tiles/TileIcon';
 import { ConvertDropZone } from '@/components/tool/ConvertDropZone';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { freeSizeLabel } from '@/lib/usage/benefits';
+import { usePageTarget } from '@/lib/convert/target-context';
 
 const CAT_LABEL: Record<ConvCategory, string> = {
   image: 'image', audio: 'audio file', video: 'video', pdf: 'PDF', subtitle: 'subtitle', font: 'font', data: 'spreadsheet', model3d: '3D model', document: 'document', ebook: 'ebook', cad: 'CAD file', presentation: 'presentation', text: 'text file', archive: 'archive', calendar: 'calendar / contacts', email: 'email', certificate: 'certificate / key',
@@ -32,13 +33,16 @@ export default function ConvertAnythingTool() {
   const [error, setError] = React.useState('');
   const [result, setResult] = React.useState<{ url?: string; text?: string; filename: string; size?: number } | null>(null);
   const { guard, gate } = useUsageGate('convert');
+  // On a /convert/{from}-to-{to} page, the page's target leads the list and is highlighted.
+  const want = usePageTarget();
+  const isWanted = (t: Target) => !!want && (t.to === want || (want === 'jpeg' && t.to === 'jpg'));
 
   React.useEffect(() => () => { if (result?.url) URL.revokeObjectURL(result.url); }, [result]);
 
   const load = (f: File) => {
     setError(''); setResult(null); setActive(null);
     const a = actionsForFile(f);
-    setFile(f); setInfo({ ext: a.ext, category: a.category }); setTargets(a.convert); setTools(a.tools);
+    setFile(f); setInfo({ ext: a.ext, category: a.category }); setTargets(want ? [...a.convert].sort((x, y) => Number(isWanted(y)) - Number(isWanted(x))) : a.convert); setTools(a.tools);
     if (!a.convert.length && !a.tools.length) {
       setError(`No in-browser actions for .${a.ext || '?'} yet.`);
     }
@@ -144,7 +148,7 @@ export default function ConvertAnythingTool() {
               <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Convert to</div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
                 {targets.map((t) => {
-                  const isActive = active?.to === t.to && active?.handler === t.handler;
+                  const isActive = active ? active.to === t.to && active.handler === t.handler : isWanted(t);
                   return (
                     <button key={`${t.to}-${t.handler}`} type="button" onClick={() => run(t)} disabled={busy}
                       className={cn(

@@ -126,4 +126,10 @@ export function installAppBridge(): void {
     if (!this.isConnected && grab(this)) return;
     return click.call(this);
   };
+  // FileSaver (jsPDF's pdf.save) dispatches a synthetic MouseEvent on a detached anchor instead.
+  const dispatch = HTMLAnchorElement.prototype.dispatchEvent;
+  HTMLAnchorElement.prototype.dispatchEvent = function (this: HTMLAnchorElement, ev: Event) {
+    if (ev.type === 'click' && !this.isConnected && grab(this)) return false;
+    return dispatch.call(this, ev);
+  };
 }

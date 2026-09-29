@@ -79,7 +79,6 @@ export const LEGACY_PAIR_LIST: ReadonlyArray<readonly [string, string]> = [
   ['json', 'zip'], ['stl', 'scad'], ['dat', 'txt'], ['woff', 'otf'],
   // PDF → Word (lib/convert/formats/pdf-docx), WOFF2 (formats/woff2), 3D render (formats/model-render).
   ['pdf', 'docx'],
-  ['woff2', 'otf'], ['woff2', 'ttf'], ['otf', 'woff2'], ['ttf', 'woff2'],
   ['glb', 'gif'], ['glb', 'png'], ['gltf', 'png'],
 ];
 

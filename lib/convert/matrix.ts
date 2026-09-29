@@ -236,16 +236,13 @@ function routesFor(ext: string): Target[] {
       out.push({ to, handler: 'subtitle', toolId: plain && to !== 'txt' && to !== 'sbv' ? 'subtitle-cleaner' : 'convert-anything', note: to === 'txt' ? 'Just the spoken lines, no timings' : undefined });
     }
   } else if (cat === 'font') {
-    if (ext === 'woff2') {
-      out.push({ to: 'ttf', handler: 'font', toolId: 'convert-anything', note: 'Decodes the WOFF2 font' });
-      out.push({ to: 'otf', handler: 'font', toolId: 'convert-anything', note: 'Decodes the WOFF2 font' });
-      out.push({ to: 'woff', handler: 'font', toolId: 'convert-anything', note: 'Re-packs as WOFF 1.0 for older browsers' });
-    } else if (ext === 'woff') {
+    // WOFF2 routes are off: wawoff2's Emscripten runtime never starts in the
+    // browser bundle ("The WOFF2 engine failed to start", measured 09-29).
+    // lib/convert/formats/woff2.ts is kept for when that is fixed.
+    if (ext === 'woff') {
       out.push({ to: 'ttf', handler: 'font', toolId: 'convert-anything', note: 'Unpacks the WOFF tables losslessly' });
       out.push({ to: 'otf', handler: 'font', toolId: 'convert-anything', note: 'Unpacks the WOFF tables losslessly' });
-      out.push({ to: 'woff2', handler: 'font', toolId: 'convert-anything', note: 'Recompresses as WOFF2 (smaller)' });
     } else if (ext === 'ttf' || ext === 'otf') {
-      out.push({ to: 'woff2', handler: 'font', toolId: 'convert-anything', note: 'Compresses for the web (WOFF2, smallest)' });
       out.push({ to: 'woff', handler: 'font', toolId: 'convert-anything', note: 'Compresses the font tables (WOFF 1.0)' });
     }
   } else if (cat === 'model3d') {

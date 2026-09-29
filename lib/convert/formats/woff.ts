@@ -2,7 +2,7 @@
  * WOFF 1.0 ⇄ SFNT (TrueType .ttf / OpenType .otf), per the W3C WOFF spec.
  * WOFF is the same tables, each zlib-compressed, behind a 44-byte header — so
  * both directions are lossless table copies (fflate does the zlib part).
- * WOFF2 (Brotli + table transforms) is NOT handled here.
+ * WOFF2 (Brotli + table transforms) lives in ./woff2 (wawoff2 wasm).
  */
 import { unzlibSync, zlibSync } from 'fflate';
 

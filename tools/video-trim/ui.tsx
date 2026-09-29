@@ -3,11 +3,11 @@ import * as React from 'react';
 import * as Slider from '@radix-ui/react-slider';
 import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
-import { recordRange, downloadBlob, fmtDuration } from '@/engines/video';
+import { downloadBlob, fmtDuration } from '@/engines/video';
+import { runFfmpeg, extOf, videoMimeForExt } from '@/engines/ffmpeg';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
-import { shouldWatermark } from '@/lib/watermark/config';
 
 const POLICY_KEY = 'video-trim';
 
@@ -38,15 +38,23 @@ export default function Tool() {
     setBusy(true); setError(''); setProgress(0);
     try {
       const dur = range[1] - range[0];
-      const blob = await recordRange(item.video, range[0], range[1], {
-        withVideo: true,
-        withAudio: withAudio && item.info.hasAudio,
-        // Free sessions bake the corner brand into every recorded frame
-        // (policy.watermarkFree); Pro/clean → false → raw captureStream path.
-        watermark: shouldWatermark(POLICY_KEY),
-        onProgress: (t) => setProgress(Math.round((t / dur) * 100)),
+      // ffmpeg stream copy (no re-encode, same container as the input). Was
+      // MediaRecorder + captureStream -> WebM at playback speed, which never
+      // produced a file on Safari/iOS. Copy cuts start on the nearest keyframe.
+      // The free-tier brand mark comes from the ffmpeg engine's watermark pass.
+      const ext = extOf(item.file.name) || 'mp4';
+      const keepAudio = withAudio && item.info.hasAudio;
+      const blob = await runFfmpeg({
+        input: item.file, inputName: `in.${ext}`, outputName: `out.${ext}`,
+        args: (i, o) => [
+          '-ss', range[0].toFixed(3), '-i', i, '-t', dur.toFixed(3),
+          '-map', '0:v?', ...(keepAudio ? ['-map', '0:a?'] : ['-an']),
+          '-c', 'copy', '-avoid_negative_ts', 'make_zero', o,
+        ],
+        mimeType: videoMimeForExt(ext),
+        onProgress: (p) => setProgress(Math.round(p * 100)),
       });
-      downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '-trim.webm');
+      downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + `-trim.${ext}`);
     } catch (e) {
       setError((e as Error).message);
     } finally { setBusy(false); }
@@ -101,8 +109,8 @@ export default function Tool() {
             <aside className="space-y-3">
               <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
                 <div className="text-[10px] font-bold uppercase tracking-[0.22em] text-[var(--color-fg-muted)]">Output</div>
-                <div className="mt-1 text-[14px] font-semibold">{dur.toFixed(2)}s · WebM</div>
-                <div className="mt-1 text-[10px] text-[var(--color-fg-muted)]">Processing runs at playback speed.</div>
+                <div className="mt-1 text-[14px] font-semibold">{dur.toFixed(2)}s · {(extOf(item.file.name) || 'mp4').toUpperCase()}</div>
+                <div className="mt-1 text-[10px] text-[var(--color-fg-muted)]">Same format as your file, no re-encoding. The cut starts on the nearest keyframe.</div>
               </div>
               <button type="button" onClick={run} disabled={busy || dur <= 0}
                 className="flex w-full items-center justify-center gap-2 bg-[var(--color-cat-video)] py-3 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110 disabled:bg-black/[0.06] disabled:text-[var(--color-fg-subtle)] disabled:shadow-none">

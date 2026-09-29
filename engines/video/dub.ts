@@ -12,6 +12,7 @@
 
 import { videoToCaptions } from '@/engines/subtitle/auto';
 import { speakToBuffer, VOICE_STYLES, isLanguageSupported } from '@/engines/tts/studio';
+import { isMemoryConstrained } from '@/lib/compute/device-profile';
 
 export interface DubOptions {
   targetLang: string;
@@ -30,25 +31,39 @@ export async function dubVideo(file: File, opts: DubOptions): Promise<Blob> {
   report('Transcribing', 0.02);
   const chunks = await videoToCaptions(file, { size: 'tiny', language: opts.sourceLang, onProgress: (p) => report(p.phase, 0.02 + p.ratio * 0.33) });
   if (!chunks.length) throw new Error('No speech found to dub.');
+  // iPhone: Whisper, the translation model and the voice model must never be
+  // resident together — free each before the next loads.
+  const lowMem = isMemoryConstrained();
+  if (lowMem) { const { releaseTranscriber } = await import('@/engines/transcribe'); await releaseTranscriber(); }
 
-  // 2) translate + 3) synthesize each line
+  // 2) translate every line, then 3) synthesize every line. Two passes (same
+  // output as interleaving) so the translation models can be freed before the
+  // voice model loads on low-memory devices.
   const { translate } = await import('@/lib/ai/translate');
   const src = opts.sourceLang || 'en';
+  const texts: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    let text = chunks[i].text.trim();
+    if (text && src !== opts.targetLang) text = (await translate(text, src, opts.targetLang).catch(() => null)) || text;
+    texts.push(text);
+    report('Translating', 0.35 + ((i + 1) / chunks.length) * 0.15);
+  }
+  if (lowMem) { const { releaseTranslators } = await import('@/lib/ai/translate'); await releaseTranslators(); }
+
   const buffers: { start: number; buf: AudioBuffer }[] = [];
   let sampleRate = 16000;
   for (let i = 0; i < chunks.length; i++) {
-    const c = chunks[i];
-    let text = c.text.trim();
-    if (src !== opts.targetLang) text = (await translate(text, src, opts.targetLang).catch(() => null)) || text;
+    const text = texts[i];
     if (!text) continue;
     try {
       const buf = await speakToBuffer(text, opts.targetLang, style);
       sampleRate = buf.sampleRate;
-      buffers.push({ start: c.start, buf });
+      buffers.push({ start: chunks[i].start, buf });
     } catch { /* skip a line that fails to synth */ }
-    report('Voicing', 0.35 + ((i + 1) / chunks.length) * 0.5);
+    report('Voicing', 0.5 + ((i + 1) / chunks.length) * 0.35);
   }
   if (!buffers.length) throw new Error('Could not synthesize the dubbed audio.');
+  if (lowMem) { const { releaseVoices } = await import('@/engines/tts/studio'); await releaseVoices(); }
 
   // 4) lay each clip onto one track at its timestamp
   report('Assembling audio', 0.88);

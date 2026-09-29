@@ -107,6 +107,10 @@ function isVideoOut(name: string, mime: string): boolean {
  *  on any problem). Caller must delete the returned name if it differs. */
 async function maybeWatermarkVideo(ff: FFmpeg, outName: string, mime: string): Promise<string> {
   if (!_wmOn || !isVideoOut(outName, mime)) return outName;
+  // The overlay re-encodes with the container's default video encoder; for WebM
+  // that is wasm libvpx, which aborts or never finishes (live 2026-09-27, and a
+  // silent hang in WebKit). Skip rather than risk the whole export.
+  if (/\.webm$/i.test(outName)) return outName;
   try {
     const png = await watermarkPng();
     if (!png) return outName;
@@ -140,6 +144,10 @@ let _isMT = false;
 // the same core finished. ST is slower but completes.)
 let _forceST = false;
 const MT_STALL_MS = 30_000;
+// Single-thread core: no log/progress line for this long means the job is wedged
+// (seen in WebKit/iOS: a wasm encoder that never returns and never errors). Longer
+// than MT because a slow phone on ST can legitimately take a while per line.
+const ST_STALL_MS = 90_000;
 
 type ExecResult = { status: 'ok' | 'stalled' | 'failed'; tail: string };
 
@@ -164,11 +172,11 @@ async function execGuarded(ff: FFmpeg, args: string[]): Promise<ExecResult> {
       (code) => ({ status: code === 0 ? 'ok' : 'failed', tail: tail() }) as ExecResult,
       (e) => ({ status: 'failed', tail: (e as Error)?.message || tail() }) as ExecResult,
     );
-    if (!_isMT) return await run;
+    const limit = _isMT ? MT_STALL_MS : ST_STALL_MS;
     return await Promise.race([
       run,
       new Promise<ExecResult>((resolve) => {
-        timer = setInterval(() => { if (Date.now() - last > MT_STALL_MS) resolve({ status: 'stalled', tail: '' }); }, 2_000);
+        timer = setInterval(() => { if (Date.now() - last > limit) resolve({ status: 'stalled', tail: '' }); }, 2_000);
       }),
     ]);
   } finally {
@@ -186,6 +194,13 @@ function abandonMT(ff: FFmpeg) {
   _forceST = true;
 }
 let _loadPromise: Promise<FFmpeg> | null = null;
+
+/** A wedged single-thread core never frees its worker: kill it so the next job
+ *  loads a fresh one instead of queueing behind a hang forever. */
+function dropWedged(ff: FFmpeg) {
+  try { ff.terminate(); } catch { /* */ }
+  if (_instance === ff) { _instance = null; _loadPromise = null; }
+}
 
 // Serialize ffmpeg runs. The engine is a singleton with one shared virtual
 // FS and one progress event stream — two concurrent runs would step on each
@@ -303,6 +318,7 @@ async function runFfmpegInner(opts: RunOptions, retried = false): Promise<Blob> 
   try {
     await ff.writeFile(opts.inputName, await fetchFile(opts.input));
     const r = await execGuarded(ff, withThreads(opts.args(opts.inputName, opts.outputName)));
+    if (r.status === 'stalled' && !_isMT) dropWedged(ff);
     if (r.status !== 'ok') {
       // A stall or a failure on the MT core: retry once on the single-thread core.
       if (_isMT && !retried) {
@@ -394,6 +410,7 @@ async function runFfmpegMultiInner(opts: {
       return runFfmpegMultiInner(opts, true);
     };
     const r = await execGuarded(ff, withThreads(opts.args(opts.inputs.map((i) => i.name), opts.outputName)));
+    if (r.status === 'stalled' && !_isMT) dropWedged(ff);
     if (r.status !== 'ok') {
       if (_isMT && !retried) return retryST();
       throw new Error(r.status === 'stalled' ? 'Processing stalled. Please try again.' : `Conversion failed${r.tail ? `: ${r.tail}` : '.'}`);
@@ -451,6 +468,18 @@ export function downloadBlob(blob: Blob, filename: string) {
   // networks where the system download dialog opens after a few seconds and
   // then aborts the save when the blob URL has already gone away.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/** MIME type for a video container extension (stream-copy outputs keep the input's). */
+export function videoMimeForExt(ext: string): string {
+  switch (ext.toLowerCase()) {
+    case 'webm': return 'video/webm';
+    case 'mov': return 'video/quicktime';
+    case 'mkv': return 'video/x-matroska';
+    case 'avi': return 'video/x-msvideo';
+    case 'm4v': return 'video/x-m4v';
+    default: return 'video/mp4';
+  }
 }
 
 /** Probe input filename extension to choose an appropriate ffmpeg container. */

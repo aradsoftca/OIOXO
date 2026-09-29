@@ -10,6 +10,7 @@
  */
 
 import { transcribe, type TranscribeChunk, type TranscribeSize } from '@/engines/transcribe';
+import { DeviceLimitError } from '@/lib/compute/device-profile';
 
 export type { TranscribeChunk } from '@/engines/transcribe';
 
@@ -45,7 +46,12 @@ export async function videoToCaptions(file: File, opts: AutoSubOptions = {}): Pr
       onProgress: (p) => report({ phase: p.phase, ratio: 0.1 + p.ratio * 0.85 }),
     });
     if (res.chunks.length) return res.chunks;
-  } catch { /* decodeAudioData couldn't read this container → extract first */ }
+  } catch (e) {
+    // A device-limit refusal must reach the user, not fall through to an
+    // ffmpeg extraction that would load the whole video into memory again.
+    if (e instanceof DeviceLimitError) throw e;
+    /* decodeAudioData couldn't read this container → extract first */
+  }
 
   report({ phase: 'Extracting audio', ratio: 0.05 });
   audio = await extractAudio(file, (r) => report({ phase: 'Extracting audio', ratio: 0.05 + r * 0.15 }));

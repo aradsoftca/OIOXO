@@ -5,7 +5,7 @@ export const manifest: ToolManifest = {
   blurb: 'Cut the start and end of a video — precise to the frame.',
   category: 'video', tile: 'L', icon: 'scissors', compute: 'local',
   accepts: ['video/*'],
-  produces: ['video/webm'],
+  produces: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska'],
   keywords: ['video', 'trim', 'cut', 'crop', 'shorten'], offline: true, pinDefault: true,
 };
 export default manifest;

@@ -8,6 +8,8 @@ import type { RichFaq, RichSection } from '@/lib/seo/content';
 
 export interface ToolCopy {
   intro: string;
+  /** Tool-specific "How to use it" steps; the generic 3-step template otherwise. */
+  steps?: string[];
   sections: RichSection[];
   faqs: RichFaq[];
 }
@@ -15,6 +17,11 @@ export interface ToolCopy {
 export const TOOL_COPY: Record<string, ToolCopy> = {
   'pdf-compress': {
     intro: 'Make a large PDF small enough to email or upload. Pick Light, Balanced or Strong and download the result — the file is processed in your browser and never uploaded.',
+    steps: [
+      'Drop the PDF you want to shrink.',
+      'Choose Light, Balanced (default) or Strong, and tick Grayscale for black-and-white documents.',
+      'Download the compressed PDF and check the new size shown next to the original.',
+    ],
     sections: [
       { heading: 'How the compression works', body: 'Each page is rendered and re-saved as a JPEG image, then the PDF is rebuilt from those images. Light keeps pages up to 2200 px on the long edge, Balanced (the default) 1700 px and Strong 1300 px, with image quality stepping down from 82% to 60%. A grayscale option saves more on colour scans.' },
       { heading: 'When to use it — and when not to', body: 'It works best on scans, photo-heavy brochures and exported slide decks, where the images are what make the file big. Because every page becomes an image, text in the result can no longer be selected or searched; keep the original if you need that.' },
@@ -27,6 +34,11 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
   },
   'pdf-merge': {
     intro: 'Combine several PDFs into one file. Drop them in, drag them into the order you want and download a single merged PDF.',
+    steps: [
+      'Drop two or more PDFs (up to 10 free, 100 with Pro).',
+      'Drag the files into the order the pages should appear.',
+      'Download one merged PDF — pages are copied unchanged, so text stays selectable.',
+    ],
     sections: [
       { heading: 'What is kept', body: 'Pages are copied as they are — text stays selectable, links and page sizes are preserved — using pdf-lib, the same open-source library many desktop tools use. Nothing is re-rendered or recompressed.' },
       { heading: 'Limits', body: 'You need at least two files. Free use covers up to 10 files at a time; Pro raises that to 100.' },
@@ -61,6 +73,12 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
   },
   'images-to-pdf': {
     intro: 'Put photos or scans into one PDF. Drop the images, set the order and paper size, and download the document.',
+    steps: [
+      'Drop the photos or scans (JPG, PNG, WebP…).',
+      'Drag them into page order.',
+      'Pick the paper size (Fit image, A4, Letter, Legal, A3), orientation, fit mode and margin.',
+      'Download the PDF.',
+    ],
     sections: [
       { heading: 'Page setup', body: 'Keep each image at its own size (Fit image), or place them on A4, Letter, Legal or A3 pages in portrait, landscape or automatic orientation. Choose whether images fit inside the page, fill it, or stretch, and set a margin from 0 to 72 points.' },
       { heading: 'Image quality', body: 'JPEG and PNG images are embedded as they are, without recompression. Other formats such as WebP are converted to PNG first.' },
@@ -73,6 +91,11 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
   },
   'image-compress': {
     intro: 'Make JPG, PNG, WebP or AVIF images smaller and watch the size and quality change as you move the slider.',
+    steps: [
+      'Drop a JPG, PNG, WebP or AVIF image.',
+      'Pick the output format — WebP is the default — and move the quality slider (75 default) while watching the size and preview.',
+      'Download the smaller image.',
+    ],
     sections: [
       { heading: 'Format matters more than the slider', body: 'Saving as WebP (the default) or AVIF usually makes a photo far smaller than JPG at the same visible quality. Quality runs from 20 to 100 (default 75); for WebP and AVIF an effort setting trades encoding time for a smaller file. PNG output is lossless, so the quality setting does not apply to it.' },
       { heading: 'Engine', body: 'Encoding uses the jsquash builds of MozJPEG, libwebp and libavif — the same codecs behind Google’s Squoosh — compiled to run in your browser.' },
@@ -85,6 +108,11 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
   },
   'image-resize': {
     intro: 'Resize an image to exact pixels or by percentage, with sharp Lanczos resampling and the aspect ratio locked by default.',
+    steps: [
+      'Drop the image.',
+      'Type a width or height in pixels (the other follows while the aspect lock is on) or pick a preset such as 50% or 2×.',
+      'Choose the output format and resampling method (Lanczos3 by default), then download.',
+    ],
     sections: [
       { heading: 'Sharp results', body: 'Lanczos3 is the default resampling method; Mitchell, Catmull-Rom, Triangle and hqx are also available. Presets cover 50%, 75%, 150%, 2× and 4×. Save as PNG, JPG, WebP or AVIF.' },
     ],
@@ -107,6 +135,11 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
   },
   'image-remove-bg': {
     intro: 'Remove the background from a photo automatically. The subject is cut out by an AI model that runs in your browser — the photo is never uploaded.',
+    steps: [
+      'Drop a photo with a clear subject — a person, product or pet.',
+      'Choose Fast, Balanced or High quality; the model downloads once on first use.',
+      'Keep the transparent background or pick a backdrop colour, then download the PNG.',
+    ],
     sections: [
       { heading: 'Quality and backdrops', body: 'Choose Fast, Balanced (default) or High quality; higher settings download a larger model once and give cleaner edges. Keep the result transparent or place it on white, black, a studio gradient or any colour you pick. The result is saved as a PNG.' },
       { heading: 'Engine', body: 'It uses the open-source @imgly/background-removal library with ISNet segmentation models.' },
@@ -119,6 +152,11 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
   },
   'video-compress': {
     intro: 'Make a video file smaller for email, WhatsApp or upload limits. Choose a quality level and download an MP4.',
+    steps: [
+      'Drop the video (MP4, MOV, WebM…).',
+      'Choose Visually Lossless, High Quality, Web Standard (default) or Small File.',
+      'Press Compress & Download and wait for the progress bar; you get an H.264 MP4.',
+    ],
     sections: [
       { heading: 'Quality levels', body: 'Visually Lossless (CRF 18), High Quality (CRF 22), Web Standard (CRF 26, the default) and Small File (CRF 30). The video is re-encoded to H.264 with AAC audio at 128 kbps and saved as an MP4 that starts playing before it has fully downloaded.' },
       { heading: 'Engine and limits', body: 'Encoding runs with ffmpeg compiled to WebAssembly, on your device. Free use covers videos up to 5 minutes; long or 4K videos take a while in the browser.' },
@@ -149,6 +187,58 @@ export const TOOL_COPY: Record<string, ToolCopy> = {
       { q: 'Which inputs are supported?', a: 'Common audio files your browser can decode, such as WAV, MP3, M4A, AAC, OGG and FLAC.' },
       { q: 'Does converting MP3 to WAV improve quality?', a: 'No. It gives an uncompressed file for editing, but cannot restore what MP3 compression removed.' },
       { q: 'Is my audio uploaded?', a: 'No. Conversion runs in your browser.' },
+    ],
+  },
+  'image-heic-convert': {
+    intro: 'Convert iPhone HEIC photos to JPG, PNG or WebP — one or many at a time — without uploading them. At the default 90% quality the JPGs look the same as the originals and open on any computer, website or phone.',
+    steps: [
+      'Drop one or more .heic or .heif photos, or choose them from Files, Finder or Explorer.',
+      'Pick JPG (default), PNG or WebP, and set quality for JPG and WebP (90% default).',
+      'Download each converted photo, or use Download all.',
+    ],
+    sections: [
+      { heading: 'Why iPhones use HEIC', body: 'Since iOS 11 the iPhone camera saves photos as HEIC under Settings → Camera → Formats → High Efficiency. HEIC uses HEVC compression, so photos take roughly half the space of JPG — but Windows needs an extra extension to open them and many websites and forms reject them. Choosing “Most Compatible” in the same setting makes new photos JPG.' },
+      { heading: 'What is and is not kept', body: 'The picture is decoded with libheif (via the heic-to library) and re-encoded in your browser. The output is standard 8-bit colour. EXIF metadata — camera, date taken and GPS location — is not written to the new file, which is handy before posting photos publicly. For a Live Photo you get the still image.' },
+    ],
+    faqs: [
+      { q: 'Does converting HEIC to JPG keep location data?', a: 'No. EXIF metadata, including GPS location, is not copied into the converted file.' },
+      { q: 'How many photos can I convert at once?', a: 'Up to 10 per batch on the free plan; Pro removes the batch limit.' },
+      { q: 'JPG, PNG or WebP?', a: 'JPG to share or upload, PNG for a lossless copy to edit, WebP for small files on the web.' },
+      { q: 'Are my photos uploaded?', a: 'No. They are converted in your browser.' },
+    ],
+  },
+  'video-to-gif': {
+    intro: 'Turn a few seconds of any video into an animated GIF. Choose the start and end, frame rate and width, and download — the video stays on your device.',
+    steps: [
+      'Drop a video (MP4, MOV, WebM…).',
+      'Set the start and end of the part you want.',
+      'Pick the frame rate (10, 15, 20 or 24 fps) and width (320, 480, 640 or 800 px).',
+      'Press Build & Download GIF.',
+    ],
+    sections: [
+      { heading: 'Keeping GIFs small', body: 'GIF stores up to 256 colours per frame and compresses poorly, so size grows quickly with length, width and frame rate. For chat and READMEs, 480 px at 10–15 fps for a few seconds is a good target. If the destination accepts video, an MP4 is far smaller and keeps full colour.' },
+    ],
+    faqs: [
+      { q: 'Why is my GIF so large?', a: 'Shorten the clip first, then lower the width, then the frame rate.' },
+      { q: 'Is sound kept?', a: 'No. GIF has no audio.' },
+      { q: 'Is there a watermark?', a: 'Free exports carry a small, semi-transparent site mark in the corner; Pro removes it.' },
+    ],
+  },
+  'video-convert-format': {
+    intro: 'Convert a video to MP4 or WebM (MOV and MKV with Pro) in your browser. Pick a quality level and download — nothing is uploaded.',
+    steps: [
+      'Drop the video.',
+      'Choose the output format — MP4 plays everywhere — and a quality: High, Good (default), Medium or Low.',
+      'Press Convert & Download and wait for the progress bar.',
+    ],
+    sections: [
+      { heading: 'Codecs and quality', body: 'MP4, MOV and MKV are encoded as H.264 with AAC audio; WebM as VP9 with Opus audio. Quality levels map to x264 CRF 18, 23, 28 and 32 — lower means better quality and a larger file. MP4 output is written with fast-start so it begins playing before it fully downloads.' },
+      { heading: 'Common conversions', body: 'MOV to MP4 for iPhone videos that will not play on Windows or Android; MKV to MP4 for OBS recordings and TV playback; WebM to MP4 for screen recordings headed to editors or social sites; MP4 to WebM when a web page or tool asks for WebM.' },
+    ],
+    faqs: [
+      { q: 'Why does conversion take a while?', a: 'The video is re-encoded on your own device with ffmpeg compiled to WebAssembly; long or 4K videos take longer than on a desktop app.' },
+      { q: 'Are subtitles and extra audio tracks kept?', a: 'No. One video and one audio track are converted.' },
+      { q: 'Is my video uploaded?', a: 'No. It is converted in your browser.' },
     ],
   },
 };

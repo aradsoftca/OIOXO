@@ -5,6 +5,7 @@
  */
 
 import { configureOnnxRuntime } from '@/lib/compute/concurrency';
+import { isMemoryConstrained, LOW_MEM, DeviceLimitError, IPHONE_MEMORY_MESSAGE } from '@/lib/compute/device-profile';
 
 export type TranscribeSize = 'tiny' | 'base' | 'small';
 
@@ -110,6 +111,18 @@ async function getPipeline(size: TranscribeSize, onProgress?: (p: TranscribeProg
   // build (some drivers/integrated GPUs reject the shader). v2 has no `device`
   // option, so only pass it when v3 is loaded (detected via AutoModel presence).
   const isV3 = typeof lib.AutoModelForVision2Seq !== 'undefined' || typeof lib.AutoModel?.from_pretrained === 'function';
+  // iOS / low-memory profile: WASM only (iOS WebGPU + fp16 Whisper has
+  // crashed the WKWebView content process), explicit int8 weights (transformers
+  // v3 defaults WASM to fp32 = 4x the memory), single thread (set in
+  // configureOnnxRuntime).
+  if (isMemoryConstrained()) {
+    const pipe = await lib.pipeline('automatic-speech-recognition', MODEL_ID[size], isV3
+      ? { device: 'wasm', dtype: 'q8', progress_callback }
+      : { quantized: true, progress_callback }) as unknown as Pipeline;
+    cached = { size, pipeline: pipe };
+    return pipe;
+  }
+
   // navigator.gpu can EXIST while requestAdapter() returns null (headless / no
   // GPU); requesting device:'webgpu' then throws and can poison the runtime, so
   // probe for a real adapter before choosing WebGPU.
@@ -141,8 +154,13 @@ export async function audioToWhisperInput(blob: Blob): Promise<{ samples: Float3
   const buffer = await blob.arrayBuffer();
   const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const tempCtx = new Ctx();
-  const decoded = await tempCtx.decodeAudioData(buffer.slice(0));
-  await tempCtx.close();
+  // decodeAudioData detaches the buffer; nothing reads it afterwards, so hand it
+  // over directly instead of a full copy (a second file-sized allocation).
+  let decoded: AudioBuffer;
+  try { decoded = await tempCtx.decodeAudioData(buffer); } finally { try { await tempCtx.close(); } catch { /* */ } }
+  if (isMemoryConstrained() && decoded.duration > LOW_MEM.maxAudioSeconds) {
+    throw new DeviceLimitError(`${IPHONE_MEMORY_MESSAGE} for audio longer than ${Math.round(LOW_MEM.maxAudioSeconds / 60)} minutes — try a shorter clip.`);
+  }
 
   // Down-mix to mono.
   const length = decoded.length;
@@ -179,11 +197,22 @@ export async function transcribe(blob: Blob, opts: TranscribeOptions = {}): Prom
     const { assertPermission } = await import('@/lib/limits/permission');
     await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
   }
-  const size = opts.size ?? 'tiny';
+  let size = opts.size ?? 'tiny';
+  if (isMemoryConstrained()) {
+    // Largest Whisper on iPhone is base (q8, ~80 MB); small's decoder + KV
+    // cache is what pushed the WebView over its limit.
+    if (size === 'small') size = 'base';
+    const isVideo = blob.type.startsWith('video/');
+    const cap = isVideo ? LOW_MEM.maxVideoFileBytes : LOW_MEM.maxAudioFileBytes;
+    if (blob.size > cap) {
+      throw new DeviceLimitError(`${IPHONE_MEMORY_MESSAGE} for a ${isVideo ? 'video' : 'file'} over ${Math.round(cap / 1048576)} MB — try a shorter clip.`);
+    }
+  }
   opts.onProgress?.({ phase: 'Reading audio', ratio: 0 });
   const { samples, duration } = await audioToWhisperInput(blob);
   opts.onProgress?.({ phase: 'Loading model', ratio: 0.1 });
   const pipe = await getPipeline(size, opts.onProgress);
+  const lowMem = isMemoryConstrained();
   opts.onProgress?.({ phase: 'Transcribing', ratio: 0.4 });
 
   // Pass the Float32Array itself: transformers v3's Whisper calls .subarray()
@@ -193,6 +222,9 @@ export async function transcribe(blob: Blob, opts: TranscribeOptions = {}): Prom
     return_timestamps: opts.wordTimestamps ? 'word' : true,
     chunk_length_s: 30,
     stride_length_s: 5,
+    // One 30 s window in flight at a time on iPhone (the default already is 1;
+    // pinned so a future default change can't batch the encoder there).
+    ...(lowMem ? { batch_size: 1 } : {}),
     language: opts.language,
     task: opts.translate ? 'translate' : 'transcribe',
   });
@@ -210,6 +242,15 @@ export async function transcribe(blob: Blob, opts: TranscribeOptions = {}): Prom
     language: opts.language,
     duration,
   };
+}
+
+/** Release the cached Whisper session + its WASM heap (used by multi-model
+ *  pipelines like auto-dub on low-memory devices before loading the next model). */
+export async function releaseTranscriber(): Promise<void> {
+  const c = cached;
+  cached = null;
+  if (!c) return;
+  try { await (c.pipeline as unknown as { dispose?: () => Promise<void> | void }).dispose?.(); } catch { /* */ }
 }
 
 export function chunksToSrt(chunks: TranscribeChunk[]): string {

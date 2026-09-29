@@ -9,6 +9,7 @@
  */
 
 import { configureOnnxRuntime } from '@/lib/compute/concurrency';
+import { isMemoryConstrained, LOW_MEM, DeviceLimitError, IPHONE_MEMORY_MESSAGE } from '@/lib/compute/device-profile';
 
 export type UpscaleFactor = 2 | 4;
 export type UpscaleQuality = 'fast' | 'balanced' | 'real-world';
@@ -96,27 +97,51 @@ export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Bl
     await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
   }
   const factor = opts.factor ?? 2;
-  const quality = opts.quality ?? 'fast';
-  const tile = Math.max(64, Math.min(512, opts.tile ?? 192));
-  const overlap = Math.max(0, Math.min(48, opts.overlap ?? 16));
+  const lowMem = isMemoryConstrained();
+  // iPhone: x2 always uses the lightweight Swin2SR (the classical/real-world
+  // variants' window attention on each tile is what blew the WebView's heap);
+  // x4 has no lightweight variant, so it keeps classical with small tiles.
+  let quality = opts.quality ?? 'fast';
+  if (lowMem && factor === 2) quality = 'fast';
+  if (lowMem && factor === 4 && quality === 'real-world') quality = 'balanced';
+  const tile = lowMem ? LOW_MEM.upscaleTile : Math.max(64, Math.min(512, opts.tile ?? 192));
+  const overlap = lowMem ? LOW_MEM.upscaleOverlap : Math.max(0, Math.min(48, opts.overlap ?? 16));
   const format = opts.format ?? 'image/png';
 
   opts.onProgress?.({ phase: 'Reading image', ratio: 0 });
   const bm = await createImageBitmap(blob);
-  const srcW = bm.width;
-  const srcH = bm.height;
+  let srcW = bm.width;
+  let srcH = bm.height;
 
-  opts.onProgress?.({ phase: 'Loading model', ratio: 0.05 });
-  const { pipeline, lib } = await getPipeline(factor, quality, opts.onProgress);
+  if (lowMem) {
+    if (srcW * srcH > LOW_MEM.maxSourcePixels) {
+      bm.close();
+      throw new DeviceLimitError(`${IPHONE_MEMORY_MESSAGE} for a ${Math.round((srcW * srcH) / 1e6)} MP image — try a smaller image.`);
+    }
+    // Cap the OUTPUT long edge (iOS caps total canvas memory, and a 4x of a
+    // phone photo would be a >100 MP canvas): shrink the source so
+    // source x factor fits, before any model loads.
+    const maxSrcEdge = Math.floor(LOW_MEM.upscaleMaxOutputEdge / factor);
+    const scale = Math.min(1, maxSrcEdge / Math.max(srcW, srcH));
+    if (scale < 1) {
+      srcW = Math.max(1, Math.round(srcW * scale));
+      srcH = Math.max(1, Math.round(srcH * scale));
+    }
+  }
 
-  // Render source to a canvas so we can slice tiles.
+  // Render source to a canvas so we can slice tiles (scaled on the low-memory
+  // profile when the output cap applies; 1:1 otherwise).
   const srcCanvas = document.createElement('canvas');
   srcCanvas.width = srcW;
   srcCanvas.height = srcH;
   const srcCtx = srcCanvas.getContext('2d');
-  if (!srcCtx) throw new Error('Canvas not available');
-  srcCtx.drawImage(bm, 0, 0);
+  if (!srcCtx) { bm.close(); throw new Error('Canvas not available'); }
+  if (srcW === bm.width && srcH === bm.height) srcCtx.drawImage(bm, 0, 0);
+  else { srcCtx.imageSmoothingQuality = 'high'; srcCtx.drawImage(bm, 0, 0, srcW, srcH); }
   bm.close();
+
+  opts.onProgress?.({ phase: 'Loading model', ratio: 0.05 });
+  const { pipeline, lib } = await getPipeline(factor, quality, opts.onProgress);
 
   const outCanvas = document.createElement('canvas');
   outCanvas.width = srcW * factor;
@@ -185,10 +210,14 @@ export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Bl
         const dx = (x + sx / factor) * factor;
         const dy = (y + sy / factor) * factor;
         outCtx.drawImage(tmpCanvas, sx, sy, sw, sh, dx, dy, sw, sh);
+        // iOS counts canvas backing stores against a hard total; zero them now
+        // instead of waiting for GC between tiles.
+        if (lowMem) { tmpCanvas.width = 0; tmpCanvas.height = 0; }
       } catch (err) {
         console.error('tile upscale failed', err);
       } finally {
         URL.revokeObjectURL(tileUrl);
+        if (lowMem) { tileCanvas.width = 0; tileCanvas.height = 0; }
       }
 
       processed++;
@@ -199,6 +228,7 @@ export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Bl
   // RawImage utility not needed if we used canvas directly; reference lib to silence lint.
   void lib;
 
+  if (lowMem) { srcCanvas.width = 0; srcCanvas.height = 0; }
   opts.onProgress?.({ phase: 'Encoding', ratio: 0.97 });
   const out: Blob = await new Promise((resolve, reject) => {
     outCanvas.toBlob(
@@ -207,6 +237,7 @@ export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Bl
       opts.encodeQuality ?? 0.92,
     );
   });
+  if (lowMem) { outCanvas.width = 0; outCanvas.height = 0; }
   opts.onProgress?.({ phase: 'Done', ratio: 1 });
   return out;
 }

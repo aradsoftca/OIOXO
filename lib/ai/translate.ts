@@ -187,12 +187,27 @@ async function opusPipe(modelId: string): Promise<Translator | null> {
   if (!pipes.has(modelId)) {
     const p = (async () => {
       try {
-        const lib = await import('@xenova/transformers');
+        // transformers.js v3 first (same as engines/transcribe, upscale, tts):
+        // v2 2.17.2 imports a JSEP loader its bundled ORT never shipped, so in
+        // the cross-origin-isolated page it 404s and every Opus load returned
+        // null — that is the "Translate produced nothing" on iOS, where neither
+        // the browser Translator API nor (for most pairs) Bergamot exists.
+        const lib: any = await import('@huggingface/transformers').catch(() => null) ?? await import('@xenova/transformers');
         lib.env.allowLocalModels = false;
         lib.env.allowRemoteModels = true;
+        const isV3 = String(lib.env?.version ?? '').startsWith('3');
+        if (isV3) try { lib.env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'; } catch { /* */ } // match bundled ORT JS (see engines/transcribe)
         const { configureOnnxRuntime } = await import('@/lib/compute/concurrency');
         configureOnnxRuntime(lib);
-        const pipe = await lib.pipeline('translation', `Xenova/${modelId}`, { quantized: true });
+        const { isMemoryConstrained } = await import('@/lib/compute/device-profile');
+        if (isMemoryConstrained()) {
+          // iPhone: keep ONE Opus model resident (the ->en fallback chain can
+          // otherwise pin a per-language model AND opus-mt-mul-en at once).
+          for (const [k, other] of pipes) if (k !== modelId) { pipes.delete(k); other.then((o: any) => o?.dispose?.()).catch(() => {}); }
+        }
+        // `dtype: 'q8'` in v3 = the same model_quantized.onnx v2 loads with
+        // `quantized: true` (v3 would otherwise load fp32, 4x the memory).
+        const pipe = await lib.pipeline('translation', `Xenova/${modelId}`, isV3 ? { device: 'wasm', dtype: 'q8' } : { quantized: true });
         return pipe as unknown as Translator;
       } catch { return null; }
     })();
@@ -216,6 +231,13 @@ async function opusRun(modelId: string, text: string): Promise<string | null> {
     const res = out?.[0]?.translation_text;
     return res && res.trim() ? res : null;
   } catch { return null; }
+}
+
+/** Dispose every cached Opus model (frees ONNX sessions / WASM heap). */
+export async function releaseTranslators(): Promise<void> {
+  const all = [...pipes.values()];
+  pipes.clear();
+  await Promise.all(all.map((p) => p.then((o: any) => o?.dispose?.()).catch(() => {})));
 }
 
 /** Opus inbound (any language → English): per-language model, else multi. */

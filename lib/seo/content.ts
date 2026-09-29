@@ -565,7 +565,7 @@ export function buildRichPage(tool: ToolManifest, relatedToolIds: string[] = [])
     faqs: TOOL_COPY[tool.id]
       ? [...TOOL_COPY[tool.id].faqs, ...xonvertFaqs(tool, profile).slice(1)]
       : xonvertFaqs(tool, profile),
-    steps: xonvertSteps(tool),
+    steps: TOOL_COPY[tool.id]?.steps ?? xonvertSteps(tool),
     benefits: xonvertBenefits(tool),
     keywords: xonvertKeywords(tool, profile),
     relatedToolIds: relatedToolIds.slice(0, 6),

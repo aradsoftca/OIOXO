@@ -5,6 +5,7 @@
  * statement matches the tool that performs the pair (checked 2026-09-27).
  */
 import type { ConversionContentData, FaqItem } from '@/lib/convert/content';
+import { deepPairContent } from '@/lib/convert/pair-copy-deep';
 
 interface Copy { why: string; how: string; quality: string; uses: string; faq: FaqItem[] }
 
@@ -88,6 +89,47 @@ const COPY: Record<string, Copy> = {
     faq: [
       { question: 'Why is the result empty?', answer: 'The PDF is probably a scan (images of text). Use the PDF OCR tool.' },
       { question: 'Is the layout kept?', answer: 'You get the text in reading order; columns and tables become plain text.' },
+      PRIVATE,
+    ],
+  },
+  'pdf-to-docx': {
+    why: 'Edit the wording of a PDF in Word, Google Docs or LibreOffice instead of retyping it.',
+    how: 'pdf.js reads the PDF’s text layer in your browser. Lines are joined back into paragraphs, larger text becomes Word headings, and each PDF page ends with a page break. The .docx is written on your device.',
+    quality: 'Text-based PDFs (exported from Word, a browser or a publishing tool) convert well. The layout is simplified: images, tables and multi-column pages become flowing paragraphs. A scanned PDF has no text layer — run PDF OCR first.',
+    uses: 'Updating an old contract or CV you only have as a PDF; reusing report text; editing a form letter.',
+    faq: [
+      { question: 'Why do I get an error saying there is no text?', answer: 'The PDF is a scan — pictures of pages. Use the PDF OCR tool to add a text layer, then convert the result to Word.' },
+      { question: 'Are images and tables kept?', answer: 'No. You get the text as editable paragraphs and headings; images are left out and table cells become lines of text.' },
+      PRIVATE,
+    ],
+  },
+  'ttf-to-woff2': {
+    why: 'WOFF2 is the smallest web font format and is supported by every current browser — it makes pages load faster than TTF.',
+    how: 'The font is compressed with Google’s reference WOFF2 encoder (Brotli plus glyph transforms), compiled to WebAssembly and run in your browser.',
+    quality: 'Lossless: decoding the WOFF2 gives back the same glyphs, metrics and hinting.',
+    uses: 'Self-hosting fonts with @font-face; shrinking a site’s font payload.',
+    faq: [
+      { question: 'How much smaller is WOFF2?', answer: 'Usually 30–50% smaller than the TTF, and noticeably smaller than WOFF 1.0.' },
+      PRIVATE,
+    ],
+  },
+  'glb-to-png': {
+    why: 'Get a thumbnail or preview image of a 3D model without opening a 3D app.',
+    how: 'The model is rendered with three.js on your own GPU: centred, framed to fit, lit by a neutral studio light, and saved as a 1024px PNG with a transparent background.',
+    quality: 'Materials and textures inside the GLB are rendered as physically based materials. Draco-compressed meshes are not supported yet.',
+    uses: 'Catalogue thumbnails; previews for a README or marketplace listing; sharing a model with someone without a 3D viewer.',
+    faq: [
+      { question: 'Can I pick the camera angle?', answer: 'Not yet — the model is shown from a three-quarter view above the front.' },
+      PRIVATE,
+    ],
+  },
+  'glb-to-gif': {
+    why: 'A spinning GIF shows a 3D model from every side and plays anywhere — chat, email, docs, marketplaces.',
+    how: 'The model is rendered with three.js on your GPU at 24 angles around its vertical axis, then encoded as a looping GIF in your browser.',
+    quality: '512px on a white background (GIF transparency is on/off only, so edges would look jagged). GIF has 256 colours, so smooth gradients may band slightly.',
+    uses: 'Product previews; showing a 3D print before printing it; posting a model where 3D viewers are not supported.',
+    faq: [
+      { question: 'Can I get an MP4 instead?', answer: 'Not from this page yet; GIF is the format that plays everywhere without a player.' },
       PRIVATE,
     ],
   },
@@ -437,6 +479,9 @@ const COPY: Record<string, Copy> = {
 export const PAIR_COPY_SLUGS = Object.keys(COPY);
 
 export function pairCopyContent(slug: string): ConversionContentData | null {
+  // Long-form copy for the top-demand pairs wins over the short entries.
+  const deep = deepPairContent(slug);
+  if (deep) return deep;
   const c = COPY[slug];
   if (!c) return null;
   const [from, to] = slug.split('-to-').map((s) => s.toUpperCase());

@@ -44,6 +44,7 @@ const NAMES: Record<string, string> = {
   srt: 'SRT subtitles', vtt: 'WebVTT subtitles', ssa: 'SubStation Alpha subtitles',
   plist: 'Apple property list', xml: 'XML', stl: 'STL 3D model', scad: 'OpenSCAD file',
   dat: 'DAT data file', woff: 'WOFF web font', otf: 'OpenType font',
+  woff2: 'WOFF2 web font', ttf: 'TrueType font', glb: 'GLB 3D model', gltf: 'glTF 3D model',
 };
 
 const IMAGE = new Set(['ai', 'psb', 'ico', 'tiff', 'png', 'avif']);
@@ -76,6 +77,10 @@ export const LEGACY_PAIR_LIST: ReadonlyArray<readonly [string, string]> = [
   ['plist', 'txt'], ['plist', 'json'], ['plist', 'xml'],
   ['mp3', 'jpg'], ['mp3', 'png'],
   ['json', 'zip'], ['stl', 'scad'], ['dat', 'txt'], ['woff', 'otf'],
+  // PDF → Word (lib/convert/formats/pdf-docx), WOFF2 (formats/woff2), 3D render (formats/model-render).
+  ['pdf', 'docx'],
+  ['woff2', 'otf'], ['woff2', 'ttf'], ['otf', 'woff2'], ['ttf', 'woff2'],
+  ['glb', 'gif'], ['glb', 'png'], ['gltf', 'png'],
 ];
 
 /** Pages whose generic "Convert X to Y" wording would mislead. */
@@ -92,7 +97,20 @@ const OVERRIDES: Record<string, Partial<Pick<ConvertPair, 'title' | 'metaTitle' 
   'stl-to-scad': { blurb: 'Turn an STL mesh (ASCII or binary) into an OpenSCAD polyhedron() you can open, transform and combine in OpenSCAD.', note: 'The result is the mesh as a polyhedron, not editable parametric CSG.' },
   'dat-to-txt': { title: 'Open a DAT file as text', metaTitle: 'DAT to TXT — view any .dat file as text or a hex dump, free in your browser', blurb: '.dat is a generic extension any program can use. See what is inside: text is shown as text, binary data as a readable hex dump.', note: 'A .dat file has no single format, so nothing is “converted” — you see the actual contents.' },
   'json-to-zip': { title: 'Compress JSON to ZIP', blurb: 'Pack a .json file into a .zip archive in your browser — JSON typically shrinks by 80–90%.', note: 'Compresses the file into a standard .zip.' },
-  'woff-to-otf': { blurb: 'Unpack a WOFF web font back into an installable OpenType font. The font tables are restored exactly — no re-drawing of glyphs.', note: 'WOFF2 fonts are not supported yet.' },
+  'woff-to-otf': { blurb: 'Unpack a WOFF web font back into an installable OpenType font. The font tables are restored exactly — no re-drawing of glyphs.' },
+  'pdf-to-docx': {
+    category: 'pdf', title: 'Convert PDF to Word (DOCX)',
+    metaTitle: 'PDF to Word — convert PDF to editable DOCX, free in your browser, no upload',
+    blurb: 'Turn a PDF into an editable Word document. Paragraphs, headings and page breaks are rebuilt from the PDF’s text — on your device, nothing is uploaded.',
+    note: 'Works on PDFs with selectable text; the layout is simplified to flowing paragraphs (no images, tables or columns). A scanned PDF has no text to extract — run it through PDF OCR (/tools/pdf-ocr) first.',
+  },
+  'woff2-to-otf': { blurb: 'Decode a WOFF2 web font into an installable OpenType font, in your browser.', note: 'A WOFF2 of a TrueType font stays TrueType inside; most systems install it fine with either extension.' },
+  'woff2-to-ttf': { blurb: 'Decode a WOFF2 web font into an installable TrueType (.ttf) font, in your browser — no upload.', note: 'A WOFF2 made from a CFF (OpenType) font decodes to CFF outlines; save it as .otf if your system prefers.' },
+  'otf-to-woff2': { blurb: 'Compress an OpenType font to WOFF2 — the smallest web font format, supported by every modern browser. Runs in your browser.' },
+  'ttf-to-woff2': { blurb: 'Compress a TrueType font to WOFF2 for the web — typically 30–50% smaller than TTF. Runs in your browser, nothing is uploaded.' },
+  'glb-to-png': { category: 'image', title: 'Render GLB to PNG', metaTitle: 'GLB to PNG — render a 3D model to an image, free in your browser', blurb: 'Render a GLB 3D model to a 1024px PNG with a transparent background — auto-framed and evenly lit, on your own GPU. Nothing is uploaded.', note: 'Draco-compressed models are not supported yet.' },
+  'gltf-to-png': { category: 'image', title: 'Render glTF to PNG', metaTitle: 'glTF to PNG — render a 3D model to an image, free in your browser', blurb: 'Render a glTF 3D model to a 1024px PNG with a transparent background — auto-framed and evenly lit, in your browser.', note: 'The .gltf must have its data embedded; one that points to separate .bin/texture files needs the .glb version instead.' },
+  'glb-to-gif': { category: 'image', title: 'Convert GLB to animated GIF', metaTitle: 'GLB to GIF — 360° turntable animation of a 3D model, free in your browser', blurb: 'Turn a GLB 3D model into a looping 360° turntable GIF (24 frames, 512px, white background) — rendered on your device, no upload.', note: 'Draco-compressed models are not supported yet.' },
   'sbv-to-txt': { blurb: 'Turn YouTube .sbv captions into plain text — just the lines, no timestamps — in your browser.' },
   'vtt-to-txt': { blurb: 'Turn WebVTT captions into plain text — just the lines, no timestamps — in your browser.' },
   'ssa-to-txt': { blurb: 'Turn SubStation Alpha (.ssa/.ass) subtitles into plain text, styling codes removed.' },

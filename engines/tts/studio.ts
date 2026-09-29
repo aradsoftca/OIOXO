@@ -62,8 +62,18 @@ async function mmsPipe(iso3: string, onProgress?: (r: number) => void): Promise<
         lib.env.allowLocalModels = false;
         lib.env.allowRemoteModels = true;
         if (String(lib.env?.version ?? '').startsWith('3')) try { lib.env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/'; } catch { /* */ } // match the bundled ORT JS (1.21) — else "_OrtGetInputName is not a function" (lib/studios/ai-bgremove.ts)
+        const { isMemoryConstrained } = await import('@/lib/compute/device-profile');
+        const lowMem = isMemoryConstrained();
+        if (lowMem) {
+          // iPhone: single-threaded WASM + int8 weights (v3 ignores `quantized`
+          // and would load fp32), and only one voice resident at a time.
+          const { configureOnnxRuntime } = await import('@/lib/compute/concurrency');
+          configureOnnxRuntime(lib);
+          for (const [k, other] of pipes) if (k !== iso3) { pipes.delete(k); other.then((o) => o?.dispose?.()).catch(() => {}); }
+        }
         return await lib.pipeline('text-to-speech', `Xenova/mms-tts-${iso3}`, {
           quantized: true,
+          ...(lowMem && String(lib.env?.version ?? '').startsWith('3') ? { device: 'wasm', dtype: 'q8' } : {}),
           progress_callback: (d: any) => {
             if (!onProgress) return;
             const r = d.progress != null ? d.progress / 100 : (d.loaded && d.total ? d.loaded / d.total : 0);
@@ -81,6 +91,13 @@ async function mmsPipe(iso3: string, onProgress?: (r: number) => void): Promise<
      .catch(() => { pipes.delete(iso3); });
   }
   return pipes.get(iso3)!;
+}
+
+/** Dispose every cached voice model (frees its ONNX session / WASM heap). */
+export async function releaseVoices(): Promise<void> {
+  const all = [...pipes.values()];
+  pipes.clear();
+  await Promise.all(all.map((p) => p.then((o) => o?.dispose?.()).catch(() => {})));
 }
 
 export interface SynthResult { pcm: Float32Array; sampleRate: number }

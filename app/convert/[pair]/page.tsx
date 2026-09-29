@@ -51,7 +51,7 @@ function buildConvertFaqs(pair: { from: string; to: string }) {
   return [
     {
       q: `Is the ${from} to ${to} converter free?`,
-      a: `Yes. Converting ${from} to ${to} on ${BRAND} is free, with no signup, no credit card, no limits, and no watermark on standard files.`,
+      a: `Yes. Converting ${from} to ${to} on ${BRAND} is free, with no signup and no credit card. Free files carry a small Xonvert mark in the name (and on some image and video outputs); Pro removes it.`,
     },
     {
       q: `Do my files get uploaded?`,

@@ -24,11 +24,13 @@ export type HandlerId =
   | 'img-video'    // image(s) → mp4 slideshow
   | 'pdf-img'      // pdf pages → images (zip)
   | 'pdf-txt'      // pdf text layer → txt
+  | 'pdf-docx'     // pdf text layer → Word .docx (paragraphs/headings rebuilt)
   | 'ocr'          // image → text
   | 'transcribe'   // audio → text
   | 'subtitle'     // srt/vtt/ass interconvert
   | 'font'         // ttf/otf/woff/woff2
   | 'model3d'      // obj/stl/fbx/… → glb/gltf
+  | 'model-render' // glb/gltf → png snapshot / gif turntable (three.js)
   | 'docx'         // word → pdf/html/txt
   | 'sheet'        // xlsx/ods/csv → csv/xlsx/html/json
   | 'ebook'        // epub → pdf/html/txt
@@ -105,8 +107,8 @@ const VIDEO_CODEC: Record<string, string[]> = {
 // Subtitles: srt/vtt/sbv/ass/ssa in (lib/convert/formats/subtitle); ass/ssa are read-only.
 const SUBTITLE = ['srt', 'vtt', 'sbv', 'ass', 'ssa'];
 const SUBTITLE_OUT = ['srt', 'vtt', 'sbv', 'txt'];
-// Fonts: WOFF 1.0 ⇄ TTF/OTF is a lossless table (de)compression (lib/convert/formats/woff).
-// WOFF2 needs Brotli + glyf transforms we don't ship, so .woff2 has no conversion targets.
+// Fonts: WOFF 1.0 ⇄ TTF/OTF is a lossless table (de)compression (lib/convert/formats/woff);
+// WOFF2 ⇄ TTF/OTF uses Google's woff2 encoder/decoder as wasm (lib/convert/formats/woff2).
 const FONT = ['ttf', 'otf', 'woff', 'woff2'];
 const MODEL3D = ['obj', 'stl', 'fbx', 'dae', 'ply', '3ds', 'gltf', 'glb', '3mf'];
 const MODEL3D_OUT = ['glb', 'gltf'];
@@ -227,20 +229,31 @@ function routesFor(ext: string): Target[] {
     out.push({ to: 'jpg', handler: 'pdf-img', toolId: 'pdf-to-images' });
     out.push({ to: 'png', handler: 'pdf-img', toolId: 'pdf-to-images' });
     out.push({ to: 'txt', handler: 'pdf-txt', toolId: 'pdf-to-text' });
+    out.push({ to: 'docx', handler: 'pdf-docx', toolId: 'convert-anything', note: 'Editable Word text; scanned PDFs need OCR first' });
   } else if (cat === 'subtitle') {
     for (const to of SUBTITLE_OUT) if (to !== ext) {
       const plain = ext === 'srt' || ext === 'vtt';
       out.push({ to, handler: 'subtitle', toolId: plain && to !== 'txt' && to !== 'sbv' ? 'subtitle-cleaner' : 'convert-anything', note: to === 'txt' ? 'Just the spoken lines, no timings' : undefined });
     }
   } else if (cat === 'font') {
-    if (ext === 'woff') {
+    if (ext === 'woff2') {
+      out.push({ to: 'ttf', handler: 'font', toolId: 'convert-anything', note: 'Decodes the WOFF2 font' });
+      out.push({ to: 'otf', handler: 'font', toolId: 'convert-anything', note: 'Decodes the WOFF2 font' });
+      out.push({ to: 'woff', handler: 'font', toolId: 'convert-anything', note: 'Re-packs as WOFF 1.0 for older browsers' });
+    } else if (ext === 'woff') {
       out.push({ to: 'ttf', handler: 'font', toolId: 'convert-anything', note: 'Unpacks the WOFF tables losslessly' });
       out.push({ to: 'otf', handler: 'font', toolId: 'convert-anything', note: 'Unpacks the WOFF tables losslessly' });
+      out.push({ to: 'woff2', handler: 'font', toolId: 'convert-anything', note: 'Recompresses as WOFF2 (smaller)' });
     } else if (ext === 'ttf' || ext === 'otf') {
+      out.push({ to: 'woff2', handler: 'font', toolId: 'convert-anything', note: 'Compresses for the web (WOFF2, smallest)' });
       out.push({ to: 'woff', handler: 'font', toolId: 'convert-anything', note: 'Compresses the font tables (WOFF 1.0)' });
     }
   } else if (cat === 'model3d') {
     for (const to of MODEL3D_OUT) if (to !== ext) out.push({ to, handler: 'model3d', toolId: 'model-3d-convert' });
+    if (ext === 'glb' || ext === 'gltf') {
+      out.push({ to: 'png', handler: 'model-render', toolId: 'convert-anything', note: '1024px snapshot, transparent background' });
+      out.push({ to: 'gif', handler: 'model-render', toolId: 'convert-anything', note: '360° turntable animation' });
+    }
     if (ext === 'stl') out.push({ to: 'scad', handler: 'stl-scad', toolId: 'convert-anything', note: 'OpenSCAD polyhedron() of the mesh' });
   } else if (cat === 'structured') {
     if (ext === 'plist') {
@@ -320,7 +333,8 @@ const mimeOf: Record<string, string> = {
   eml: 'message/rfc822', pem: 'application/x-pem-file', crt: 'application/x-pem-file',
   der: 'application/pkix-cert', cer: 'application/pkix-cert',
   srt: 'application/x-subrip', vtt: 'text/vtt', sbv: 'text/plain', xml: 'application/xml',
-  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', zip: 'application/zip',
+  ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', zip: 'application/zip',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ico: 'image/x-icon', cur: 'image/x-win-bitmap', scad: 'text/plain',
 };
 
@@ -527,6 +541,19 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       const pages = await extractPdfText(await file.arrayBuffer(), { onProgress: (p) => opts.onProgress?.(p.page / p.pageCount) });
       return { text: pages.map((p) => p.text).join('\n\n'), filename: `${base}.txt` };
     }
+    case 'pdf-docx': {
+      const { pdfToDocx } = await import('@/lib/convert/formats/pdf-docx');
+      return { blob: await pdfToDocx(await file.arrayBuffer(), base, opts.onProgress), filename: `${base}.docx` };
+    }
+    case 'model-render': {
+      const buf = await file.arrayBuffer();
+      if (target.to === 'gif') {
+        const { renderModelGif } = await import('@/lib/convert/formats/model-render');
+        return { blob: await renderModelGif(buf, { onProgress: opts.onProgress }), filename: `${base}.gif` };
+      }
+      const { renderModelPng } = await import('@/lib/convert/formats/model-render');
+      return { blob: await renderModelPng(buf), filename: `${base}.png` };
+    }
     case 'ocr': {
       const { recognize } = await import('@/engines/ocr');
       const res = await recognize(file, { onProgress: (p) => opts.onProgress?.(p.ratio) });
@@ -690,14 +717,25 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       return { blob: new Blob([text], { type: mimeOf[to] }), filename: `${base}.${to}` };
     }
     case 'font': {
-      const { woffToSfnt, sfntToWoff } = await import('@/lib/convert/formats/woff');
+      const { woffToSfnt, sfntToWoff, sniffFont } = await import('@/lib/convert/formats/woff');
       const bytes = new Uint8Array(await file.arrayBuffer());
+      const kind = sniffFont(bytes);
+      if (!kind) throw new Error('This file is not a TTF, OTF, WOFF or WOFF2 font.');
+      // Normalise the input to plain SFNT tables first (sniffed, not trusted from the extension).
+      let sfnt: Uint8Array;
+      if (kind === 'woff2') sfnt = (await (await import('@/lib/convert/formats/woff2')).woff2ToSfnt(bytes)).font;
+      else if (kind === 'woff') sfnt = woffToSfnt(bytes).font;
+      else sfnt = bytes;
+      if (target.to === 'woff2') {
+        const { sfntToWoff2 } = await import('@/lib/convert/formats/woff2');
+        return { blob: new Blob([(await sfntToWoff2(sfnt)) as BlobPart], { type: 'font/woff2' }), filename: `${base}.woff2` };
+      }
       if (target.to === 'woff') {
-        return { blob: new Blob([sfntToWoff(bytes) as BlobPart], { type: 'font/woff' }), filename: `${base}.woff` };
+        return { blob: new Blob([sfntToWoff(sfnt) as BlobPart], { type: 'font/woff' }), filename: `${base}.woff` };
       }
       // An OpenType file may hold TrueType or CFF outlines under either extension;
-      // the tables are returned exactly as the WOFF wrapped them.
-      const { font } = woffToSfnt(bytes);
+      // the tables are returned exactly as the container wrapped them.
+      const font = sfnt;
       return { blob: new Blob([font as BlobPart], { type: mimeOf[target.to] }), filename: `${base}.${target.to}` };
     }
     case 'ani': {

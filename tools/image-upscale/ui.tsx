@@ -45,6 +45,7 @@ export default function ImageUpscaleTool() {
   const [factor, setFactor] = React.useState<UpscaleFactor>(2);
   const [quality, setQuality] = React.useState<UpscaleQuality>('fast');
   const [running, setRunning] = React.useState(false);
+  const [error, setError] = React.useState('');
   const [progress, setProgress] = React.useState<UpscaleProgress | null>(null);
   const [compare, setCompare] = React.useState(50);
   const [showCompare, setShowCompare] = React.useState(false);
@@ -78,6 +79,7 @@ export default function ImageUpscaleTool() {
     const ok = await enforcePolicy(POLICY_KEY, isPro, policyGate.fire, specs);
     if (!ok) return;
     setRunning(true);
+    setError('');
     setProgress({ phase: 'Preparing', ratio: 0 });
     try {
       const blob = await upscale(target, {
@@ -100,6 +102,7 @@ export default function ImageUpscaleTool() {
       setRecent('image-upscale', thumb);
     } catch (err) {
       console.error('upscale failed', err);
+      setError((err as Error)?.name === 'DeviceLimitError' ? (err as Error).message : 'Could not enlarge this image on this device.');
     } finally {
       setRunning(false);
       setProgress(null);
@@ -364,6 +367,8 @@ export default function ImageUpscaleTool() {
             {running ? 'Enlarging…' : `Enlarge ${factor}×`}
           </button>
         )}
+
+        {error && <div className="text-[12px] leading-relaxed text-red-600">{error}</div>}
 
         <button
           type="button"

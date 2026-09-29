@@ -30,6 +30,21 @@ const QUALITIES = [
   { id: 'low',    label: 'Low',      crf: 32 },
 ];
 
+/** WebM needs either wasm libvpx (aborts in our core, live 2026-09-27; hangs
+ *  silently in WebKit) or the browser's MediaRecorder writing WebM from a
+ *  captureStream. Safari/iOS WKWebView has neither WebM recording nor
+ *  HTMLMediaElement.captureStream, so WebM output is not possible there. */
+function browserCanMakeWebm(): boolean {
+  try {
+    if (typeof MediaRecorder === 'undefined' || typeof document === 'undefined') return false;
+    const v = document.createElement('video') as unknown as { captureStream?: unknown; mozCaptureStream?: unknown };
+    if (typeof v.captureStream !== 'function' && typeof v.mozCaptureStream !== 'function') return false;
+    return MediaRecorder.isTypeSupported('video/webm');
+  } catch { return false; }
+}
+
+const NO_WEBM_MSG = 'WebM can’t be created in this browser (Safari / iPhone / iPad do not support WebM encoding). Choose MP4 instead — it plays everywhere, including on Apple devices.';
+
 function argsFor(target: Target, crf: number): string[] {
   if (target === 'webm') {
     // realtime/cpu-used 8/row-mt: default VP9 settings are far too slow in wasm.
@@ -47,11 +62,15 @@ export default function Tool() {
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState(0);
   const [error, setError] = React.useState('');
+  const [webmOk, setWebmOk] = React.useState(true);
+  React.useEffect(() => { setWebmOk(browserCanMakeWebm()); }, []);
 
   React.useEffect(() => () => { if (item?.url) URL.revokeObjectURL(item.url); }, [item]);
 
   const run = async () => {
     if (!item) return;
+    // Fail fast with a clear choice instead of a silent multi-minute hang.
+    if (target === 'webm' && !webmOk) { setError(NO_WEBM_MSG); return; }
     const specs = [
       { type: 'lever' as const, lever: 'input-size' as const, value: item.file.size },
       { type: 'lever' as const, lever: 'input-duration' as const, value: item.info.duration },
@@ -104,6 +123,7 @@ export default function Tool() {
           // browser's own MediaRecorder writes WebM natively (video-mute uses it and
           // passes the sweep) — real-time, but it works. Needs a playable source.
           if (!item.info.duration) throw e2;
+          if (!browserCanMakeWebm()) throw new Error(NO_WEBM_MSG);
           setProgress(0);
           blob = await recordRange(item.video, 0, item.info.duration, {
             mimeType: 'video/webm',
@@ -167,6 +187,13 @@ export default function Tool() {
                 <div className="mt-1 text-[14px] font-semibold break-all">{item.file.name.replace(/\.[^.]+$/, '')}.{target}</div>
                 <div className="mt-2 text-[10px] text-[var(--color-fg-muted)]">First time may take a moment to warm up. Subsequent jobs start instantly.</div>
               </div>
+              {target === 'webm' && !webmOk && (
+                <div className="border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] text-amber-700">
+                  {NO_WEBM_MSG}
+                  <button type="button" onClick={() => { setTarget('mp4'); setError(''); }}
+                    className="mt-2 block text-[10px] font-bold uppercase tracking-wider underline">Use MP4 instead</button>
+                </div>
+              )}
               <FfmpegRunButton colorVar="--color-cat-video" busy={busy} progress={progress}
                 label="Convert & Download" busyLabel="Converting…" onClick={run} error={error} />
             </aside>

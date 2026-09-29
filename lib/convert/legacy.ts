@@ -20,11 +20,12 @@ const ALIASES: Record<string, string[]> = {
 /** Spelling the /convert pages use for an aliased extension (jpeg-to-png → jpg-to-png). */
 const CANONICAL: Record<string, string> = { jpeg: 'jpg', tif: 'tiff', htm: 'html', mpeg: 'mpg', yml: 'yaml', markdown: 'md' };
 
-/** Old slugs that are not `{ext}-to-{ext}`. No tool writes .docx, so pdf-to-word gets the
- *  closest honest page (editable text out of the PDF), not a page promising Word. */
+/** Old slugs that are not `{ext}-to-{ext}` (or whose spelling differs from the page). */
 const SPECIAL: Record<string, string> = {
   'word-to-pdf': '/convert/docx-to-pdf',
-  'pdf-to-word': '/convert/pdf-to-txt',
+  'pdf-to-word': '/convert/pdf-to-docx',
+  'pdf-to-docx': '/convert/pdf-to-docx',
+  'pdf-to-doc': '/convert/pdf-to-docx',
 };
 
 function names(ext: string): string[] {

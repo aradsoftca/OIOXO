@@ -7,6 +7,7 @@ import { transcribe, chunksToSrt, chunksToVtt, type TranscribeProgress, type Tra
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { isMemoryConstrained } from '@/lib/compute/device-profile';
 
 const POLICY_KEY = 'audio-to-text';
 
@@ -61,6 +62,11 @@ export default function AudioToTextTool() {
   const [language, setLanguage] = React.useState<string>('');
   const [size, setSize] = React.useState<TranscribeSize>('tiny');
   const [translate, setTranslate] = React.useState(false);
+  const [error, setError] = React.useState('');
+  // iPhone/low-memory profile (read after mount — no SSR mismatch): the engine
+  // caps Whisper at base there, so the 'Detailed' (small) option is disabled.
+  const [lowMem, setLowMem] = React.useState(false);
+  React.useEffect(() => { setLowMem(isMemoryConstrained()); }, []);
   const [running, setRunning] = React.useState(false);
   const [progress, setProgress] = React.useState<TranscribeProgress | null>(null);
   const [result, setResult] = React.useState<TranscribeResult | null>(null);
@@ -80,6 +86,7 @@ export default function AudioToTextTool() {
     if (durHit) { policyGate.fire(durHit); return; }
     setRunning(true);
     setResult(null);
+    setError('');
     setProgress({ phase: 'Preparing', ratio: 0 });
     try {
       const out = await transcribe(target, {
@@ -91,6 +98,7 @@ export default function AudioToTextTool() {
       setResult(out);
     } catch (err) {
       console.error('transcribe failed', err);
+      setError((err as Error)?.name === 'DeviceLimitError' ? (err as Error).message : 'Could not transcribe this file on this device.');
     } finally {
       setRunning(false);
       setProgress(null);
@@ -282,7 +290,7 @@ export default function AudioToTextTool() {
                 <button
                   key={s.v}
                   type="button"
-                  disabled={running}
+                  disabled={running || (lowMem && s.v === 'small')}
                   onClick={() => setSize(s.v)}
                   className={cn(
                     'border px-2 py-2 text-[11px] font-bold uppercase tracking-wider transition disabled:opacity-60',
@@ -348,6 +356,8 @@ export default function AudioToTextTool() {
             {running ? (progress?.phase ?? 'Working') + '…' : 'Transcribe'}
           </button>
         )}
+
+        {error && <div className="text-[12px] leading-relaxed text-red-600">{error}</div>}
 
         {file && (
           <button

@@ -7,6 +7,7 @@ import { transcribe, chunksToSrt, chunksToVtt, type TranscribeProgress, type Tra
 import { enforcePolicy } from '@/lib/limits/server-check';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
+import { isMemoryConstrained } from '@/lib/compute/device-profile';
 
 const POLICY_KEY = 'subtitle-generate';
 
@@ -42,6 +43,11 @@ export default function SubtitleGenerateTool() {
   const [language, setLanguage] = React.useState('');
   const [size, setSize] = React.useState<TranscribeSize>('base');
   const [activeIdx, setActiveIdx] = React.useState(-1);
+  const [error, setError] = React.useState('');
+  // iPhone/low-memory profile (read after mount — no SSR mismatch): the engine
+  // caps Whisper at base there, so the 'Detailed' (small) option is disabled.
+  const [lowMem, setLowMem] = React.useState(false);
+  React.useEffect(() => { setLowMem(isMemoryConstrained()); }, []);
 
   const mediaRef = React.useRef<HTMLVideoElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -63,12 +69,13 @@ export default function SubtitleGenerateTool() {
       { type: 'lever', lever: 'input-size', value: file.size },
     ]);
     if (!ok) return;
-    setRunning(true); setChunks([]); setProgress({ phase: 'Preparing', ratio: 0 });
+    setRunning(true); setChunks([]); setError(''); setProgress({ phase: 'Preparing', ratio: 0 });
     try {
       const out = await transcribe(file, { size, language: language || undefined, onProgress: (p) => setProgress(p) });
       setChunks(out.chunks.length ? out.chunks : (out.text ? [{ start: 0, end: 0, text: out.text }] : []));
     } catch (e) {
       console.error('subtitle generation failed', e);
+      setError((e as Error)?.name === 'DeviceLimitError' ? (e as Error).message : 'Could not generate subtitles on this device.');
     } finally {
       setRunning(false); setProgress(null);
     }
@@ -172,7 +179,7 @@ export default function SubtitleGenerateTool() {
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Model</div>
             <div className="mt-2 grid grid-cols-3 gap-1.5">
               {SIZES.map((s) => (
-                <button key={s.v} type="button" disabled={running} onClick={() => setSize(s.v)}
+                <button key={s.v} type="button" disabled={running || (lowMem && s.v === 'small')} onClick={() => setSize(s.v)}
                   className={cn('border px-2 py-2 text-[11px] font-bold uppercase tracking-wider transition disabled:opacity-60',
                     size === s.v ? 'border-[var(--color-cat-subtitle)] bg-[var(--color-cat-subtitle)] text-white' : 'border-black/[0.08] text-[var(--color-fg-muted)] hover:border-black/20')}>
                   {s.label}
@@ -198,6 +205,8 @@ export default function SubtitleGenerateTool() {
             {running ? (progress?.phase ?? 'Working') + '…' : chunks.length ? 'Regenerate' : 'Generate subtitles'}
           </button>
         )}
+
+        {error && <div className="text-[12px] leading-relaxed text-red-600">{error}</div>}
 
         {chunks.length > 0 && (
           <div className="grid grid-cols-3 gap-2">

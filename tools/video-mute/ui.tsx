@@ -2,11 +2,11 @@
 import * as React from 'react';
 import { Download, Loader2 } from 'lucide-react';
 import { VideoDrop, type VideoFileItem } from '@/components/tool/VideoDrop';
-import { recordRange, downloadBlob, fmtDuration } from '@/engines/video';
+import { downloadBlob, fmtDuration } from '@/engines/video';
+import { runFfmpeg, extOf, videoMimeForExt } from '@/engines/ffmpeg';
 import { checkLever } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
 import { useIsPro } from '@/lib/limits/use-is-pro';
-import { shouldWatermark } from '@/lib/watermark/config';
 
 const POLICY_KEY = 'video-mute';
 
@@ -28,16 +28,19 @@ export default function Tool() {
     if (durHit) { policyGate.fire(durHit); return; }
     setBusy(true); setError(''); setProgress(0);
     try {
-      const blob = await recordRange(item.video, 0, item.info.duration, {
-        withVideo: true,
-        withAudio: false,
-        // Free tier gets the brand mark burned into the recording (matches
-        // video-trim); Pro / watermark-free policy → clean. This path bypasses
-        // both the canvas-patch and ffmpeg, so the opt is REQUIRED here.
-        watermark: shouldWatermark(POLICY_KEY),
-        onProgress: (t) => setProgress(Math.round((t / item.info.duration) * 100)),
+      // ffmpeg stream copy: drop the audio, keep the video bytes and the input's
+      // container. Was MediaRecorder + captureStream -> WebM, which never produced
+      // a file on Safari/iOS (no captureStream, no WebM recording) and ran at
+      // playback speed everywhere. The free-tier brand mark is added by the
+      // ffmpeg engine's watermark pass (setFfmpegWatermark), like other video tools.
+      const ext = extOf(item.file.name) || 'mp4';
+      const blob = await runFfmpeg({
+        input: item.file, inputName: `in.${ext}`, outputName: `out.${ext}`,
+        args: (i, o) => ['-i', i, '-map', '0:v?', '-an', '-c:v', 'copy', o],
+        mimeType: videoMimeForExt(ext),
+        onProgress: (p) => setProgress(Math.round(p * 100)),
       });
-      downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + '-muted.webm');
+      downloadBlob(blob, item.file.name.replace(/\.[^.]+$/, '') + `-muted.${ext}`);
     } catch (e) {
       setError((e as Error).message);
     } finally { setBusy(false); }
@@ -46,7 +49,7 @@ export default function Tool() {
   return (
     <div className="space-y-4">
       {policyGate.element}
-      {!item && <VideoDrop loaded={false} onLoad={setItem} />}
+      {!item && <VideoDrop loaded={false} onLoad={setItem} ffmpegOnly />}
 
       {item && (
         <>
@@ -60,13 +63,13 @@ export default function Tool() {
           <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
             <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-6">
               <div className="text-[12px] text-[var(--color-fg-muted)]">
-                Drops the audio track and re-saves the video. Output is WebM and plays everywhere modern.
+                Drops the audio track and keeps the video as-is, in the same format as your file ({(extOf(item.file.name) || 'mp4').toUpperCase()}).
                 {!item.info.hasAudio && (
                   <div className="mt-2 text-amber-600">This file already has no audio.</div>
                 )}
               </div>
               <div className="mt-4 text-[11px] text-[var(--color-fg-muted)]">
-                Processing runs at playback speed — a 60-second clip takes ~60 seconds.
+                Runs in your browser; the first run downloads the video engine once.
               </div>
             </div>
             <aside>

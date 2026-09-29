@@ -234,8 +234,14 @@ export async function recordRange(
   opts: { withVideo?: boolean; withAudio?: boolean; mimeType?: string; watermark?: boolean; onProgress?: (t: number) => void } = {},
 ): Promise<Blob> {
   const { withVideo = true, withAudio = true, mimeType, watermark = false, onProgress } = opts;
-  const srcStream: MediaStream = (video as unknown as { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream }).captureStream?.()
-    ?? (video as unknown as { mozCaptureStream?: () => MediaStream }).mozCaptureStream!();
+  // Safari/WKWebView has no HTMLMediaElement.captureStream: fail with a clear
+  // message instead of a TypeError from calling undefined.
+  const v = video as unknown as { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream };
+  const cap = v.captureStream ?? v.mozCaptureStream;
+  if (typeof cap !== 'function' || typeof MediaRecorder === 'undefined') {
+    throw new Error('This browser cannot record video playback (Safari/iOS). Please use Chrome, Edge or Firefox, or pick an MP4 output.');
+  }
+  const srcStream: MediaStream = cap.call(video);
   if (!srcStream) throw new Error('captureStream not supported in this browser.');
 
   // When watermarking a video output, interpose a canvas: draw each played frame
@@ -291,8 +297,12 @@ export async function recordRange(
     'video/webm;codecs=vp9,opus',
     'video/webm;codecs=vp8,opus',
     'video/webm',
+    // Safari's MediaRecorder writes MP4 only.
+    'video/mp4;codecs=avc1,mp4a',
+    'video/mp4',
     'audio/webm;codecs=opus',
     'audio/webm',
+    'audio/mp4',
   ].filter(Boolean) as string[];
   const chosen = fallbackTypes.find((t) => MediaRecorder.isTypeSupported(t));
   if (!chosen) throw new Error('No supported MediaRecorder format.');
@@ -349,6 +359,12 @@ export async function recordRange(
       reject(err);
     });
   });
+}
+
+/** File extension matching a recorded Blob's MIME (MediaRecorder may give MP4 on Safari). */
+export function extForRecordedMime(mime: string): string {
+  if (/^video\/mp4|^audio\/mp4/i.test(mime)) return /^audio/i.test(mime) ? 'm4a' : 'mp4';
+  return /^audio/i.test(mime) ? 'weba' : 'webm';
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

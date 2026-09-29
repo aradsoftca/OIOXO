@@ -12,6 +12,8 @@
  * Works on the main thread and inside Workers (both expose navigator).
  */
 
+import { isMemoryConstrained } from './device-profile';
+
 /** Reported CPU cores, with a safe default when the browser hides it. */
 export function cpuCores(): number {
   try {
@@ -58,7 +60,10 @@ export function configureOnnxRuntime(lib: unknown): void {
     if (!wasm) return;
     const isolated = typeof globalThis !== 'undefined'
       && (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
-    wasm.numThreads = isolated ? niceThreadCount() : 1;
+    // iOS/low-memory: one thread. Each ORT thread is a worker with its own
+    // stack + scratch in the shared WASM heap, and iOS WebKit kills the page
+    // far below what a multi-threaded session can reach.
+    wasm.numThreads = isolated && !isMemoryConstrained() ? niceThreadCount() : 1;
     wasm.simd = true;
   } catch {
     /* best-effort */

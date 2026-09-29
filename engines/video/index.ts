@@ -64,7 +64,9 @@ export async function getVideoInfo(file: File): Promise<{ info: VideoInfo; video
   // audio tools for all Chrome users. Unknown → assume audio; ffmpeg reports
   // a missing stream if there really is none.
   const v = video as unknown as { mozHasAudio?: boolean; audioTracks?: { length: number } };
-  const hasAudio = v.audioTracks ? v.audioTracks.length > 0 : v.mozHasAudio ?? true;
+  // Safari/WKWebView (every iOS app) reports audioTracks.length 0 at loadedmetadata even when
+  // the file has sound, which disabled Extract Audio on iPhone. Only a positive count is proof.
+  const hasAudio = (v.audioTracks && v.audioTracks.length > 0) || (v.mozHasAudio ?? true);
   const info: VideoInfo = {
     duration: video.duration,
     width: video.videoWidth,

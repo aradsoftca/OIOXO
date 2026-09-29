@@ -33,7 +33,7 @@ const CONCURRENCY = Number(process.env.CONCURRENCY || 2);
 // Tools that need clicks ON the canvas before the action enables (no generic driver).
 const INTERACTIVE = new Set(['image-smart-cutout']);
 const UI_TIMEOUT = 15_000;
-const DL_TIMEOUT = 45_000;
+const DL_TIMEOUT = Number(process.env.DL_TIMEOUT || 45_000); // phones need longer for model-backed tools
 const DL_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'xonvert-sweep-'));
 
 // Samples in preference order: first one the tool accepts wins.

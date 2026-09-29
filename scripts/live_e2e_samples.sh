@@ -84,6 +84,7 @@ ff -i test.png test.jpg
 ff -i test.png test.webp
 # Black-on-white text for the OCR tool (test.png has no text in it).
 ff -f lavfi -i color=white:s=640x160 -frames:v 1 -vf "drawtext=fontfile=lato.ttf:text='Hello Xonvert OCR':fontsize=64:fontcolor=black:x=30:y=50" ocr.png
+ff -i ocr.png ocr.jpg
 ff -f lavfi -t 1 -i testsrc=size=160x120:rate=10 -vf "split[a][b];[a]palettegen[p];[b][p]paletteuse" anim.gif
 ff -i clip.mp4 -c copy clip.mov
 ff -i clip.mp4 -c copy clip.mkv

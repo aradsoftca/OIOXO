@@ -35,9 +35,9 @@ export default function GifStudioUI() {
     const script = document.createElement('script');
     // crossOrigin: under the site's COEP isolation a no-CORS cross-origin script
     // is blocked (ERR_BLOCKED_BY_ORB), so gifshot never loaded and every compile
-    // hit "still loading". cdnjs sends ACAO:*.
+    // hit "still loading". jsDelivr sends ACAO:*. (cdnjs lists NO files for gifshot: every version 404s.)
     script.crossOrigin = 'anonymous';
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/gifshot/0.3.7/gifshot.min.js';
+    script.src = 'https://cdn.jsdelivr.net/npm/gifshot@0.4.5/dist/gifshot.min.js';
     script.async = true;
     script.onerror = () => { (window as any).__gifshotFailed = true; };
     document.body.appendChild(script);

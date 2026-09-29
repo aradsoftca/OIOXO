@@ -130,7 +130,12 @@ function acceptsSample(accepts, s) {
   });
 }
 // Tools that need specific content, not just the right type (OCR finds nothing in test.png).
-const SAMPLE_OVERRIDE = { '/tools/image-ocr': { file: 'ocr.png', mime: 'image/png', exts: ['png'] } };
+const SAMPLE_OVERRIDE = {
+  '/tools/image-ocr': { file: 'ocr.png', mime: 'image/png', exts: ['png'] },
+  // The OCR converter pairs run image-ocr too: a photo without text yields nothing to download.
+  '/convert/png-to-txt': { file: 'ocr.png', mime: 'image/png', exts: ['png'] },
+  '/convert/jpg-to-txt': { file: 'ocr.jpg', mime: 'image/jpeg', exts: ['jpg', 'jpeg'] },
+};
 function pickSample(url, accepts) {
   const o = SAMPLE_OVERRIDE[url];
   if (o && fs.existsSync(path.join(SAMPLES, o.file))) return o;

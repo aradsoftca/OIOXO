@@ -12,7 +12,12 @@ export function loadOpenCv(): Promise<any> {
   if (readyPromise) return readyPromise;
   const p = new Promise<any>((resolve, reject) => {
     const w = window as any;
-    const done = () => resolve(w.cv);
+    // opencv.js 4.x's Module is a THENABLE whose then() calls back with itself.
+    // Resolving a Promise with it makes the engine unwrap `.then` forever: the
+    // page froze (desktop) and the Android app's WebView renderer crashed on
+    // image-doc-scan. Strip `then` so the resolved value is the plain module.
+    const plain = (m: any) => { if (m && typeof m.then === 'function') { try { delete m.then; } catch { m.then = undefined; } } return m; };
+    const done = () => resolve(plain(w.cv));
     if (w.cv && w.cv.Mat) return done();
 
     const finish = () => {
@@ -20,7 +25,7 @@ export function loadOpenCv(): Promise<any> {
       if (!cv) return reject(new Error('OpenCV failed to load'));
       // Different builds signal readiness differently — handle all.
       if (cv.Mat) return done();
-      if (typeof cv.then === 'function') { cv.then((m: any) => { w.cv = m; resolve(m); }); return; }
+      if (typeof cv.then === 'function') { cv.then((m: any) => { w.cv = plain(m); resolve(w.cv); }); return; }
       // Cancel the poll once onRuntimeInitialized fires — without this, the
       // 50ms interval kept running for the whole 25s timeout even after
       // OpenCV was ready, burning ~500 polls per session.

@@ -26,7 +26,7 @@ export function DeleteAccountPanel({ email }: { email: string | null }) {
         return;
       }
       setStep('done');
-      await signOut({ callbackUrl: '/' });
+      await signOut({ callbackUrl: '/auth/sign-in?deleted=1' });
     } catch {
       setError('Could not delete your account. Please try again or email us.');
     } finally {

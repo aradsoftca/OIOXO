@@ -90,7 +90,7 @@ export function HeaderAccount() {
           <div className="my-1 h-px bg-black/[0.06]" />
           <button
             type="button"
-            onClick={() => signOut({ callbackUrl: '/' })}
+            onClick={() => signOut({ callbackUrl: '/auth/sign-in' })}
             className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[13px] text-[var(--color-cat-pdf)] transition hover:bg-[var(--color-cat-pdf)]/[0.06]"
           >
             <TileIcon name="log-out" size={15} /> Sign out

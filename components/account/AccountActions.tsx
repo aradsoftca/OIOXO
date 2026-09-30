@@ -89,7 +89,7 @@ export function SignOutButton() {
   return (
     <button
       type="button"
-      onClick={() => signOut({ callbackUrl: '/' })}
+      onClick={() => signOut({ callbackUrl: '/auth/sign-in' })}
       className="flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] transition hover:text-[var(--color-fg)]"
     >
       <LogOut className="h-3.5 w-3.5" /> Sign out

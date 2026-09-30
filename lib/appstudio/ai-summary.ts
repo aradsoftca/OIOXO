@@ -1,4 +1,4 @@
-import { BRAND } from '@/lib/brand';
+import { BRAND, IS_OIOXO } from '@/lib/brand';
 
 interface ConvLine { name: string; text: string }
 
@@ -9,6 +9,8 @@ let enginePromise: Promise<any> | null = null;
 async function getEngine(): Promise<any> {
   if (!enginePromise) {
     enginePromise = (async () => {
+      // xonvert: heavy LLM features are out of scope (Qwen 0.5B ≈ 300 MB).
+      if (!IS_OIOXO) throw new Error('Summaries are not available here');
       if (typeof navigator === 'undefined' || !('gpu' in navigator)) {
         throw new Error('WebGPU required');
       }

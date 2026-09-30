@@ -12,6 +12,7 @@
  */
 
 import { TOOL_BY_ID } from './registry';
+import { isStudioDisabled } from '@/lib/studios/disabled';
 import type { Category } from './registry/types';
 
 export interface CatalogTool {
@@ -29,7 +30,7 @@ export interface CatalogCategory {
   tools: CatalogTool[];
 }
 
-export const CATALOG: CatalogCategory[] = [
+const RAW_CATALOG: CatalogCategory[] = [
   {
     id: 'image',
     label: 'Image',
@@ -492,6 +493,12 @@ export const CATALOG: CatalogCategory[] = [
     ],
   },
 ];
+
+/** Brand-disabled tools (lib/studios/disabled.ts) never appear, not even as "soon". */
+export const CATALOG: CatalogCategory[] = RAW_CATALOG.map((c) => ({
+  ...c,
+  tools: c.tools.filter((t) => !isStudioDisabled(t.slug)),
+}));
 
 /** Total tool count across the catalog (live + planned). */
 export const TOTAL_TOOLS = CATALOG.reduce((n, c) => n + c.tools.length, 0);

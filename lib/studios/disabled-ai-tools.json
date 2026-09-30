@@ -1,0 +1,7 @@
+{
+  "_comment": "Tools removed from the xonvert brand because their core needs a heavy on-device model (owner rule 2026-09-29: keep only models that load in roughly <=50 MB on a phone). id -> 308 target. Read by lib/studios/disabled.ts (registry/sitemap/manifest filter) and next.config.mjs (permanent redirects). oioxo keeps them.",
+  "tools": {
+    "video-auto-dub": "/tools/subtitle-generate",
+    "image-smart-cutout": "/tools/image-remove-bg"
+  }
+}

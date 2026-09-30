@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useRoomCode } from '@/lib/p2p/use-room-code';
 import { joinGroup, type Group, type GroupState } from '@/lib/p2p/group';
-import { BRAND } from '@/lib/brand';
+import { BRAND, IS_OIOXO } from '@/lib/brand';
 import { ReactionPicker, REACTION_EMOJIS } from '@/lib/appstudio/reactions';
 import { useVoiceRecorder, VoiceNotePlayer, fmtDuration } from '@/lib/appstudio/voice-note';
 import { type RichMsg, indexById, parseSlash, SLASH_COMMANDS, addReaction as applyReaction, rootsAndThreads } from '@/lib/appstudio/threads';
@@ -344,7 +344,7 @@ export default function ChatStudio() {
     sendTyping(false);
     setDraft(''); setShowEmoji(false); setReplyTo(null);
     const m = v.match(/^@ai\b[\s,:]*([\s\S]+)/i);
-    if (m && m[1].trim() && online) void askAi(m[1].trim());
+    if (IS_OIOXO && m && m[1].trim() && online) void askAi(m[1].trim());
   };
 
   // Throttled typing presence (~2s cadence, matching what users expect).
@@ -357,6 +357,7 @@ export default function ChatStudio() {
   };
 
   const runSlash = async (cmd: string, args: string) => {
+    if (!IS_OIOXO && (cmd === '/summarize' || cmd === '/ask' || cmd === '/translate')) return;
     if (cmd === '/summarize') {
       setAiBusy(true);
       try {
@@ -545,7 +546,7 @@ export default function ChatStudio() {
     { label: 'Search messages', hint: '⌘F', run: () => { setShowPalette(false); setShowSearch(true); } },
     { label: 'New room', hint: 'fresh disposable link', run: () => { window.location.href = '/chat'; } },
     { label: 'Verify safety code', hint: 'compare emojis', run: () => { setShowPalette(false); setShowSafety(true); } },
-    { label: 'Summarize conversation', hint: '/summarize', run: () => { setShowPalette(false); void runSlash('/summarize', ''); } },
+    ...(IS_OIOXO ? [{ label: 'Summarize conversation', hint: '/summarize', run: () => { setShowPalette(false); void runSlash('/summarize', ''); } }] : []),
     { label: 'Jump to latest', hint: 'scroll to bottom', run: () => { setShowPalette(false); jumpToBottom(); } },
     { label: 'Burn room & download transcript', hint: 'erase everything', run: () => { setShowPalette(false); burnRoom(); } },
   ];
@@ -827,7 +828,7 @@ export default function ChatStudio() {
               onChange={(e) => { setDraft(e.target.value); setShowSlash(e.target.value.startsWith('/')); if (e.target.value) sendTyping(true); }}
               onPaste={onPaste}
               rows={1}
-              placeholder={connected ? 'Message…  (try /summarize, /ask, @ai)' : reconnecting ? 'Reconnecting — your message will send when the link repairs…' : 'Waiting…'}
+              placeholder={connected ? (IS_OIOXO ? 'Message…  (try /summarize, /ask, @ai)' : 'Message…') : reconnecting ? 'Reconnecting — your message will send when the link repairs…' : 'Waiting…'}
               disabled={!connected && !reconnecting}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendText(draft); } }}
               className="max-h-32 flex-1 resize-none bg-transparent px-2 py-2 text-[14px] focus:outline-none disabled:opacity-60"

@@ -9,6 +9,7 @@
  */
 
 import { configureOnnxRuntime } from '@/lib/compute/concurrency';
+import { IS_OIOXO } from '@/lib/brand';
 import { isMemoryConstrained, LOW_MEM, DeviceLimitError, IPHONE_MEMORY_MESSAGE } from '@/lib/compute/device-profile';
 
 export type UpscaleFactor = 2 | 4;
@@ -96,7 +97,8 @@ export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Bl
     const { assertPermission } = await import('@/lib/limits/permission');
     await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
   }
-  const factor = opts.factor ?? 2;
+  // xonvert: 2× only (4× models are ~50 MB fp32 — out of scope on this brand).
+  const factor: UpscaleFactor = IS_OIOXO ? (opts.factor ?? 2) : 2;
   const lowMem = isMemoryConstrained();
   // iPhone: x2 always uses the lightweight Swin2SR (the classical/real-world
   // variants' window attention on each tile is what blew the WebView's heap);

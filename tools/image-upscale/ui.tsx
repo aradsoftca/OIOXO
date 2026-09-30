@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { Upload, Loader2, Download, Image as ImageIcon, ArrowLeftRight, Wand2, Maximize2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { IS_OIOXO } from '@/lib/brand';
 import { setRecent } from '@/lib/storage/recent';
 import { upscale, type UpscaleFactor, type UpscaleQuality, type UpscaleProgress } from '@/engines/upscale';
 import { checkLever } from '@/lib/limits/policy';
@@ -22,15 +23,16 @@ function formatBytes(bytes: number): string {
   return `${v.toFixed(v >= 10 ? 0 : 1)} ${units[i]}`;
 }
 
-const FACTORS: { v: UpscaleFactor; label: string }[] = [
-  { v: 2, label: '2×' },
-  { v: 4, label: '4×' },
-];
+// xonvert: 2× only — the 4× Swin2SR models are ~50 MB fp32 with no lightweight
+// variant (too heavy/slow on a phone). oioxo keeps 4×.
+const FACTORS: { v: UpscaleFactor; label: string }[] = IS_OIOXO
+  ? [{ v: 2, label: '2×' }, { v: 4, label: '4×' }]
+  : [{ v: 2, label: '2×' }];
 
 const QUALITIES: { v: UpscaleQuality; label: string; hint: string }[] = [
   { v: 'fast',       label: 'Fast',       hint: 'Quickest pass. Best for everyday photos and screenshots.' },
   { v: 'balanced',   label: 'Balanced',   hint: 'Sharper detail across textures. A bit slower.' },
-  { v: 'real-world', label: 'Real-world', hint: '4× only. Tuned for blurry phone shots and compressed images.' },
+  ...(IS_OIOXO ? [{ v: 'real-world' as UpscaleQuality, label: 'Real-world', hint: '4× only. Tuned for blurry phone shots and compressed images.' }] : []),
 ];
 
 export default function ImageUpscaleTool() {

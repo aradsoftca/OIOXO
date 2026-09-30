@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Loader2, Download, Sparkles, Upload } from 'lucide-react';
 import { cn } from '@/lib/cn';
+import { IS_OIOXO } from '@/lib/brand';
 import { useUsageGate } from '@/components/usage/use-usage-gate';
 import { upscale, type UpscaleFactor } from '@/engines/upscale';
 import { downloadBlob } from '@/engines/ffmpeg';
@@ -93,7 +94,7 @@ export default function PhotoEnhancer() {
             <span className="text-[12px] font-semibold">{file.name}</span>
             <button type="button" onClick={() => { setFile(null); setOut(null); }} className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change</button>
             <div className="ml-auto flex gap-1.5">
-              {([2, 4] as const).map((f) => <button key={f} type="button" onClick={() => setFactor(f)} className={cn('border px-3 py-1.5 text-[12px] font-bold', factor === f ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/10' : 'border-black/[0.12]')}>{f}×</button>)}
+              {(IS_OIOXO ? [2, 4] as const : [2] as const).map((f) => <button key={f} type="button" onClick={() => setFactor(f)} className={cn('border px-3 py-1.5 text-[12px] font-bold', factor === f ? 'border-[var(--color-cat-image)] bg-[var(--color-cat-image)]/10' : 'border-black/[0.12]')}>{f}×</button>)}
             </div>
           </div>
           <button type="button" onClick={run} disabled={busy} className="flex items-center gap-2 bg-[var(--color-cat-image)] px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white transition hover:brightness-110 disabled:opacity-50">

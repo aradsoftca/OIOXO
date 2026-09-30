@@ -25,6 +25,10 @@ const IS_XONVERT = (process.env.NEXT_PUBLIC_BRAND || 'Xonvert').toLowerCase() !=
 const DISABLED_STUDIOS = IS_XONVERT
   ? require('./lib/studios/disabled-ids.json').ids
   : [];
+// Heavy-model tools removed from xonvert (owner rule 2026-09-29) — permanent 308s.
+const DISABLED_AI_TOOLS = IS_XONVERT
+  ? Object.entries(require('./lib/studios/disabled-ai-tools.json').tools)
+  : [];
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -89,6 +93,9 @@ const nextConfig = {
             { source: '/search.html', destination: '/', permanent: true },
             { source: '/newsearch.html', destination: '/', permanent: true },
             ...DISABLED_STUDIOS.map((id) => ({ source: `/tools/${id}`, destination: '/tools', permanent: false })),
+            ...DISABLED_AI_TOOLS.map(([id, to]) => ({ source: `/tools/${id}`, destination: to, permanent: true })),
+            // Dev harness for the OIOXO LLM brain — not a xonvert page.
+            { source: '/enginetest', destination: '/', permanent: true },
           ]
         : []),
     ];

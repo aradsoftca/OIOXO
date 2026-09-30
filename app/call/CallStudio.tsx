@@ -16,6 +16,7 @@ import { encodeWire, decodeWire, isWire } from '@/lib/appstudio/protocol';
 import { ReactionLayer, ReactionPicker, useReactionFloaters } from '@/lib/appstudio/reactions';
 import { Whiteboard, type Stroke } from '@/lib/appstudio/whiteboard';
 import { summarizeConversation } from '@/lib/appstudio/ai-summary';
+import { IS_OIOXO } from '@/lib/brand';
 import { startCaptions, type CaptionsSession } from '@/lib/appstudio/captions-asr';
 import { checkLever, freeCap } from '@/lib/limits/policy';
 import { usePolicyGate } from '@/components/limits/PolicyGate';
@@ -682,7 +683,8 @@ export default function CallStudio() {
     try { vbgRef.current?.stop(); } catch { /* */ }
     try { wmStopRef.current?.(); } catch { /* */ } wmStopRef.current = null;
     setState('closed');
-    if (chat.length >= 2) { void runSummary(); }
+    // xonvert: no LLM summary (the on-device model is ~300 MB — out of scope).
+    if (IS_OIOXO && chat.length >= 2) { void runSummary(); }
     else { window.location.href = '/call'; }
   };
   const copy = () => {
@@ -953,7 +955,7 @@ export default function CallStudio() {
                 ['people', Users, 'People'],
                 ['board', PencilLine, 'Board'],
                 ['captions', Captions, 'Captions'],
-                ['summary', FileText, 'Summary'],
+                ...(IS_OIOXO ? [['summary', FileText, 'Summary'] as const] : []),
               ] as const).map(([id, Icon, label]) => (
                 <button
                   key={id}

@@ -1,3 +1,4 @@
+import { IS_OIOXO } from '@/lib/brand';
 export type MsgKind = 'text' | 'media' | 'file' | 'voice' | 'system' | 'poll';
 
 export interface RichMsg {
@@ -57,10 +58,13 @@ export function addReaction(msg: RichMsg, emoji: string, name: string): RichMsg 
   return { ...msg, reactions: r };
 }
 
+// xonvert: the AI commands need a ~300 MB on-device LLM — out of scope there.
 export const SLASH_COMMANDS = [
-  { cmd: '/summarize', desc: 'Summarize the conversation' },
-  { cmd: '/translate', desc: 'Translate the last message' },
-  { cmd: '/ask', desc: 'Ask the AI a question' },
+  ...(IS_OIOXO ? [
+    { cmd: '/summarize', desc: 'Summarize the conversation' },
+    { cmd: '/translate', desc: 'Translate the last message' },
+    { cmd: '/ask', desc: 'Ask the AI a question' },
+  ] : []),
   { cmd: '/poll', desc: 'Create a poll: /poll Q? | a | b | c' },
   { cmd: '/me', desc: 'Speak in third person' },
   { cmd: '/clear', desc: 'Clear local view (others keep history)' },

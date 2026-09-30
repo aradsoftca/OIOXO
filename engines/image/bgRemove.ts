@@ -40,9 +40,13 @@ export async function removeBackground(input: Blob, opts: BgRemoveOptions = {}):
     await assertPermission(opts.permission, opts.toolKey, opts.inputHash ?? '');
   }
   const { removeBackground: lib } = await import('@imgly/background-removal');
+  // Phones (low-memory profile): always the ~44 MB quint8 ISNet — fp16 (~88 MB)
+  // and fp32 (~176 MB) are too heavy to download/run there.
+  const { isMemoryConstrained } = await import('@/lib/compute/device-profile');
+  const quality: BgRemoveQuality = isMemoryConstrained() ? 'fast' : (opts.quality ?? 'balanced');
   return lib(input, {
     output: { format: opts.format ?? 'image/png', quality: 1 },
-    model: MODEL_KEY[opts.quality ?? 'balanced'],
+    model: MODEL_KEY[quality],
     progress: (key: string, current: number, total: number) => {
       if (!opts.onProgress) return;
       const phase = key.startsWith('fetch:') ? 'Loading model' : key === 'compute:inference' ? 'Isolating subject' : key;

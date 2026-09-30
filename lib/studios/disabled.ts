@@ -6,12 +6,16 @@
  */
 import { IS_OIOXO } from '@/lib/brand';
 import disabled from './disabled-ids.json';
+import disabledAi from './disabled-ai-tools.json';
 
 export const STUDIOS_DISABLED = !IS_OIOXO;
 
 export const DISABLED_STUDIO_IDS: ReadonlySet<string> = new Set(
-  STUDIOS_DISABLED ? disabled.ids : [],
+  STUDIOS_DISABLED ? [...disabled.ids, ...Object.keys(disabledAi.tools)] : [],
 );
+
+/** Heavy-model tools dropped on xonvert (id → where its URL 308s). */
+export const DISABLED_AI_TOOLS: Readonly<Record<string, string>> = STUDIOS_DISABLED ? disabledAi.tools : {};
 
 export function isStudioDisabled(id: string): boolean {
   return DISABLED_STUDIO_IDS.has(id);

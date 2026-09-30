@@ -18,10 +18,13 @@
  *     SOURCE text; people searching these want the rendered page/formula.
  *   - ts: the matrix treats .ts as TypeScript text, the searches mean MPEG-TS.
  *   - key: an old-site "key" is usually Keynote; a private key → .crt is not a thing.
+ *   - X → gz for single files: same reasoning as zip (no gz page at all).
+ *   - webp/gif → video: those searches mean ANIMATED images; the matrix route
+ *     makes a still video of the first frame.
  */
 import type { ConvertPair } from '@/lib/convert/pairs';
 import type { Category } from '@/lib/registry/types';
-import { FORMAT_CATEGORY } from '@/lib/convert/matrix';
+import { FORMAT_CATEGORY, targetsFor } from '@/lib/convert/matrix';
 
 /** Human name of each format, used in titles and descriptions. */
 const NAMES: Record<string, string> = {
@@ -80,7 +83,35 @@ export const LEGACY_PAIR_LIST: ReadonlyArray<readonly [string, string]> = [
   // PDF → Word (lib/convert/formats/pdf-docx), WOFF2 (formats/woff2), 3D render (formats/model-render).
   ['pdf', 'docx'],
   ['glb', 'gif'], ['glb', 'png'], ['gltf', 'png'],
+  ...LEGACY_PAIR_LIST_CROSS_CATEGORY(),
 ];
+
+/**
+ * Pairs made real by the cross-category matrix (09-29: image → video/docx/html/ico,
+ * video → frames, audio → video/waveform, document → images/docx/md/rtf,
+ * data ⇄ data, 3D → render…), every one with Search Console impressions in
+ * scripts/legacy_pairs_gsc.json. Their page note comes from the matrix route.
+ */
+function LEGACY_PAIR_LIST_CROSS_CATEGORY(): [string, string][] {
+  return [
+    ['obj', 'png'], ['wav', 'png'], ['jpg', 'mpg'], ['asf', 'png'], ['mts', 'jpg'], ['png', 'mpg'], ['jpg', 'webm'], ['avi', 'mpg'],
+    ['obj', 'gif'], ['yaml', 'html'], ['fbx', 'png'], ['jpg', 'html'], ['jpg', 'mov'], ['jpg', 'wmv'], ['docx', 'png'], ['mpg', 'jpg'],
+    ['rm', 'jpg'], ['fbx', 'gif'], ['yaml', 'md'], ['m4a', 'mkv'], ['mov', 'jpg'], ['wav', 'mov'], ['avif', 'docx'], ['jpg', 'mkv'],
+    ['mkv', 'png'], ['odt', 'jpg'], ['png', 'cur'], ['png', 'mov'], ['webm', 'png'], ['jpg', 'avi'], ['rmvb', 'mpg'], ['wma', 'avi'],
+    ['yaml', 'docx'], ['aac', 'mp4'], ['amr', 'png'], ['avi', 'jpg'], ['avif', 'html'], ['bmp', 'mpg'], ['doc', 'jpg'], ['jpg', '3gp'],
+    ['ods', 'md'], ['ogg', 'png'], ['png', 'avi'], ['stl', 'png'], ['xlsx', 'xml'], ['ini', 'html'], ['aac', 'png'], ['avif', 'mov'],
+    ['doc', 'png'], ['docx', 'jpg'], ['jpg', 'flv'], ['mp3', 'avi'], ['odp', 'docx'], ['odt', 'docx'], ['png', '3gp'], ['png', 'docx'],
+    ['png', 'webm'], ['sql', 'docx'], ['tiff', 'webm'], ['toml', 'md'], ['vob', 'jpg'], ['webm', 'jpg'], ['mp4', 'jpg'], ['aac', 'mov'],
+    ['avi', 'wmv'], ['avif', 'avi'], ['avif', 'cur'], ['avif', 'mpg'], ['avif', 'tga'], ['avif', 'webm'], ['avif', 'wmv'], ['bmp', 'avi'],
+    ['bmp', 'docx'], ['dae', 'png'], ['divx', 'wmv'], ['docx', 'rtf'], ['flac', 'png'], ['flv', 'jpg'], ['gif', 'html'], ['ico', 'cur'],
+    ['ico', 'mpg'], ['ini', 'docx'], ['iso', 'tgz'], ['json', 'xlsx'], ['m2ts', 'jpg'], ['m4a', 'avi'], ['m4a', 'png'], ['m4a', 'webm'],
+    ['m4v', 'wmv'], ['mov', 'ogg'], ['mts', 'ac3'], ['odp', 'md'], ['ods', 'xls'], ['ogg', 'mkv'], ['ogv', 'jpg'], ['opus', 'mov'],
+    ['opus', 'mp4'], ['ply', 'gif'], ['png', 'html'], ['ppt', 'md'], ['ppt', 'png'], ['rtf', 'md'], ['sql', 'md'], ['stl', 'gif'],
+    ['tiff', 'm4v'], ['tiff', 'wmv'], ['toml', 'html'], ['tsv', 'md'], ['tsv', 'xls'], ['wav', 'mkv'], ['wav', 'wma'], ['wma', 'aiff'],
+    ['wma', 'mp4'], ['wmv', 'mpg'], ['xml', 'md'], ['yaml', 'rtf'], ['yaml', 'tsv'], ['yaml', 'xlsx'],
+  ];
+}
+const CROSS = new Set(LEGACY_PAIR_LIST_CROSS_CATEGORY().map(([f, t]) => `${f}-to-${t}`));
 
 /** Pages whose generic "Convert X to Y" wording would mislead. */
 const OVERRIDES: Record<string, Partial<Pick<ConvertPair, 'title' | 'metaTitle' | 'blurb' | 'note' | 'category'>>> = {
@@ -121,6 +152,8 @@ export function legacyExclusion(from: string, to: string): string | null {
   if (['html', 'htm', 'md', 'markdown', 'tex'].includes(from)) return 'markup rendered as source text, not as a page';
   if (from === 'ts') return '.ts is read as TypeScript text, the search means MPEG-TS video';
   if (from === 'key') return '"key" searches mean Keynote';
+  if (to === 'gz' && FORMAT_CATEGORY[from] !== 'archive') return 'single-file gzip: no page, convert-anything does it';
+  if ((from === 'webp' || from === 'gif') && FORMAT_CATEGORY[to] === 'video') return 'animated webp/gif searches; the matrix makes a still video';
   return null;
 }
 
@@ -132,6 +165,12 @@ function category(from: string, to: string): Category {
   if (AUDIO.has(from)) return 'audio';
   if (IMAGE.has(from) && to !== 'mp4') return 'image';
   if (to === 'mp4') return 'video';
+  // Cross-category pairs (not in the sets above): classify by the source format.
+  const c = FORMAT_CATEGORY[from];
+  if (c === 'video') return 'video';
+  if (c === 'audio') return 'audio';
+  if (c === 'image' && FORMAT_CATEGORY[to] !== 'video') return 'image';
+  if (FORMAT_CATEGORY[to] === 'video') return 'video';
   return 'convert';
 }
 
@@ -143,12 +182,17 @@ function note(from: string, to: string): string | undefined {
   return undefined;
 }
 
+function matrixNote(from: string, to: string): string | undefined {
+  const n = targetsFor(from).find((t) => t.to === to)?.note;
+  return n ? `${n}.` : undefined;
+}
+
 export const LEGACY_PAIRS: ConvertPair[] = LEGACY_PAIR_LIST.map(([from, to]) => ({
   from, to, toolId: 'convert-anything', category: category(from, to),
   title: `Convert ${upper(from)} to ${upper(to)}`,
   metaTitle: `Convert ${upper(from)} to ${upper(to)} — ${name(from)} to ${name(to)}, free in your browser`,
   blurb: `Convert ${name(from)} (.${from}) files to ${name(to)} (.${to}) right in your browser — no upload, no signup.`,
-  note: note(from, to),
+  note: CROSS.has(`${from}-to-${to}`) ? matrixNote(from, to) : note(from, to),
   popular: true,
   ...OVERRIDES[`${from}-to-${to}`],
 }));

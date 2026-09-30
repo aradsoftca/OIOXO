@@ -53,7 +53,23 @@ export type HandlerId =
   | 'plist'        // apple property list (xml/binary) → json/txt/xml
   | 'stl-scad'     // stl → openscad polyhedron()
   | 'dat-text'     // unknown .dat → text, or a hex dump
-  | 'zip';         // any single file → .zip
+  | 'zip'          // any single file → .zip
+  | 'gz'           // any single file → .gz (gzip)
+  | 'img-ico'      // image → .ico / .cur (PNG-in-ICO, sizes up to 256)
+  | 'img-svg'      // image → .svg wrapping the picture (no vector tracing)
+  | 'img-html'     // image → .html page with the picture embedded
+  | 'img-docx'     // image → .docx with the picture embedded
+  | 'video-frames' // video → one image per second (zip)
+  | 'audio-video'  // audio → video with a still title card / cover art
+  | 'audio-wave'   // audio → waveform picture
+  | 'transcribe-sub' // audio/video speech → timed .srt / .vtt
+  | 'to-doc'       // text/doc/pdf/ebook/slides → docx/html/md/rtf/epub (paragraph model)
+  | 'doc-img'      // doc/slides → pdf → page images (zip)
+  | 'data'         // json/yaml/xml ⇄ each other and → csv/tsv/xlsx/md
+  | 'archive-tar'  // any archive → .tar / .tgz
+  | 'font-img'     // font → sample-sheet .png
+  | 'model-img'    // any 3D model → glb → png / gif render
+  | 'mail-pdf';    // eml/mbox/msg → pdf
 
 export interface Target {
   to: string;
@@ -76,13 +92,13 @@ export interface ConvertOutput {
 // --- Format → category (browser-achievable formats only) -------------------
 const IMAGE_IN = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'gif', 'bmp', 'tiff', 'tif', 'ico'];
 // png/jpg/webp/avif via the jsquash codec worker; gif/bmp/tiff via ffmpeg.wasm.
-const IMAGE_OUT = ['png', 'jpg', 'webp', 'avif', 'gif', 'bmp', 'tiff'];
-const IMAGE_FF = new Set(['gif', 'bmp', 'tiff', 'tif']);   // routed through ffmpeg, not jsquash
+const IMAGE_OUT = ['png', 'jpg', 'webp', 'avif', 'gif', 'bmp', 'tiff', 'tga', 'ppm'];
+const IMAGE_FF = new Set(['gif', 'bmp', 'tiff', 'tif', 'tga', 'ppm']);   // routed through ffmpeg, not jsquash
 const AUDIO_IN = ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'wma', 'aiff', 'amr', 'webm'];
 // mp3/wav via the light Web-Audio path; the rest via ffmpeg.wasm.
-const AUDIO_OUT = ['mp3', 'wav', 'm4a', 'aac', 'opus', 'flac'];
+const AUDIO_OUT = ['mp3', 'wav', 'm4a', 'aac', 'opus', 'flac', 'ogg', 'wma', 'aiff', 'ac3'];
 const VIDEO_IN = ['mp4', 'webm', 'mov', 'mkv', 'avi', 'flv', 'm4v', 'wmv', '3gp', 'mpg', 'mpeg', 'ts', 'ogv', 'rm', 'rmvb', 'vob', 'asf', 'm2ts', 'mts', 'divx', 'f4v'];
-const VIDEO_OUT = ['mp4', 'webm', 'mov', 'mkv', 'avi', '3gp', 'm4v', 'flv'];  // all via ffmpeg.wasm
+const VIDEO_OUT = ['mp4', 'webm', 'mov', 'mkv', 'avi', '3gp', 'm4v', 'flv', 'wmv', 'mpg', 'ogv'];  // all via ffmpeg.wasm
 
 /** ffmpeg audio encoder args per target extension (codecs present in our core). */
 const AUDIO_CODEC: Record<string, string[]> = {
@@ -92,6 +108,10 @@ const AUDIO_CODEC: Record<string, string[]> = {
   opus: ['-c:a', 'libopus', '-b:a', '128k'],
   flac: ['-c:a', 'flac'],
   wav: ['-c:a', 'pcm_s16le'],
+  ogg: ['-c:a', 'libvorbis', '-q:a', '5'],
+  wma: ['-c:a', 'wmav2', '-b:a', '192k'],
+  aiff: ['-c:a', 'pcm_s16be'],
+  ac3: ['-c:a', 'ac3', '-b:a', '192k'],
 };
 /** ffmpeg video codec args per target container (h264/aac or vp9/opus or mpeg4/mp3). */
 const VIDEO_CODEC: Record<string, string[]> = {
@@ -103,7 +123,32 @@ const VIDEO_CODEC: Record<string, string[]> = {
   '3gp': ['-c:v', 'libx264', '-profile:v', 'baseline', '-level', '3.0', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '44100', '-ac', '2'],
   webm: ['-c:v', 'libvpx-vp9', '-b:v', '1M', '-c:a', 'libopus'],
   avi: ['-c:v', 'mpeg4', '-vtag', 'xvid', '-q:v', '5', '-c:a', 'libmp3lame', '-b:a', '192k'],
+  wmv: ['-c:v', 'wmv2', '-b:v', '2M', '-c:a', 'wmav2', '-b:a', '192k'],
+  mpg: ['-c:v', 'mpeg2video', '-q:v', '4', '-c:a', 'mp2', '-b:a', '192k'],
+  ogv: ['-c:v', 'libtheora', '-q:v', '7', '-c:a', 'libvorbis', '-q:a', '5'],
 };
+/** Video codec args for a video made from ONE still picture (no audio). */
+const STILL_VCODEC: Record<string, string[]> = {
+  mp4: ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'],
+  m4v: ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'],
+  mov: ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p', '-movflags', '+faststart'],
+  mkv: ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p'],
+  flv: ['-c:v', 'libx264', '-tune', 'stillimage', '-pix_fmt', 'yuv420p'],
+  '3gp': ['-c:v', 'libx264', '-profile:v', 'baseline', '-level', '3.0', '-pix_fmt', 'yuv420p'],
+  // VP8 realtime: wasm VP9 at default speed can take minutes (or never return) even for a still.
+  webm: ['-c:v', 'libvpx', '-b:v', '1M', '-deadline', 'realtime', '-cpu-used', '8', '-pix_fmt', 'yuv420p'],
+  avi: ['-c:v', 'mpeg4', '-vtag', 'xvid', '-q:v', '3'],
+  wmv: ['-c:v', 'wmv2', '-b:v', '2M'],
+  mpg: ['-c:v', 'mpeg2video', '-q:v', '3'],
+  ogv: ['-c:v', 'libtheora', '-q:v', '7'],
+};
+/** Audio codec that each video container carries when we ADD audio (audio → video). */
+const AV_AUDIO: Record<string, string[]> = {
+  mp4: ['-c:a', 'aac', '-b:a', '192k'], mov: ['-c:a', 'aac', '-b:a', '192k'], mkv: ['-c:a', 'aac', '-b:a', '192k'],
+  webm: ['-c:a', 'libopus', '-b:a', '128k'], avi: ['-c:a', 'libmp3lame', '-b:a', '192k'],
+};
+/** Containers whose audio the browser decodes natively (Web Audio / Whisper input). */
+const WEB_DECODABLE = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'webm', 'mp4', 'mov', 'm4v']);
 // Subtitles: srt/vtt/sbv/ass/ssa in (lib/convert/formats/subtitle); ass/ssa are read-only.
 const SUBTITLE = ['srt', 'vtt', 'sbv', 'ass', 'ssa'];
 const SUBTITLE_OUT = ['srt', 'vtt', 'sbv', 'txt'];
@@ -159,6 +204,7 @@ FORMAT_CATEGORY['ani'] = 'image';        // animated cursor → special-cased in
 FORMAT_CATEGORY['json'] = 'structured';
 FORMAT_CATEGORY['plist'] = 'structured';
 FORMAT_CATEGORY['dat'] = 'binary';
+FORMAT_CATEGORY['xml'] = 'structured';   // json/yaml/csv/xlsx via the data handler
 // 'webm' is both audio and video; treat as video by default (above loop order keeps video).
 
 export function extOf(name: string): string {
@@ -176,11 +222,23 @@ export function detectFormat(file: { name: string; type?: string }): { ext: stri
 export function targetsFor(ext: string): Target[] {
   const cat = FORMAT_CATEGORY[ext];
   const out = routesFor(ext);
-  // Any single recognised file can be zipped (archives are handled by archive-repack).
+  // Any single recognised file can be zipped / gzipped (archives are handled by archive-repack / archive-tar).
   if (cat && cat !== 'archive' && !out.some((t) => t.to === 'zip')) {
     out.push({ to: 'zip', handler: 'zip', toolId: 'convert-anything', note: 'Compresses the file into a .zip' });
   }
+  if (cat && cat !== 'archive') {
+    out.push({ to: 'gz', handler: 'gz', toolId: 'convert-anything', note: 'Compresses the file with gzip' });
+  }
   return out;
+}
+
+/** Output formats of the paragraph model (text / documents / pdf / ebooks / slides). */
+const DOC_OUT = ['docx', 'html', 'md', 'rtf', 'epub'];
+/** Output formats of the data model (json / yaml / xml). */
+const DATA_OUT = ['json', 'yaml', 'xml', 'csv', 'tsv', 'xlsx', 'md'];
+
+function push(out: Target[], to: string, handler: HandlerId, note?: string, toolId = 'convert-anything'): void {
+  if (!out.some((t) => t.to === to && t.handler === handler)) out.push({ to, handler, toolId, note });
 }
 
 function routesFor(ext: string): Target[] {
@@ -207,10 +265,16 @@ function routesFor(ext: string): Target[] {
       out.push({ to: 'pdf', handler: 'ai', toolId: 'convert-anything' });
       return out;
     }
-    for (const to of IMAGE_OUT) if (to !== ext) out.push({ to, handler: 'image', toolId: 'image-convert-format' });
+    for (const to of IMAGE_OUT) if (to !== ext && !(ext === 'tif' && to === 'tiff')) out.push({ to, handler: 'image', toolId: 'image-convert-format' });
     out.push({ to: 'pdf', handler: 'img-pdf', toolId: 'images-to-pdf' });
     out.push({ to: 'mp4', handler: 'img-video', toolId: 'images-to-video' });
     out.push({ to: 'txt', handler: 'ocr', toolId: 'image-ocr', note: 'Reads text inside the image' });
+    if (ext !== 'ico') push(out, 'ico', 'img-ico', 'Windows icon with 16–256 px sizes');
+    push(out, 'cur', 'img-ico', 'Windows cursor (hotspot top-left)');
+    push(out, 'svg', 'img-svg', 'SVG that embeds the picture (not traced to vectors)');
+    push(out, 'docx', 'img-docx', 'Word document with the picture on the page');
+    push(out, 'html', 'img-html', 'Web page with the picture embedded');
+    for (const to of VIDEO_OUT) if (to !== 'mp4') push(out, to, 'img-video', '5-second video of the still picture');
   } else if (cat === 'audio') {
     for (const to of AUDIO_OUT) if (to !== ext) out.push({ to, handler: 'audio', toolId: 'audio-convert-format' });
     out.push({ to: 'txt', handler: 'transcribe', toolId: 'audio-to-text', note: 'Transcribes speech' });
@@ -218,18 +282,29 @@ function routesFor(ext: string): Target[] {
       out.push({ to: 'jpg', handler: 'cover-art', toolId: 'convert-anything', note: 'Extracts the embedded cover art' });
       out.push({ to: 'png', handler: 'cover-art', toolId: 'convert-anything', note: 'Extracts the embedded cover art' });
     }
+    push(out, 'srt', 'transcribe-sub', 'Timed subtitles from the speech');
+    push(out, 'vtt', 'transcribe-sub', 'Timed subtitles from the speech');
+    push(out, 'png', 'audio-wave', 'Picture of the waveform');
+    for (const to of Object.keys(AV_AUDIO)) push(out, to, 'audio-video', 'Video with a still title card (or the cover art) over the sound');
   } else if (cat === 'video') {
-    for (const to of VIDEO_OUT) if (to !== ext) out.push({ to, handler: 'video', toolId: 'video-convert-format' });
+    for (const to of VIDEO_OUT) if (to !== ext && !(ext === 'mpeg' && to === 'mpg')) out.push({ to, handler: 'video', toolId: 'video-convert-format' });
     out.push({ to: 'gif', handler: 'video-gif', toolId: 'video-to-gif' });
     // Extract the audio track to any audio format (3gp → m4a, mp4 → flac, …).
     for (const to of ['mp3', 'm4a', 'aac', 'wav', 'opus', 'flac']) {
       out.push({ to, handler: 'video-audio', toolId: 'video-extract-audio', note: 'Extracts the audio' });
     }
+    for (const to of ['ogg', 'wma', 'aiff', 'ac3']) push(out, to, 'video-audio', 'Extracts the audio');
+    push(out, 'jpg', 'video-frames', 'One picture per second (up to 120), zipped');
+    push(out, 'png', 'video-frames', 'One picture per second (up to 120), zipped');
+    push(out, 'txt', 'transcribe', 'Transcribes the speech');
+    push(out, 'srt', 'transcribe-sub', 'Timed subtitles from the speech');
+    push(out, 'vtt', 'transcribe-sub', 'Timed subtitles from the speech');
   } else if (cat === 'pdf') {
     out.push({ to: 'jpg', handler: 'pdf-img', toolId: 'pdf-to-images' });
     out.push({ to: 'png', handler: 'pdf-img', toolId: 'pdf-to-images' });
     out.push({ to: 'txt', handler: 'pdf-txt', toolId: 'pdf-to-text' });
     out.push({ to: 'docx', handler: 'pdf-docx', toolId: 'convert-anything', note: 'Editable Word text; scanned PDFs need OCR first' });
+    for (const to of DOC_OUT) if (to !== 'docx') push(out, to, 'to-doc', 'Rebuilt from the PDF text layer; scanned PDFs need OCR first');
   } else if (cat === 'subtitle') {
     for (const to of SUBTITLE_OUT) if (to !== ext) {
       const plain = ext === 'srt' || ext === 'vtt';
@@ -245,11 +320,16 @@ function routesFor(ext: string): Target[] {
     } else if (ext === 'ttf' || ext === 'otf') {
       out.push({ to: 'woff', handler: 'font', toolId: 'convert-anything', note: 'Compresses the font tables (WOFF 1.0)' });
     }
+    // The browser's own FontFace loader reads ttf/otf/woff/woff2, so a sample sheet works for all four.
+    push(out, 'png', 'font-img', 'Sample sheet of the typeface');
   } else if (cat === 'model3d') {
     for (const to of MODEL3D_OUT) if (to !== ext) out.push({ to, handler: 'model3d', toolId: 'model-3d-convert' });
     if (ext === 'glb' || ext === 'gltf') {
       out.push({ to: 'png', handler: 'model-render', toolId: 'convert-anything', note: '1024px snapshot, transparent background' });
       out.push({ to: 'gif', handler: 'model-render', toolId: 'convert-anything', note: '360° turntable animation' });
+    } else {
+      push(out, 'png', 'model-img', '1024px snapshot, transparent background');
+      push(out, 'gif', 'model-img', '360° turntable animation');
     }
     if (ext === 'stl') out.push({ to: 'scad', handler: 'stl-scad', toolId: 'convert-anything', note: 'OpenSCAD polyhedron() of the mesh' });
   } else if (cat === 'structured') {
@@ -257,24 +337,34 @@ function routesFor(ext: string): Target[] {
       out.push({ to: 'json', handler: 'plist', toolId: 'convert-anything', note: 'XML or binary plist → JSON' });
       out.push({ to: 'txt', handler: 'plist', toolId: 'convert-anything', note: 'Readable indented outline' });
       out.push({ to: 'xml', handler: 'plist', toolId: 'convert-anything', note: 'XML plist (decodes binary plists)' });
+    } else {
+      for (const to of DATA_OUT) if (to !== ext) push(out, to, 'data', ['csv', 'tsv', 'xlsx', 'md'].includes(to) ? 'As a table: one row per record, nested fields flattened' : undefined);
     }
   } else if (cat === 'binary') {
     out.push({ to: 'txt', handler: 'dat-text', toolId: 'convert-anything', note: 'Shows the contents as text, or a hex dump if binary' });
   } else if (cat === 'data') {
     for (const to of SHEET_OUT) if (to !== ext) out.push({ to, handler: 'sheet', toolId: 'sheet-convert' });
+    for (const to of ['tsv', 'ods', 'xls', 'xml', 'yaml', 'md', 'pdf']) if (to !== ext) push(out, to, 'sheet', to === 'md' ? 'Markdown table' : undefined);
   } else if (cat === 'document') {
     const h: HandlerId = ext === 'docx' ? 'docx' : 'office';
     out.push({ to: 'pdf', handler: h, toolId: 'doc-convert' });
     out.push({ to: 'html', handler: h, toolId: 'doc-convert' });
     out.push({ to: 'txt', handler: h, toolId: 'doc-convert' });
+    for (const to of DOC_OUT) if (to !== ext && to !== 'html') push(out, to, 'to-doc', to === 'docx' ? 'Text, headings and lists; layout is simplified' : undefined);
+    push(out, 'jpg', 'doc-img', 'Each page as a picture, zipped');
+    push(out, 'png', 'doc-img', 'Each page as a picture, zipped');
   } else if (cat === 'presentation') {
     out.push({ to: 'pdf', handler: 'office', toolId: 'slides-convert' });
     out.push({ to: 'html', handler: 'office', toolId: 'slides-convert' });
     out.push({ to: 'txt', handler: 'office', toolId: 'slides-convert' });
+    for (const to of DOC_OUT) if (to !== 'html') push(out, to, 'to-doc', 'The slide text as a document');
+    push(out, 'jpg', 'doc-img', 'Slide text laid out as pages, zipped (not a pixel copy of the design)');
+    push(out, 'png', 'doc-img', 'Slide text laid out as pages, zipped (not a pixel copy of the design)');
   } else if (cat === 'ebook') {
     out.push({ to: 'pdf', handler: 'ebook', toolId: 'ebook-convert' });
     out.push({ to: 'html', handler: 'ebook', toolId: 'ebook-convert' });
     out.push({ to: 'txt', handler: 'ebook', toolId: 'ebook-convert' });
+    for (const to of DOC_OUT) if (to !== ext && to !== 'html') push(out, to, 'to-doc');
   } else if (cat === 'cad') {
     if (ext === 'dwg') {
       out.push({ to: 'dxf', handler: 'dwg', toolId: 'convert-anything', note: 'Reads the AutoCAD drawing' });
@@ -286,8 +376,14 @@ function routesFor(ext: string): Target[] {
     out.push({ to: 'jpg', handler: 'text-img', toolId: 'convert-anything' });
     out.push({ to: 'pdf', handler: 'text-pdf', toolId: 'convert-anything', note: 'Typesets the text into a PDF' });
     out.push({ to: 'mp4', handler: 'text-video', toolId: 'convert-anything', note: 'Renders the text as a short video' });
+    const self = (to: string) => to === ext || (to === 'md' && ext === 'markdown') || (to === 'html' && ext === 'htm');
+    for (const to of DOC_OUT) if (!self(to)) push(out, to, 'to-doc');
+    if (['md', 'markdown', 'html', 'htm', 'rtf'].includes(ext)) push(out, 'txt', 'to-doc', 'Plain text, formatting removed');
+    if (ext === 'yaml' || ext === 'yml') for (const to of DATA_OUT) if (to !== 'yaml' && to !== 'md') push(out, to, 'data');
   } else if (cat === 'archive') {
     if (ext !== 'zip') out.push({ to: 'zip', handler: 'archive-repack', toolId: 'archive-extract', note: 'Extracts and re-packs as .zip' });
+    if (ext !== 'tar') push(out, 'tar', 'archive-tar', 'Extracts and re-packs as .tar');
+    if (ext !== 'tgz') push(out, 'tgz', 'archive-tar', 'Extracts and re-packs as .tar.gz');
   } else if (cat === 'calendar') {
     out.push({ to: 'json', handler: 'calendar', toolId: 'convert-anything' });
     out.push({ to: 'csv', handler: 'calendar', toolId: 'convert-anything' });
@@ -302,10 +398,56 @@ function routesFor(ext: string): Target[] {
       out.push({ to: 'txt', handler: 'email', toolId: 'convert-anything' });
       if (ext === 'mbox') out.push({ to: 'eml', handler: 'email', toolId: 'convert-anything', note: 'First message as .eml' });
     }
+    push(out, 'pdf', 'mail-pdf', 'The message, printed to PDF');
   } else if (cat === 'certificate') {
     for (const to of ['pem', 'crt', 'der', 'cer']) if (to !== ext) out.push({ to, handler: 'cert', toolId: 'convert-anything', note: 'PEM ↔ DER' });
   }
   return out;
+}
+
+/* --- Target grouping (the chooser lists targets under their TARGET category) --- */
+
+export type TargetGroup =
+  | 'Image' | 'Video' | 'Audio' | 'Document' | 'Spreadsheet' | 'Ebook' | 'Subtitle'
+  | 'Data' | 'Text' | 'Archive' | '3D' | 'CAD' | 'Font' | 'Email' | 'Certificate';
+
+export const TARGET_GROUP_ORDER: TargetGroup[] = [
+  'Image', 'Video', 'Audio', 'Document', 'Spreadsheet', 'Ebook', 'Subtitle',
+  'Data', 'Text', 'Archive', '3D', 'CAD', 'Font', 'Email', 'Certificate',
+];
+
+const GROUP_OF: Record<string, TargetGroup> = {};
+const groupAll = (g: TargetGroup, l: string[]) => { for (const e of l) GROUP_OF[e] = g; };
+groupAll('Image', ['png', 'jpg', 'jpeg', 'webp', 'avif', 'gif', 'bmp', 'tiff', 'tif', 'tga', 'ppm', 'ico', 'cur', 'svg']);
+groupAll('Video', ['mp4', 'webm', 'mov', 'mkv', 'avi', '3gp', 'm4v', 'flv', 'wmv', 'mpg', 'ogv']);
+groupAll('Audio', ['mp3', 'wav', 'm4a', 'aac', 'opus', 'flac', 'ogg', 'wma', 'aiff', 'ac3']);
+groupAll('Document', ['pdf', 'docx', 'html', 'rtf']);
+groupAll('Spreadsheet', ['xlsx', 'xls', 'ods', 'csv', 'tsv']);
+groupAll('Ebook', ['epub']);
+groupAll('Subtitle', ['srt', 'vtt', 'sbv']);
+groupAll('Data', ['json', 'xml', 'yaml', 'plist']);
+groupAll('Text', ['txt', 'md', 'scad']);
+groupAll('Archive', ['zip', 'tar', 'tgz', 'gz']);
+groupAll('3D', ['glb', 'gltf', 'stl', 'obj']);
+groupAll('CAD', ['dxf']);
+groupAll('Font', ['ttf', 'otf', 'woff', 'woff2']);
+groupAll('Email', ['eml']);
+groupAll('Certificate', ['pem', 'crt', 'der', 'cer']);
+
+/** Category of what a target PRODUCES (not of the source). */
+export function targetGroup(t: Target): TargetGroup {
+  return GROUP_OF[t.to] ?? 'Data';
+}
+
+/** Targets bucketed by target category, in TARGET_GROUP_ORDER, original order kept inside a bucket. */
+export function groupTargets<T extends Target>(targets: T[]): { group: TargetGroup; items: T[] }[] {
+  const m = new Map<TargetGroup, T[]>();
+  for (const t of targets) {
+    const g = targetGroup(t);
+    if (!m.has(g)) m.set(g, []);
+    m.get(g)!.push(t);
+  }
+  return TARGET_GROUP_ORDER.filter((g) => m.has(g)).map((g) => ({ group: g, items: m.get(g)! }));
 }
 
 export function isConvertible(file: { name: string }): boolean {
@@ -333,6 +475,14 @@ const mimeOf: Record<string, string> = {
   ttf: 'font/ttf', otf: 'font/otf', woff: 'font/woff', woff2: 'font/woff2', zip: 'application/zip',
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ico: 'image/x-icon', cur: 'image/x-win-bitmap', scad: 'text/plain',
+  tga: 'image/x-tga', ppm: 'image/x-portable-pixmap', svg: 'image/svg+xml',
+  wmv: 'video/x-ms-wmv', mpg: 'video/mpeg', ogv: 'video/ogg',
+  wma: 'audio/x-ms-wma', aiff: 'audio/aiff', ac3: 'audio/ac3',
+  md: 'text/markdown', rtf: 'application/rtf', epub: 'application/epub+zip',
+  tsv: 'text/tab-separated-values', yaml: 'text/yaml',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls: 'application/vnd.ms-excel', ods: 'application/vnd.oasis.opendocument.spreadsheet',
+  tar: 'application/x-tar', tgz: 'application/gzip', gz: 'application/gzip',
 };
 
 export async function convertFile(file: File, target: Target, opts: ConvertOpts = {}): Promise<ConvertOutput> {
@@ -402,6 +552,112 @@ async function browserDecodable(file: File): Promise<Blob> {
   });
 }
 
+function canvasBlob(c: HTMLCanvasElement, type: string, q?: number): Promise<Blob> {
+  return new Promise((r, j) => c.toBlob((b) => (b ? r(b) : j(new Error('Image encode failed'))), type, q));
+}
+
+/** Let the browser decode any image it can (avif, animated webp, ico, tiff via ffmpeg) and return a PNG. */
+async function pngOf(file: File): Promise<Blob> {
+  const bm = await createImageBitmap(await browserDecodable(file));
+  const c = document.createElement('canvas'); c.width = bm.width; c.height = bm.height;
+  c.getContext('2d')!.drawImage(bm, 0, 0); bm.close();
+  return canvasBlob(c, 'image/png');
+}
+
+function dataUrl(b: Blob): Promise<string> {
+  return new Promise((r, j) => { const fr = new FileReader(); fr.onload = () => r(String(fr.result)); fr.onerror = () => j(fr.error); fr.readAsDataURL(b); });
+}
+
+/** Audio the browser cannot decode (wma, aiff, amr, avi/mkv tracks…) is first turned into 16 kHz mono WAV by ffmpeg. */
+async function speechInput(file: File): Promise<Blob> {
+  const ext = extOf(file.name);
+  if (WEB_DECODABLE.has(ext)) return file;
+  const { runFfmpeg } = await import('@/engines/ffmpeg');
+  return runFfmpeg({
+    input: file, inputName: `in.${ext || 'bin'}`, outputName: 'speech.wav',
+    args: (i, o) => ['-i', i, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', o], mimeType: 'audio/wav',
+  });
+}
+
+async function decodeAnyAudio(file: File): Promise<AudioBuffer> {
+  const eng = await import('@/engines/audio');
+  return eng.decode(await (await speechInput(file)).arrayBuffer());
+}
+
+/** 1280×720 still for audio → video: the MP3's cover art if it has one, else a title card with the waveform. */
+async function audioCard(file: File, title: string): Promise<Blob> {
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 720;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#101218'; ctx.fillRect(0, 0, 1280, 720);
+  if (extOf(file.name) === 'mp3') {
+    try {
+      const { extractPictures } = await import('@/lib/convert/formats/id3');
+      const pic = extractPictures(new Uint8Array(await file.arrayBuffer()))[0];
+      if (pic) {
+        const bm = await createImageBitmap(new Blob([pic.data as BlobPart], { type: pic.mime }));
+        const k = Math.min(1280 / bm.width, 720 / bm.height);
+        const w = Math.round(bm.width * k), h = Math.round(bm.height * k);
+        ctx.drawImage(bm, (1280 - w) >> 1, (720 - h) >> 1, w, h); bm.close();
+        return canvasBlob(c, 'image/png');
+      }
+    } catch { /* fall through to the title card */ }
+  }
+  try {
+    const { drawWaveform } = await import('@/lib/convert/formats/extra');
+    drawWaveform(ctx, await decodeAnyAudio(file), 80, 300, 1120, 300, '#5b7cfa');
+  } catch { /* a card without a waveform is still a valid frame */ }
+  ctx.fillStyle = '#ffffff'; ctx.font = '600 44px system-ui, -apple-system, "Segoe UI", sans-serif'; ctx.textBaseline = 'top';
+  let t = title;
+  while (t.length > 4 && ctx.measureText(t).width > 1120) t = t.slice(0, -2);
+  ctx.fillText(t === title ? t : `${t}…`, 80, 120);
+  return canvasBlob(c, 'image/png');
+}
+
+/** The paragraph model of any text-bearing file (pdf, docx, doc/odt, slides, epub, html, md, txt, rtf, code…). */
+async function docParas(file: File, base: string, onProgress?: (r: number) => void): Promise<{ paras: import('@/lib/convert/formats/extra').Para[]; title: string }> {
+  const X = await import('@/lib/convert/formats/extra');
+  const ext = extOf(file.name);
+  const cat = FORMAT_CATEGORY[ext];
+  if (cat === 'pdf') {
+    const { extractPdfLayout } = await import('@/lib/convert/formats/pdf-docx');
+    const l = await extractPdfLayout(await file.arrayBuffer(), onProgress);
+    return { paras: l.paras.map((p) => ({ kind: p.kind, text: p.text })), title: base };
+  }
+  if (ext === 'docx') {
+    const { docxToHtml } = await import('@/engines/document');
+    return { paras: X.htmlToParas(await docxToHtml(file)), title: base };
+  }
+  if (cat === 'document' || cat === 'presentation') {
+    const { officeToContent } = await import('@/engines/office');
+    const c = await officeToContent(file, ext);
+    return { paras: X.htmlToParas(c.html), title: c.title || base };
+  }
+  if (cat === 'ebook') {
+    const { epubToContent } = await import('@/engines/ebook');
+    const c = await epubToContent(file);
+    return { paras: X.htmlToParas(c.html), title: c.title || base };
+  }
+  if (ext === 'html' || ext === 'htm') return { paras: X.htmlToParas(await file.text()), title: base };
+  const { fileToText } = await import('@/engines/text-render');
+  return { paras: X.textToParas(await fileToText(file, ext), ext === 'md' || ext === 'markdown'), title: base };
+}
+
+/** Every file inside an archive (zip/rar/7z/tar/gz/iso… via libarchive.js). */
+async function extractAll(file: File, onProgress?: (r: number) => void): Promise<{ name: string; data: Uint8Array }[]> {
+  const { openArchive, listArchive } = await import('@/engines/archive');
+  const handle = await openArchive(file);
+  const entries = await listArchive(handle);
+  const files: { name: string; data: Uint8Array }[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const f = await e.extract();
+    files.push({ name: (e.path || '') + e.name, data: new Uint8Array(await f.arrayBuffer()) });
+    onProgress?.((i + 1) / Math.max(1, entries.length));
+  }
+  try { await handle.close(); } catch { /* */ }
+  return files;
+}
+
 async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): Promise<ConvertOutput> {
   const base = file.name.replace(/\.[^.]+$/, '');
   const q = opts.imageQuality ?? 0.92;
@@ -411,10 +667,14 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       // gif / bmp / tiff aren't jsquash formats — encode them via ffmpeg.wasm.
       if (IMAGE_FF.has(target.to)) {
         const { runFfmpeg } = await import('@/engines/ffmpeg');
-        const inExt = extOf(file.name) || 'png';
+        let inExt = extOf(file.name) || 'png';
+        let input: Blob = file;
+        // ffmpeg 5.1's wasm core has no AVIF (dav1d) decoder and no animated-WebP
+        // decoder; let the browser decode those (and icons) and hand ffmpeg a PNG.
+        if (['avif', 'webp', 'ico'].includes(inExt)) { input = await pngOf(file); inExt = 'png'; }
         const blob = await runFfmpeg({
-          input: file, inputName: `in.${inExt}`, outputName: `out.${target.to}`,
-          args: (i, o) => ['-i', i, o],
+          input, inputName: `in.${inExt}`, outputName: `out.${target.to}`,
+          args: (i, o) => ['-i', i, '-frames:v', '1', o],
           mimeType: mimeOf[target.to] || 'application/octet-stream', onProgress: opts.onProgress,
         });
         return { blob, filename: `${base}.${target.to}` };
@@ -436,7 +696,8 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
     case 'audio': {
       // mp3 / wav: light Web-Audio + lamejs path. Everything else (m4a, aac, opus,
       // flac): ffmpeg.wasm with the right encoder. Covers any audio → any audio.
-      if (target.to === 'mp3' || target.to === 'wav') {
+      // wma / aiff / amr / … are not decodable by Web Audio: those go through ffmpeg too.
+      if ((target.to === 'mp3' || target.to === 'wav') && WEB_DECODABLE.has(extOf(file.name))) {
         const eng = await import('@/engines/audio');
         const buf = await eng.decode(await file.arrayBuffer());
         const blob = target.to === 'mp3' ? await eng.encodeMp3(buf) : eng.encodeWav(buf);
@@ -509,19 +770,25 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       return { blob: new Blob([new Uint8Array(out)], { type: 'application/pdf' }), filename: `${base}.pdf` };
     }
     case 'img-video': {
+      // One still picture → a 5-second video in any container ffmpeg muxes.
       const { runFfmpegMulti } = await import('@/engines/ffmpeg');
+      const to = STILL_VCODEC[target.to] ? target.to : 'mp4';
       const bm = await createImageBitmap(await browserDecodable(file));
-      const W = bm.width % 2 ? bm.width - 1 : bm.width;
-      const H = bm.height % 2 ? bm.height - 1 : bm.height;
+      // Cap at 1920 px (wasm encoders + memory) and keep even dimensions (yuv420p).
+      const k = Math.min(1, 1920 / Math.max(bm.width, bm.height));
+      let W = Math.max(2, Math.round(bm.width * k)), H = Math.max(2, Math.round(bm.height * k));
+      W -= W % 2; H -= H % 2;
       const c = document.createElement('canvas'); c.width = W; c.height = H;
-      c.getContext('2d')!.drawImage(bm, 0, 0, W, H); bm.close();
-      const png: Blob = await new Promise((r, j) => c.toBlob((b) => b ? r(b) : j(new Error('e')), 'image/png'));
+      const ctx = c.getContext('2d')!;
+      if (to !== 'webm') { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); }
+      ctx.drawImage(bm, 0, 0, W, H); bm.close();
+      const png = await canvasBlob(c, 'image/png');
       const blob = await runFfmpegMulti({
-        inputs: [{ name: 'frame000.png', data: png }], outputName: 'out.mp4',
-        args: (_n, o) => ['-loop', '1', '-i', 'frame000.png', '-t', '5', '-r', '30', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', o],
-        mimeType: 'video/mp4', onProgress: opts.onProgress,
+        inputs: [{ name: 'frame000.png', data: png }], outputName: `out.${to}`,
+        args: (_n, o) => ['-loop', '1', '-i', 'frame000.png', '-t', '5', '-r', '25', ...STILL_VCODEC[to], o],
+        mimeType: mimeOf[to] || 'video/mp4', onProgress: opts.onProgress,
       });
-      return { blob, filename: `${base}.mp4` };
+      return { blob, filename: `${base}.${to}` };
     }
     case 'pdf-img': {
       const { rasterizePdf } = await import('@/engines/pdf/rasterize');
@@ -558,7 +825,7 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
     }
     case 'transcribe': {
       const { transcribe } = await import('@/engines/transcribe');
-      const res = await transcribe(file, { onProgress: (p) => opts.onProgress?.(p.ratio) });
+      const res = await transcribe(await speechInput(file), { onProgress: (p) => opts.onProgress?.(p.ratio) });
       return { text: res.text, filename: `${base}.txt` };
     }
     case 'model3d': {
@@ -571,9 +838,31 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       return { files: out.files.map((f) => ({ name: f.name, blob: new Blob([f.data as unknown as BlobPart]) })), filename: `${base}-gltf.zip` };
     }
     case 'sheet': {
-      const { convertSheet } = await import('@/engines/document');
-      const { blob, ext } = await convertSheet(file, target.to as 'csv' | 'xlsx' | 'html' | 'json');
-      return { blob, filename: `${base}.${ext}` };
+      if (['csv', 'xlsx', 'html', 'json'].includes(target.to)) {
+        const { convertSheet } = await import('@/engines/document');
+        const { blob, ext } = await convertSheet(file, target.to as 'csv' | 'xlsx' | 'html' | 'json');
+        return { blob, filename: `${base}.${ext}` };
+      }
+      // First sheet → tsv / ods / xls / xml / yaml / markdown table / pdf.
+      const { readWorkbook } = await import('@/engines/document');
+      const { XLSX, wb } = await readWorkbook(file);
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      if (target.to === 'tsv') return { blob: new Blob([XLSX.utils.sheet_to_csv(ws, { FS: '\t' })], { type: mimeOf.tsv }), filename: `${base}.tsv` };
+      if (target.to === 'ods' || target.to === 'xls') {
+        const out = XLSX.write(wb, { bookType: target.to === 'xls' ? 'biff8' : 'ods', type: 'array' });
+        return { blob: new Blob([out], { type: mimeOf[target.to] }), filename: `${base}.${target.to}` };
+      }
+      if (target.to === 'pdf') {
+        const table = /<table[\s\S]*<\/table>/i.exec(XLSX.utils.sheet_to_html(ws))?.[0] ?? '';
+        const { htmlToPdf } = await import('@/engines/document');
+        const html = `<style>table{border-collapse:collapse;font:12px Arial,sans-serif}td,th{border:1px solid #999;padding:3px 6px}</style>${table}`;
+        return { blob: await htmlToPdf(html, base), filename: `${base}.pdf` };
+      }
+      const X = await import('@/lib/convert/formats/extra');
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: null }) as Record<string, string | number | boolean | null>[];
+      if (target.to === 'md') return { blob: new Blob([X.rowsToMd(rows)], { type: 'text/markdown' }), filename: `${base}.md` };
+      if (target.to === 'yaml') return { blob: new Blob([await X.valueToYaml(rows)], { type: 'text/yaml' }), filename: `${base}.yaml` };
+      return { blob: new Blob([X.valueToXml({ rows: { row: rows } })], { type: 'application/xml' }), filename: `${base}.xml` };
     }
     case 'text-img': {
       const { fileToText, renderTextToImage } = await import('@/engines/text-render');
@@ -602,18 +891,8 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
     }
     case 'archive-repack': {
       // Any archive (rar/7z/tar/gz/iso…) → extract all → re-pack as .zip, on-device.
-      const { openArchive, listArchive, zipFiles } = await import('@/engines/archive');
-      const handle = await openArchive(file);
-      const entries = await listArchive(handle);
-      const files: { name: string; data: Uint8Array }[] = [];
-      for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        const f = await e.extract();
-        files.push({ name: (e.path || '') + e.name, data: new Uint8Array(await f.arrayBuffer()) });
-        opts.onProgress?.((i + 1) / Math.max(1, entries.length));
-      }
-      try { await handle.close(); } catch { /* */ }
-      return { blob: await zipFiles(files), filename: `${base}.zip` };
+      const { zipFiles } = await import('@/engines/archive');
+      return { blob: await zipFiles(await extractAll(file, opts.onProgress)), filename: `${base}.zip` };
     }
     case 'calendar': {
       const { parseCalendar, toJson, toCsv, toTxt } = await import('@/engines/calendar');
@@ -787,6 +1066,207 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       const { zipSync } = await import('fflate');
       const data = zipSync({ [file.name]: [new Uint8Array(await file.arrayBuffer()), { level: 6, mtime: new Date(file.lastModified || Date.now()) }] });
       return { blob: new Blob([data as BlobPart], { type: 'application/zip' }), filename: `${base}.zip` };
+    }
+    case 'img-ico': {
+      // PNG-in-ICO frames at the standard sizes up to the picture's own size.
+      const { buildIco } = await import('@/lib/convert/formats/extra');
+      const bm = await createImageBitmap(await browserDecodable(file));
+      const edge = Math.max(bm.width, bm.height);
+      const wanted = target.to === 'cur' ? [32, 48] : [16, 32, 48, 64, 128, 256];
+      let sizes = wanted.filter((n) => n <= Math.max(edge, 16));
+      if (!sizes.length) sizes = [wanted[0]];
+      const frames: { png: Uint8Array; width: number; height: number }[] = [];
+      for (const n of sizes) {
+        const c = document.createElement('canvas'); c.width = n; c.height = n;
+        const k = Math.min(n / bm.width, n / bm.height);
+        const w = Math.max(1, Math.round(bm.width * k)), h = Math.max(1, Math.round(bm.height * k));
+        const ctx = c.getContext('2d')!;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(bm, Math.floor((n - w) / 2), Math.floor((n - h) / 2), w, h);
+        frames.push({ png: new Uint8Array(await (await canvasBlob(c, 'image/png')).arrayBuffer()), width: n, height: n });
+      }
+      bm.close();
+      const as = target.to === 'cur' ? 'cur' : 'ico';
+      return { blob: new Blob([buildIco(frames, as) as BlobPart], { type: mimeOf[as] }), filename: `${base}.${as}` };
+    }
+    case 'img-svg':
+    case 'img-html': {
+      const src = await browserDecodable(file);
+      const bm = await createImageBitmap(src); const w = bm.width, h = bm.height; bm.close();
+      // TIFF was re-encoded to PNG above; everything else embeds its original bytes.
+      const url = await dataUrl(src === file ? new Blob([await file.arrayBuffer()], { type: mimeOf[extOf(file.name)] || file.type || 'image/png' }) : src);
+      const { escXml } = await import('@/lib/convert/formats/extra');
+      if (target.to === 'svg') {
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><image width="${w}" height="${h}" href="${url}" xlink:href="${url}"/></svg>\n`;
+        return { blob: new Blob([svg], { type: 'image/svg+xml' }), filename: `${base}.svg` };
+      }
+      const html = `<!doctype html>\n<html><head><meta charset="utf-8"><title>${escXml(base)}</title><style>body{margin:0;background:#111;display:grid;place-items:center;min-height:100vh}img{max-width:100%;height:auto}</style></head><body><img src="${url}" width="${w}" height="${h}" alt="${escXml(base)}"></body></html>\n`;
+      return { blob: new Blob([html], { type: 'text/html' }), filename: `${base}.html` };
+    }
+    case 'img-docx': {
+      const { buildDocx } = await import('@/lib/convert/formats/extra');
+      const ext = extOf(file.name);
+      const bm = await createImageBitmap(await browserDecodable(file));
+      const w = bm.width, h = bm.height;
+      let data: Uint8Array, kind: 'png' | 'jpeg';
+      if (ext === 'jpg' || ext === 'png') { data = new Uint8Array(await file.arrayBuffer()); kind = ext === 'jpg' ? 'jpeg' : 'png'; bm.close(); }
+      else {
+        const c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d')!.drawImage(bm, 0, 0); bm.close();
+        data = new Uint8Array(await (await canvasBlob(c, 'image/png')).arrayBuffer()); kind = 'png';
+      }
+      return { blob: buildDocx([], base, { data, ext: kind, width: w, height: h }), filename: `${base}.docx` };
+    }
+    case 'video-frames': {
+      // One frame per second (max 120, max 1280 px wide) streamed out as one
+      // image2pipe file, then split into single images and zipped by the caller.
+      const { runFfmpeg } = await import('@/engines/ffmpeg');
+      const { splitJpegStream, splitPngStream } = await import('@/lib/convert/formats/extra');
+      const inExt = extOf(file.name) || 'mp4';
+      const png = target.to === 'png';
+      const stream = await runFfmpeg({
+        input: file, inputName: `in.${inExt}`, outputName: png ? 'frames.pngstream' : 'frames.mjpegstream',
+        args: (i, o) => ['-i', i, '-vf', 'fps=1,scale=w=min(iw\\,1280):h=-2', '-frames:v', '120', '-an',
+          ...(png ? ['-c:v', 'png'] : ['-c:v', 'mjpeg', '-pix_fmt', 'yuvj420p', '-q:v', '3']), '-f', 'image2pipe', o],
+        mimeType: 'application/octet-stream', onProgress: opts.onProgress,
+      });
+      const bytes = new Uint8Array(await stream.arrayBuffer());
+      const parts = png ? splitPngStream(bytes) : splitJpegStream(bytes);
+      if (!parts.length) throw new Error('No frames could be read from this video.');
+      const files = parts.map((d, i) => ({ name: `${base}-${String(i + 1).padStart(4, '0')}s.${target.to}`, blob: new Blob([d as BlobPart], { type: mimeOf[target.to] }) }));
+      return { files, filename: `${base}-frames.zip` };
+    }
+    case 'audio-wave': {
+      const ab = await decodeAnyAudio(file);
+      const c = document.createElement('canvas'); c.width = 1600; c.height = 400;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+      const { drawWaveform } = await import('@/lib/convert/formats/extra');
+      drawWaveform(ctx, ab, 0, 20, c.width, c.height - 40, '#2f54eb');
+      return { blob: await canvasBlob(c, 'image/png'), filename: `${base}-waveform.png` };
+    }
+    case 'audio-video': {
+      const { runFfmpegMulti } = await import('@/engines/ffmpeg');
+      const inExt = extOf(file.name) || 'mp3';
+      const to = AV_AUDIO[target.to] ? target.to : 'mp4';
+      const card = await audioCard(file, base);
+      const blob = await runFfmpegMulti({
+        inputs: [{ name: 'card.png', data: card }, { name: `in.${inExt}`, data: file }], outputName: `out.${to}`,
+        args: (_n, o) => ['-loop', '1', '-framerate', '2', '-i', 'card.png', '-i', `in.${inExt}`, '-map', '0:v', '-map', '1:a',
+          ...STILL_VCODEC[to], '-r', '2', ...AV_AUDIO[to], '-shortest', o],
+        mimeType: mimeOf[to] || 'video/mp4', onProgress: opts.onProgress,
+      });
+      return { blob, filename: `${base}.${to}` };
+    }
+    case 'transcribe-sub': {
+      const { transcribe, chunksToSrt, chunksToVtt } = await import('@/engines/transcribe');
+      const res = await transcribe(await speechInput(file), { onProgress: (p) => opts.onProgress?.(p.ratio) });
+      if (!res.chunks?.length) throw new Error('No speech was found to time as subtitles.');
+      const text = target.to === 'vtt' ? chunksToVtt(res.chunks) : chunksToSrt(res.chunks);
+      return { blob: new Blob([text], { type: mimeOf[target.to] }), filename: `${base}.${target.to}` };
+    }
+    case 'to-doc': {
+      const X = await import('@/lib/convert/formats/extra');
+      const { paras, title } = await docParas(file, base, opts.onProgress);
+      if (!paras.length) throw new Error('No text was found in this file (a scan or picture needs OCR first).');
+      switch (target.to) {
+        case 'docx': return { blob: X.buildDocx(paras, title), filename: `${base}.docx` };
+        case 'html': return { blob: new Blob([X.parasToHtml(paras, title)], { type: 'text/html' }), filename: `${base}.html` };
+        case 'md': return { blob: new Blob([X.parasToMd(paras)], { type: 'text/markdown' }), filename: `${base}.md` };
+        case 'rtf': return { blob: new Blob([X.parasToRtf(paras)], { type: 'application/rtf' }), filename: `${base}.rtf` };
+        case 'epub': return { blob: X.buildEpub(paras, title), filename: `${base}.epub` };
+        default: return { text: paras.filter((p) => p.kind !== 'pagebreak').map((p) => p.text).join('\n\n'), filename: `${base}.txt` };
+      }
+    }
+    case 'doc-img': {
+      // Document → PDF (the same renderer as → PDF) → one picture per page.
+      const ext = extOf(file.name);
+      const docEng = await import('@/engines/document');
+      let pdf: Blob;
+      if (ext === 'docx') pdf = await docEng.docxToPdf(file);
+      else {
+        const { officeToContent } = await import('@/engines/office');
+        const c = await officeToContent(file, ext);
+        pdf = await docEng.htmlToPdf(`<h1>${c.title}</h1>${c.html}`, base);
+      }
+      const { rasterizePdf } = await import('@/engines/pdf/rasterize');
+      const pages = await rasterizePdf(await pdf.arrayBuffer(), { maxEdge: 1600, onProgress: (p) => opts.onProgress?.(p.page / p.pageCount) });
+      const files: { name: string; blob: Blob }[] = [];
+      for (const p of pages) files.push({ name: `${base}-${String(p.index + 1).padStart(3, '0')}.${target.to}`, blob: await canvasBlob(p.canvas, mimeOf[target.to], q) });
+      return { files, filename: `${base}-pages.zip` };
+    }
+    case 'data': {
+      const X = await import('@/lib/convert/formats/extra');
+      let ext = extOf(file.name); if (ext === 'yml') ext = 'yaml';
+      let v: Awaited<ReturnType<typeof X.parseStructured>>;
+      try { v = await X.parseStructured(await file.text(), ext); }
+      catch (e) { throw new Error(`Could not read this .${ext}: ${(e as Error).message}`); }
+      if (target.to === 'json') return { text: JSON.stringify(v, null, 2), filename: `${base}.json` };
+      if (target.to === 'yaml') return { blob: new Blob([await X.valueToYaml(v)], { type: 'text/yaml' }), filename: `${base}.yaml` };
+      if (target.to === 'xml') return { blob: new Blob([X.valueToXml(v)], { type: 'application/xml' }), filename: `${base}.xml` };
+      const rows = X.valueToRows(v);
+      if (target.to === 'md') return { blob: new Blob([X.rowsToMd(rows)], { type: 'text/markdown' }), filename: `${base}.md` };
+      const XLSX = await import('xlsx');
+      const ws = XLSX.utils.json_to_sheet(rows);
+      if (target.to === 'csv' || target.to === 'tsv') {
+        return { blob: new Blob([XLSX.utils.sheet_to_csv(ws, target.to === 'tsv' ? { FS: '\t' } : undefined)], { type: mimeOf[target.to] }), filename: `${base}.${target.to}` };
+      }
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Data');
+      return { blob: new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: mimeOf.xlsx }), filename: `${base}.xlsx` };
+    }
+    case 'archive-tar': {
+      const { buildTar } = await import('@/lib/convert/formats/extra');
+      const files = await extractAll(file, opts.onProgress);
+      const tar = buildTar(files);
+      if (target.to === 'tgz') {
+        const { gzipSync } = await import('fflate');
+        return { blob: new Blob([gzipSync(tar, { level: 6 }) as BlobPart], { type: 'application/gzip' }), filename: `${base}.tgz` };
+      }
+      return { blob: new Blob([tar as BlobPart], { type: 'application/x-tar' }), filename: `${base}.tar` };
+    }
+    case 'gz': {
+      const { gzipSync } = await import('fflate');
+      const data = gzipSync(new Uint8Array(await file.arrayBuffer()), { level: 6, filename: file.name, mtime: new Date(file.lastModified || Date.now()) });
+      return { blob: new Blob([data as BlobPart], { type: 'application/gzip' }), filename: `${file.name}.gz` };
+    }
+    case 'font-img': {
+      const family = `xonvert-preview-${Date.now()}`;
+      const face = new FontFace(family, await file.arrayBuffer());
+      try { await face.load(); } catch { throw new Error('This font could not be loaded by the browser.'); }
+      document.fonts.add(face);
+      try {
+        const c = document.createElement('canvas'); c.width = 1400; c.height = 980;
+        const ctx = c.getContext('2d')!;
+        ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.fillStyle = '#6b7280'; ctx.font = '20px system-ui, sans-serif'; ctx.textBaseline = 'top';
+        ctx.fillText(file.name, 48, 36);
+        ctx.fillStyle = '#111111';
+        let y = 90;
+        const lines: [number, string][] = [
+          [30, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'], [30, 'abcdefghijklmnopqrstuvwxyz'], [30, '0123456789 !?&@#%()[]{}.,;:'],
+          [96, 'Aa Bb Cc'], [64, 'The quick brown fox'], [44, 'jumps over the lazy dog'],
+          [28, 'The quick brown fox jumps over the lazy dog.'], [18, 'The quick brown fox jumps over the lazy dog. 0123456789'],
+        ];
+        for (const [px, t] of lines) { ctx.font = `${px}px "${family}"`; ctx.fillText(t, 48, y); y += Math.round(px * 1.35) + 14; }
+        return { blob: await canvasBlob(c, 'image/png'), filename: `${base}.png` };
+      } finally { document.fonts.delete(face); }
+    }
+    case 'model-img': {
+      const { convertModelInWorker } = await import('@/engines/model3d/client');
+      const conv = await convertModelInWorker([{ name: file.name, data: new Uint8Array(await file.arrayBuffer()) }], 'glb');
+      const glb = conv.files.find((f) => /\.glb$/i.test(f.name)) ?? conv.files[0];
+      if (!glb) throw new Error('The model could not be read.');
+      const bytes = glb.data as unknown as Uint8Array;
+      const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      const R = await import('@/lib/convert/formats/model-render');
+      if (target.to === 'gif') return { blob: await R.renderModelGif(buf, { onProgress: opts.onProgress }), filename: `${base}.gif` };
+      return { blob: await R.renderModelPng(buf), filename: `${base}.png` };
+    }
+    case 'mail-pdf': {
+      const ext = extOf(file.name);
+      const html = ext === 'msg' ? await (await import('@/engines/msg')).msgToHtml(file) : await (await import('@/engines/email')).emailToHtml(file, ext);
+      const { htmlToPdf } = await import('@/engines/document');
+      return { blob: await htmlToPdf(html, base), filename: `${base}.pdf` };
     }
     default:
       throw new Error(`No browser converter for ${target.handler}`);

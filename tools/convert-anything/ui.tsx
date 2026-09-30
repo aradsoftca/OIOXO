@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Download, Check, ArrowRight, FileText } from 'lucide-react';
 import { cn } from '@/lib/cn';
-import { convertFile, type Target, type ConvCategory } from '@/lib/convert/matrix';
+import { convertFile, groupTargets, type Target, type ConvCategory } from '@/lib/convert/matrix';
 import { actionsForFile } from '@/lib/files/actions';
 import type { ToolManifest } from '@/lib/registry/types';
 import { CATEGORIES } from '@/lib/registry/types';
@@ -36,6 +36,15 @@ export default function ConvertAnythingTool() {
   // On a /convert/{from}-to-{to} page, the page's target leads the list and is highlighted.
   const want = usePageTarget();
   const isWanted = (t: Target) => !!want && (t.to === want || (want === 'jpeg' && t.to === 'jpg'));
+
+  // Targets bucketed by what they PRODUCE (Image, Video, Audio, Document…); on a
+  // /convert/{from}-to-{to} page the bucket holding the page's target leads.
+  const groups = React.useMemo(() => {
+    const g = groupTargets(targets);
+    if (!want) return g;
+    return [...g].sort((a, b) => Number(b.items.some(isWanted)) - Number(a.items.some(isWanted)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targets, want]);
 
   React.useEffect(() => () => { if (result?.url) URL.revokeObjectURL(result.url); }, [result]);
 
@@ -162,13 +171,13 @@ export default function ConvertAnythingTool() {
                 className="w-full border border-black/[0.12] bg-[var(--color-surface-1)] px-3 py-3 text-[15px] font-semibold text-[var(--color-fg)] focus:border-[var(--color-cat-convert)] focus:outline-none disabled:opacity-50"
               >
                 <option value="" disabled>Choose a format or a tool…</option>
-                {targets.length > 0 && (
-                  <optgroup label={`Convert ${info?.ext.toUpperCase() ?? ''} to`}>
-                    {targets.map((t, i) => (
-                      <option key={`to-${t.to}-${t.handler}`} value={`to:${i}`}>{t.to.toUpperCase()}{t.note ? ` — ${t.note}` : ''}</option>
+                {groups.map(({ group, items }) => (
+                  <optgroup key={group} label={`${group} — convert ${info?.ext.toUpperCase() ?? ''} to`}>
+                    {items.map((t) => (
+                      <option key={`to-${t.to}-${t.handler}`} value={`to:${targets.indexOf(t)}`}>{t.to.toUpperCase()}{t.note ? ` — ${t.note}` : ''}</option>
                     ))}
                   </optgroup>
-                )}
+                ))}
                 {tools.length > 0 && (
                   <optgroup label="Open in a tool">
                     {tools.map((t, i) => (
@@ -182,14 +191,20 @@ export default function ConvertAnythingTool() {
 
           {targets.length > 0 && (
             <div>
-              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Convert to</div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+                Convert to <span className="text-[var(--color-fg-subtle)]">· {targets.length}</span>
+              </div>
+              <div className="space-y-4">
+              {groups.map(({ group, items }) => (
+              <div key={group}>
+              <div className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--color-fg-subtle)]">{group} <span className="font-normal">· {items.length}</span></div>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                {targets.map((t) => {
+                {items.map((t) => {
                   const isActive = active ? active.to === t.to && active.handler === t.handler : isWanted(t);
                   return (
-                    <button key={`${t.to}-${t.handler}`} type="button" onClick={() => run(t)} disabled={busy}
+                    <button key={`${t.to}-${t.handler}`} type="button" onClick={() => run(t)} disabled={busy} title={t.note}
                       className={cn(
-                        'flex items-center gap-2 border px-3 py-3 text-left transition disabled:opacity-50',
+                        'flex flex-wrap items-center gap-x-2 border px-3 py-3 text-left transition disabled:opacity-50',
                         isActive ? 'border-[var(--color-cat-convert)] bg-[var(--color-cat-convert)]/5' : 'border-black/[0.08] hover:border-[var(--color-cat-convert)] hover:bg-[var(--color-surface-2)]',
                       )}>
                       <div className="flex items-center gap-1.5 font-mono text-[13px] font-bold tracking-tight">
@@ -198,9 +213,16 @@ export default function ConvertAnythingTool() {
                         <span className="text-[var(--color-fg)]">{t.to.toUpperCase()}</span>
                       </div>
                       {busy && isActive && <Loader2 className="ml-auto h-3.5 w-3.5 animate-spin text-[var(--color-cat-convert)]" />}
+                      {/* Same format twice in a bucket (MP3 → PNG cover art vs waveform) needs the note to tell them apart. */}
+                      {t.note && items.filter((x) => x.to === t.to).length > 1 && (
+                        <span className="basis-full truncate text-[10px] text-[var(--color-fg-subtle)]">{t.note}</span>
+                      )}
                     </button>
                   );
                 })}
+              </div>
+              </div>
+              ))}
               </div>
               {active?.note && <p className="mt-2 text-[11px] text-[var(--color-fg-subtle)]">{active.note}.</p>}
             </div>

@@ -4,6 +4,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { Providers } from '@/components/Providers';
 import { BRAND, BRAND_TITLE, BRAND_DESC, BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
 import { organizationJsonLd, webSiteJsonLd, structuredDataToScript } from '@/lib/seo/jsonld';
+import { RevealResult } from '@/components/ui/RevealResult';
 import './globals.css';
 
 // Modern type system, self-hosted by next/font (no runtime request):
@@ -99,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-[var(--color-canvas)] text-[var(--color-fg)] antialiased">
         <Providers>
           <AppShell>{children}</AppShell>
+          <RevealResult />
         </Providers>
       </body>
     </html>

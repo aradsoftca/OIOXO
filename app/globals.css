@@ -479,3 +479,9 @@ html[data-app] .site-chrome { display: none !important; }
 /* Store rules (Apple 3.1.1, Google Play payments): the app must not link to or advertise web purchases.
    Pro bought elsewhere still applies once signed in. */
 html[data-app] a[href^="/pricing"], html[data-app] a[href*="/checkout"], html[data-app] .app-hide { display: none !important; }
+
+/* Everything clickable shows the hand cursor (Tailwind's preflight resets buttons to `default`). */
+button:not(:disabled), [role="button"]:not([aria-disabled="true"]), select:not(:disabled),
+summary, label[for], input[type="file"], input[type="checkbox"]:not(:disabled), input[type="radio"]:not(:disabled),
+input[type="range"]:not(:disabled), input[type="color"]:not(:disabled) { cursor: pointer; }
+button:disabled, select:disabled { cursor: not-allowed; }

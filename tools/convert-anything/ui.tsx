@@ -29,6 +29,7 @@ export default function ConvertAnythingTool() {
   const [tools, setTools] = React.useState<ToolManifest[]>([]);
   const [active, setActive] = React.useState<Target | null>(null);
   const [busy, setBusy] = React.useState(false);
+  const statusRef = React.useRef<HTMLDivElement>(null);
   const [progress, setProgress] = React.useState(0);
   const [error, setError] = React.useState('');
   const [result, setResult] = React.useState<{ url?: string; text?: string; filename: string; size?: number } | null>(null);
@@ -47,6 +48,11 @@ export default function ConvertAnythingTool() {
   }, [targets, want]);
 
   React.useEffect(() => () => { if (result?.url) URL.revokeObjectURL(result.url); }, [result]);
+  // Bring the progress / result / error into view as soon as it changes.
+  React.useEffect(() => {
+    if (!busy && !result && !error) return;
+    statusRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [busy, result, error]);
 
   const load = (f: File) => {
     setError(''); setResult(null); setActive(null);
@@ -189,6 +195,42 @@ export default function ConvertAnythingTool() {
             </label>
           )}
 
+          {/* Progress / error / Download sit right under the menu (not below the suggestion grids)
+              and scroll into view, so the user sees what happened after choosing a format. */}
+          <div ref={statusRef} className="scroll-mt-24 space-y-3">
+            {busy && (
+              <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
+                <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg)]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting to {active?.to.toUpperCase()}… {progress > 0 && `${progress}%`}
+                </div>
+                {progress > 0 && (
+                  <div className="mt-2 h-1 w-full overflow-hidden bg-black/[0.06]">
+                    <div className="h-full bg-[var(--color-cat-convert)] transition-[width]" style={{ width: `${progress}%` }} />
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && <div className="text-[12px] text-red-600">{error}</div>}
+
+            {result && (
+              <div className="border border-[var(--color-cat-convert)]/40 bg-[var(--color-cat-convert)]/5 p-4">
+                <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-[var(--color-fg)]">
+                  <Check className="h-4 w-4 text-green-600" /> Ready: {result.filename}
+                  {result.size != null && <span className="font-mono text-[11px] font-normal text-[var(--color-fg-muted)]">{fmtSize(result.size)}</span>}
+                </div>
+                {result.text != null && (
+                  <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap bg-[var(--color-surface-1)] p-3 font-mono text-[12px] text-[var(--color-fg)]">{result.text.slice(0, 4000) || '(no text found)'}</pre>
+                )}
+                <button type="button" onClick={download}
+                  className="mt-3 flex items-center gap-2 bg-[var(--color-cat-convert)] px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110">
+                  {result.text != null ? <FileText className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />} Download
+                </button>
+              </div>
+            )}
+          </div>
+
+
           {targets.length > 0 && (
             <div>
               <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
@@ -225,37 +267,6 @@ export default function ConvertAnythingTool() {
               ))}
               </div>
               {active?.note && <p className="mt-2 text-[11px] text-[var(--color-fg-subtle)]">{active.note}.</p>}
-            </div>
-          )}
-
-          {busy && (
-            <div className="border border-black/[0.08] bg-[var(--color-surface-1)] p-4">
-              <div className="flex items-center gap-2 text-[12px] text-[var(--color-fg)]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Converting to {active?.to.toUpperCase()}… {progress > 0 && `${progress}%`}
-              </div>
-              {progress > 0 && (
-                <div className="mt-2 h-1 w-full overflow-hidden bg-black/[0.06]">
-                  <div className="h-full bg-[var(--color-cat-convert)] transition-[width]" style={{ width: `${progress}%` }} />
-                </div>
-              )}
-            </div>
-          )}
-
-          {error && <div className="text-[12px] text-red-600">{error}</div>}
-
-          {result && (
-            <div className="border border-[var(--color-cat-convert)]/40 bg-[var(--color-cat-convert)]/5 p-4">
-              <div className="flex flex-wrap items-center gap-2 text-[13px] font-semibold text-[var(--color-fg)]">
-                <Check className="h-4 w-4 text-green-600" /> Ready: {result.filename}
-                {result.size != null && <span className="font-mono text-[11px] font-normal text-[var(--color-fg-muted)]">{fmtSize(result.size)}</span>}
-              </div>
-              {result.text != null && (
-                <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap bg-[var(--color-surface-1)] p-3 font-mono text-[12px] text-[var(--color-fg)]">{result.text.slice(0, 4000) || '(no text found)'}</pre>
-              )}
-              <button type="button" onClick={download}
-                className="mt-3 flex items-center gap-2 bg-[var(--color-cat-convert)] px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-white shadow-lg transition hover:brightness-110">
-                {result.text != null ? <FileText className="h-3.5 w-3.5" /> : <Download className="h-3.5 w-3.5" />} Download
-              </button>
             </div>
           )}
 

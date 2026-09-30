@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { IPhoneUnavailable } from '@/components/tool/IPhoneUnavailable';
 import { Loader2, Download, Sparkles, Upload } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { IS_OIOXO } from '@/lib/brand';
@@ -13,7 +14,7 @@ import { useImageDrop } from '@/lib/compute/useImageDrop';
 
 const POLICY_KEY = 'image-enhance';
 
-export default function PhotoEnhancer() {
+function PhotoEnhancerInner() {
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
@@ -113,4 +114,8 @@ export default function PhotoEnhancer() {
       )}
     </div>
   );
+}
+
+export default function PhotoEnhancer() {
+  return <IPhoneUnavailable><PhotoEnhancerInner /></IPhoneUnavailable>;
 }

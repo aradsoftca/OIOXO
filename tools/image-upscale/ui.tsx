@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { IPhoneUnavailable } from '@/components/tool/IPhoneUnavailable';
 import { Upload, Loader2, Download, Image as ImageIcon, ArrowLeftRight, Wand2, Maximize2 } from 'lucide-react';
 import { cn } from '@/lib/cn';
 import { IS_OIOXO } from '@/lib/brand';
@@ -35,7 +36,7 @@ const QUALITIES: { v: UpscaleQuality; label: string; hint: string }[] = [
   ...(IS_OIOXO ? [{ v: 'real-world' as UpscaleQuality, label: 'Real-world', hint: '4× only. Tuned for blurry phone shots and compressed images.' }] : []),
 ];
 
-export default function ImageUpscaleTool() {
+function ImageUpscaleToolInner() {
   const isPro = useIsPro();
   const policyGate = usePolicyGate();
   const [file, setFile] = React.useState<File | null>(null);
@@ -427,4 +428,8 @@ async function makeThumb(blob: Blob, maxEdge: number): Promise<string> {
   ctx.drawImage(bm, 0, 0, w, h);
   bm.close();
   return canvas.toDataURL('image/jpeg', 0.7);
+}
+
+export default function ImageUpscaleTool() {
+  return <IPhoneUnavailable><ImageUpscaleToolInner /></IPhoneUnavailable>;
 }

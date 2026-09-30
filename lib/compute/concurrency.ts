@@ -53,10 +53,25 @@ export function niceThreadCount(): number {
  * worker boundary and has v2 edge cases; the thread pool is the safe big win.
  * Pass the imported `@xenova/transformers` module. Best-effort: never throws.
  */
+/**
+ * iPhone: WebKit's back/forward cache keeps a left page — model and all — alive
+ * in the same WebContent process, so the NEXT AI tool loads a second model on top
+ * and WebKit terminates the page (measured 09-29: the second AI tool in a session
+ * died, the same tool passed in a fresh process). A page with an `unload` listener
+ * is never put in that cache. Only on memory-constrained devices.
+ */
+let bfcacheOptOut = false;
+function keepOutOfBackForwardCache(): void {
+  if (bfcacheOptOut || typeof window === 'undefined' || !isMemoryConstrained()) return;
+  bfcacheOptOut = true;
+  window.addEventListener('unload', () => { /* presence alone disables the bfcache */ });
+}
+
 export function configureOnnxRuntime(lib: unknown): void {
   // A model is (about to be) resident: lib/app-bridge.ts skips the in-app ad on
   // memory-constrained devices so the ad's web view doesn't get this page killed.
   (globalThis as { __xvHeavyModel?: boolean }).__xvHeavyModel = true;
+  keepOutOfBackForwardCache();
   try {
     const wasm = (lib as { env?: { backends?: { onnx?: { wasm?: Record<string, unknown> } } } })
       ?.env?.backends?.onnx?.wasm;

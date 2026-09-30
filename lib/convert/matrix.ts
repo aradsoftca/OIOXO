@@ -1121,19 +1121,30 @@ async function runConvert(file: File, target: Target, opts: ConvertOpts = {}): P
       // One frame per second (max 120, max 1280 px wide) streamed out as one
       // image2pipe file, then split into single images and zipped by the caller.
       const { runFfmpeg } = await import('@/engines/ffmpeg');
-      const { splitJpegStream, splitPngStream } = await import('@/lib/convert/formats/extra');
+      const { splitJpegStream } = await import('@/lib/convert/formats/extra');
       const inExt = extOf(file.name) || 'mp4';
       const png = target.to === 'png';
+      // Raw MJPEG muxer (`-f mjpeg`): the bundled ffmpeg core has no image2pipe
+      // muxer, so the earlier stream failed on every video (measured 09-29).
+      // PNG frames are re-encoded from the JPEG frames in the browser.
       const stream = await runFfmpeg({
-        input: file, inputName: `in.${inExt}`, outputName: png ? 'frames.pngstream' : 'frames.mjpegstream',
+        input: file, inputName: `in.${inExt}`, outputName: 'frames.mjpeg',
         args: (i, o) => ['-i', i, '-vf', 'fps=1,scale=w=min(iw\\,1280):h=-2', '-frames:v', '120', '-an',
-          ...(png ? ['-c:v', 'png'] : ['-c:v', 'mjpeg', '-pix_fmt', 'yuvj420p', '-q:v', '3']), '-f', 'image2pipe', o],
+          '-c:v', 'mjpeg', '-pix_fmt', 'yuvj420p', '-q:v', png ? '2' : '3', '-f', 'mjpeg', o],
         mimeType: 'application/octet-stream', onProgress: opts.onProgress,
       });
-      const bytes = new Uint8Array(await stream.arrayBuffer());
-      const parts = png ? splitPngStream(bytes) : splitJpegStream(bytes);
+      const parts = splitJpegStream(new Uint8Array(await stream.arrayBuffer()));
       if (!parts.length) throw new Error('No frames could be read from this video.');
-      const files = parts.map((d, i) => ({ name: `${base}-${String(i + 1).padStart(4, '0')}s.${target.to}`, blob: new Blob([d as BlobPart], { type: mimeOf[target.to] }) }));
+      const toPng = async (jpg: Uint8Array): Promise<Blob> => {
+        const bmp = await createImageBitmap(new Blob([jpg as BlobPart], { type: 'image/jpeg' }));
+        const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+        c.getContext('2d')!.drawImage(bmp, 0, 0); bmp.close();
+        return new Promise<Blob>((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('PNG encode failed'))), 'image/png'));
+      };
+      const files = await Promise.all(parts.map(async (d, i) => ({
+        name: `${base}-${String(i + 1).padStart(4, '0')}s.${target.to}`,
+        blob: png ? await toPng(d) : new Blob([d as BlobPart], { type: mimeOf[target.to] }),
+      })));
       return { files, filename: `${base}-frames.zip` };
     }
     case 'audio-wave': {

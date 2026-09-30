@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db';
+import { EMAIL_NOT_VERIFIED, needsVerification } from '@/lib/email-verify';
 import { preCheckRequest } from '@/lib/oioxo/gate';
 import { signAppToken, appTokenSecret } from '@/lib/oioxo/app-token';
 import { appCorsHeaders, appCorsPreflight } from '@/lib/oioxo/app-cors';
@@ -54,6 +55,12 @@ export async function POST(req: Request) {
   const ok = await bcrypt.compare(password, hash);
   if (!user?.password || !ok) {
     return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401, headers: cors });
+  }
+  if (needsVerification(user)) {
+    return NextResponse.json(
+      { error: 'Please confirm your email first — open the link we sent you.', code: EMAIL_NOT_VERIFIED },
+      { status: 403, headers: cors },
+    );
   }
 
   const token = await signAppToken(user.id, user.email ?? undefined, appTokenSecret()!);

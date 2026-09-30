@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
-import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db';
-import { sendVerificationEmail } from '@/lib/email/service';
+import { issueVerification, needsVerification } from '@/lib/email-verify';
 import { take, type Bucket } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
@@ -65,6 +64,8 @@ export async function POST(req: Request) {
     // path returns ~10ms vs ~1s for new — enumerable via response timing.
     // bcrypt-against-a-throwaway is the standard equalizer.
     await bcrypt.hash(password, 12).catch(() => undefined);
+    // Registering again before verifying: send a fresh link (same response either way).
+    if (needsVerification(existing)) await issueVerification(email, existing.name);
     return NextResponse.json(SAFE_OK);
   }
 
@@ -82,22 +83,8 @@ export async function POST(req: Request) {
     throw e;
   }
 
-  // Email the plaintext token; store ONLY its SHA-256 hash so a DB read
-  // (backup leak, mis-permissioned replica, SQL injection elsewhere) can't
-  // verify arbitrary accounts. Mirrors the same defense in /forgot-password.
-  // The /verify route hashes the submitted token to look it up.
-  const token = crypto.randomBytes(32).toString('hex');
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-  await prisma.verificationToken.create({
-    data: { identifier: email, token: tokenHash, expires: new Date(Date.now() + 24 * 60 * 60 * 1000) },
-  });
-
-  try {
-    await sendVerificationEmail(email, token, user.name ?? undefined);
-  } catch (e) {
-    // Don't fail registration if the email provider hiccups.
-    console.error('[register] verification email failed:', (e as Error).message);
-  }
+  // Email the plaintext token; only its SHA-256 hash is stored (see lib/email-verify).
+  await issueVerification(email, user.name);
 
   return NextResponse.json(SAFE_OK);
 }

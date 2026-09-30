@@ -56,8 +56,8 @@ export function DeleteAccountPanel({ email }: { email: string | null }) {
           <p className="text-[13px] text-[var(--color-fg)]">
             This permanently deletes your account, sign-in connections, API keys, usage counts and support
             messages, and signs you out. It cannot be undone. Invoice and payment records are kept as tax law
-            requires. If you have an active Pro subscription, cancel it first on your account page so you are not
-            charged again.
+            requires. An active Pro subscription is stopped at the end of the paid period, so you are not charged
+            again.
           </p>
           <label className="block text-[12px] font-semibold">
             Type DELETE to confirm
@@ -66,7 +66,8 @@ export function DeleteAccountPanel({ email }: { email: string | null }) {
               onChange={(e) => setTyped(e.target.value)}
               autoComplete="off"
               autoCapitalize="characters"
-              className="mt-1 block w-full border border-black/[0.15] bg-transparent px-3 py-2 text-[13px]"
+              /* 16px: iOS zooms the page into any smaller input, pushing the text off-screen. */
+              className="mt-1 block w-full border border-black/[0.15] bg-transparent px-3 py-2 text-[16px]"
             />
           </label>
           <div className="flex flex-wrap gap-3">

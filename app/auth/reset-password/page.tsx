@@ -76,7 +76,7 @@ function ResetInner() {
                 placeholder="New password (min 8 characters)"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+                className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
               />
               <input
                 type="password"
@@ -85,7 +85,7 @@ function ResetInner() {
                 placeholder="Confirm new password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+                className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
               />
               {error && <div className="text-[12px] font-medium text-[var(--color-cat-pdf)]">{error}</div>}
               <button

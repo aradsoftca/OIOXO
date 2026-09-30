@@ -4,6 +4,7 @@ import GoogleProvider from 'next-auth/providers/google';
 import { PrismaAdapter } from '@auth/prisma-adapter';
 import bcrypt from 'bcryptjs';
 import { prisma } from './db';
+import { EMAIL_NOT_VERIFIED, needsVerification } from './email-verify';
 
 // Google is only registered when its credentials are present, so a build or a
 // dev instance without OAuth secrets still boots (credentials login keeps
@@ -31,6 +32,9 @@ const providers: NextAuthOptions['providers'] = [
       const hash = user?.password || DUMMY_HASH;
       const ok = await bcrypt.compare(credentials.password, hash);
       if (!user?.password || !ok) return null;
+      // Right password but the email isn't confirmed yet: tell the sign-in page (res.error)
+      // so it can offer to resend the link. Only reached with the correct password.
+      if (needsVerification(user)) throw new Error(EMAIL_NOT_VERIFIED);
       return { id: user.id, email: user.email, name: user.name, image: user.image };
     },
   }),

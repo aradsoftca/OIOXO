@@ -55,8 +55,8 @@ export default async function DeleteAccountPage() {
         </li>
       </UL>
       <p>
-        If you have an active Pro subscription, cancel it first on your account page so you are not charged
-        again. See also our <Link className="text-[var(--brand-1)] hover:underline" href="/privacy">Privacy Policy</Link>.
+        Deleting your account also stops an active Pro subscription at the end of the paid period, so you are
+        not charged again. See also our <Link className="text-[var(--brand-1)] hover:underline" href="/privacy">Privacy Policy</Link>.
       </p>
     </LegalShell>
   );

@@ -12,6 +12,17 @@ export default function SignUpPage() {
   const [error, setError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [done, setDone] = React.useState(false);
+  const [resent, setResent] = React.useState<'idle' | 'sending' | 'sent'>('idle');
+
+  async function resend() {
+    setResent('sending');
+    await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }).catch(() => undefined);
+    setResent('sent');
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -52,8 +63,25 @@ export default function SignUpPage() {
             <div className="space-y-3">
               <div className="text-[14px] font-semibold text-[var(--color-fg)]">Check your email</div>
               <p className="text-[13px] leading-relaxed text-[var(--color-fg-muted)]">
-                If that email is available, we sent a verification link. Click it to activate your
-                account, then sign in.
+                We sent a link to <strong className="text-[var(--color-fg)]">{email}</strong>. Open it to
+                confirm your email, then sign in. It can take a minute — check spam too.
+              </p>
+              <p className="text-[12px] text-[var(--color-fg-muted)]">
+                {resent === 'sent' ? (
+                  'A new link is on its way.'
+                ) : (
+                  <>
+                    Didn&apos;t get it?{' '}
+                    <button
+                      type="button"
+                      onClick={resend}
+                      disabled={resent === 'sending'}
+                      className="font-semibold text-[var(--color-cat-image)] hover:underline disabled:opacity-50"
+                    >
+                      {resent === 'sending' ? 'Sending…' : 'Send it again'}
+                    </button>
+                  </>
+                )}
               </p>
               <Link
                 href="/auth/sign-in"
@@ -80,7 +108,7 @@ export default function SignUpPage() {
                   placeholder="Name (optional)"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+                  className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
                 />
                 <input
                   type="email"
@@ -88,7 +116,7 @@ export default function SignUpPage() {
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+                  className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
                 />
                 <input
                   type="password"
@@ -97,7 +125,7 @@ export default function SignUpPage() {
                   placeholder="Password (min 8 characters)"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+                  className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
                 />
                 {error && <div className="text-[12px] font-medium text-[var(--color-cat-pdf)]">{error}</div>}
                 <button

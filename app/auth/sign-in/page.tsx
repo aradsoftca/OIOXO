@@ -45,15 +45,32 @@ function SignInInner() {
   const [password, setPassword] = React.useState('');
   const [error, setError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
+  const [unverified, setUnverified] = React.useState(false);
+  const [resending, setResending] = React.useState(false);
+  const [resent, setResent] = React.useState(false);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
+    setUnverified(false);
+    setResent(false);
     const res = await signIn('credentials', { email, password, redirect: false });
     setSubmitting(false);
-    if (res?.error) setError('Invalid email or password.');
+    if (res?.error === 'EMAIL_NOT_VERIFIED') setUnverified(true);
+    else if (res?.error) setError('Invalid email or password.');
     else router.push(callbackUrl);
+  }
+
+  async function resend() {
+    setResending(true);
+    await fetch('/api/auth/resend-verification', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }).catch(() => undefined);
+    setResending(false);
+    setResent(true);
   }
 
   return (
@@ -99,7 +116,7 @@ function SignInInner() {
               placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+              className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
             />
             <input
               type="password"
@@ -107,9 +124,27 @@ function SignInInner() {
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[14px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
+              className="w-full border border-black/[0.08] bg-white/60 px-3 py-2.5 text-[16px] text-[var(--color-fg)] placeholder:text-[var(--color-fg-subtle)] focus:border-[var(--color-cat-image)] focus:outline-none"
             />
             {error && <div className="text-[12px] font-medium text-[var(--color-cat-pdf)]">{error}</div>}
+            {unverified && (
+              <div className="space-y-2 border border-[var(--color-cat-image)]/30 bg-[var(--color-cat-image)]/10 px-3 py-2.5 text-[12px] text-[var(--color-fg)]">
+                <p className="font-semibold">Please confirm your email first.</p>
+                <p>We sent a link to <strong>{email}</strong>. Open it, then sign in here. Check spam if you can&apos;t find it.</p>
+                {resent ? (
+                  <p className="font-medium">A new link is on its way.</p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={resend}
+                    disabled={resending}
+                    className="font-semibold text-[var(--color-cat-image)] hover:underline disabled:opacity-50"
+                  >
+                    {resending ? 'Sending…' : 'Send the link again'}
+                  </button>
+                )}
+              </div>
+            )}
             <button
               type="submit"
               disabled={submitting}

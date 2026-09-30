@@ -237,7 +237,15 @@ export async function upscale(blob: Blob, opts: UpscaleOptions = {}): Promise<Bl
       opts.encodeQuality ?? 0.92,
     );
   });
-  if (lowMem) { outCanvas.width = 0; outCanvas.height = 0; }
+  if (lowMem) {
+    outCanvas.width = 0; outCanvas.height = 0;
+    // iPhone: the WebView was killed at the save step while the model was still
+    // resident (measured 09-29). Free it now; the next run reloads from cache.
+    if (cached) {
+      try { await (cached.pipeline as unknown as { dispose?: () => Promise<void> | void }).dispose?.(); } catch { /* */ }
+      cached = null;
+    }
+  }
   opts.onProgress?.({ phase: 'Done', ratio: 1 });
   return out;
 }

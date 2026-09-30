@@ -23,7 +23,10 @@ async function walk(dir) {
     const p = path.join(dir, name);
     const s = await stat(p);
     if (s.isDirectory()) out.push(...(await walk(p)));
-    else if (name.endsWith('.wasm') || name.endsWith('.worker.mjs')) out.push(p);
+    // *_mt.js: the multi-thread worker (e.g. avif_enc_mt.worker.mjs) dynamically
+    // imports its Emscripten glue from the same dir — without it every PNG→AVIF
+    // failed with "Failed to fetch dynamically imported module" (measured 09-30).
+    else if (name.endsWith('.wasm') || name.endsWith('.worker.mjs') || /_mt\.js$/.test(name)) out.push(p);
   }
   return out;
 }

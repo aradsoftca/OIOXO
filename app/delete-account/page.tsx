@@ -1,7 +1,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalShell, H2, UL } from '@/components/legal/LegalShell';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { BRAND } from '@/lib/brand';
+import { DeleteAccountPanel, SignInToDelete } from '@/components/account/DeleteAccountPanel';
 
 export const metadata: Metadata = {
   title: 'Delete your account',
@@ -10,7 +13,9 @@ export const metadata: Metadata = {
 
 // Linked from the Google Play and App Store data-safety forms: a public page that says how to
 // ask for an account to be deleted, what is deleted, and what is kept (and for how long).
-export default function DeleteAccountPage() {
+export default async function DeleteAccountPage() {
+  const session = await getServerSession(authOptions);
+  const signedIn = !!(session?.user as { id?: string } | undefined)?.id;
   return (
     <LegalShell title="Delete your account" updated="September 28, 2026">
       <p>
@@ -19,7 +24,10 @@ export default function DeleteAccountPage() {
         processed on your own device and are never stored by us, so there are no files to delete.
       </p>
 
-      <H2>How to request deletion</H2>
+      <H2>Delete your account now</H2>
+      {signedIn ? <DeleteAccountPanel email={session?.user?.email ?? null} /> : <SignInToDelete />}
+
+      <H2>Or email us</H2>
       <UL>
         <li>
           Open <Link className="text-[var(--brand-1)] hover:underline" href="/support">Support</Link> and write
@@ -30,7 +38,7 @@ export default function DeleteAccountPage() {
           from the address you signed up with, with the subject &ldquo;Delete my Xonvert account&rdquo;.
         </li>
       </UL>
-      <p>We confirm by email and complete the deletion within 30 days.</p>
+      <p>For requests by email, we confirm by email and complete the deletion within 30 days.</p>
 
       <H2>What is deleted</H2>
       <UL>

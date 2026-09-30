@@ -89,7 +89,10 @@ export default async function AccountPage() {
     <div className="mx-auto max-w-2xl px-4 py-12 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-[28px] font-extrabold tracking-tight">Account</h1>
-        <SignOutButton />
+        <div className="flex items-center gap-4">
+          <Link href="/delete-account" className="text-[12px] font-semibold text-red-600 hover:underline">Delete account</Link>
+          <SignOutButton />
+        </div>
       </div>
 
       {/* Profile */}
@@ -122,7 +125,7 @@ export default async function AccountPage() {
                 )}
               </>
             ) : (
-              <p className="text-[13px] text-[var(--color-fg-muted)]">
+              <p className="app-hide text-[13px] text-[var(--color-fg-muted)]">
                 Your Pro plan was activated via crypto. To renew, return to{' '}
                 <Link href="/pricing" className="underline">pricing</Link> before it ends.
               </p>

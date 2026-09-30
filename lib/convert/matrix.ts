@@ -122,7 +122,8 @@ const VIDEO_CODEC: Record<string, string[]> = {
   mkv: ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac'],
   flv: ['-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-c:a', 'aac'],
   '3gp': ['-c:v', 'libx264', '-profile:v', 'baseline', '-level', '3.0', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-ar', '44100', '-ac', '2'],
-  webm: ['-c:v', 'libvpx-vp9', '-b:v', '1M', '-c:a', 'libvorbis', '-q:a', '5'],  // Vorbis: libopus won't open in this core
+  // VP8 realtime + Vorbis: VP9 in wasm fails/stalls and libopus won't open in this core (measured 09-30).
+  webm: ['-c:v', 'libvpx', '-b:v', '1M', '-deadline', 'realtime', '-cpu-used', '8', '-pix_fmt', 'yuv420p', '-c:a', 'libvorbis', '-q:a', '5'],
   avi: ['-c:v', 'mpeg4', '-vtag', 'xvid', '-q:v', '5', '-c:a', 'libmp3lame', '-b:a', '192k'],
   wmv: ['-c:v', 'wmv2', '-b:v', '2M', '-c:a', 'wmav2', '-b:a', '192k'],
   mpg: ['-c:v', 'mpeg2video', '-q:v', '4', '-c:a', 'mp2', '-b:a', '192k'],

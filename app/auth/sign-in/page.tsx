@@ -28,7 +28,7 @@ const ERRORS: Record<string, string> = {
 // site. Without this, `/auth/sign-in?callbackUrl=https://evil.com` redirects
 // the user off-site after a successful sign-in (classic phishing chain).
 function safeCallback(raw: string | null): string {
-  if (!raw) return '/';
+  if (!raw) return '/account';
   // Same-origin relative paths only. A leading "//" is a protocol-relative
   // URL that browsers treat as cross-origin — reject those too.
   if (raw.startsWith('/') && !raw.startsWith('//')) return raw;

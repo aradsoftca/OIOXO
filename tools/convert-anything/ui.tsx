@@ -143,6 +143,43 @@ export default function ConvertAnythingTool() {
               className="ml-auto text-[10px] font-bold uppercase tracking-wider text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">Change file</button>
           </div>
 
+          {(targets.length > 0 || tools.length > 0) && (
+            // One menu with EVERYTHING this file can do (as the first Xonvert had):
+            // every target format + every tool that accepts it. Native <select> →
+            // the phone's own picker on iPhone/Android.
+            <label className="block">
+              <span className="mb-2 block text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">
+                What do you want to do? <span className="text-[var(--color-fg-subtle)]">· {targets.length + tools.length} options</span>
+              </span>
+              <select
+                value=""
+                disabled={busy}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v.startsWith('to:')) { const t = targets[Number(v.slice(3))]; if (t) void run(t); }
+                  else if (v.startsWith('tool:')) { const t = tools[Number(v.slice(5))]; if (t) openTool(t); }
+                }}
+                className="w-full border border-black/[0.12] bg-[var(--color-surface-1)] px-3 py-3 text-[15px] font-semibold text-[var(--color-fg)] focus:border-[var(--color-cat-convert)] focus:outline-none disabled:opacity-50"
+              >
+                <option value="" disabled>Choose a format or a tool…</option>
+                {targets.length > 0 && (
+                  <optgroup label={`Convert ${info?.ext.toUpperCase() ?? ''} to`}>
+                    {targets.map((t, i) => (
+                      <option key={`to-${t.to}-${t.handler}`} value={`to:${i}`}>{t.to.toUpperCase()}{t.note ? ` — ${t.note}` : ''}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {tools.length > 0 && (
+                  <optgroup label="Open in a tool">
+                    {tools.map((t, i) => (
+                      <option key={`tool-${t.id}`} value={`tool:${i}`}>{t.name}</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </label>
+          )}
+
           {targets.length > 0 && (
             <div>
               <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[var(--color-fg-muted)]">Convert to</div>

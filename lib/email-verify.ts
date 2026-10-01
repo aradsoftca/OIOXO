@@ -10,7 +10,7 @@ import { sendVerificationEmail } from '@/lib/email/service';
  * works. Accounts created earlier were never asked to verify, so they keep signing in unchanged.
  * Google sign-in sets emailVerified itself, so it is never blocked.
  */
-export const VERIFY_REQUIRED_FROM = new Date('2026-10-01T03:00:00Z');
+export const VERIFY_REQUIRED_FROM = new Date('2026-10-01T00:00:00Z');
 
 /** Error code NextAuth hands back to the sign-in page as `res.error`. */
 export const EMAIL_NOT_VERIFIED = 'EMAIL_NOT_VERIFIED';

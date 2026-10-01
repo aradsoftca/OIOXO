@@ -23,9 +23,9 @@ const ACCENT = '#7c3aed';
 const INK = '#16131f';
 const MUTED = '#5f5a6b';
 const SUBTLE = '#8d889a';
-// The site's real logo, served from the site (public/logo.png 756x214; oioxo-logo.png on oioxo).
+// The site's real logo, served from the site (public/email-logo.png: logo.png at 300px, 2x for sharp screens; oioxo-logo.png on oioxo).
 // The alt text shows the brand name if the mail client blocks images.
-const LOGO_URL = `https://${BRAND_DOMAIN}/${IS_OIOXO ? 'oioxo-logo.png' : 'logo.png'}`;
+const LOGO_URL = `https://${BRAND_DOMAIN}/${IS_OIOXO ? 'oioxo-logo.png' : 'email-logo.png'}`;
 const LOGO_W = 150;
 const LOGO_H = 42;
 

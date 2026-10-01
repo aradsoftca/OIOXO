@@ -1,4 +1,4 @@
-import { BRAND, BRAND_DOMAIN } from '@/lib/brand';
+import { BRAND, BRAND_DOMAIN, IS_OIOXO } from '@/lib/brand';
 /**
  * Minimal, inbox-friendly HTML email templates. Plain, single-column, inline
  * styles only — no external images or web fonts (those hurt deliverability).
@@ -23,6 +23,11 @@ const ACCENT = '#7c3aed';
 const INK = '#16131f';
 const MUTED = '#5f5a6b';
 const SUBTLE = '#8d889a';
+// The site's real logo, served from the site (public/logo.png 756x214; oioxo-logo.png on oioxo).
+// The alt text shows the brand name if the mail client blocks images.
+const LOGO_URL = `https://${BRAND_DOMAIN}/${IS_OIOXO ? 'oioxo-logo.png' : 'logo.png'}`;
+const LOGO_W = 150;
+const LOGO_H = 42;
 
 /**
  * Light, table-based layout: renders the same in Gmail, Apple Mail and Outlook (which ignores
@@ -38,10 +43,9 @@ function shell(title: string, bodyHtml: string, preheader = ''): string {
     <tr><td align="center" style="padding:36px 16px">
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:520px">
         <tr><td style="padding:0 4px 18px">
-          <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-            <td style="width:30px;height:30px;background:${ACCENT};border-radius:8px;color:#fff;font-size:17px;font-weight:800;text-align:center;line-height:30px">${BRAND.charAt(0)}</td>
-            <td style="padding-left:10px;font-size:18px;font-weight:800;letter-spacing:-.02em;color:${INK}">${BRAND}</td>
-          </tr></table>
+          <a href="https://${BRAND_DOMAIN}" style="text-decoration:none">
+            <img src="${LOGO_URL}" width="${LOGO_W}" height="${LOGO_H}" alt="${BRAND}" style="display:block;border:0;outline:none;height:${LOGO_H}px;width:${LOGO_W}px;font-size:20px;font-weight:800;color:${INK}">
+          </a>
         </td></tr>
         <tr><td style="background:#ffffff;border-radius:14px;border-top:4px solid ${ACCENT};padding:34px 30px 30px;box-shadow:0 1px 3px rgba(22,19,31,.06)">
           <h1 style="margin:0 0 16px;font-size:23px;line-height:1.3;font-weight:800;letter-spacing:-.01em;color:${INK}">${title}</h1>

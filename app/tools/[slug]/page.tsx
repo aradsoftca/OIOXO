@@ -13,6 +13,8 @@ import { UsageMeter } from '@/components/usage/UsageMeter';
 import { ClientOnly } from '@/components/tool/ClientOnly';
 import { ChunkErrorBoundary } from '@/components/tool/ChunkErrorBoundary';
 import { FULLSCREEN_STUDIO_IDS } from '@/lib/studios/fullscreen';
+import { FOCUS_TOOL_IDS } from '@/lib/seo/focus-tools';
+import { IS_OIOXO } from '@/lib/brand';
 
 function findRelated(toolId: string, category: string, limit = 6) {
   return TOOLS.filter((t) => t.category === category && t.id !== toolId).slice(0, limit);
@@ -54,6 +56,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: page.title,
     description: page.description,
     keywords: page.keywords,
+    // Only the focus tools are offered to Google for now (see lib/seo/focus-tools.ts).
+    noindex: !IS_OIOXO && !FOCUS_TOOL_IDS.has(tool.id) && !FULLSCREEN_STUDIOS.has(tool.id),
   });
 }
 

@@ -23,12 +23,9 @@ export default function robots(): MetadataRoute.Robots {
           '/*?',
         ],
       },
-      { userAgent: 'GPTBot', disallow: ['/'] },
-      { userAgent: 'CCBot', disallow: ['/'] },
-      { userAgent: 'anthropic-ai', disallow: ['/'] },
-      { userAgent: 'Google-Extended', disallow: ['/'] },
-      { userAgent: 'PerplexityBot', disallow: ['/'] },
-      { userAgent: 'ClaudeBot', disallow: ['/'] },
+      // AI search/answer crawlers (GPTBot, ClaudeBot, PerplexityBot, Google-Extended…) are
+      // allowed by the '*' rule on purpose (2026-10-05): ChatGPT, Perplexity and Gemini answers
+      // that cite and link the tools are a traffic source Google search alone isn't giving us.
     ],
     sitemap: [`${SITE}${BASE}/sitemap.xml`],
     host: SITE,

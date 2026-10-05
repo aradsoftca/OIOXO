@@ -26,7 +26,14 @@ export interface RichPage {
   relatedToolIds: string[];
 }
 
-const fmt = (s: string) => s.replace(/^.+\//, '').toUpperCase();
+// 'image/png' → 'PNG'; a wildcard MIME reads as its family ('image/*' → 'image'), and a bare
+// '*' or '*/*' says nothing, so it is dropped (it used to print "Drop a * file").
+const fmt = (s: string) => {
+  const wild = /^([a-z]+)\/\*$/.exec(s);
+  if (wild) return wild[1] === '*' ? '' : wild[1];
+  if (s === '*') return '';
+  return s.replace(/^.+\//, '').toUpperCase();
+};
 const acceptsLabel = (t: ToolManifest) => (t.accepts ?? []).map(fmt).filter(Boolean).join(', ');
 const producesLabel = (t: ToolManifest) => (t.produces ?? []).map(fmt).filter(Boolean).join(', ');
 
@@ -446,7 +453,7 @@ function xonvertSteps(tool: ToolManifest): string[] {
   const accepts = acceptsLabel(tool);
   const produces = producesLabel(tool);
   return [
-    accepts ? `Drop a ${accepts} file on the page, or click to choose one.` : `Type or paste your input.`,
+    accepts ? `Drop ${/^[aeiou]/.test(accepts) ? 'an' : 'a'} ${accepts} file on the page, or click to choose one.` : `Type or paste your input.`,
     `Pick the options you want.`,
     produces ? `Download the ${produces} file.` : `Copy or save the result.`,
   ];

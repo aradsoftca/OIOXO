@@ -7,6 +7,7 @@ import { isStudioDisabled } from '@/lib/studios/disabled';
 import { CAD3D_FORMATS } from '@/lib/convert/cad3d';
 import { PAIR_COPY_SLUGS } from '@/lib/convert/pair-copy';
 import { FORMAT_PROFILES } from '@/lib/convert/format-profiles';
+import { FOCUS_TOOL_IDS } from '@/lib/seo/focus-tools';
 
 const SITE = `https://${BRAND_DOMAIN}`;
 const BASE = process.env.NEXT_PUBLIC_BASE_PATH ?? '';
@@ -124,6 +125,8 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
   for (const tool of TOOLS) {
     if (PRO_STUDIO_PAGES.some((p) => p.endsWith(`/${tool.id}`))) continue;
+    // Xonvert lists only its focus tools; the rest are noindex for now (lib/seo/focus-tools.ts).
+    if (!IS_OIOXO && !FOCUS_TOOL_IDS.has(tool.id)) continue;
     const basePri = tool.pinDefault ? 0.7 : 0.5;
     entries.push({
       url: url(`/tools/${tool.id}`),

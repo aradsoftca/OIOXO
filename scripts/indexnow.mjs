@@ -13,7 +13,9 @@
 const BASE = (process.argv[2] || 'https://xonvert.com').replace(/\/$/, '');
 const KEY = '89a4f51feee745899969c329d9cff14b';
 
-try {
+// Right after a deploy the site is still restarting, so a first fetch can fail ("fetch failed").
+// Try up to 4 times, 20 s apart, before giving up.
+async function submit() {
   const host = new URL(BASE).host;
   const keyBody = await (await fetch(`${BASE}/${KEY}.txt`, { cache: 'no-store' })).text();
   if (keyBody.trim() !== KEY) throw new Error(`key file not served at ${BASE}/${KEY}.txt`);
@@ -27,6 +29,14 @@ try {
   });
   // 200/202 = accepted. 422 = URLs don't match host/key; 429 = too many submissions.
   console.log(`indexnow: ${res.status} for ${urls.length} URLs`);
-} catch (e) {
-  console.log(`indexnow: skipped (${e.message})`);
+}
+
+for (let attempt = 1; ; attempt++) {
+  try {
+    await submit();
+    break;
+  } catch (e) {
+    if (attempt >= 4) { console.log(`indexnow: skipped after ${attempt} tries (${e.message})`); break; }
+    await new Promise((r) => setTimeout(r, 20_000));
+  }
 }

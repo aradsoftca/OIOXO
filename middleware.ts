@@ -25,6 +25,7 @@ const PUBLIC_API = [
   '/api/stripe/webhook',
   '/api/webhooks/stripe',
   '/api/crypto/webhook',
+  '/api/hub/feed', // bearer HUB_KEY, called server-to-server by aradsoft.ca
   '/api/auth',
 ];
 
